@@ -1564,3 +1564,18 @@ JS-on Core views 15 项、默认 JS-off / SSH-on gate 588/184、C 格式 266 文
 Apple 181/3 与 JNI 147/37 通过；无平台源 / 公共 ABI 变化，不记新 App / APK /
 真机 / UI E2E。不增加 CI 二十份，ui.views 容器、三服务组合与完整开发 / 性能 /
 平台矩阵及 P5 / P1–P6 仍未完成，收据及限制见插件计划第二十三批。
+
+
+**插件 P5 无窗口多视图容器与顺序场景（2026-11-16）**：testkit 显式 registry=true
+选择 Client ui.views，按每步 receiver / 自己的 lease 驱动 request、独立 close
+和快照；原 CLI 注册 profile 不自动加授。官方同源 Portable / Node 包实际读取
+两表 / diff、任务视图关闭仍 running、重开新句柄、显式取消终态与同 ID ack；
+不提供 GUI 呈现。结果精确区分布尔 / 数字，schema 在 Native 前同步编译，拒绝
+异步 validator 并关闭 coercion / defaults / 额外字段移除。两次真实 Node 已进入后
+INT / TERM 均验实际回收与目录消失。原 76 回归、新十场景 / 十四变异通过（未重跑
+旧 54 变异）；目标正常断言红、独立配置绿、恢复绿 / SHA256，最终新 70 / 旧 72
+份指定源与各 35 份固定工具输入一致。首次输入限额变异分类过严及补列私有 SHA
+头的收据重跑均单列，不把无效轮次当整轮通过。Core views 15 项、默认 gate
+588/184、C 格式 267、Apple 181/3 与 JNI 147/37 通过。无平台源 / 公共 ABI 变化，
+不记新 App / APK / 真机 / GUI E2E，不增加 CI 二十份；完整开发 / 原生 UI / 三服务
+组合 / 性能矩阵与 P5 / P1–P6 仍待完成，见插件计划第二十四批。

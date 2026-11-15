@@ -81,6 +81,8 @@ static void pair_request(gt_ext_session_t *caller,
     kit_check(false, "paired JS request did not settle");
 }
 
+#include "plugin-testkit-scenario.inc"
+
 static void pair_release(gt_ext_runtime_t **runtime) {
     gt_ext_runtime_stop(*runtime);
     bool released = false;
@@ -115,6 +117,8 @@ int main(int argc, char **argv) {
      * target side, count, then name=receiver entries, then raw invocation argv. */
     kit_check(argc >= 11, "pair arguments");
     const char *selected = kit_request_mode(argv[8]);
+    bool scenarios = !strncmp(selected, "steps-", 6);
+    selected += scenarios ? 6 : 0;
     bool views = !strncmp(selected, "views-", 6);
     selected += views ? 6 : 0;
     kit_business = !strncmp(selected, "process-", 8);
@@ -133,7 +137,8 @@ int main(int argc, char **argv) {
     char *end = NULL;
     unsigned long count = strtoul(argv[9], &end, 10);
     kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
-                  argc >= 10 + (int)count && argc <= 186 + (int)count + (views ? 1 : 0),
+                  argc >= 10 + (int)count &&
+                  argc <= 186 + (int)count + (views ? 1 : 0) + (scenarios ? 49 : 0),
               "pair methods and arguments");
     bool target_client = !strcmp(target, "client");
     kit_check(target_client || !strcmp(target, "executor"), "pair target side");
@@ -163,6 +168,9 @@ int main(int argc, char **argv) {
     }
     if (views) {
         offset = kit_views_parse(argc, argv, offset);
+    }
+    if (scenarios) {
+        offset = kit_scenario_parse(argc, argv, offset);
     }
     kit_check(argc >= offset && argc <= offset + 32, "pair exact invocation arguments");
     gt_ext_session_config_t config = ext_config();
@@ -226,6 +234,7 @@ int main(int argc, char **argv) {
             "pair native Sessions");
     }
     ext_allow(&pair);
+    gt_ext_session_t *host_control = pair.h, *executor_control = pair.e;
     gt_ext_session_t *resource_receiver = pair.h;
     gt_ext_lease_t resource_lease;
     kit_check(gt_ext_session_lease(resource_receiver, &resource_lease),
@@ -335,6 +344,9 @@ int main(int argc, char **argv) {
     }
     if (views) {
         kit_views_observe(client);
+    }
+    if (scenarios) {
+        kit_scenario_run(client, executor, host_control, executor_control, methods, count);
     }
     gt_ext_session_revoke(caller);
     status = gt_ext_session_request(caller, &lease, argv[5], "{}", 2, 1000, &handle);

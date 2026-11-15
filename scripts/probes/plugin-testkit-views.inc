@@ -1,12 +1,16 @@
 /* Shared Client view-registration test service. No renderer or UI thread. */
 static uint32_t kit_view_kinds;
+static bool kit_view_registry;
+static char kit_view_closed[17][65];
+static size_t kit_view_closed_count;
 
 static int kit_views_parse(int argc, char **argv, int offset) {
     kit_check(offset < argc, "explicit view service kinds");
     char *end = NULL;
     unsigned long bits = strtoul(argv[offset], &end, 10);
-    kit_check(end && !*end && bits > 0 && bits <= 7, "bounded view service kinds");
-    kit_view_kinds = (uint32_t)bits;
+    kit_check(end && !*end && (bits & 7u) && bits <= 15, "bounded view service kinds");
+    kit_view_kinds = (uint32_t)bits & 7u;
+    kit_view_registry = (bits & 8u) != 0;
     return offset + 1;
 }
 
@@ -24,9 +28,9 @@ static void kit_view_method(gt_ext_rpc_method_t *method, const char *entry) {
 
 static void kit_views_capabilities(const gt_ext_package_metadata_t *client,
                                    gt_ext_session_config_t *config) {
-    const char *names[] = {"ui.table", "ui.diff", "ui.task"};
-    for (size_t i = 0; i < 3; i++) {
-        if (!(kit_view_kinds & (1u << i))) {
+    const char *names[] = {"ui.table", "ui.diff", "ui.task", "ui.views"};
+    for (size_t i = 0; i < 4; i++) {
+        if (i == 3 ? !kit_view_registry : !(kit_view_kinds & (1u << i))) {
             continue;
         }
         bool declared = false;
@@ -84,6 +88,8 @@ static void kit_views_observe(gt_ext_runtime_t *runtime) {
               "foreign view handle rejected");
     kit_check(gt_ext_runtime_view_close(runtime, handle) == GT_OK,
               "Native independently closes one view");
+    kit_check(kit_view_closed_count < 17, "bounded closed view history");
+    strcpy(kit_view_closed[kit_view_closed_count++], handle);
     kit_check(gt_ext_runtime_view_close(runtime, handle) == GT_ERR_NOT_FOUND,
               "closed view handle cannot be reused");
     kit_check(gt_ext_runtime_views_snapshot(runtime, &json, &size) == GT_OK && json && size <= 8192,

@@ -851,7 +851,7 @@ MUTATIONS = [
     ('revocation', 'rpc', 'scripts/probes/plugin-testkit.c', 'gt_ext_session_revoke(peer);', '(void)peer;'),
     ('client-role', 'client-rpc', 'scripts/probes/plugin-testkit.c', '.role = role, .invocation = &invocation', '.role = GT_EXT_EXECUTOR, .invocation = &invocation'),
     ('client-declaration', 'client-rpc-required', 'scripts/plugin-dev-worker.mjs', "selected?.requires.includes('session.rpc')", "manifest.executor.variants[0].requires.includes('session.rpc')"),
-    ('client-response', 'client-contract', 'scripts/gterm-plugin', "require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')", "require(True, 'TEST_RESPONSE')"),
+    ('client-response', 'client-contract', 'scripts/gterm-plugin', "require(observations[1]['confirmed'] and json_equal(observations[1]['outcome'], dict(kind='success', value=bind(contract['expected']))), 'TEST_RESPONSE')", "require(True, 'TEST_RESPONSE')"),
     ('host-side', 'side-profile', 'scripts/gterm-plugin', "require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')", "require(True, 'TEST_HOST_SIDE')"),
     ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
     ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-testkit-views.inc', 'method->receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'method->receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
@@ -916,7 +916,7 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
-    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/probes/plugin-testkit-process.inc', 'scripts/probes/plugin-testkit-views.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
+    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/plugin-dev-scenarios.mjs', 'scripts/probes/plugin-testkit-scenario.inc', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/probes/plugin-testkit-process.inc', 'scripts/probes/plugin-testkit-views.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     extra_sources = ['scripts/fixtures/plugin-dev-views.ts', 'scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts', 'scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
@@ -972,7 +972,7 @@ def main():
         binary_inputs[str(node)] = digest(node)
         execution_arguments = ['--execute', '--node-executable', str(node), '--node-sdk', str(sdk)]
     if args.case in EXECUTION_CASES and not execution: parser.error('execution cases require --execute')
-    sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
+    sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/plugin-dev-scenarios.mjs', 'scripts/probes/plugin-testkit-scenario.inc', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
     sources.add(ROOT / 'scripts/probes/plugin-testkit-resource.inc')
     sources.update(ROOT / n for n in ['scripts/probes/plugin-testkit-views.inc', 'scripts/fixtures/plugin-dev-views.ts'])

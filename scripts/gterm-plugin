@@ -317,14 +317,14 @@ def process_config(value):
 
 
 def views_config(value):
-    require(isinstance(value, dict) and set(value) == {'kinds'} and isinstance(value['kinds'], list) and
+    require(isinstance(value, dict) and {'kinds'} <= set(value) <= {'kinds', 'registry'} and type(value.get('registry', False)) is bool and isinstance(value['kinds'], list) and
             1 <= len(value['kinds']) <= 3 and all(type(k) is str and k in ('table', 'diff', 'task') for k in value['kinds']) and
             len(set(value['kinds'])) == len(value['kinds']), 'TEST_VIEWS_CONFIG')
     return value
 
 
-def views_expectation(specs, views):
-    require(isinstance(specs, list) and 1 <= len(specs) <= 8, 'TEST_VIEWS_EXPECTATION')
+def views_expectation(specs, views, empty=False):
+    require(isinstance(specs, list) and (0 if empty else 1) <= len(specs) <= 8, 'TEST_VIEWS_EXPECTATION')
     for spec in specs:
         require(isinstance(spec, dict) and set(spec) == {'kind', 'viewId', 'methods'} and spec['kind'] in views['kinds'] and
                 isinstance(spec['viewId'], str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,63}', spec['viewId']), 'TEST_VIEW_SPEC')
@@ -334,34 +334,142 @@ def views_expectation(specs, views):
     require(len({s['viewId'] for s in specs}) == len(specs), 'TEST_VIEW_DUPLICATE')
 
 
+def view_snapshot(value, lease):
+    require(isinstance(value, dict) and set(value) == {'instanceId', 'epoch', 'revision', 'views'} and
+            value['instanceId'] == lease['instanceId'] and value['epoch'] == lease['epoch'] and
+            isinstance(value['revision'], str) and re.fullmatch('[1-9][0-9]{0,19}', value['revision']) and
+            int(value['revision']) <= 18446744073709551615 and isinstance(value['views'], list), 'TEST_VIEWS_SNAPSHOT')
+    handles = []
+    for entry in value['views']:
+        require(isinstance(entry, dict) and set(entry) == {'handle', 'kind', 'viewId', 'methods'} and
+                isinstance(entry['handle'], str) and re.fullmatch(r'[a-f0-9]{32}\.[1-9][0-9]{0,19}', entry['handle']) and
+                int(entry['handle'].split('.')[1]) <= 18446744073709551615, 'TEST_VIEW_HANDLE')
+        handles.append(entry['handle'])
+    require(len(set(handles)) == len(handles), 'TEST_VIEW_HANDLE_DUPLICATE')
+
 def verify_views(observed, specs, lease):
     before, after = observed.get('snapshot'), observed.get('afterClose')
-    def snapshot(value):
-        require(isinstance(value, dict) and set(value) == {'instanceId', 'epoch', 'revision', 'views'} and
-                value['instanceId'] == lease['instanceId'] and value['epoch'] == lease['epoch'] and
-                isinstance(value['revision'], str) and re.fullmatch('[1-9][0-9]{0,19}', value['revision']) and
-                int(value['revision']) <= 18446744073709551615 and isinstance(value['views'], list), 'TEST_VIEWS_SNAPSHOT')
-        handles = []
-        for entry in value['views']:
-            require(isinstance(entry, dict) and set(entry) == {'handle', 'kind', 'viewId', 'methods'} and
-                    isinstance(entry['handle'], str) and re.fullmatch(r'[a-f0-9]{32}\.[1-9][0-9]{0,19}', entry['handle']) and
-                    int(entry['handle'].split('.')[1]) <= 18446744073709551615, 'TEST_VIEW_HANDLE')
-            handles.append(entry['handle'])
-        require(len(set(handles)) == len(handles), 'TEST_VIEW_HANDLE_DUPLICATE')
-    snapshot(before); snapshot(after)
+    view_snapshot(before, lease); view_snapshot(after, lease)
     actual = [{k: v for k, v in entry.items() if k != 'handle'} for entry in before['views']]
     require(sorted(actual, key=lambda s: s['viewId']) == sorted(specs, key=lambda s: s['viewId']), 'TEST_VIEWS_RESULT')
     require(after['views'] == before['views'][1:] and int(after['revision']) == int(before['revision']) + 1 and
             observed.get('staleRejected') is True, 'TEST_VIEW_CLOSE_RESULT')
 
 
-def native_test(work, core, package, host, contract, paired=False, execution=None, resource_root=None, processes=None, views=None):
+def scenario_contract(steps, paired, views, methods, timeout):
+    require(paired and isinstance(steps, list) and 1 <= len(steps) <= 16, 'TEST_SCENARIO')
+    known = {m['name'] for m in methods}; schemas = []
+    total = requests = 0
+    for step in steps:
+        require(isinstance(step, dict), 'TEST_SCENARIO_STEP')
+        action = step.get('action')
+        if action == 'request':
+            require(set(step) in ({'action', 'method', 'input', 'expected'}, {'action', 'method', 'input', 'expectedSchema'}) and
+                    isinstance(step['method'], str) and step['method'] in known and isinstance(step['input'], dict), 'TEST_SCENARIO_REQUEST')
+            size = len(encoded(step['input'])); total += size; requests += 1
+            require(size <= 8192 and total <= 32768, 'TEST_SCENARIO_INPUT_LIMIT')
+            expectation = step.get('expected', step.get('expectedSchema'))
+            require(isinstance(expectation, dict), 'TEST_SCENARIO_EXPECTATION')
+            if 'expectedSchema' in step:
+                schemas.append(expectation)
+            else:
+                require(expectation.get('kind') in ('success', 'failed', 'unknown', 'cancelled'), 'TEST_SCENARIO_OUTCOME')
+        elif action == 'closeView':
+            require(views is not None and set(step) == {'action', 'viewId'} and isinstance(step['viewId'], str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,63}', step['viewId']), 'TEST_SCENARIO_CLOSE')
+        elif action == 'snapshot':
+            require(views is not None and set(step) == {'action', 'views'}, 'TEST_SCENARIO_SNAPSHOT')
+            views_expectation(step['views'], views, empty=True)
+        else:
+            raise Failure('TEST_SCENARIO_ACTION')
+    require((requests + 2) * timeout <= 20000 and len(encoded(schemas)) <= 65536, 'TEST_SCENARIO_BUDGET')
+    return schemas
+
+
+def scenario_schemas(work, tools, schemas, checks=None):
+    filename = work / 'scenario-checks.json'
+    filename.write_bytes(encoded(dict(schemas=schemas, checks=checks)))
+    result = decode(run(['node', ROOT / 'scripts/plugin-dev-scenarios.mjs', tools, filename], 5))
+    require(json_equal(result, dict(validated=len(schemas), checked=len(checks or []))), 'TEST_SCENARIO_SCHEMAS')
+
+
+def scenario_results(work, tools, steps, observations, initial, lease, bind):
+    live = {entry['viewId']: entry for entry in initial['afterClose']['views']} if initial else {}
+    original = initial['snapshot']['views'] if initial else []
+    seen = {entry['handle'] for entry in original}
+    nonce = original[0]['handle'].split('.')[0] if original else None
+    high = max((int(entry['handle'].split('.')[1]) for entry in original), default=0)
+    revision = int(initial['afterClose']['revision']) if initial else 0
+    # Include the first, already closed registration in the caller's initial
+    # history so an old close/reopen cannot resurrect it under a later revision.
+    schemas, checks = [], []
+    def advance(value):
+        nonlocal live, high, nonce, revision
+        view_snapshot(value, lease)
+        current = {entry['viewId']: entry for entry in value['views']}
+        require(len(current) == len(value['views']) and int(value['revision']) >= revision, 'TEST_SCENARIO_VIEW_REVISION')
+        if int(value['revision']) == revision:
+            require(current == live, 'TEST_SCENARIO_VIEW_SAME_REVISION')
+        previous_high = high
+        old_handles = {entry['handle']: entry for entry in live.values()}
+        for view_id, entry in current.items():
+            if entry['handle'] in old_handles:
+                require(entry == old_handles[entry['handle']], 'TEST_SCENARIO_VIEW_BINDING')
+            else:
+                counter = int(entry['handle'].split('.')[1]); token = entry['handle'].split('.')[0]
+                require(entry['handle'] not in seen and (nonce is None or token == nonce) and counter > previous_high, 'TEST_SCENARIO_VIEW_RESURRECTION')
+                high = max(high, counter); nonce = token
+            seen.add(entry['handle'])
+        live = current; revision = int(value['revision'])
+        return current
+    for index, (step, observed) in enumerate(zip(steps, observations)):
+        action = step['action']
+        require(observed.get('case') == 'step-' + str(index) and observed.get('action', 'request') == action, 'TEST_SCENARIO_TRACE')
+        if action == 'request':
+            require(observed.get('confirmed') is True, 'TEST_SCENARIO_UNCONFIRMED')
+            if 'expected' in step:
+                require(json_equal(observed.get('outcome'), bind(step['expected'])), 'TEST_SCENARIO_RESPONSE')
+            else:
+                schemas.append(bind(step['expectedSchema'])); checks.append(observed.get('outcome'))
+        elif action == 'snapshot':
+            current = advance(observed.get('snapshot'))
+            actual = [{k: v for k, v in entry.items() if k != 'handle'} for entry in current.values()]
+            require(sorted(actual, key=lambda s: s['viewId']) == sorted(step['views'], key=lambda s: s['viewId']) and observed.get('staleRejected') is True, 'TEST_SCENARIO_VIEWS')
+        else:
+            previous = dict(live); previous_revision = revision
+            require(step['viewId'] in previous and observed.get('viewId') == step['viewId'] and observed.get('closed') is True, 'TEST_SCENARIO_CLOSED_VIEW')
+            del previous[step['viewId']]
+            current = advance(observed.get('afterClose'))
+            require(current == previous and revision == previous_revision + 1 and observed.get('staleRejected') is True, 'TEST_SCENARIO_CLOSE_RESULT')
+    if schemas:
+        scenario_schemas(work, tools, schemas, checks)
+
+
+def json_equal(a, b):
+    # JSON has a boolean type separate from numbers; Python's False == 0 must
+    # not turn a typed expected result into a passing business receipt.
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(json_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list):
+        return len(a) == len(b) and all(json_equal(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def native_test(work, tools, core, package, host, contract, paired=False, execution=None, resource_root=None, processes=None, views=None):
     required = ({'methods'} if paired or views else set()) | {'schemaVersion', 'command', 'arguments', 'method', 'input', 'expected', 'errorInput', 'errorKind'}
-    require(isinstance(contract, dict) and required <= set(contract) <= required | {'timeoutMs'} | ({'views'} if views else set()) | ({'resource', *(['resourceConsumer'] if paired else [])} if resource_root else set()) and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
+    require(isinstance(contract, dict) and required <= set(contract) <= required | {'timeoutMs', 'steps'} | ({'views'} if views else set()) | ({'resource', *(['resourceConsumer'] if paired else [])} if resource_root else set()) and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
     timeout = contract.get('timeoutMs', 1000)
     require(type(timeout) is int and 1 <= timeout <= 10000, 'TEST_REQUEST_TIMEOUT')
     if views:
         views_expectation(contract.get('views'), views)
+    steps = contract.get('steps')
+    if 'steps' in contract:
+        require(paired and steps is not None, 'TEST_SCENARIO_SIDE')
     resource = contract.get('resource')
     client_reads = 'resourceConsumer' in contract
     require(not client_reads or (contract['resourceConsumer'] == 'client' and resource is not None), 'TEST_RESOURCE_CONSUMER')
@@ -373,7 +481,7 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
     require(isinstance(contract['arguments'], list) and len(contract['arguments']) <= 32 and all(isinstance(a, str) and '\0' not in a and len(a.encode()) <= 4096 for a in contract['arguments']), 'TEST_ARGUMENTS')
     require(isinstance(contract['input'], dict) and isinstance(contract['errorInput'], dict) and isinstance(contract['expected'], dict) and contract['errorKind'] in ('failed', 'unknown', 'cancelled'), 'TEST_OUTCOMES')
     if client_reads:
-        require(contract['expected'].get('resource') == resource, 'TEST_RESOURCE_CLIENT_RECEIPT')
+        require(json_equal(contract['expected'].get('resource'), resource), 'TEST_RESOURCE_CLIENT_RECEIPT')
     core = Path(core).resolve(strict=True)
     require(core.is_relative_to(TMP), 'TEST_BUILD_USE_PROJECT_TMP')
     cache = (core / 'CMakeCache.txt').read_text()
@@ -381,11 +489,11 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
     profiles = list(host.values()) if paired else [host]
     runtime = execution['runtime'] if execution else 'portable-js'
     def capabilities(side):
-        return ['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else [])]
+        return ['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else []), *(['ui.views'] if views and views.get('registry') and side == 'client' else [])]
     def profile_matches(h):
         expected = set(capabilities(h['side']))
         available = set(h['capabilities'])
-        advertised_ui = {'ui.table', 'ui.diff', 'ui.task'} if views and h['side'] == 'client' else set()
+        advertised_ui = {'ui.table', 'ui.diff', 'ui.task', 'ui.views'} if views and h['side'] == 'client' else set()
         return h['side'] in ('client', 'executor') and expected <= available <= expected | advertised_ui and h['runtimes'] == ([runtime] if h['side'] == 'executor' else ['portable-js'])
     require(all(profile_matches(h) for h in profiles), 'TEST_RPC_PROFILE_ONLY')
     if paired or views:
@@ -397,6 +505,9 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         if views:
             directions = {m['name']: m['receiver'] for m in methods}
             require(all(directions.get(m) == 'executor' for spec in contract['views'] for m in spec['methods'].values()), 'TEST_VIEW_DIRECTION')
+    if steps is not None:
+        schemas = scenario_contract(steps, paired, views, methods, timeout)
+        scenario_schemas(work, tools, schemas)
     side = 'paired' if paired else host['side']
     compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
     libraries = [core / 'libghosterm_core.a', core / 'libghosterm_quickjs.a', '-lm']
@@ -418,10 +529,14 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         extra.append(str(len(processes['environment'])))
         for e in processes['environment']: extra += [e['name'], e['value']]
     if views:
-        extra.append(str(sum({'table': 1, 'diff': 2, 'task': 4}[k] for k in views['kinds'])))
+        extra.append(str(sum({'table': 1, 'diff': 2, 'task': 4}[k] for k in views['kinds']) + (8 if views.get('registry') else 0)))
         if not paired:
             extra += [str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods]]
-    prefix = ('timed-' + str(timeout) + '-' if timeout != 1000 else '') + ('views-' if views else '') + ('process-' if processes else '')
+    if steps is not None:
+        extra.append(str(len(steps)))
+        for step in steps:
+            extra += [step['action'], step.get('method', step.get('viewId', '')), encoded(step['input']).decode() if step['action'] == 'request' else '']
+    prefix = ('timed-' + str(timeout) + '-' if timeout != 1000 else '') + ('steps-' if steps is not None else '') + ('views-' if views else '') + ('process-' if processes else '')
     if paired:
         trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), prefix + ('resources-read-' if client_reads else 'resources-' if resource_root else '') + target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root or processes))
     else:
@@ -429,7 +544,7 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         trace = run([probe, package, encoded(host).decode(), prefix + ('resources-' if resource_root else '') + mode, contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root or processes))
     if execution: require(not list(stage.iterdir()), 'TEST_EXECUTION_STAGE_RETAINED')
     observations = [decode(line) for line in trace.splitlines()]
-    require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', *(['views'] if views else []), *(['resource'] if resource_root else []), 'lifecycle'], 'TEST_DISCOVERY')
+    require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', *(['views'] if views else []), *['step-' + str(i) for i in range(len(steps or []))], *(['resource'] if resource_root else []), 'lifecycle'], 'TEST_DISCOVERY')
     lease = observations[0]
     require(lease.get('side') == side, 'TEST_RUNTIME_SIDE')
     def bind(value):
@@ -438,11 +553,13 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         if isinstance(value, dict): return {key: bind(child) for key, child in value.items()}
         if isinstance(value, list): return [bind(child) for child in value]
         return value
-    require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')
+    require(observations[1]['confirmed'] and json_equal(observations[1]['outcome'], dict(kind='success', value=bind(contract['expected']))), 'TEST_RESPONSE')
     require(observations[2]['outcome']['kind'] == contract['errorKind'], 'TEST_ERROR_OUTCOME')
     require(observations[3]['outcome'] == dict(kind='cancelled', effect='none'), 'TEST_REQUEST_CANCEL')
     if views:
         verify_views(observations[4], contract['views'], lease)
+    if steps is not None:
+        scenario_results(work, tools, steps, observations[4 + bool(views):4 + bool(views) + len(steps)], observations[4] if views else None, lease, bind)
     lifecycle = observations[-1]
     require(all(lifecycle.get(key) is True for key in ('activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance')), 'TEST_LIFECYCLE')
     if views:
@@ -452,8 +569,8 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
     if execution:
         require(all(lifecycle.get(k) is True for k in ('externalProcess', 'childActivated', 'childExited')), 'TEST_EXECUTION_LIFECYCLE')
     if resource_root:
-        require(observations[4 + bool(views)].get('verified') is True and observations[4 + bool(views)].get('released') is True and observations[4 + bool(views)].get('received') is bool(resource), 'TEST_RESOURCE_RESULT')
-        require(observations[4 + bool(views)].get('consumer', 'native') == ('client' if client_reads else 'native'), 'TEST_RESOURCE_CONSUMER_RESULT')
+        require(observations[4 + bool(views) + len(steps or [])].get('verified') is True and observations[4 + bool(views) + len(steps or [])].get('released') is True and observations[4 + bool(views) + len(steps or [])].get('received') is bool(resource), 'TEST_RESOURCE_RESULT')
+        require(observations[4 + bool(views) + len(steps or [])].get('consumer', 'native') == ('client' if client_reads else 'native'), 'TEST_RESOURCE_CONSUMER_RESULT')
     if resource_root:
         scope = ('real paired Client/Executor RPC; ' if paired else '') + 'real public Core scoped resource publication; ' + ('Client SDK reads checked by RPC expected value, Native checks no pending snapshot and released stores; ' if client_reads else 'Native snapshot bytes/digest/pins; ') + 'explicit Executor-only read-only root; no OS sandbox/RSS, Native UI or SSH'
     elif execution:
@@ -468,8 +585,10 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         scope += '; public Core ProcessService with explicit program pins, cwd, selected environment and budgets; business receipts via RPC; no OS filesystem sandbox'
     if views:
         scope += '; explicitly authorized Client ctx.views; Native registration snapshots, independent close/stale handle/revocation; no native rendering receipt'
+    if steps is not None:
+        scope += '; ordered real RPC checks and headless Native view lifecycle; no GUI rendering'
     return dict(kind='tested', side=side, observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
-                runtime=runtime, requestTimeoutMs=timeout, services=(['resources'] if resource_root else []) + (['processes'] if processes else []) + (['views'] if views else []), scope=scope)
+                runtime=runtime, requestTimeoutMs=timeout, scenarioSteps=len(steps or []), viewServices=([*['ui.' + k for k in views['kinds']], *(['ui.views'] if views.get('registry') else [])] if views else []), services=(['resources'] if resource_root else []) + (['processes'] if processes else []) + (['views'] if views else []), scope=scope)
 
 
 
@@ -534,7 +653,7 @@ def main():
         host = read_json(args.host_json) if args.host_json else None
         paired = args.action == 'test' and args.side == 'paired'
         if args.action == 'test' and host is None:
-            def profile(side): return dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else [])])
+            def profile(side): return dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else []), *(['ui.views'] if views and views.get('registry') and side == 'client' else [])])
             host = {s: profile(s) for s in ('client', 'executor')} if paired else profile(args.side)
         if paired:
             require(isinstance(host, dict) and set(host) == {'client', 'executor'} and all(isinstance(host[s], dict) and host[s].get('side') == s for s in host), 'TEST_PAIR_HOSTS')
@@ -569,7 +688,7 @@ def main():
             return dict(kind='packed', output=str(args.out.absolute()), sha256=sha(archive.read_bytes()), bytes=archive.stat().st_size, signature='none', installation=False), 0
         require(report['compatibility'] == 'compatible', 'TEST_PROFILE_UNSUPPORTED')
         contract = read_json(args.contract)
-        result = native_test(work, args.core_build, package, host, contract, paired, execution, resource_root, processes, views)
+        result = native_test(work, tools, args.core_build, package, host, contract, paired, execution, resource_root, processes, views)
         result['inputs'] = {name: sha(data) for name, data in captured.items()}
         return result, 0
 

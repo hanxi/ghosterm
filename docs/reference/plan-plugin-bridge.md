@@ -38,6 +38,7 @@ Executor。第二十二批接业务 ProcessService testkit：独立程序 / cwd 
 授权，三运行档的单侧、paired 和实际子进程中断，并修复接线验证发现的可捕获拒绝、
 argv 终止、guard 最终清理及回收前退出状态问题。第二十三批补 Client `ctx.views` 显式种类授权、真实注册快照、独立 Native 关闭 / 过期句柄 / 撤权，支持 Client 单侧和三运行档 paired。完整服务组合与原生 UI testkit 继续待验。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
+第二十四批进一步接无窗口 ui.views 容器 driver 与顺序场景，实际官方四视图包在 Portable / Node 读取业务数据、独立关闭 / 重开与任务取消。仍不把 headless 服务当作 GUI 呈现；范围见末节。
 P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
@@ -8140,3 +8141,80 @@ deadline_elapsed=false 且 confirmed=true；这次没有重现原偶发 unknown�
 所有临时诊断均未改生产日志、Core 预算或版本 pin；不增加 CI 二十份。
 
 清理前再次核对收据全部源 / 工具 / 静态库一致；本轮与闸门共清理 41 个 tmp 顶层条目、3923 份普通文件，连同先前安装缓存的逻辑大小约 84.22 MiB（不当作 APFS 实际回收量）。原三个 eq 夹具保留，SHA256 逐一相同；工程 tmp 目录本身保留。无本轮存活探针或打开的临时文件；未停止原有 Java / 虚拟机等非本轮进程。
+
+
+### P5 实施第二十四批：官方多视图包的顺序协议与无窗口容器 testkit（2026-11-16）
+
+开发命令 views JSON 可显式指定 registry=true，由 Client 声明 / Host 事实及本次
+Session 授权共同选择 ui.views；不再把必需该能力的官方多视图包挡在 kind-only
+profile 外。未选择时不因 Host 已声明可用而加授，必需该权限的 Client 在 Native
+包准入仍拒绝；Executor 启用 / 快照继续 UNSUPPORTED。旧三种 kind 注册保持缺省，
+实际输出 viewServices 记录选择，不自动授予文件 / 业务进程或改变执行档。
+
+paired 契约可给最多十六个顺序步骤：request（完整 outcome 精确值或对象 JSON
+Schema 2020-12）、closeView、snapshot。方法必须在准确双向 allowlist 中，按
+每步接收侧选实际对端 Caller，并取得 Caller 自己的 lease；不是固定借 Host token。
+输入逐项 8192 B、累计 32768 B、schema 总量 65536 B，(request 步数+2)×timeoutMs
+不超过 20000 ms；原 Native 外层 30 s 及 Core 预算不变。通过已有公开 C ABI
+驱动两个真实 Runtime，不新增插件业务 API、窗格类型或 Core 对 Node 的依赖。
+
+Native close 按当前实际快照解析准确 viewId；保留有界十七条已关闭句柄，每次
+快照都要求晚到关闭 NOT_FOUND。Python 核对 instance / epoch / 规范 revision、
+完整 kind / id / 方法、不可变 handle 绑定、固定 nonce / 单调高水位与不复活；
+Native 独立关闭须 revision 恰加一且其它项不变。request 改变集合后通过显式
+snapshot 观察，不把同 viewId 的新 handle 当成旧模型。先执行有界步骤并释放
+Runtime / 子进程，再比对收集结果，不提供业务回滚或 GUI 渲染声明。
+
+实际验证直接复制 plugins/official/views 的 Client / Executor / shared / schema；
+原件不改，构建纳入固定快照。Node 场景仅在测试副本改执行档与 ESM 资源，Executor
+算法与 Portable 共源。原根请求 / 声明错误 / 旧 epoch / 排队取消 / Native 首项关闭
+之后，十四步读取 alpha 描述符与 17–32 行、beta 五行及不同乘数、精确 diff 页、
+任务描述符；关闭 progress 后真实 work.read 仍 running，重开生成新句柄；显式
+cancel 才进入 cancelled / effect=none，同取消 ID 返回同一 ack；再重开 alpha，
+最后四项快照与旧关闭均核对。RPC-only 也验证双向步骤，不要求 UI 服务。
+
+schema helper 仅加载锁定 AJV 8.17.1，先于 Native 入口同步编译，最后再校验真实
+回包；不加载插件或获取网络引用，额外工具期限有界。Node 夹具额外写入独立已进入
+标记，证明无效 schema 未运行入口，再以正常 schema 证明该入口确实可进入。
+新 runner 为 INT / TERM 注册正常退出，并先协作停止自己的 CLI / Native owner；
+观察真实 Node handler 已进入且 PID 存活后分别中断，核对退出码、实际 reap 与
+私有目录消失。不信锁文件或父进程退出就当子进程结束。
+
+本批实际审查并复现两个 testkit 缺陷：Python 深字典比较把 false 与 0、true 与 1
+相等，原根回包可被错误 expected 接受；AJV 异步 validator 若被当同步布尔结果，
+在关闭未处理 rejection 的 Node 配置中可接受无效值。前置自有临时探针均复现。
+现用 JSON 类型递归比较，布尔和数字分开但 64 / 64.0 数值仍相同；根 / 步骤 /
+Client 资源回执比对共用，未改 Native ABI。schema 明确拒绝异步 validator，并
+关闭 coercion / defaults / 额外字段移除，避免悄悄改写后再称相等。
+
+首轮十一组变异前十组完成，最后输入限额组实际编译成功并触发 Native 有界输入
+ASSERT，却被过严分类器排除；该轮未记完整通过。改为只接受此明确断言（仍拒编译
+错误 / 崩溃 / 超时），单组目标红 / 配置绿 / 恢复绿通过。修正与产品缺陷分账，
+并增加布尔折叠、异步校验、隐式类型转换三组保护，最终范围另记。
+
+
+最终证据：原开发工具完整 76 项回归通过（未重跑旧 54 变异），72 份指定源与
+35 份固定 Node / SDK 输入结束时一致；收据 SHA256
+`29ab1c534345513af9d49ae342e74ba01f5e4984cc59ae72fa3a55f88652902f`。
+新 runner 的十场景 / 十四变异同轮通过：实际官方 Portable / Node、RPC-only、
+合同 / registry / schema / trace / JSON 类型保护及真实两次中断；十四组包含
+官方 beta 算法、取消状态、registry bit / grant、Caller 方向、准确 close、晚到
+close、类型折叠、异步 validator、coercion、精确结果、schema 校验、视图快照与
+输入限额。每组编译后正常断言红 / 独立配置绿 / 恢复绿与 SHA256。
+
+首次完整验证后，收据清单补列实际编译探针引用的私有 base/sha256.h；未改变生产
+或 case 逻辑，新十场景 / 十四变异再同轮通过。最终 70 份指定源、35 份固定工具
+及两个静态库全部一致，收据 SHA256
+`293bd0ae503b47efa42a485a4518f35e11b63e798cc8d24fbcfc4a3352583b4d`。
+优化 JS-on / SSH-off Core 库为
+`50fdf8915134385c7fcf3dd3e8b7b8c036a218c7aace9f78a8e7000cf9b12cd6`，
+QuickJS 库为 `670924d296e08e78b5357fb24d066567ad85b970366cb2433056ca5e37d79e15`；
+Node 26.4.0 / 既有固定 SDK catalog，未据此记其它 OS 已验。
+Core runtime_views 十五项、默认 JS-off / SSH-on gate 588 CTest / 184 ABI、
+clang-format 19.1.7 的 267 文件、Apple 181 / 3、JNI 147 / 37 与 diff 检查通过。
+无平台源或公共 ABI 变化，无新 App / APK / 物理设备 / GUI E2E / 真实模型证明；
+不增加 macOS CI 二十份。不借本轮关闭完整 P5、三服务组合、原生辅助技术 / 性能 /
+平台矩阵或 P1–P6。此前偶发 unknown 的完整定位继续保留，不将本次功能验收冒充
+其根因修复。
+
+清理前复核两份最终收据全部指定源、工具和静态库一致；清理本轮 / 闸门产生的 30 个 tmp 顶层条目、3889 份普通文件，逻辑大小约 84.06 MiB（非 APFS 实际回收量）。三个原 eq 夹具与目录本身保留且 SHA256 不变，无本轮存活探针或打开的临时文件；不停止原有 Java / 虚拟机等进程。

@@ -189,6 +189,7 @@ try {
     demand(selected?.requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
     if (request.testResources) demand(['resource.receive', ...(host.side === 'executor' ? ['file.readScoped'] : [])].every(c => selected.requires.includes(c)), 'TEST_REQUIRES_DECLARED_RESOURCES');
     if (request.testViews && host.side === 'client') demand(request.testViews.kinds.every(k => selected.requires.includes('ui.' + k)), 'TEST_REQUIRES_DECLARED_VIEWS');
+    if (request.testViews?.registry && host.side === 'client') demand(selected.requires.includes('ui.views'), 'TEST_REQUIRES_DECLARED_VIEW_REGISTRY');
     if (request.testProcesses && host.side === 'executor') demand(['process.spawn', 'process.pipes'].every(c => selected.requires.includes(c)), 'TEST_REQUIRES_DECLARED_PROCESSES');
     if (compatibility === 'compatible' && selected.runtime !== 'portable-js') {
       if (request.testRuntime !== selected.runtime) {

@@ -351,9 +351,64 @@ python3 scripts/gterm-plugin test --project tmp/plugin-dev/views --tools tmp/plu
 
 这证明本地注册服务和句柄生命周期；未自动调用每个视图业务方法，也未渲染原生
 表格 / diff / task，不代表可访问性、大字号、主题或 UI E2E。业务方法和原生
-呈现仍分别写契约或使用平台专项。此 profile 未提供产品多视图容器的 `ui.views` 能力；必需该能力的包继续明确
-不支持，不能将本地 kind 注册快照当成容器服务。三服务组合与完整种类 / 数量 / 平台矩阵另验；
-本轮 Client 单侧与三运行档 paired 的证据见插件计划第二十三批。
+呈现仍分别写契约或使用平台专项。缺省仍为 kind 注册检查。要让必需 `ui.views` 的包进入无窗口多视图容器 driver，
+在配置中显式加 `"registry":true`；此时 Client 另须声明并获得 `ui.views`，Host
+也须提供对应事实。没有该选项不会因为 Host 声明可用而自动授予；Executor 仍不能
+获得注册或容器服务。容器 driver 支持读取注册、独立关闭与重开身份检查，不创建
+产品窗口、不替代原生渲染或无障碍验收。输出 `viewServices` 记录实际选择的服务。
+三服务组合与完整种类 / 数量 / 平台矩阵另验；注册首片见第二十三批，官方包顺序
+场景见第二十四批。
+
+paired 契约可增加 `steps`，在原成功 / 声明错误 / 排队取消和首次视图关闭检查后，
+按顺序驱动两个真实 Runtime。根契约、每个方法的 receiver 及原来的完整回包检查
+保持有效；每步使用实际调用方自己的 lease，不复用对侧 token。支持以下动作：
+
+- `request`：指定 allowlist 中的 method、对象 input，以及 `expected` 或
+  `expectedSchema` 二选一。expected 是完整 outcome，例如
+  `{"kind":"success","value":{"opened":true}}`，不是单独的 value。
+- `closeView`：指定 viewId，关闭当前 Native 注册；此动作不发送任务取消。
+- `snapshot`：指定预期 views 数组，格式与根契约相同，可以为空。先检查所有已关闭
+  句柄继续 NOT_FOUND，再比对当前注册、不可变绑定及新句柄的 nonce / 高水位。
+
+例如给官方多视图包的原契约追加：
+
+```json
+{
+  "steps": [
+    {"action":"request","method":"views.reopen","input":{"viewId":"alpha"},"expected":{"kind":"success","value":{"opened":true}}},
+    {"action":"closeView","viewId":"progress"}
+  ]
+}
+```
+
+这是契约补充：根 methods 必须同时列出 Executor 方法和 Client 的
+`views.client.open`，根 views / command / expected / errorInput 等仍需保留。
+根注册检查会先关闭首个视图，样例中的 alpha 重开因此应返回 opened=true。
+会改变注册集合的 RPC 后，用显式 snapshot 观察新集合，再驱动后续 Native 关闭。
+
+最多十六步，单请求输入 8192 B、全部步骤请求输入 32768 B，schema 总计 65536 B；
+(2 + request 步数) × timeoutMs 不能超过 20000 ms，Native 整体仍有原 30 s
+外层期限。不提高 Core 的 CPU / 内存 / 进程预算。步骤在同一个 Native owner 上
+依次执行，Runtime 关闭后比对收集的值；断言不回滚已经调用的方法。
+
+`expectedSchema` 接受自包含 JSON Schema 2020-12 对象，由锁定 AJV 8.17.1 同步
+编译 / 校验。外部引用不自动获取，不加载插件模块。schema 先于 Native 入口编译；
+拒绝 `$async` 校验器，关闭 coercion、defaults 和额外字段移除。每次验证有独立有界
+工具期限。普通 expected 逐层比较 JSON 类型，false 不等于 0，数字 64 与 64.0
+仍为相同 JSON 数字；完整字符串 `${instanceId}` / `${epoch}` 可以绑定本次身份。
+
+实际官方包场景由以下脚本生成完整契约：
+
+```sh
+python3 scripts/test-plugin-dev-scenarios.py --tools tmp/plugin-dev/tools --core-build tmp/plugin-dev/core --mutate --receipt tmp/plugin-dev/scenario-receipt.json
+```
+
+它直接复制 `plugins/official/views` 的 Client / Executor 源，验证两张表、diff、
+任务视图关闭后仍 running、重新打开、显式取消与终态、同 ID 取消幂等和新句柄。
+加 `--execute --node-executable 物理路径 --node-sdk 可信目录` 可验同一 Executor
+源的 Node 档，以及 invalid schema 不得进入 Node 入口、真实 INT / TERM 回收。
+不测试网络、SSH、真实模型或 GUI。`--mutation-case 名称` 只缩小本次变异选择，
+收据逐项记录实际执行组；默认 `--mutate` 执行全部本脚本保护，不计入 CI 二十份。
 
 用完删除本次创建的 `tmp/plugin-dev/`，保留其它工作的临时目录。开发命令每次调用的
 内部固定副本与探针会在正常退出、INT / TERM 中断时清理；TERM 同时收回受控工具进程组。
