@@ -148,6 +148,30 @@ def exercise(root, work, tools, node, public, endpoint, selected=None):
         raw=(bundle/'release.json').read_bytes().replace(b'{',b'{"schemaVersion":1,',1)
         file_reject('release.json',raw,'DUPLICATE_OR_RESERVED_KEY',2)
     case('duplicate',duplicate)
+    def signed_number_reject(raw):
+        description=bundle/'release.json'; signature=bundle/'release.sig'
+        before_description=description.read_bytes(); before_signature=signature.read_bytes()
+        signed=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],
+                              input=DOMAIN+raw,capture_output=True,check=True)
+        description.write_bytes(raw); signature.write_bytes(signed.stdout)
+        try: verify(2,'RELEASE_JSON_NUMBER')
+        finally: description.write_bytes(before_description); signature.write_bytes(before_signature)
+    def precise_descriptor():
+        raw=(bundle/'release.json').read_bytes().replace(b'"schemaVersion":1',b'"schemaVersion":1.00000000000000000001')
+        signed_number_reject(raw)
+    case('precise-descriptor',precise_descriptor)
+    def precise_policy():
+        original=policy.read_bytes()
+        policy.write_bytes(original.replace(b'"schemaVersion": 1',b'"schemaVersion": 1.00000000000000000001'))
+        try: verify(2,'RELEASE_JSON_NUMBER')
+        finally: policy.write_bytes(original)
+    case('precise-policy',precise_policy)
+    def precise_artifact():
+        original=(bundle/'release.json').read_bytes()
+        payload=json.loads(original)
+        count=payload['artifact']['bytes']
+        signed_number_reject(original.replace(f'"bytes":{count}'.encode(),f'"bytes":{count}.00000000000000000001'.encode()))
+    case('precise-artifact',precise_artifact)
     def wrong_domain():
         raw=(bundle/'release.json').read_bytes()
         sig=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],input=raw,capture_output=True,check=True).stdout
@@ -313,6 +337,7 @@ def main():
             cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint)
             print('RELEASE PASS: '+str(len(cases))+' cases: '+', '.join(cases),flush=True)
             recipes=[
+                ('number-precision','precise-policy','json.loads(raw, parse_float=number)','json.loads(raw, parse_float=float)'),
                 ('signature','signature',"result['valid'] is True, 'RELEASE_SIGNATURE', 6)", "True, 'RELEASE_SIGNATURE', 6)"),
                 ('artifact','artifact',"(release['artifact']['bytes'], release['artifact']['sha256']) == (size, digest)","True"),
                 ('channel','channel',"release['channel'] == trusted['channel']","True"),

@@ -21,6 +21,7 @@ struct ExtensionsPane: View {
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
+        var signatureDraft = PluginSignatureDraft()
         var decision: String = "尚未批准"
         var localConnection = false { didSet { localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
         var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
@@ -99,7 +100,9 @@ struct ExtensionsPane: View {
                     }
                     Text("版本 \(entry.review.version) · 发布者 \(entry.review.publisher) · \(entry.review.license)")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
-                    Text("Client 运行时：\(entry.review.runtime) · 发布者身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")
+                    PluginSignatureReviewView(controller: model.extensionController, review: entry.review,
+                                              draft: $entry.signatureDraft)
+                    Text("Client 运行时：\(entry.review.runtime) · 结构审查身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
                     Text("声明的必需能力：\(entry.review.requiredCapabilities.isEmpty ? "无" : entry.review.requiredCapabilities.joined(separator: ", "))")
                         .font(DS.Font.caption)

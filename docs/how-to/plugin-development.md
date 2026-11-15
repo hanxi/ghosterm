@@ -469,8 +469,9 @@ bash scripts/gate.sh
 ## 离线签名发布候选
 
 `gterm-plugin release sign / verify` 是 P6 的开发工具首片，生成 / 检查候选发布包，
-不安装、激活插件或保存来源批准。App / Core 尚未消费此签名格式；不能把工具的
-验签结果当成 App 中已认证的发布者。当前没有内置官方公钥或开放第三方市场。
+不安装、激活插件或保存来源批准。macOS 的插件包页面现可对已审查目录执行同格式的
+签名核对；Core 的结构审查仍不认证发布者，页面另列本次可信策略快照下的签名证明。
+当前没有内置官方公钥或开放第三方市场。
 
 先用原 `pack` 命令得到 ZIP，再显式选择可信渠道策略与本机签名器：
 
@@ -479,6 +480,27 @@ python3 scripts/gterm-plugin pack --package build/plugins/preview --tools tmp/pl
 python3 scripts/gterm-plugin release sign --artifact tmp/preview.zip --policy /可信位置/channel.json --key-id 公钥指纹 --signer-json /可信位置/signer.json --tools tmp/plugin-dev/tools --out tmp/preview-release
 python3 scripts/gterm-plugin release verify --artifact tmp/preview-release/plugin.zip --descriptor tmp/preview-release/release.json --signature tmp/preview-release/release.sig --policy /可信位置/channel.json --tools tmp/plugin-dev/tools
 ```
+
+在启用 Portable JS 的 macOS 开发构建中，先选择并审查目录包，再展开「目录包发布签名」。
+填写 `release.json`、`release.sig` 与渠道公钥策略的绝对路径；从独立可信来源核对策略后，
+勾选信任确认并点击「核对目录包签名」。包附带的策略不能自行建立信任。成功时显示渠道、
+公钥 / 策略 / 已捕获目录包的 SHA-256；修改材料路径或撤回策略信任会清除旧证明，晚到结果也会丢弃。
+
+此入口只把描述中的身份及包摘要与 Core 已捕获的不可变目录快照绑定，不导入或验证 ZIP，
+也不把描述声明的 ZIP 摘要当作已读取的文件证据。ZIP 的完整传输及内容验证仍使用上面的 CLI
+`release verify`。目录签名不会批准来源、授予 Session 能力或安装插件；批准按钮继续单独使用。
+所有信任只对应当前策略文件快照，没有联网撤销刷新或防回滚保证，退出页面不保存这份证明。
+
+原生跨层手工验证（公钥材料由一次性内存 agent 生成，窗口在后台）：
+
+```sh
+GHOSTERM_BUILD_PLUGIN_JS=1 bash scripts/build-core.sh
+GHOSTERM_CORE_TEST_PLUGIN_JS=1 python3 -B scripts/test-plugin-native-signature.py --tools tmp/plugin-dev/tools --mutate --out tmp/native-signature/receipt.json
+```
+
+需要完整 Xcode 的 Swift 工具链。脚本只变异工程 `tmp/` 内的 Apple 副本，退出时清理；
+结果收据留在显式输出路径。验收后恢复 Core 的 `GHOSTERM_WITH_PLUGIN_JS=OFF` /
+`GHOSTERM_BUILD_TESTS=ON` 配置并运行默认离线闸门，核对收据后清理本轮输出目录。
 
 输出目录包含捕获的 `plugin.zip`、精确 UTF-8 `release.json` 和 64 字节原始
 `release.sig`。Ed25519 签署 ASCII `GHOSTERM-PLUGIN-RELEASE-V1`、一个 NUL，再拼接

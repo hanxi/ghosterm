@@ -297,6 +297,14 @@ public actor ExtensionController {
         try await worker.review(directory: directory)
     }
 
+    /// Attests the immutable checked directory against an explicitly trusted
+    /// public policy snapshot. Does not approve a source or grant capabilities.
+    public func verifyDirectorySignature(packageID: String, digest: String, descriptor: URL,
+                                         signature: URL, trustedPolicy: URL) async throws -> PluginDirectorySignature {
+        try await worker.verifyDirectorySignature(packageID: packageID, digest: digest,
+            descriptor: descriptor, signature: signature, trustedPolicy: trustedPolicy)
+    }
+
     /// Explicit source decision for the exact reviewed id + digest pair.
     @discardableResult
     public func approve(id: String, digest: String) async throws -> UInt32 {
@@ -498,6 +506,23 @@ public actor ExtensionController {
 
         func review(directory: URL) async throws -> PackageReview {
             try await perform { try self.reviewOnQueue(directory: directory) }
+        }
+
+        func verifyDirectorySignature(packageID: String, digest: String, descriptor: URL,
+                                      signature: URL, trustedPolicy: URL) async throws -> PluginDirectorySignature {
+            try await perform {
+                try self.checkOpen()
+                guard let record = self.packages[self.key(packageID, digest)] else {
+                    throw PluginDirectorySignatureVerifier.Failure.identity
+                }
+                let metadata = try record.package.metadata()
+                return try PluginDirectorySignatureVerifier.verify(
+                    descriptor: PluginSignatureFile.read(descriptor, limit: 65536),
+                    signature: PluginSignatureFile.read(signature, limit: 64),
+                    trustedPolicy: PluginSignatureFile.read(trustedPolicy, limit: 131072),
+                    identity: .init(id: metadata.id, version: metadata.version,
+                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
+            }
         }
 
         func setSource(id: String, digest: String, approved: Bool) async throws -> UInt32 {

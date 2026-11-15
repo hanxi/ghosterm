@@ -5,7 +5,9 @@ selected host program; this module never reads or exports a private key.
 """
 import base64
 import binascii
+from decimal import Decimal
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -25,6 +27,18 @@ DOMAIN = b'GHOSTERM-PLUGIN-RELEASE-V1\0'
 ARCHIVE_LIMIT = 75497472
 MEMBER_LIMIT = 16777216
 TOTAL_LIMIT = 67108864
+
+
+def public_json(api, raw):
+    # Reuse bounded UTF-8/depth/duplicate validation, then retain mathematical
+    # integer semantics before binary-float rounding can change signed policy.
+    api.decode(raw)
+    def number(token):
+        value = Decimal(token)
+        api.require(value.is_finite() and abs(value) <= ARCHIVE_LIMIT and value == value.to_integral_value(),
+                    'RELEASE_JSON_NUMBER')
+        return int(value)
+    return json.loads(raw, parse_float=number)
 
 
 def stable_file(api, source, limit, destination=None):
@@ -304,7 +318,7 @@ def checked_release(args, api):
         api.require(not args.out.exists() and not args.out.is_symlink(), 'OUTPUT_EXISTS')
     tools = api.tools_path(args.tools)
     policy_bytes = stable_file(api, args.policy, 131072)
-    trusted = api.decode(policy_bytes)
+    trusted = public_json(api, policy_bytes)
     keys = policy(api, trusted)
     with tempfile.TemporaryDirectory(prefix='plugin-release-', dir=api.TMP) as temporary:
         work = Path(temporary)
@@ -315,7 +329,7 @@ def checked_release(args, api):
         payload = signature = release = key = None
         if args.release_action == 'verify':
             payload = stable_file(api, args.descriptor, 65536)
-            release = descriptor(api, api.decode(payload))
+            release = descriptor(api, public_json(api, payload))
             schema_check(api, work, tools, trusted, release)
             key = authorize(api, trusted, keys, release)
             signature = stable_file(api, args.signature, 64)
