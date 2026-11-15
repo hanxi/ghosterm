@@ -28,7 +28,8 @@ JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费
 第十四批补两端 task / 多视图的一次性前台 IPC、断流 unknown 与有界 disposer 修复。
 第十五批为开发 testkit 增加显式选侧 Client 激活与反向 RPC，第十六批补双 JS 端
 同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。第十七批接通 Node / Exec
-构建 / 检查 / 打包与按运行档隔离的类型检查，执行测试仍仅 Portable。各批覆盖与证据见文末；
+构建 / 检查 / 打包与按运行档隔离的类型检查，第十八批接单侧显式授权的 Node / Exec
+开发执行、固定摘要 / 版本核对及实际 INT / TERM 清理。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -7682,3 +7683,68 @@ Worker 摘要与上述 32 项 / 19 组时一致；不把该补证当 Node 业务
 57 输入再次一致，未以三斜线修正前的中断轮代表最终源码。
 
 结束清理本轮 **30 个 tmp 项、逻辑大小约 68.5 MiB**；原三份 eq 输入摘要不变。自有测试 / 工具进程已退出，无 GUI / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+### P5 实施第十八批：Node / Exec 单侧开发执行测试（2026-11-15）
+
+`gterm-plugin test --execution-json 配置 --allow-process-execution` 复用公开 Core
+Runtime 执行门面，单侧 Executor 可实际运行 Node / Exec。配置与授权缺一不可；
+必须显式给 Executor Host 事实。Node 需实际绝对可执行路径 / SHA256、可信 SDK
+目录 / 独立 catalog 摘要；Exec 只有 runtime 字段，执行的二进制来自已检查包。
+配置拒绝未知字段，不开放 HOME / PATH / NODE_OPTIONS 或任意环境输入；Native
+只传本轮内部私有 0700 暂存目录的 TMPDIR。没有配置仍保留明确不支持，不把
+metadata 兼容或拒绝当执行结果；Client / paired 拒绝外部执行配置，不静默改测。
+
+Native 夹具通过同一 socketpair / 精确方法 / lease 调用真实进程：Node 为真实
+SessionChannel handler，Exec 为带 startup digest 验证的自有 C 协议 peer；不是
+C 宿主伪造业务回包。使用 Core 原本的可执行字节 / SDK 捕获 / Node 版本核对、
+激活握手、过程时间 / stdout / stderr 限额、停止 / reap / 暂存释放；Core / 公共
+ABI / SDK 身份没有变化。保留成功值、声明 unknown、排队控制请求取消、旧 epoch /
+撤权、资源释放与 fd 平衡，额外核对 externalProcess / activated / child_exited 和
+实际暂存为空。外部模式拒绝嵌入式 heap / CPU 等配置，不声称有进程 RSS 沙箱；
+排队控制请求取消或子进程退出不冒充业务任务取消 / 成功。
+
+Native 轮询为外部进程留出零阻塞 IO 间的有限调度时间，仍受既有 Native 激活 /
+请求期限和工具外层期限约束，没有增加 Core 默认预算。C 正常断言失败时的 atexit
+停止 / 回收 owner；开发命令 INT / TERM 先请求该 owner 关闭，在有限等待后再
+停止仍存活的自有工具组，避免一开始强杀 owner 而跳过暂存清理。Python INT 同
+TERM 走明确信号退出。实际等待 handler 的 Node / Exec 两档，各分别在观察到
+自有子进程 marker 与活跃 CLI 后发 INT / TERM：**四次真实中断**均为 130 / 143、
+无 JSON 成功输出或 traceback、子进程已退出、私有目录已删除。故障注入 / 中断
+单列，不当普通变异目标红。
+
+完整 **38 项基线、23 组隔离变异**同轮通过：旧三十二项与十九组保留；新增实际
+Node、实际 Exec、批准 / 配置字段 / 侧别、错误 Node / SDK 摘要 / 实际版本及两档
+中断六项。新增四变异为 **development-execution-approval /
+development-execution-environment / development-execution-adoption /
+development-node-pin**；每组正常断言红、独立 Core 配置绿、恢复绿 / SHA256，C
+变异必须真实编译后 ASSERT，编译失败 / 崩溃 / 超时不能当正常目标红。
+
+**64 源输入、35 个 Node / SDK 构件输入**前后逐项一致，收据 SHA256
+`42a5cb9bb05e8541100f0260ca9e7100f90ed292af79bc222a95104c29f06256`。
+实际 Node **26.4.0** / SHA256
+`59cd4fb59cf5bc239f43d5db8c0cd8c23c22db79419612b92da3b7cf34de8553`；
+可信 SDK catalog `b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`。
+JS-enabled / libssh2-off Core archive
+`987f7d2b111a5ca3f9ac76077aa5c5a96cdab5708004544451aecf6b59aee3b9`，
+QuickJS archive `a76c9be1e31943a3f45babbeba7528e0fa36419eb8f18b1944e755096c20017b`。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-exec-dev/tools --core-build tmp/plugin-exec-dev/core --execute --node-executable 实际Node路径 --node-sdk tmp/plugin-exec-dev/node-sdk --mutate --receipt tmp/plugin-exec-dev/receipt.json`。
+macOS arm64 / C11 / -Wall / -Wextra / -Werror、RelWithDebInfo，无 sanitizer 新结论。
+
+另有实际 Node 原始 argv 手工专项：两个位置参数保留中文 / emoji 与单引号 / `$()`
+字面字节，Node Context 明确比对后才注册 handler；带引号的实际成功回包、unknown
+和关闭释放均通过，收据 SHA256
+`4ba48ece30a023b7025678a3ff8e7172d77bcd1efc1569e4e45937860d45d78c`。
+没有 shell 执行该输入，也不把这个本机专项借给 SSH / UI / 平台产品。
+
+未修改 Core / 平台产品 / 公共 ABI、SDK 身份或 Runtime 预算；无新 App / APK /
+设备 / SSH / tmux / 真实模型 / 发行结论。含 Node / Exec 的双侧开发测试、文件 /
+进程 / UI 服务 testkit 与完整开发 / 生命周期 / 分发及 P5 / P1–P6 仍未完成；
+本轮手工证据不增加 macOS CI 二十份。
+
+最终默认 Core **JS-off / tests-on：588/588 CTest、184 ABI**、C 格式 **19.1.7 /
+263 文件**、Apple **181 引用 / 3 登记未用**、JNI **147 / 37**、Python / Node
+语法与 diff 检查通过；新 Exec 夹具亦已按同版 clang-format 排版，并在其实际
+执行 / 中断用例中以 -Werror 编译；Native 门面的变异编译另按上述正常断言判据。无平台产品修改，不记新 App / APK / 设备构建。
+清理前再次核对 64 源输入及 35 个固定 Node / SDK 构件，均与完整验证时一致。
+
+结束清理本轮 **30 个 tmp 项、逻辑大小约 81.4 MiB**；原三份 eq 输入摘要未变。所有自有测试 / Native owner / Node / Exec / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。

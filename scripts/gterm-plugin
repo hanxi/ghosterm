@@ -27,9 +27,9 @@ class Failure(Exception):
         self.status = status
 
 
-def require(condition, code):
+def require(condition, code, status=2):
     if not condition:
-        raise Failure(code)
+        raise Failure(code, status)
 
 
 def pairs(items):
@@ -153,7 +153,7 @@ def capture(directory, destination, project=False):
     return observed
 
 
-def run(command, seconds=60):
+def run(command, seconds=60, cooperative=False):
     env = dict(os.environ, TMPDIR=str(TMP), npm_config_update_notifier='false')
     if sys.platform == 'darwin' and 'DEVELOPER_DIR' not in env and Path('/Applications/Xcode.app/Contents/Developer').is_dir():
         env['DEVELOPER_DIR'] = '/Applications/Xcode.app/Contents/Developer'
@@ -164,6 +164,12 @@ def run(command, seconds=60):
     try:
         output, diagnostics = process.communicate(timeout=seconds + 5)
     finally:
+        if process.poll() is None and cooperative:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=3)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
         if process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -209,9 +215,9 @@ def publish(stage, destination):
         os.link(stage, destination, follow_symlinks=False)
 
 
-def worker(work, tools, source, output=None, host=None, registry=(), test=False):
+def worker(work, tools, source, output=None, host=None, registry=(), test=False, execution=None):
     request = dict(root=str(ROOT), tools=str(tools), source=str(source), output=str(output) if output else None,
-                   host=host, registry=list(registry), testProfile=test)
+                   host=host, registry=list(registry), testProfile=test, testRuntime=execution['runtime'] if execution else None)
     filename = work / 'request.json'
     filename.write_bytes(encoded(request))
     response = decode(run(['node', ROOT / 'scripts/plugin-dev-worker.mjs', filename], 60))
@@ -280,7 +286,19 @@ export function activate(context: PluginContext) {
     return dict(kind='initialized', id=plugin_id, path=str(Path(destination).absolute()), installation=False)
 
 
-def native_test(work, core, package, host, contract, paired=False):
+def execution_config(value):
+    require(isinstance(value, dict) and value.get('runtime') in ('node', 'exec'), 'TEST_EXECUTION_CONFIG')
+    keys = {'runtime'} | ({'nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256'} if value['runtime'] == 'node' else set())
+    require(set(value) == keys, 'TEST_EXECUTION_CONFIG')
+    if value['runtime'] == 'node':
+        for key in ['nodeExecutable', 'nodeSDKDirectory']:
+            require(isinstance(value[key], str) and value[key].startswith('/') and 0 < len(value[key].encode()) <= 4096 and not any(ord(c) < 32 for c in value[key]), 'TEST_EXECUTION_PATH')
+        for key in ['nodeSHA256', 'nodeSDKCatalogSHA256']:
+            require(isinstance(value[key], str) and re.fullmatch('[a-f0-9]{64}', value[key]), 'TEST_EXECUTION_DIGEST')
+    return value
+
+
+def native_test(work, core, package, host, contract, paired=False, execution=None):
     require(isinstance(contract, dict) and set(contract) == ({'methods'} if paired else set()) | {'schemaVersion', 'command', 'arguments', 'method', 'input', 'expected', 'errorInput', 'errorKind'} and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
     require(isinstance(contract['command'], str) and isinstance(contract['method'], str) and
             re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', contract['method']) and len(contract['method']) <= 64, 'TEST_METHOD')
@@ -291,7 +309,8 @@ def native_test(work, core, package, host, contract, paired=False):
     cache = (core / 'CMakeCache.txt').read_text()
     require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
     profiles = list(host.values()) if paired else [host]
-    require(all(h['side'] in ('client', 'executor') and h['capabilities'] == ['session.rpc'] and h['runtimes'] == ['portable-js'] for h in profiles), 'TEST_RPC_PROFILE_ONLY')
+    runtime = execution['runtime'] if execution else 'portable-js'
+    require(all(h['side'] in ('client', 'executor') and h['capabilities'] == ['session.rpc'] and h['runtimes'] == [runtime] for h in profiles), 'TEST_RPC_PROFILE_ONLY')
     if paired:
         methods = contract['methods']
         require(isinstance(methods, list) and 1 <= len(methods) <= 16 and all(isinstance(m, dict) and set(m) == {'name', 'receiver'} and isinstance(m['name'], str) and re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', m['name']) and len(m['name']) <= 64 and m['receiver'] in ('client', 'executor') for m in methods), 'TEST_PAIR_METHODS')
@@ -308,7 +327,12 @@ def native_test(work, core, package, host, contract, paired=False):
     if paired:
         trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *contract['arguments']], 30)
     else:
-        trace = run([probe, package, encoded(host).decode(), host['side'], contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *contract['arguments']], 30)
+        extra = []
+        if execution:
+            stage = work / 'execution'; stage.mkdir(mode=0o700)
+            extra = [stage, *[execution.get(k, '') for k in ['nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256']]]
+        trace = run([probe, package, encoded(host).decode(), runtime if execution else host['side'], contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *extra, *contract['arguments']], 30, cooperative=bool(execution))
+        if execution: require(not list(stage.iterdir()), 'TEST_EXECUTION_STAGE_RETAINED')
     observations = [decode(line) for line in trace.splitlines()]
     require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', 'lifecycle'], 'TEST_DISCOVERY')
     lease = observations[0]
@@ -325,8 +349,10 @@ def native_test(work, core, package, host, contract, paired=False):
     require(all(observations[4].get(key) is True for key in ('activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance')), 'TEST_LIFECYCLE')
     if paired:
         require(all(observations[4].get(k) is True for k in ('clientActivated', 'executorActivated', 'clientEngineReleased', 'executorEngineReleased')), 'TEST_PAIR_LIFECYCLE')
+    if execution:
+        require(all(observations[4].get(k) is True for k in ('externalProcess', 'childActivated', 'childExited')), 'TEST_EXECUTION_LIFECYCLE')
     return dict(kind='tested', side=side, observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
-                scope=('real Core/QuickJS paired Client/Executor RPC fixture; no OS services, Native UI or SSH' if paired else 'real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH'))
+                runtime=runtime, scope=('real public Core authorized Node/Exec process RPC; native peer; pinned Node/SDK; observed activation/reap/stage cleanup; no OS sandbox/RSS, business cancellation, Native UI or SSH' if execution else 'real Core/QuickJS paired Client/Executor RPC fixture; no OS services, Native UI or SSH' if paired else 'real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH'))
 
 
 def main():
@@ -343,9 +369,18 @@ def main():
         if name == 'test':
             command.add_argument('--contract', type=Path, required=True); command.add_argument('--core-build', type=Path, required=True)
             command.add_argument('--side', choices=('client', 'executor', 'paired'), default='executor', help='activate one side with a native peer, or both JS sides with paired')
+            command.add_argument('--execution-json', type=Path, help='explicit pinned Node or Exec execution configuration')
+            command.add_argument('--allow-process-execution', action='store_true', help='authorize this development execution only')
     args = parser.parse_args()
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
     require(args.action != 'build' or args.project is not None, 'BUILD_REQUIRES_PROJECT')
+    execution = None
+    if args.action == 'test' and (args.execution_json or args.allow_process_execution):
+        require(args.execution_json is not None, 'TEST_EXECUTION_CONFIG')
+        require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)
+        require(args.side == 'executor', 'TEST_EXECUTION_SIDE')
+        execution = execution_config(read_json(args.execution_json))
+        require(args.host_json is not None, 'TEST_EXECUTION_HOST')
     tools = tools_path(args.tools)
     source = args.project or args.package
     if hasattr(args, 'out'):
@@ -367,7 +402,7 @@ def main():
             fixed = work / ('registry-' + str(index)); fixed.mkdir(); capture(item, fixed)
             registry.append(str(fixed))
         package = work / 'package' if args.project else snapshot
-        report = worker(work, tools, snapshot, package if args.project else None, host['client'] if paired else host, registry, args.action == 'test')
+        report = worker(work, tools, snapshot, package if args.project else None, host['client'] if paired else host, registry, args.action == 'test', execution)
         if paired:
             report['checkedSide'] = 'client'
             if report.get('exitCode', 0) == 0:
@@ -391,7 +426,7 @@ def main():
             return dict(kind='packed', output=str(args.out.absolute()), sha256=sha(archive.read_bytes()), bytes=archive.stat().st_size, signature='none', installation=False), 0
         require(report['compatibility'] == 'compatible', 'TEST_PROFILE_UNSUPPORTED')
         contract = read_json(args.contract)
-        result = native_test(work, args.core_build, package, host, contract, paired)
+        result = native_test(work, args.core_build, package, host, contract, paired, execution)
         result['inputs'] = {name: sha(data) for name, data in captured.items()}
         return result, 0
 
@@ -400,6 +435,7 @@ if __name__ == '__main__':
     def interrupted(number, _frame):
         raise SystemExit(128 + number)
     signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     try:
         result, status = main()
     except (Failure, OSError, ValueError, UnicodeError, TypeError, KeyError, subprocess.SubprocessError) as error:

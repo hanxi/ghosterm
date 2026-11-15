@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -23,7 +24,7 @@ def tree(directory):
     return {p.relative_to(directory).as_posix(): p.read_bytes() for p in directory.rglob('*') if p.is_file()}
 
 
-def run_case(name, work, tools, core):
+def run_case(name, work, tools, core, execution=None):
     def cli(*arguments, status=0, diagnostic=None):
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1')
         result = subprocess.run(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments)], capture_output=True, env=env, timeout=160)
@@ -299,6 +300,74 @@ def run_case(name, work, tools, core):
         for variant in ['node', 'native']:
             hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
+    elif name.startswith('execution-'):
+        assert execution is not None
+        runtime = 'exec' if name in ('execution-exec', 'execution-exec-interrupt') else 'node'
+        original = (project / 'executor/index.ts').read_text()
+        manifest, config = execution_project(runtime)
+        if runtime == 'node':
+            manifest['executor']['variants'][0]['runtimeVersionRange'] = '>=22.0.0 <1000.0.0'
+            (project / 'executor/index.ts').write_text(original)
+            facts = {**host, 'runtimes': ['node'], 'programs': {'node': {'state': 'available', 'version': execution['version']}}}
+            spec = {k: v for k, v in execution.items() if k != 'version'}
+        else:
+            child = project / 'bin/fixture'
+            compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
+            built = subprocess.run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/src'), str(ROOT / 'scripts/fixtures/plugin-dev-executor.c'), str(core / 'libghosterm_core.a'), '-lpthread', '-lm', '-o', str(child)], capture_output=True, text=True, timeout=120)
+            assert built.returncode == 0, built.stderr
+            facts = {**host, 'runtimes': ['exec'], 'os': 'macos', 'arch': 'aarch64'}
+            contract = json.loads((project / 'plugin.test.json').read_text()); contract['method'] = 'fixture.echo'
+            (project / 'plugin.test.json').write_text(json.dumps(contract)); spec = {'runtime': 'exec'}
+        (project / 'plugin.json').write_text(json.dumps(manifest))
+        hostfile.write_text(json.dumps(facts)); specfile = work / 'execution.json'; specfile.write_text(json.dumps(spec))
+        arguments = ['test', *common, '--contract', project / 'plugin.test.json', '--core-build', core, '--host-json', hostfile, '--execution-json', specfile]
+        if name in ('execution-interrupt', 'execution-exec-interrupt'):
+            if runtime == 'node':
+                text = (project / 'executor/index.ts').read_text()
+                text = 'import { writeFileSync } from "node:fs";\n' + text.replace('    if (input.text === "throw")', '    if (input.text === "wait") { const root = process.env.TMPDIR; if (!root) throw new Error("TMPDIR"); writeFileSync(root + "/entered", String(process.pid)); return new Promise<{text:string}>(() => {}); }\n    if (input.text === "throw")')
+                (project / 'executor/index.ts').write_text(text)
+            contract = json.loads((project / 'plugin.test.json').read_text()); contract['input'] = {'text': 'wait'}
+            (project / 'plugin.test.json').write_text(json.dumps(contract))
+            for number, expected_status in [(signal.SIGTERM, 143), (signal.SIGINT, 130)]:
+                existing = set((ROOT / 'tmp').glob('plugin-dev-*'))
+                process = subprocess.Popen(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments), '--allow-process-execution'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1'))
+                try:
+                    until = time.monotonic() + 15; markers = []
+                    while process.poll() is None and time.monotonic() < until:
+                        markers = [p / 'execution/entered' for p in (ROOT / 'tmp').glob('plugin-dev-*') if p not in existing and (p / 'execution/entered').is_file()]
+                        if markers: break
+                        time.sleep(.01)
+                    assert len(markers) == 1 and process.poll() is None, 'owned handler must be live before interruption'
+                    child = int(markers[0].read_text()); temporary = markers[0].parent.parent
+                    process.send_signal(number); stdout, stderr = process.communicate(timeout=8)
+                    assert process.returncode == expected_status and not stdout and b'Traceback' not in stderr, (process.returncode, stdout, stderr)
+                    assert not temporary.exists(), 'owned execution snapshot must be removed'
+                    until = time.monotonic() + 3
+                    while time.monotonic() < until:
+                        try: os.kill(child, 0)
+                        except ProcessLookupError: break
+                        time.sleep(.01)
+                    else: raise AssertionError('owned execution process survived interruption')
+                finally:
+                    if process.poll() is None: process.terminate(); process.communicate(timeout=8)
+        elif name == 'execution-approval':
+            rejected = [a if a != core else work / 'must-not-run' for a in arguments]
+            assert cli(*rejected, status=6)['code'] == 'TEST_EXECUTION_APPROVAL'
+            assert cli(*rejected, '--allow-process-execution', '--side', 'client', status=2)['code'] == 'TEST_EXECUTION_SIDE'
+            specfile.write_text(json.dumps({**spec, 'environment': {'NODE_OPTIONS': '--inspect'}}))
+            assert cli(*rejected, '--allow-process-execution', status=2)['code'] == 'TEST_EXECUTION_CONFIG'
+        elif name == 'execution-pins':
+            assert cli(*arguments, '--allow-process-execution')['runtime'] == 'node'
+            for key in ['nodeSHA256', 'nodeSDKCatalogSHA256']:
+                specfile.write_text(json.dumps({**spec, key: '0' * 64}))
+                assert cli(*arguments, '--allow-process-execution', status=1, diagnostic='ASSERT:')['kind'] == 'error'
+            specfile.write_text(json.dumps(spec))
+            facts['programs']['node']['version'] = '999.0.0'; hostfile.write_text(json.dumps(facts))
+            assert cli(*arguments, '--allow-process-execution', status=1, diagnostic='ASSERT:')['kind'] == 'error'
+        else:
+            report = cli(*arguments, '--allow-process-execution')
+            assert report['runtime'] == runtime and report['observations'][1]['outcome']['value'] == {'text': 'hello'}
+            assert all(report['observations'][-1][k] for k in ['externalProcess', 'childActivated', 'childExited', 'engineReleased', 'fdBalance'])
     elif name == 'activation-failure':
         (project / 'executor/index.ts').write_text('export function activate() { throw new Error("fixture activation failure"); }\n')
         assert native(status=1)['kind'] == 'error'
@@ -355,6 +424,7 @@ CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports
 CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'paired-declarations']
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
+EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -376,26 +446,36 @@ MUTATIONS = [
     ('test-runtime', 'node-facts', 'scripts/plugin-dev-worker.mjs', "if (compatibility === 'compatible' && selected.runtime !== 'portable-js')", "if (false)"),
     ('source-references', 'source-references', 'scripts/plugin-dev-worker.mjs', "demand(!tree.referencedFiles.length && !tree.typeReferenceDirectives.length && !tree.libReferenceDirectives.length, 'REFERENCE_DIRECTIVE');", ''),
 ]
+EXECUTION_MUTATIONS = [
+    ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
+    ('development-execution-environment', 'execution-approval', 'scripts/gterm-plugin', "require(set(value) == keys, 'TEST_EXECUTION_CONFIG')", "require(True, 'TEST_EXECUTION_CONFIG')"),
+    ('development-execution-adoption', 'execution-node', 'scripts/probes/plugin-testkit.c', 'options.execution = &execution;', 'options.execution = NULL;'),
+    ('development-node-pin', 'execution-pins', 'scripts/probes/plugin-testkit.c', 'execution.node_sha256 = argv[10];', 'execution.node_sha256 = "0000000000000000000000000000000000000000000000000000000000000000";'),
+]
 
 
-def mutations(work, tools, core):
+def mutations(work, tools, core, execution=None, execution_arguments=()):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
     files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
+    extra_sources = ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
+    for name in extra_sources:
+        target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     build = isolated / 'tmp/core'; build.mkdir()
     for name in ['libghosterm_core.a', 'libghosterm_quickjs.a', 'CMakeCache.txt']:
         os.link(core / name, build / name)
     evidence = []
-    for label, _case, filename, original, _changed in MUTATIONS:
+    selected = MUTATIONS + (EXECUTION_MUTATIONS if execution else [])
+    for label, _case, filename, original, _changed in selected:
         assert (isolated / filename).read_text().count(original) == 1, (label, 'ambiguous mutation anchor')
-    for label, case, filename, original, changed in MUTATIONS:
+    for label, case, filename, original, changed in selected:
         target = isolated / filename; before = target.read_bytes(); text = before.decode()
         assert text.count(original) == 1, (label, 'ambiguous mutation anchor')
         def probe():
-            return subprocess.run(['python3', str(isolated / 'scripts/test-plugin-dev.py'), '--tools', str(tools), '--core-build', str(build), '--case', case], capture_output=True, timeout=200)
+            return subprocess.run(['python3', str(isolated / 'scripts/test-plugin-dev.py'), '--tools', str(tools), '--core-build', str(build), '--case', case, *execution_arguments], capture_output=True, timeout=200)
         baseline = probe(); assert baseline.returncode == 0, (label, baseline.stderr.decode())
         target.write_text(text.replace(original, changed))
         try:
@@ -419,22 +499,38 @@ def mutations(work, tools, core):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools', type=Path, required=True); parser.add_argument('--core-build', type=Path, required=True)
-    parser.add_argument('--case', choices=CASES); parser.add_argument('--mutate', action='store_true'); parser.add_argument('--receipt', type=Path)
+    parser.add_argument('--case', choices=CASES + EXECUTION_CASES); parser.add_argument('--mutate', action='store_true'); parser.add_argument('--receipt', type=Path)
+    parser.add_argument('--execute', action='store_true'); parser.add_argument('--node-executable', type=Path); parser.add_argument('--node-sdk', type=Path)
     args = parser.parse_args(); core, tools = args.core_build.resolve(), args.tools.resolve()
+    execution = None; execution_arguments = []; binary_inputs = {}
+    if args.execute:
+        if not args.node_executable or not args.node_sdk: parser.error('--execute requires explicit --node-executable and --node-sdk')
+        node, sdk = args.node_executable.resolve(strict=True), args.node_sdk.resolve(strict=True)
+        version = subprocess.check_output([str(node), '--version'], text=True, timeout=5).strip().removeprefix('v')
+        catalog = hashlib.sha256()
+        for p in sorted((p for p in sdk.rglob('*') if p.is_file()), key=lambda p: p.relative_to(sdk).as_posix().encode()):
+            name = p.relative_to(sdk).as_posix().encode(); catalog.update(len(name).to_bytes(4, 'big') + p.stat().st_size.to_bytes(8, 'big') + name + digest(p).encode()); binary_inputs[str(p)] = digest(p)
+        execution = dict(runtime='node', nodeExecutable=str(node), nodeSHA256=digest(node), nodeSDKDirectory=str(sdk), nodeSDKCatalogSHA256=catalog.hexdigest(), version=version)
+        binary_inputs[str(node)] = digest(node)
+        execution_arguments = ['--execute', '--node-executable', str(node), '--node-sdk', str(sdk)]
+    if args.case in EXECUTION_CASES and not execution: parser.error('execution cases require --execute')
     sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
+    sources.update(ROOT / n for n in ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc'])
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:
         sources.update(p for p in (ROOT / directory).rglob('*') if p.is_file())
     inputs = {str(p.relative_to(ROOT)): digest(p) for p in sorted(sources)}
     with tempfile.TemporaryDirectory(prefix='plugin-dev-test-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
-        for case in [args.case] if args.case else CASES:
-            directory = work / case; directory.mkdir(); run_case(case, directory, tools, core)
+        selected_cases = [args.case] if args.case else CASES + (EXECUTION_CASES if execution else [])
+        for case in selected_cases:
+            directory = work / case; directory.mkdir(); run_case(case, directory, tools, core, execution)
             print('PASS ' + case, flush=True)
-        proof = mutations(work, tools, core) if args.mutate else []
+        proof = mutations(work, tools, core, execution, execution_arguments) if args.mutate else []
     assert all(digest(ROOT / name) == value for name, value in inputs.items()), 'inputs changed during verification'
+    assert all(digest(Path(name)) == value for name, value in binary_inputs.items()), 'execution inputs changed'
     if args.receipt:
-        args.receipt.write_text(json.dumps(dict(inputs=inputs, cases=[args.case] if args.case else CASES, mutations=proof, coreSHA256=digest(core / 'libghosterm_core.a'), quickjsSHA256=digest(core / 'libghosterm_quickjs.a')), indent=2) + '\n')
+        args.receipt.write_text(json.dumps(dict(inputs=inputs, binary_inputs=binary_inputs, execution=execution, cases=selected_cases, mutations=proof, coreSHA256=digest(core / 'libghosterm_core.a'), quickjsSHA256=digest(core / 'libghosterm_quickjs.a')), indent=2) + '\n')
 
 
 if __name__ == '__main__':

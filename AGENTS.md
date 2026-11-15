@@ -1465,3 +1465,20 @@ Node ESM 静态闭包、Exec 非空字节、完整性 / 可复现 ZIP、显式 v
 SDK 身份 / Runtime 预算变化；无新 App / APK / 设备 / Node / Exec 业务执行 /
 SSH / 发行结论，无 sanitizer 新结论。Node / Exec 开发执行、服务 testkit 与
 完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划第十七批及开发指南。
+
+
+**插件 P5 Node / Exec 开发执行（2026-11-15）**：单侧 `gterm-plugin test` 需显式
+execution JSON / 本次执行授权 / Executor Host 事实；Node 固定可执行文件 / SDK
+catalog，Exec 来自已检查包，版本 / 字节 / 握手与进程生命周期复用公开 Core。
+只传内部 TMPDIR，不开放未知配置或环境字段；无配置仍 UNSUPPORTED，Client /
+paired 拒绝外部执行配置。真实 Node handler / 自有 C Exec 协议 peer 通过成功值 /
+unknown、排队控制取消 / 旧 epoch / 撤权、激活 / reap / 暂存 / fd；不冒充业务取消
+或进程 RSS 沙箱。Node / Exec 各实际 INT / TERM 四次中断均在观察到活跃 handler
+后发信号，130 / 143、子进程退出及私有目录回收通过；Native owner 先有界关闭，
+工具组有限等待后停止。38 项基线、23 组隔离变异正常断言红 / 独立 Core 配置绿 /
+恢复 / SHA256，64 源及 35 个 Node / SDK 构件输入一致。实际 Node 26.4.0，另验
+中文 / emoji / 单引号 / `$()` 原始 argv。默认 Core 588/184、C 格式 263、Apple
+181/3、JNI 147/37 通过；无 sanitizer 新结论，无产品 Core / 平台 / ABI / SDK
+身份或 Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行。含外部执行的
+双侧测试、服务 testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件
+计划第十八批及[开发指南](docs/how-to/plugin-development.md)。

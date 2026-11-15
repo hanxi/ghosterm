@@ -4,8 +4,8 @@
 Portable Client 加 Portable / Node / Exec Executor 运行档。命令读取固定副本，不执行项目的 npm
 脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
 默认测试 Executor，`--side client` 测试 Client，`--side paired` 同时激活两侧。
-`test` 的 Executor / paired 档目前只激活 Portable；Node / Exec 的开发执行测试及
-文件 / 进程 / UI 服务测试仍待接入。
+`test` 默认只激活 Portable；单侧 Executor 可用显式执行配置测试 Node / Exec。
+双侧含 Node / Exec 的执行测试及文件 / 进程 / UI 服务测试仍待接入。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -83,8 +83,47 @@ Exec 运行档使用 `executable`，例如：
 同包多个运行档需在 Host 事实中显式给 `variantId`；工具不根据 Node 是否安装
 悄悄换成另一个运行档。Node 的 `programs.node` 事实须明确 available / missing /
 denied 及版本；没有事实为 unknown，不会执行 `node --version` 或安装 Node。
-`test` 尚未提供 Node / Exec 执行配置，兼容的这些 Executor 会明确返回退出码 4 /
-`TEST_RUNTIME_UNSUPPORTED`；可以用 `--side client` 测试其 Portable Client。
+未提供执行配置时，兼容的 Node / Exec Executor 仍明确返回退出码 4 /
+`TEST_RUNTIME_UNSUPPORTED`；也可以用 `--side client` 测试其 Portable Client。
+
+单侧 Node / Exec 的实际执行使用 `--execution-json 文件 --allow-process-execution`，
+且必须显式提供 `--host-json` 的 Executor 事实。执行授权只限这一次开发测试。
+Node 配置包含以下字段（路径和摘要须替换为自己独立核对的值）：
+
+```json
+{
+  "runtime": "node",
+  "nodeExecutable": "/absolute/physical/path/to/node",
+  "nodeSHA256": "<64位SHA256>",
+  "nodeSDKDirectory": "/absolute/path/to/trusted-node-sdk",
+  "nodeSDKCatalogSHA256": "<可信SDK目录的catalog摘要>"
+}
+```
+
+可信 SDK 可用锁定的 `scripts/fixtures/plugin-sdk-tools` 和
+`scripts/build-plugin-node-sdk.mjs --tools 工具目录 --out 工程tmp下的新目录` 构建，
+输出中的 `catalog=` 是目录摘要；它与插件自身的 integrity 摘要不同。Node 路径
+必须是实际文件的绝对路径；Core 校验可执行字节、SDK 捕获快照，并实际核对 Node
+版本与 Host 事实。SDK / Node 不会由测试命令自动安装或从 PATH 猜测。
+
+Exec 的配置只有 `{"runtime":"exec"}`；选定的二进制仍来自已检查包的
+`executable`，平台事实及摘要保持原校验。两种配置都不能添加环境或其它未知字段。
+本片只向进程传内部私有暂存目录的 `TMPDIR`，不传 HOME、PATH 或 NODE_OPTIONS。
+
+```sh
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.test.json --core-build tmp/plugin-dev/core --host-json tmp/plugin-dev/executor-host.json --execution-json tmp/plugin-dev/execution.json --allow-process-execution
+```
+
+执行仍走公开 Core Runtime 门面、本机 socketpair 和 Native 对端；没有假业务回包。
+记录真实激活、成功 / unknown、发送前取消 / 撤权、子进程退出、暂存目录为空及 fd
+平衡。外部模式拒绝嵌入式 heap / CPU 预算，不能据此宣称限制了 Node / Exec 的
+RSS；Core 的既有时间 / 输出限额仍生效。这不是同用户 OS 沙箱，不授予文件或
+业务进程服务。`--side client/paired` 拒绝外部执行配置，不静默改测另一个运行档。
+
+运行中 INT / TERM 会先请求受控 Native owner 清理，再在有限等待后停止仍存活的
+自有工具进程组。退出 130 / 143 表示测试被中断，不是业务成功或业务取消回执。
+手工全套可加 `scripts/test-plugin-dev.py --execute --node-executable 实际Node路径
+--node-sdk 可信SDK目录`，该 verifier 的版本探针只针对明确选定的本机工具。
 
 `test` 需要显式启用 JS 的工程内 Core 构建，不复用默认 JS-off 的 `core/build`：
 

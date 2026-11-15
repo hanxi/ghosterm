@@ -3,6 +3,7 @@
 #include "../../core/tests/test_ext_session.c"
 #undef main
 #include <inttypes.h>
+#include <signal.h>
 
 static void kit_check(bool condition, const char *message) {
     if (!condition) {
@@ -56,6 +57,41 @@ kit_bind(char output[GT_EXT_RPC_BODY_MAX + 1], const char *input, const gt_ext_l
 }
 
 #ifndef GT_TESTKIT_HELPERS_ONLY
+static gt_ext_runtime_t *kit_live;
+static volatile sig_atomic_t kit_interrupted;
+
+static void kit_signal(int number) {
+    kit_interrupted = number;
+}
+
+static void kit_emergency_cleanup(void) {
+    if (!kit_live) {
+        return;
+    }
+    gt_ext_runtime_stop(kit_live);
+    uint64_t until = ext_now() + 3000;
+    while (ext_now() < until) {
+        if (gt_ext_runtime_close(kit_live) == GT_EXT_RELEASED) {
+            gt_ext_runtime_destroy(&kit_live);
+            return;
+        }
+        struct timespec pause = {0, 1000000};
+        nanosleep(&pause, NULL);
+    }
+    fprintf(stderr, "ASSERT: development Runtime cleanup retained owner\n");
+}
+
+static void kit_yield(gt_ext_runtime_t *runtime) {
+    if (kit_interrupted) {
+        exit(128 + kit_interrupted);
+    }
+    gt_ext_runtime_info_t info;
+    if (gt_ext_runtime_info(runtime, &info) && info.external_process) {
+        struct timespec pause = {0, 1000000};
+        nanosleep(&pause, NULL);
+    }
+}
+
 static void kit_request(gt_ext_session_t *peer,
                         gt_ext_runtime_t *runtime,
                         const gt_ext_lease_t *lease,
@@ -71,6 +107,7 @@ static void kit_request(gt_ext_session_t *peer,
     for (unsigned step = 0; step < 2000; step++) {
         gt_ext_session_step(peer, 0);
         gt_ext_runtime_step(runtime);
+        kit_yield(runtime);
         gt_ext_runtime_info_t state;
         kit_check(gt_ext_runtime_info(runtime, &state) && state.phase == GT_EXT_RUNTIME_ACTIVE,
                   "active Runtime during request");
@@ -94,10 +131,16 @@ static void kit_request(gt_ext_session_t *peer,
 
 int main(int argc, char **argv) {
     /* directory, host JSON, side, command, method, input, error input, then raw argv */
-    if (argc < 8 || argc > 40) {
+    bool external = argc >= 8 && (!strcmp(argv[3], "node") || !strcmp(argv[3], "exec"));
+    int offset = external ? 13 : 8;
+    if (argc < offset || argc > offset + 32) {
         return 2;
     }
-    kit_check(!strcmp(argv[3], "client") || !strcmp(argv[3], "executor"), "selected side");
+    kit_check(external || !strcmp(argv[3], "client") || !strcmp(argv[3], "executor"),
+              "selected side");
+    kit_check(!atexit(kit_emergency_cleanup), "register owned Runtime cleanup");
+    kit_check(signal(SIGTERM, kit_signal) != SIG_ERR && signal(SIGINT, kit_signal) != SIG_ERR,
+              "register owned Runtime interruption");
     gt_ext_role_t role = !strcmp(argv[3], "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
     size_t before = ext_fds();
     int fd = open(argv[1], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -148,25 +191,53 @@ int main(int argc, char **argv) {
     gt_ext_lease_t lease;
     kit_check(gt_ext_session_lease(peer, &lease), "opposite peer lease");
     printf("{\"case\":\"lease\",\"side\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"%" PRIu64 "\"}\n",
-           argv[3],
+           external ? "executor" : argv[3],
            lease.instance,
            lease.epoch);
-    gt_ext_invocation_t invocation = {
-        .command = argv[4], .argv = (const char *const *)(argv + 8), .argc = (size_t)argc - 8};
+    gt_ext_invocation_t invocation = {.command = argv[4],
+                                      .argv = (const char *const *)(argv + offset),
+                                      .argc = (size_t)argc - (size_t)offset};
     gt_ext_runtime_config_t options = {.role = role, .invocation = &invocation};
+    gt_ext_runtime_execution_t execution = {
+        .stage_parent_fd = -1, .node_sdk_directory_fd = -1, .execution_authorized = true};
+    gt_ext_process_environment_t environment = {.name = "TMPDIR"};
+    if (external) {
+        execution.stage_parent_path = argv[8];
+        execution.stage_parent_fd = open(argv[8], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        kit_check(execution.stage_parent_fd >= 0, "private execution parent");
+        environment.value = argv[8];
+        execution.environment = &environment;
+        execution.environment_count = 1;
+        if (!strcmp(argv[3], "node")) {
+            execution.node_executable = argv[9];
+            execution.node_sha256 = argv[10];
+            execution.node_sdk_directory_fd =
+                open(argv[11], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            execution.node_sdk_catalog_sha256 = argv[12];
+            kit_check(execution.node_sdk_directory_fd >= 0, "explicit trusted Node SDK");
+        }
+        options.execution = &execution;
+    }
     gt_ext_runtime_t *runtime = NULL;
     options.memory_bytes = 128u * 1024u * 1024u + 1u;
     kit_check(gt_ext_runtime_open_package(slot, package, &options, true, &runtime) ==
-                      GT_ERR_INVALID_ARG &&
+                      (external ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG) &&
                   !runtime && *slot,
               "oversized configured budget refused without adoption");
     options.memory_bytes = 0;
-    kit_check(gt_ext_runtime_open_package(slot, package, &options, true, &runtime) == GT_OK &&
-                  runtime && !*slot,
-              "real Runtime adoption after rejected budget");
+    gt_status_t opened = gt_ext_runtime_open_package(slot, package, &options, true, &runtime);
+    kit_live = runtime;
+    if (execution.stage_parent_fd >= 0) {
+        close(execution.stage_parent_fd);
+    }
+    if (execution.node_sdk_directory_fd >= 0) {
+        close(execution.node_sdk_directory_fd);
+    }
+    kit_check(opened == GT_OK && runtime && !*slot, "real Runtime adoption after rejected budget");
     gt_ext_runtime_info_t state;
     bool activated = false;
-    for (unsigned i = 0; i < 2000; i++) {
+    uint64_t activation_until = ext_now() + 10000;
+    for (unsigned i = 0; i < (external ? 10000u : 2000u) && ext_now() < activation_until; i++) {
         gt_ext_session_step(peer, 0);
         gt_ext_runtime_step(runtime);
         kit_check(gt_ext_runtime_info(runtime, &state), "Runtime observation");
@@ -175,6 +246,7 @@ int main(int argc, char **argv) {
             break;
         }
         kit_check(state.phase != GT_EXT_RUNTIME_FAILED, "plugin activation failed");
+        kit_yield(runtime);
     }
     kit_check(activated, "bounded activation");
     kit_request(peer, runtime, &lease, argv[5], argv[6], "response");
@@ -213,16 +285,26 @@ int main(int argc, char **argv) {
             released = true;
             break;
         }
+        kit_yield(runtime);
     }
     kit_check(released && gt_ext_runtime_info(runtime, &state) && state.engine_released &&
                   !state.dispose_error && state.cleanup_error == GT_OK,
               "bounded engine and cooperative cleanup");
+    if (external) {
+        kit_check(state.external_process && state.activated && state.child_exited,
+                  "external activation and leader reap");
+    }
     kit_check(gt_ext_runtime_destroy(&runtime) == GT_OK && !runtime, "Runtime destruction");
+    kit_live = NULL;
     ext_drop(role == GT_EXT_HOST ? &pair.e : &pair.h);
     kit_check(gt_ext_package_destroy(&package) == GT_OK && !package, "package release");
     kit_check(ext_fds() == before, "native descriptor balance");
-    puts("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,"
-         "\"stale\":true,\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true}");
+    printf("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,"
+           "\"stale\":true,\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,"
+           "\"externalProcess\":%s,\"childActivated\":%s,\"childExited\":%s}\n",
+           external ? "true" : "false",
+           state.activated ? "true" : "false",
+           state.child_exited ? "true" : "false");
     return 0;
 }
 #endif

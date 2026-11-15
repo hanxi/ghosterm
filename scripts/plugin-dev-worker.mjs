@@ -188,7 +188,9 @@ try {
       manifest.executor?.variants?.find(v => v.id === facts?.variantId) ?? manifest.executor?.variants?.[0];
     demand(selected?.requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
     if (compatibility === 'compatible' && selected.runtime !== 'portable-js') {
-      compatibility = 'unsupported'; reason = 'TEST_RUNTIME_UNSUPPORTED';
+      if (request.testRuntime !== selected.runtime) {
+        compatibility = 'unsupported'; reason = 'TEST_RUNTIME_UNSUPPORTED';
+      }
     }
   }
   console.log(JSON.stringify({ structural: true, compatibility, reason, exitCode: { compatible: 0, unknown: 3, unsupported: 4, denied: 6 }[compatibility],
