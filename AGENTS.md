@@ -1342,3 +1342,17 @@ APK / 未签名 Release / 实际 R8 / 四模块 lint、默认 Core 588/181、C �
 Apple 178/3、JNI 144/37 通过。无新 ABI / SDK 身份或预算提高。非 TalkBack / IME /
 键盘、16 KiB / 真机、真实丢包 / 重连、完整选包点击链 / 生命周期 / 客户端或发行证据；
 task IPC、ctx.views / 多视图及完整 P5 / P1–P6 未完成，默认 JS-off，不增加 CI 二十份。
+
+**插件 P5 开发命令与 RPC testkit（2026-11-15）**：`scripts/gterm-plugin`
+init / check / build / pack / test 已接 Portable pair 首片；strict TypeScript、固定
+副本 / 导入闭包、Host 三态 / 依赖事实、排他原子发布与可复现 ZIP。真实公开 Core /
+QuickJS Executor RPC 夹具验激活、错误 unknown、排队取消、旧 epoch / 撤权、预算
+准入与引擎 / fd 释放；配置准入不是 OOM / RSS，请求取消不是业务任务取消。
+`scripts/test-plugin-dev.py --mutate` 十六组基线、六组隔离工具 / Native 夹具变异
+通过：正常断言红、独立配置绿、恢复绿与 SHA256；54 输入一致。实际 TERM 中断
+回收活跃 worker 并清空固定副本。默认 Core 588/181、C 格式 19.1.7 / 259 文件、
+Apple 178/3、JNI 144/37 通过；无 enabled Core 全套或平台 App / APK 新结论。
+前置 schema / 发布路径 / 对照参数失败单列，分轮与收据见插件计划 P5 第十批及
+[开发指南](docs/how-to/plugin-development.md)。无新 ABI / SDK 身份、安装或权限
+授予。macOS arm64 手工证据，不增加 CI 二十份；Node / Exec 开发、Client 激活、
+完整资源 / Native UI / SSH / 设备 / 生命周期及 P5 / P1–P6 仍未完成。

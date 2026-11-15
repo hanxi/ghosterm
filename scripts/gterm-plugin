@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Candidate Portable plugin developer commands. No install or post-build hooks."""
+import argparse
+import ctypes
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import unicodedata
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+TMP = ROOT / 'tmp'
+sys.dont_write_bytecode = True
+
+
+class Failure(Exception):
+    def __init__(self, code, status=2):
+        super().__init__(code)
+        self.status = status
+
+
+def require(condition, code):
+    if not condition:
+        raise Failure(code)
+
+
+def pairs(items):
+    result = {}
+    for key, value in items:
+        require(key not in result and key not in ('__proto__', 'prototype', 'constructor'), 'DUPLICATE_OR_RESERVED_KEY')
+        result[key] = value
+    return result
+
+
+def decode(data):
+    require(len(data) <= 131072, 'JSON_LIMIT')
+    text = data.decode('utf-8', errors='strict')
+    try:
+        result = json.loads(text, object_pairs_hook=pairs, parse_constant=lambda _: (_ for _ in ()).throw(Failure('JSON_NUMBER')))
+    except RecursionError:
+        raise Failure('JSON_DEPTH') from None
+    def valid(value, depth=0):
+        require(depth <= 32, 'JSON_DEPTH')
+        if isinstance(value, str):
+            value.encode('utf-8', errors='strict')
+        elif isinstance(value, float):
+            require(math.isfinite(value), 'JSON_NUMBER')
+        elif isinstance(value, list):
+            for child in value:
+                valid(child, depth + 1)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                valid(key, depth + 1)
+                valid(child, depth + 1)
+    valid(result)
+    return result
+
+
+def encoded(value):
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def read_json(filename):
+    fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_size <= 131072, 'JSON_FILE')
+        data = b''
+        while len(data) <= before.st_size:
+            chunk = os.read(fd, before.st_size + 1 - len(data))
+            if not chunk:
+                break
+            data += chunk
+        after = os.fstat(fd)
+        require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and len(data) == before.st_size, 'SOURCE_CHANGED')
+        return decode(data)
+    finally:
+        os.close(fd)
+
+
+def member(name):
+    require(isinstance(name, str) and 0 < len(name) <= 1024 and name == unicodedata.normalize('NFC', name) and
+            not any(ord(c) < 32 or ord(c) == 127 or c in '\\:' for c in name) and
+            all(p and p not in ('.', '..') and not p.endswith(('.', ' ')) for p in name.split('/')), 'MEMBER_PATH')
+    name.encode('utf-8', errors='strict')
+    return name
+
+
+def capture(directory, destination, project=False):
+    """Pin a physical root, walk via dirfds and read stable regular-file handles."""
+    rootfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    observed = {}
+    folded = set()
+    entries = total = 0
+    try:
+        device = os.fstat(rootfd).st_dev
+        for parent, dirs, files, owner in os.fwalk('.', topdown=True, follow_symlinks=False, dir_fd=rootfd):
+            if project:
+                dirs[:] = [n for n in dirs if n not in ('.git', 'node_modules')]
+            entries += len(dirs) + len(files)
+            require(entries <= 4096 and len(Path(parent).parts) <= 32, 'TREE_LIMIT')
+            require(os.fstat(owner).st_dev == device, 'MOUNT_BOUNDARY')
+            for name in dirs:
+                require(stat.S_ISDIR(os.stat(name, dir_fd=owner, follow_symlinks=False).st_mode), 'NONPHYSICAL_DIRECTORY')
+            for name in sorted(files):
+                relative = member((Path(parent) / name).as_posix())
+                require(relative.lower() not in folded, 'CASE_COLLISION')
+                folded.add(relative.lower())
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=owner)
+                try:
+                    before = os.fstat(fd)
+                    require(stat.S_ISREG(before.st_mode) and before.st_dev == device, 'NONREGULAR_MEMBER')
+                    require(before.st_size <= 16777216 and len(observed) < 1024, 'PACKAGE_LIMIT')
+                    chunks = []
+                    remaining = before.st_size + 1
+                    while remaining:
+                        chunk = os.read(fd, min(65536, remaining))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        remaining -= len(chunk)
+                    data = b''.join(chunks)
+                    after = os.fstat(fd)
+                    require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                            (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and len(data) == before.st_size, 'SOURCE_CHANGED')
+                finally:
+                    os.close(fd)
+                total += len(data)
+                require(total <= 67108864, 'PACKAGE_LIMIT')
+                if relative.endswith('.json'):
+                    decode(data)
+                if relative.endswith(('.ts', '.js', '.mjs')):
+                    data.decode('utf-8', errors='strict')
+                target = destination / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                observed[relative] = data
+    finally:
+        os.close(rootfd)
+    return observed
+
+
+def run(command, seconds=60):
+    env = dict(os.environ, TMPDIR=str(TMP), npm_config_update_notifier='false')
+    if sys.platform == 'darwin' and 'DEVELOPER_DIR' not in env and Path('/Applications/Xcode.app/Contents/Developer').is_dir():
+        env['DEVELOPER_DIR'] = '/Applications/Xcode.app/Contents/Developer'
+    # The shared timeout kills descendants; communicate() alone cannot do so.
+    bounded = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-dev; shift; exec "$gt_timeout_bin" "$@"',
+               'plugin-dev', ROOT, seconds, *command]
+    process = subprocess.Popen(list(map(str, bounded)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
+    try:
+        output, diagnostics = process.communicate(timeout=seconds + 5)
+    finally:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if process.returncode:
+        # Compiler/Native diagnostics belong on stderr, never mixed into JSON stdout.
+        sys.stderr.buffer.write(diagnostics[-16384:])
+        sys.stderr.buffer.write(output[-16384:])
+        raise Failure('TOOL_FAILED', 1)
+    return output
+
+
+def tools_path(path):
+    tools = Path(path).resolve(strict=True)
+    for name in ('package.json', 'package-lock.json'):
+        require((tools / name).read_bytes() == (ROOT / 'scripts/fixtures/plugin-dev-tools' / name).read_bytes(), 'TOOLS_LOCK')
+    return tools
+
+
+def publish(stage, destination):
+    destination = Path(destination).absolute()
+    require(not destination.exists() and not destination.is_symlink(), 'OUTPUT_EXISTS')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Publication never replaces an existing path; cross-device publication fails.
+    if stage.is_dir():
+        libc = ctypes.CDLL(None, use_errno=True)
+        if sys.platform == 'darwin' and hasattr(libc, 'renamex_np'):
+            operation = libc.renamex_np
+            operation.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            result = operation(os.fsencode(stage), os.fsencode(destination), 4)  # RENAME_EXCL
+        elif sys.platform.startswith('linux') and hasattr(libc, 'renameat2'):
+            operation = libc.renameat2
+            operation.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            result = operation(-100, os.fsencode(stage), -100, os.fsencode(destination), 1)  # NOREPLACE
+        else:
+            raise Failure('ATOMIC_PUBLISH_UNSUPPORTED', 4)
+        if result:
+            number = ctypes.get_errno()
+            raise OSError(number, os.strerror(number))
+    else:
+        os.link(stage, destination, follow_symlinks=False)
+
+
+def worker(work, tools, source, output=None, host=None, registry=(), test=False):
+    request = dict(root=str(ROOT), tools=str(tools), source=str(source), output=str(output) if output else None,
+                   host=host, registry=list(registry), testProfile=test)
+    filename = work / 'request.json'
+    filename.write_bytes(encoded(request))
+    response = decode(run(['node', ROOT / 'scripts/plugin-dev-worker.mjs', filename], 60))
+    require(response.get('structural') is True, 'PACKAGE_CHECK')
+    return response
+
+
+def scaffold(destination, plugin_id, command, publisher):
+    require(re.fullmatch(r'[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+', plugin_id) and len(plugin_id) <= 128, 'PLUGIN_ID')
+    require(re.fullmatch(r'[a-z][a-z0-9-]{0,63}', command) and command not in ('plugin', 'doctor', 'relay'), 'COMMAND')
+    require(0 < len(publisher) <= 128 and '\0' not in publisher, 'PUBLISHER')
+    manifest = dict(schemaVersion=1, id=plugin_id, pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher=publisher, license='MIT',
+        commands=[dict(path=[command], title='Typed echo', argsSchema='schemas/command.json', views=[])],
+        client=dict(runtime='portable-js', entry='client/index.js', requires=['session.rpc']),
+        executor=dict(variants=[dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=['session.rpc'])]),
+        permissions=[dict(side=side, capability='session.rpc', purpose='Exchange instance-scoped typed requests.', scope='instance') for side in ('client', 'executor')])
+    executor = '''import { object, text } from "@ghosterm/plugin-sdk";
+import type { PluginContext } from "@ghosterm/plugin-sdk";
+const Echo = { name: "dev.echo", input: object({ text: text(64) }), output: object({ text: text(64) }) };
+export function activate(context: PluginContext) {
+  if (context.side !== "executor" || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Executor RPC required");
+  let live = true;
+  context.session.register(Echo, (input, request) => {
+    request.check();
+    if (!live || context.cancellation.cancelled || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Revoked");
+    if (input.text === "throw") throw new Error("Declared test error path");
+    return { text: input.text };
+  });
+  return { dispose() { live = false; } };
+}
+'''
+    client = '''import type { PluginContext } from "@ghosterm/plugin-sdk";
+export function activate(context: PluginContext) {
+  if (context.side !== "client" || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Client RPC required");
+  return { dispose() {} };
+}
+'''
+    files = {'plugin.json': encoded(manifest), 'client/index.ts': client.encode(), 'executor/index.ts': executor.encode(),
+        'schemas/command.json': encoded({'type': 'object', 'additionalProperties': False, 'properties': {}, 'required': [], 'x-ghosterm-cli': {'version': 1, 'fields': {}}}),
+        'plugin.project.json': encoded(dict(schemaVersion=1, sources=['client/index.ts', 'executor/index.ts'], assets=['README.md', 'LICENSES/MIT.txt', 'schemas/command.json'])),
+        'plugin.test.json': encoded(dict(schemaVersion=1, command=command, arguments=[], method='dev.echo', input={'text': 'hello'}, expected={'text': 'hello'}, errorInput={'text': 'throw'}, errorKind='unknown')),
+        'README.md': b'# Portable development plugin\n\nTyped RPC scaffold; no Native view, installation or publisher authentication.\nThe throw input is an explicit harness fixture, not a successful business result.\n',
+        'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes()}
+    with tempfile.TemporaryDirectory(prefix='plugin-init-', dir=TMP) as directory:
+        stage = Path(directory) / 'project'; stage.mkdir()
+        for name, data in files.items():
+            target = stage / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data + (b'\n' if name.endswith('.json') else b''))
+        publish(stage, destination)
+    return dict(kind='initialized', id=plugin_id, path=str(Path(destination).absolute()), installation=False)
+
+
+def native_test(work, core, package, host, contract):
+    require(isinstance(contract, dict) and set(contract) == {'schemaVersion', 'command', 'arguments', 'method', 'input', 'expected', 'errorInput', 'errorKind'} and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
+    require(isinstance(contract['command'], str) and isinstance(contract['method'], str) and
+            re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', contract['method']) and len(contract['method']) <= 64, 'TEST_METHOD')
+    require(isinstance(contract['arguments'], list) and len(contract['arguments']) <= 32 and all(isinstance(a, str) and '\0' not in a and len(a.encode()) <= 4096 for a in contract['arguments']), 'TEST_ARGUMENTS')
+    require(isinstance(contract['input'], dict) and isinstance(contract['errorInput'], dict) and isinstance(contract['expected'], dict) and contract['errorKind'] in ('failed', 'unknown', 'cancelled'), 'TEST_OUTCOMES')
+    core = Path(core).resolve(strict=True)
+    require(core.is_relative_to(TMP), 'TEST_BUILD_USE_PROJECT_TMP')
+    cache = (core / 'CMakeCache.txt').read_text()
+    require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
+    require(host['side'] == 'executor' and host['capabilities'] == ['session.rpc'] and host['runtimes'] == ['portable-js'], 'TEST_RPC_PROFILE_ONLY')
+    compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
+    libraries = [core / 'libghosterm_core.a', core / 'libghosterm_quickjs.a', '-lm']
+    if 'GHOSTERM_WITH_LIBSSH2:BOOL=ON' in cache:
+        libraries += ['-L' + str(ROOT / 'build/host-native/lib'), '-lssh2']
+    probe = work / 'probe'
+    run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/include'), ROOT / 'scripts/probes/plugin-testkit.c', *libraries, '-o', probe], 120)
+    trace = run([probe, package, encoded(host).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *contract['arguments']], 30)
+    observations = [decode(line) for line in trace.splitlines()]
+    require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', 'lifecycle'], 'TEST_DISCOVERY')
+    lease = observations[0]
+    def bind(value):
+        if value == '${instanceId}': return lease['instanceId']
+        if value == '${epoch}': return lease['epoch']
+        if isinstance(value, dict): return {key: bind(child) for key, child in value.items()}
+        if isinstance(value, list): return [bind(child) for child in value]
+        return value
+    require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')
+    require(observations[2]['outcome']['kind'] == contract['errorKind'], 'TEST_ERROR_OUTCOME')
+    require(observations[3]['outcome'] == dict(kind='cancelled', effect='none'), 'TEST_REQUEST_CANCEL')
+    require(all(observations[4].get(key) is True for key in ('activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance')), 'TEST_LIFECYCLE')
+    return dict(kind='tested', observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
+                scope='real Core/QuickJS Executor RPC fixture; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no OS services, Native UI or SSH')
+
+
+def main():
+    TMP.mkdir(exist_ok=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='action', required=True)
+    init = commands.add_parser('init'); init.add_argument('directory', type=Path); init.add_argument('--id', required=True); init.add_argument('--command', required=True); init.add_argument('--publisher', required=True)
+    for name in ('check', 'build', 'pack', 'test'):
+        command = commands.add_parser(name)
+        source = command.add_mutually_exclusive_group(required=True); source.add_argument('--project', type=Path); source.add_argument('--package', type=Path)
+        command.add_argument('--tools', required=True, type=Path); command.add_argument('--host-json', type=Path)
+        command.add_argument('--registry-package', type=Path, action='append', default=[])
+        if name in ('build', 'pack'): command.add_argument('--out', type=Path, required=True)
+        if name == 'test': command.add_argument('--contract', type=Path, required=True); command.add_argument('--core-build', type=Path, required=True)
+    args = parser.parse_args()
+    if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
+    require(args.action != 'build' or args.project is not None, 'BUILD_REQUIRES_PROJECT')
+    tools = tools_path(args.tools)
+    source = args.project or args.package
+    if hasattr(args, 'out'):
+        require(not args.out.resolve().is_relative_to(source.resolve()) and not source.resolve().is_relative_to(args.out.resolve()), 'OUTPUT_SOURCE_OVERLAP')
+    with tempfile.TemporaryDirectory(prefix='plugin-dev-', dir=TMP) as directory:
+        work = Path(directory); snapshot = work / 'source'; snapshot.mkdir()
+        captured = capture(source, snapshot, bool(args.project))
+        host = read_json(args.host_json) if args.host_json else None
+        if args.action == 'test' and host is None:
+            host = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])
+        registry = []
+        for index, item in enumerate(args.registry_package):
+            fixed = work / ('registry-' + str(index)); fixed.mkdir(); capture(item, fixed)
+            registry.append(str(fixed))
+        package = work / 'package' if args.project else snapshot
+        report = worker(work, tools, snapshot, package if args.project else None, host, registry, args.action == 'test')
+        if args.action == 'check': return report, report.get('exitCode', 0)
+        if report.get('exitCode', 0) != 0 and host is not None:
+            return report, report['exitCode']
+        if args.action == 'build':
+            digest = sha((package / 'integrity.json').read_bytes())
+            publish(package, args.out)
+            return dict(kind='built', output=str(args.out.absolute()), packageSHA256=digest, compatibility=report['compatibility'], installation=False), 0
+        if args.action == 'pack':
+            archive = work / 'package.zip'
+            with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED, allowZip64=False) as zipped:
+                for file in sorted(package.rglob('*')):
+                    if file.is_file():
+                        info = zipfile.ZipInfo(file.relative_to(package).as_posix(), date_time=(1980, 1, 1, 0, 0, 0)); info.create_system = 3; info.external_attr = 0o100644 << 16
+                        zipped.writestr(info, file.read_bytes())
+            publish(archive, args.out)
+            return dict(kind='packed', output=str(args.out.absolute()), sha256=sha(archive.read_bytes()), bytes=archive.stat().st_size, signature='none', installation=False), 0
+        require(report['compatibility'] == 'compatible', 'TEST_PROFILE_UNSUPPORTED')
+        contract = read_json(args.contract)
+        result = native_test(work, args.core_build, package, host, contract)
+        result['inputs'] = {name: sha(data) for name, data in captured.items()}
+        return result, 0
+
+
+if __name__ == '__main__':
+    def interrupted(number, _frame):
+        raise SystemExit(128 + number)
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        result, status = main()
+    except (Failure, OSError, ValueError, UnicodeError, TypeError, KeyError, subprocess.SubprocessError) as error:
+        result, status = dict(kind='error', code=str(error)), getattr(error, 'status', 2)
+    print(encoded(result).decode())
+    raise SystemExit(status)

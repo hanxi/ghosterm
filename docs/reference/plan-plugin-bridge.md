@@ -505,7 +505,7 @@ type Outcome =
 
 ### 开发、构建与验证
 
-拟提供 `gterm-plugin init / check / build / pack / test` 开发工具（仅拟议命令）。`check` 校验 manifest、schema、命令冲突、依赖与导入闭包；`test` 在受限 harness 中验证激活、取消、超限、旧 epoch、错误消息和资源释放；`pack` 生成完整性清单、许可证和可复现产物。默认无安装后脚本。
+候选 `scripts/gterm-plugin init / check / build / pack / test` 已接 Portable 工程首片，操作见[开发指南](../how-to/plugin-development.md)，证据见 P5 第十批。`check` 校验 manifest、schema、提供的命令冲突 / Host 依赖事实与导入闭包；`pack` 生成完整性清单、许可证和可复现产物，无安装后脚本。`test` 首片在真实 Core / QuickJS 的 RPC-only Executor harness 中验证激活、排队请求取消、预算准入拒绝、旧 epoch、错误类别与引擎 / fd 释放；不等同业务任务取消、OOM / RSS 或外部资源服务验收。Node / Exec 包开发、Client 激活及完整开发矩阵仍待完成。
 
 官方示例须包括一个资源插件和一个持续双向会话插件，并在 macOS / Android 上通过相同行为夹具。至少做一次破坏权限、一次破坏取消、一次错发实例的变异；正常断言红、独立配置对照绿、恢复绿及 SHA256 一致，编译失败不算目标红。
 
@@ -7103,3 +7103,57 @@ JNI **144/37**、SDK 九模块离线闭包、Python 语法和 diff 检查通过�
 
 验收结束清理 **101 个**所属 tmp 项、逻辑大小约 **167.0 MiB**；自有 AVD / agent / SSH
 均已退出，保留原三份 eq 输入并核对 SHA256 未变，不操作用户 Java 或其它服务。
+
+### P5 实施第十批：Portable 开发命令与真实 RPC testkit（2026-11-15）
+
+新增 `scripts/gterm-plugin init/check/build/pack/test`、锁定 TypeScript 5.9.3 /
+Ajv 8.17.1 / semver 7.7.3 工具清单、编译 / 元数据 worker，以及公开 Core C 夹具。
+`init` 生成可编译的 Portable Client / Executor 与测试契约；`check` 从工程固定副本
+校验 schema、显式提供的命令冲突 / 依赖事实、权限声明与静态导入闭包。strict 编译
+禁止显式 any、隐式 any、DOM / Node 全局和检查绕过；SDK 实际值闭包纳入模块预算。
+未提供 Host 为 unknown，显式 Host 的 unknown / unsupported / denied 在 check 及
+build / pack / test 中保留，兼容不授予权限或认证发布者。
+
+`build` 生成完整性清单并排他原子发布目录；`pack` 校验后生成路径排序、固定时间 /
+权限的 ZIP。输入变化、非普通文件、目录链接 / FIFO、重复 JSON 键、无效 Unicode /
+过深 JSON、越界 / 动态导入、摘要篡改与未登记成员均拒绝。仅构建 Portable pair，
+不运行 npm 项目钩子或安装插件；同一输入的两次构建逐文件一致，工程直接 pack 与
+已构建目录 pack 逐字节一致，保留许可证和完整性覆盖。
+
+`test` 不用 Node 模拟业务：公开 checked package / Session / Core QuickJS 真正
+激活 Executor，经本次 lease 的本机 socketpair 调用指定对象方法。实际验成功值、
+处理器异常保留 unknown、发送前排队取消、旧 epoch / 撤权、超限配置准入拒绝且不
+接管 Session、engine / dispose / cleanup 状态和 fd 平衡。输入 / 预期中的完整
+`${instanceId}` / `${epoch}` 字符串可绑定，内嵌 / 转义文本不误替换。
+
+最终 **十六组基线、六组隔离变异**通过，运行命令：
+
+```sh
+python3 scripts/test-plugin-dev.py --tools tmp/plugin-dev/tools --core-build tmp/plugin-dev/core --mutate --receipt tmp/plugin-dev/receipt.json
+```
+
+基线包括依赖 / Host 三态、包 / 工程可复现、严格类型 / 导入、物理文件 / JSON、
+完整性、命令冲突、排他发布、实际 RPC / 错误 / 清理、激活 / dispose 失败不记绿、
+缺 RPC 与缺其它服务显式拒绝，以及向仍活跃 worker 所属命令发送 TERM 后实际进程
+退出 / 临时副本清空。六组变异位于开发 worker 与 Native 夹具，分别破坏显式 any、
+拒绝状态、完整性、排队取消、旧 epoch 与撤权；每组编译后正常目标断言红、独立
+Core 配置绿、恢复绿及源码 SHA256。不是修改 Core 后端的新增变异覆盖。
+最终 **54 份输入**一致，收据 SHA256：
+`12e7c21b3554f036f815f896f805f090dae9438478422efc4c318093758fe210`。
+
+首轮空参数 schema 漏 required、发布后读取旧路径以及独立配置对照漏传参数均保留
+为前置失败，不计目标红或通过；修复后完整重跑。最终默认 JS-off / tests-on 离线
+gate **588/588 CTest、181 ABI**，C 格式 **19.1.7 / 259 文件**，Apple **178/3**、
+JNI **144/37**、Python / Node 语法和 diff 检查通过。实际 JS-enabled Core 静态库 /
+QuickJS 与 Native probe 编译用于本次 harness；未据此记 enabled Core 全套通过。
+
+本片证据为 macOS arm64；Linux 原子发布分支、Node / Exec 包开发、Client 激活、
+外部资源 / 进程 / UI 服务、SSH / tmux、业务任务取消、OOM / RSS 和完整设备 /
+生命周期 / 开发矩阵未验。无公共 ABI / SDK 身份变化，无平台产品代码变更，不记
+App / APK / 原生 UI / 发行通过。完整 P5 / P1–P6 仍不勾选，ctx.views / 多视图、
+task IPC 及其余计划继续；新增手工脚本不增加 CI 二十份。操作见
+[开发指南](../how-to/plugin-development.md)。
+
+结束后清理本轮 **30 个 tmp 项、逻辑大小 66.9 MiB**，仅保留原三份 eq 输入并核对
+SHA256 不变；受控测试 / worker 已退出，无窗口 / AVD，不操作用户 Java 或其它服务。
+本批仅本地提交，未推送 / 发行。
