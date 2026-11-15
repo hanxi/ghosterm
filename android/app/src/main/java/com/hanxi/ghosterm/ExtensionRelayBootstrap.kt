@@ -54,6 +54,7 @@ object ExtensionRelayBootstrap {
         val processEnvironmentNames: List<String> = emptyList(),
         val execution: Execution? = null,
         val attachment: Attachment? = null,
+        val clientCapabilities: List<String> = emptyList(),
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -180,6 +181,9 @@ object ExtensionRelayBootstrap {
     }
 
     fun build(request: Request): String {
+        require(request.clientCapabilities.size <= 1 && request.clientCapabilities.all { it == "ui.table" }) {
+            "此 Host 仅支持显式声明的 ui.table Client 服务"
+        }
         require(request.executable.isNotBlank()) { "请指定远端 gterm 可执行文件" }
         require(request.attachment != null || request.executorDirectory.isNotBlank()) { "请指定远端 Executor 包目录" }
         require(request.executorDigest.matches(Regex("[a-f0-9]{64}"))) { "Executor 摘要必须是 64 位小写 SHA-256" }
@@ -241,6 +245,7 @@ object ExtensionRelayBootstrap {
                 }
             }
             request.methods.forEach { add("--method"); add(it) }
+            request.clientCapabilities.forEach { add("--client-capability"); add(it) }
             request.hostMethods.forEach { add("--host-method"); add(it) }
             request.workspaceRootDirectory?.let { add("--root"); add("workspace"); add(it) }
             request.processPrograms.forEach {

@@ -287,6 +287,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         PluginResourcesPanel(extensions.receivedResources)
                         if (active.command == "ai codex") PluginCodexPanel(extensions)
                         if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
+                        extensions.table?.let { PluginTableContent(it) }
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {

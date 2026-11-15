@@ -1219,3 +1219,21 @@ Android table、OS VoiceOver / 键盘焦点、table IPC 附着、完整选包 / 
 默认 Core 588/181、Apple 178/3、JNI 144/37、完整 App 535 项含十九跳过 / 零失败、真实
 SSH / WebKit、macOS arm64 Release、Android JS-enabled bridge Release 原生编译与 C
 格式 256 文件通过。Android 本片无 APK / 设备 / table UI 或四模块 lint 复跑结论。
+
+**插件 P5 Android 原生表格（2026-11-15）**：按已批准准确命令的 views 声明复用 Native
+文本 / 选择 / 分页组件，单页、精确修订与 Runtime 代次隔离；显式 ui.table Client 服务
+与两条 RPC 纳入原生 consent，不增加业务 C ABI、SDK 身份或专属窗格。API29 / 36 自有
+arm64、4 KiB、无窗口 AVD 各 23 项模型 / 值 / UI、每端直连 / 两跳百万行与空表四场景
+分轮通过，同一官方 Executor 包 / gterm / Core。十二组隔离重编变异为同轮证据：编译后
+单条正常断言红、同 APK Core 配置绿、恢复目标绿、实际 APK 变化与源码 SHA256。
+原双轴共 semantics 节点的滚动动作丢失已修复，修正变异另护独立寻址；首版错误嵌套变异
+的布局异常、前置 timeout 与测试标签 / 帧同步失败不计红或通过。
+551 份输入与工作区一致；最终 API29 / 36 模型 / UI 复验的恢复 APK 摘要相同，但 API29
+首轮四 SSH 使用初始包，不称全矩阵一次同 APK，分轮摘要见插件计划 P5 第三批。
+默认 Core 588/181、Apple 178/3、JNI 144/37、C 格式 19.1.7 / 256 文件、SDK 七模块
+生成 / 输入守卫、Android JS-enabled Debug / 测试 APK、未签名 Release / R8 与四模块
+release lint 通过。手工模拟器证据，不增加 macOS CI 二十份；TalkBack / 键盘焦点、IME、
+16 KiB / 真机、table IPC、多视图 / ctx.views、完整选包启动 UI 与 P5 / P1–P6 未完成。
+默认 App 保持 JS-off，未推送 / 发行。
+既有 Preview / Controller / Claude 启动与观察 / Core 配置组合最终 25 项通过；首轮
+Controller 的 CPU_BUDGET 与相同 APK / 预算的独立复验通过分账，不据未复现称已修复。

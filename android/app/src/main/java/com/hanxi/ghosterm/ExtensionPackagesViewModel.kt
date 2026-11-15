@@ -33,6 +33,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private var claudeRPC: ClaudeRPCClient? = null
     internal var claudeConversation: ClaudeConversation? by mutableStateOf(null)
         private set
+    internal var table: PluginTableModel? by mutableStateOf(null)
+        private set
     private var handshakeJob: Job? = null
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
@@ -51,7 +53,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionController(
                 ExtensionController.HostProfile(
                     sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped")),
+                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table")),
                 application.applicationContext)
         }.getOrNull()
     } else null
@@ -78,36 +80,46 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
         clientWorkspace: ExtensionController.ClientWorkspace? = null) {
         val owner = controller ?: return
-        val configuredRequest = if (command.path == "ai codex") request.copy(
+        val selectedCommand = command.copy(views = command.views.toList())
+        val tableContribution = "table" in selectedCommand.views
+        if (request.command != selectedCommand.path || entry.review.commands.firstOrNull { it.path == selectedCommand.path } != selectedCommand ||
+            (tableContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.table"))) ||
+            request.clientCapabilities.any { it != "ui.table" || !tableContribution }) {
+            error = "只能启动已批准的准确命令与已声明的 Client 服务"; return
+        }
+        val baseRequest = if (selectedCommand.path == "ai codex") request.copy(
             methods = (request.methods + codexExecutorMethods).distinct(),
             hostMethods = (request.hostMethods + codexHostMethods).distinct())
-        else if (command.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
+        else if (selectedCommand.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
         else request
+        val configuredRequest = if (tableContribution) baseRequest.copy(
+            methods = (baseRequest.methods + PluginTableModel.methods).distinct(), clientCapabilities = listOf("ui.table")) else baseRequest
         val launchRequest = configuredRequest.copy(arguments = configuredRequest.arguments.toList(),
             methods = configuredRequest.methods.toList(), hostMethods = configuredRequest.hostMethods.toList(),
             processPrograms = configuredRequest.processPrograms.map { it.copy(prefixArguments = it.prefixArguments.toList()) },
-            processEnvironmentNames = configuredRequest.processEnvironmentNames.toList())
+            processEnvironmentNames = configuredRequest.processEnvironmentNames.toList(),
+            clientCapabilities = configuredRequest.clientCapabilities.toList())
         if (launchBusy) return
         if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
         if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
         if (entry.decision != "已批准（本进程）" || entry.review.digest != launchRequest.clientDigest ||
-            entry.review.commands.none { it.path == command.path }) {
+            entry.review.commands.none { it.path == selectedCommand.path }) {
             error = "只能启动本进程已批准摘要中的命令"; return
         }
         if ((launchRequest.methods.isNotEmpty() || launchRequest.hostMethods.isNotEmpty()) &&
             "session.rpc" !in entry.review.requiredCapabilities) {
             error = "此 Client 包未声明 session.rpc，不能协商 RPC 方法"; return
         }
-        if (command.path == "ai codex" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
+        if (selectedCommand.path == "ai codex" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "codex" })) {
             error = "ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射"; return
         }
-        if (command.path == "ai claude" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
+        if (selectedCommand.path == "ai claude" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "claude-node" })) {
             error = "ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射"; return
         }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
-        if (command.path in listOf("ai codex", "ai claude") && launchRequest.attachment != null && !launchRequest.attachment.remoteProcesses) {
+        if (selectedCommand.path in listOf("ai codex", "ai claude") && launchRequest.attachment != null && !launchRequest.attachment.remoteProcesses) {
             error = "此命令需要明确允许沿用前台实例已有的远端业务进程范围"; return
         }
         try {
@@ -118,8 +130,12 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         launchBusy = true; error = null
         viewModelScope.launch {
             try {
+                val exact = owner.resolve(selectedCommand.path, entry.review.id, entry.review.digest)
+                check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == selectedCommand) {
+                    "命令声明已变化，请重新核对插件来源"
+                }
                 val decoded = owner.decodeClientArguments(entry.review.id, entry.review.digest,
-                    command.path, launchRequest.arguments)
+                    selectedCommand.path, launchRequest.arguments)
                 val id = sessions.connectExtensionRoute(target, launchRequest) { ready ->
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
@@ -141,8 +157,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
                         claudeRPC?.invalidate(); claudeRPC = null
                         claudeConversation?.invalidate(); claudeConversation = null
+                        table?.invalidate(); table = null
                         codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
-                        activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
+                        activeSession = ActiveSession(entry.review.id, entry.review.digest, selectedCommand,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
                             (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace, launchRequest.attachment)
@@ -354,6 +371,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         codex.timeline.any { it.changeReference == reference }
 
     private fun invalidateExtensionCalls() {
+        table?.invalidate()
         claudeConversation?.invalidate()
         claudeRPC?.invalidate(); claudeRPC = null
         rpcGeneration = Any()
@@ -446,6 +464,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 sessionGeneration = Any(); invalidateExtensionCalls()
                 activeRuntime = null; activeSession = null; receivedResources = emptyList()
                 claudeConversation = null
+                table = null
                 codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { error = "释放插件资源失败：${failure.message ?: failure.javaClass.simpleName}" }
@@ -476,6 +495,17 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val state = owner.stepRuntime()
                 if (generation !== sessionGeneration) return
                 activeRuntime = state
+                if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&
+                    "table" in activeSession?.command?.views.orEmpty() && "ui.table" in activeSession?.requiredCapabilities.orEmpty() &&
+                    PluginTableModel.methods.all { it in activeSession?.methods.orEmpty() }) {
+                    val expected = rpcGeneration
+                    table = PluginTableModel(viewModelScope, { method, input ->
+                        checkRPCGeneration(expected)
+                        requestExtensionRPC(method, input).also { checkRPCGeneration(expected) }
+                    }, isCurrent = {
+                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                    })
+                }
                 if (state.command == "ai claude" && state.info.phase == ExtensionRuntime.Phase.ACTIVE && claudeConversation == null &&
                     ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) {
                     val expected = rpcGeneration
@@ -502,6 +532,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 }
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) {
+                    table?.invalidate()
                     claudeRPC?.invalidate()
                     claudeConversation?.invalidate()
                     codex = codex.copy(approvals = emptyList())
@@ -514,6 +545,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             throw cancelled
         } catch (failure: Throwable) {
             if (generation !== sessionGeneration) return
+            table?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             changeReview.cancel()

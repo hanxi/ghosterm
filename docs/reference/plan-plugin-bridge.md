@@ -12,7 +12,8 @@
 
 **最新 P5 进展：** 第一批提供 Portable 表格契约与真正按页计算的官方 Executor；第二批
 接入 macOS 通用 Native 表格、分页、错误 / 迟到回复隔离与 Client 服务协商。同一包经本机、
-直连 / ProxyJump SSH 完成实际 RPC。Android table 服务仍未接，缺能力继续显式不支持；
+直连 / ProxyJump SSH 完成实际 RPC。第三批补 Android 通用 Native 表格、精确 Client 服务、
+所选页代次和两端同一官方包；API29 / 36 无窗口档的分页 / 授权 / 停止证据见文末。缺能力仍显式不支持；
 diff、持续交互样例及完整开发体验仍待完成，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
@@ -6396,3 +6397,92 @@ Xcode 27.1 / Swift 6.4 **arm64 Release**、Android JS-enabled **bridge Release �
 全部自有测试 / 构建 / 回环服务退出后，清理 550 个 tmp 根入口 / 10191 项 /
 241.2 MiB 账面分配，只保留原三份 eq-* 且 SHA256 一致。未终止无关 Java、用户 App
 或既有服务；测试窗口维持透明 / 离屏 / 后台，根 Core 保持 JS-off / tests-on。
+
+### P5 实施第三批：Android 标准 Native 表格与所选页生命周期（2026-11-15）
+
+Android `PluginTableCodec` / `PluginTableModel` / `PluginTableContent` 按同一 Portable
+表格契约提供原生文本、选择复制、双轴滚动、分页和重新读取。模型只持有当前所选页，
+每次最多十六行，不下载或缓存百万行数据；末页立方值保持十进制字符串。描述与页面
+严格校验对象字段、UTF-8、重复键、正 uint64 修订、列 / 行 ID、准确页身份 / 行数 /
+列宽、Unicode code point 与 2048 JSON 字节。未知 / 失败显式显示，不能伪装空表。
+
+ViewModel 从已批准的准确命令 `views` 声明选择通用组件，异步重新 resolve 后仍核对命令；
+不按 `table` 命令名另开产品窗格。只向有声明的命令添加两条标准 RPC 和显式
+`--client-capability ui.table`。Native Host profile 声明已接服务，Session 仍逐项协商 /
+consent，不扩大 Executor 服务。表格绑定捕获的 Runtime / RPC 代次，单次只允许一个
+查询，换页先清空旧行，停止 / 释放 / 替换后丢弃晚到回复并使视图失效。
+没有修改 Core / wire / SDK 身份、公共 C ABI 或其它平台绑定。
+
+`scripts/test-plugin-table-android-native.py` 在 tmp 复制 Android / terminal 源码，编译真实
+JS-enabled App 与 instrumentation APK，逐个核对安装路径与 APK SHA256；只创建自有
+arm64、4 KiB、`-no-window` AVD。实际 Executor 是同一官方候选包与本机 macOS gterm，
+经自有回环 OpenSSH 直连 / 两跳 ProxyJump；临时认证只走内存、owned agent 和本轮
+认证 socket，落盘只有公钥和准确 hostkey pin。设备 reverse 选客户临时端口范围外的
+端口，`--no-rebind` 后核对实际映射，结束只删除本轮映射。
+
+```bash
+export TMPDIR="$PWD/tmp"
+# 先构建显式 JS/SSH-on CLI 与锁定 TypeScript 5.9.3 的官方包，见 P5 第二批命令。
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-table-android-native.py \
+  --build tmp/native-table/cli --package tmp/native-table/package \
+  --mutate --receipt tmp/native-table/android-native.json
+```
+
+前置失败单列：最初合跑设备测试超过 180 秒，不记绿。拆分后十八项数据 / 模型通过，
+UI 卡在末页单元格滚动。线程栈定位到 Compose / Espresso 的滚动空闲等待；原组件在
+同一 semantics 节点组合横纵 scroll action，动作不能独立寻址。拆成外层横滚 / 内层
+纵滚后，真实末页滚动与原四项 UI 通过；另加双轴动作独立寻址保护。诊断时缩短的
+Espresso policy 已撤回，没有提高正式预算或把 timeout 当普通变异红。首次真实 SSH
+使用不存在的测试标签，改用生产「允许并启动」按钮；随后仅轮询 worker 未推进 Compose
+测试帧导致首读等待失败，改为先查询生产组件驱动实际 composition / LaunchedEffect。
+两次测试接线失败均未记成功或产品修复。
+
+滚动变异首版错误地保留内层纵滚又给外层增加纵滚，编译后触发无限高度布局异常，
+未计普通断言红或通过。修正变异为同时移除内层纵滚、恢复原双轴共节点结构；独立
+寻址测试在进行滚动前核对实际 semantics 动作，避免把卡死误记成合格保护。
+
+此片为实验 JS-enabled Settings / 生产 ViewModel、真实分页 / consent / 停止接线；选包 /
+来源批准使用生产 Controller 动作，不冒充系统 SAF 到完整启动的用户点击链。OS TalkBack /
+键盘焦点、IME、16 KiB / 真机、table IPC 附着、多表格 / `ctx.views`、完整生命周期与
+其它远端系统仍待专项。默认 App 保持 JS-off，未推送 / 发行，不增加 macOS CI 二十份；
+P5 的 diff / 持续交互样例和完整开发体验、P1–P6 继续，不据此勾选完成。
+
+最终完整序列通过：自有 **API29 / API36、arm64、4 KiB、无窗口**各 **23 项**数据 /
+模型 / 实际 Native UI 测试，以及每端直连 / 两跳各百万行与空表四种实际 SSH 场景；
+十二组变异为同一轮，覆盖 view、revision、完整行数、列宽、总字节、迟到回复、服务声明、
+下一页动作、滚动轴独立寻址、ViewModel 声明、自动方法集合和 Settings 实际组件。
+每组真实编译后单条正常断言红、同 APK 的 Core IdentityFile 来源读取绿、恢复目标绿，
+核对生产 APK 确实变化及源码 SHA256 还原。接线三组通过生产 ViewModel / Session /
+官方包 / 授权与原生界面断言，不用伪造模型替代。最终 API29 / 36 均另跑完整 23 项，
+三组接线恢复另跑直连百万行，不重复计为新场景。
+
+收据冻结 **551 份输入**与相同 gterm / enabled Core / 官方包；当前工作区逐文件摘要
+一致。API29 初始 App APK 为 `f3447e78247bdbd8005bfd6c13632892e3c95bdc7a368f3bae6b0318ce802401`，
+十二组重编后的恢复包为 `a58d5b795665066fcca858bfb4da0705822b613d69a1afea1ff78c52872a3273`；
+测试 APK 始终 `c20650f3f7c89992a334c628ff1f777a8dc7bffb0dbdda204daeca5be1011049`。
+最终 API29 / API36 的安装包与完整模型 / UI 复验摘要一致；API29 的首四种 SSH 使用初始
+包，API36 四种使用恢复包，不将分轮证据改称全矩阵一次同 APK。源码还原不是 APK
+字节同一的替代证明。原生收据 SHA256 为
+`50909bd3c005916b81a3372b97e228450a23dbeaa977fdb1175cb47711d32a16`，临时原件验收后清理。
+
+公共与平台闸门：默认 Core **JS-off / tests-on：588/588 CTest、181 ABI**；Apple
+**178 引用 / 3 登记未用**、JNI **144 / 37**、clang-format **19.1.7 / 256 文件**、SDK
+七模块生成 `--check` / 离线输入守卫通过。根 Android **JS-enabled Debug / 测试 APK、
+未签名 Release / 实际 R8 与 app / bridge / data / terminal 四模块 Release lint**通过。
+构建后 551 份指定输入与原生专项仍一致；根构建与隔离设备包分开记账。没有本批 Swift /
+Core 源码修改，不借既有 macOS / enabled Core 结果称新跑全量；无云端或发行结论。
+
+既有共享入口定向组合首轮为 24 通过 / 1 失败：独立包控制器 review 触发原元数据检查
+`CPU_BUDGET`，未计组合全绿，也未当正常变异红。该测试直接构造旧 HostProfile /
+Controller，不经过本片表格 ViewModel；未改代码 / APK / 预算的独立一项复验通过。
+一次未复现不足以归因模拟器负载或认定该预算失败已修复，记录保留。
+
+随后同一根构建 APK / 相同预算的完整共享组合 **25/25** 通过：Preview 资源 / 授权六项、
+Controller 一项、Claude 启动五项 / 回包观察十二项及 Core IdentityFile 一项；没有跳过。
+这份为根构建 / API36 自有无窗口回归，与前述隔离表格设备包分开。551 份指定输入仍
+一致，回归收据 SHA256 为 `66201fb658d25709b019c2b8627ff76c11d669a734673c15baef288ecdd74af1`；
+不将前置 24 通过、独立一项和最终组合重复累计。
+
+全部本轮构建 / 测试 / 回环服务 / 自有 AVD 已退出后，清理 32 个 tmp 根入口、3115 项、
+60.7 MiB 账面分配，仅保留原三份 eq-* 且 SHA256 一致。未终止无关 Java、用户 App 或
+既有服务；测试始终无窗口 / 后台，根 Core 维持 JS-off / tests-on。
