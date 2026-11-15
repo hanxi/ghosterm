@@ -996,10 +996,16 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
         if (gt__ext_process_observe_exit(r->child, &process) != GT_OK) {
             runtime_fail(r, GT_ERR_IO, now);
         } else if (process.exited && !r->killed) {
-            /* Hold the zombie leader's PID until the group has been signalled.
-             * Never signal a potentially reused pgid after waitpid reaps it. */
-            runtime_signal(r, SIGKILL);
+            /* poll releases the guard, which owns the final group fence while
+             * the zombie leader still reserves the pgid. A competing kill here
+             * can turn that required guard fence into EPERM on Darwin after
+             * the descendants have already died. Keep its real error visible. */
             r->killed = true;
+            gt_ext_process_info_t fenced;
+            if (gt__ext_process_poll(r->child, &fenced) != GT_OK) {
+                runtime_fail(r, GT_ERR_IO, now);
+                return r->info.phase;
+            }
         }
         if (process.exited && (r->stdout_eof || r->info.phase == GT_PROCESS_RUNTIME_STOPPING)) {
             if (gt__ext_process_poll(r->child, &process) != GT_OK) {

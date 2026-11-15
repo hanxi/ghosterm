@@ -44,6 +44,9 @@ FACADE_CASES = [
     ('facade-close', RUNTIME_API, 'return r->process ? gt__process_runtime_close(r->process) : GT_EXT_RELEASED;', 'return GT_EXT_RELEASED;', 'node:close-public'),
 ]
 PROCESS_CASES = [
+    ('jobs-reap-status', JOBS_RPC, 'info.process.exited ? info.process.term_signal : 0,', '15,', 'node:process-deadline'),
+    ('leader-double-fence', SOURCE, '/* poll releases the guard, which owns the final group fence while', 'runtime_signal(r, SIGKILL); struct timespec fence_pause = {0, 50000000}; nanosleep(&fence_pause, NULL); /* poll releases the guard, which owns the final group fence while', 'exec:leader-exit'),
+    ('jobs-argv-termination', JOBS_RPC, 'argv[argc++] = argument_bytes + used;', 'argv[argc++] = (const char *)d->strings + n->text;', 'node:process-argv'),
     ('jobs-write-grant', JOBS, '!jobs_live(j) || s->stopping', 's->stopping', 'node:process-native'),
     ('jobs-read-grant', JOBS, 'if (!jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'if (false && !jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'node:process-native'),
     ('jobs-root', JOBS, 'int fd = -1;', 'int fd = gt__runtime_resources_root_fd(j->roots, 0);', 'node:process-roundtrip'),
@@ -356,7 +359,7 @@ def main():
                      'stubborn', 'stdout-limit', 'leader-exit', 'stderr-eof', 'stdout-eof']]
         baseline += ['node:resource-roundtrip', 'node:resource-unicode', 'node:resource-stop', 'node:resource-missing', 'node:resource-bad-root', 'node:resource-duplicate-root']
         baseline += ['exec:resource-roundtrip']
-        baseline += ['node:'+m for m in ['process-roundtrip','process-deadline','process-output','process-cancel','process-capacity','process-stop','process-bad-digest','process-missing','process-native','process-first-reason']]
+        baseline += ['node:'+m for m in ['process-roundtrip','process-deadline','process-output','process-cancel','process-capacity','process-stop','process-bad-digest','process-missing','process-native','process-argv','process-first-reason']]
         baseline += ['node:peer-loss','exec:peer-loss','exec:unsupported']
         baseline += ['exec:process-roundtrip','exec:process-extra-field','exec:process-bad-hex']
         if args.public: baseline += ['node:public-no-execution','node:public-budget','node:public-role','node:public-denied-sdk','node:public-bad-name','node:close-public']

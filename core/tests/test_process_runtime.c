@@ -274,6 +274,85 @@ static void launch_pair(rpc_pair_t *f,
     CHECK(gt_ext_session_lease(f->pair.h, &f->h) && gt_ext_session_lease(f->pair.e, &f->e));
 }
 
+static void
+launch_jobs_call(gt_process_rpc_t *rpc, unsigned *sequence, const char *fields, char reply[8193]) {
+    char message[8193];
+    int n = snprintf(message,
+                     sizeof(message),
+                     "{\"v\":1,\"id\":\"%u\",\"op\":\"process\",%s}",
+                     ++*sequence,
+                     fields);
+    CHECK(n > 0 && (size_t)n < sizeof(message) &&
+          gt__process_rpc_call(rpc, message, (size_t)n) == GT_PROCESS_RPC_OK);
+    const uint8_t *bytes;
+    size_t size;
+    CHECK(gt__process_rpc_reply(rpc, &bytes, &size) && size <= 8192);
+    memcpy(reply, bytes, size);
+    reply[size] = 0;
+    CHECK(gt__process_rpc_consume(rpc) == GT_PROCESS_RPC_OK);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+}
+
+static void launch_jobs_arguments(rpc_pair_t *f,
+                                  gt_package_checked_t *package,
+                                  const gt_runtime_root_t *root,
+                                  const gt_process_jobs_config_t *config) {
+    size_t before = ext_fds();
+    CHECK(gt__runtime_resources_open(
+              f->pair.e, NULL, &f->e, root, 1, NULL, resource_clock, &native_roots) == GT_OK);
+    CHECK(gt__process_jobs_open(f->pair.e, native_roots, package, config, &native_jobs) == GT_OK);
+    gt_process_rpc_t *rpc = NULL;
+    CHECK(gt__process_rpc_open_services(f->pair.e, native_roots, native_jobs, NULL, &rpc) == GT_OK);
+    unsigned sequence = 0;
+    char reply[8193];
+    launch_jobs_call(rpc,
+                     &sequence,
+                     "\"action\":\"spawn\",\"program\":\"cat\",\"root\":\"workspace\","
+                     "\"argv\":[\"printf\",\"%s|%s|%s\",\"quoted ' \\\" $() 中文\",\"\",\"tail\"],"
+                     "\"envPolicy\":\"selected-user-environment\"",
+                     reply);
+    CHECK(strstr(reply, "\"ref\":\"1\""));
+    const char expected[] = "quoted ' \" $() 中文||tail";
+    char hex[sizeof(expected) * 2], actual[1025];
+    size_t used = 0;
+    for (size_t i = 0; i < sizeof(expected) - 1; i++) {
+        snprintf(hex + i * 2, 3, "%02x", (unsigned char)expected[i]);
+    }
+    uint64_t until = ext_now() + 3000;
+    bool eof = false, exited = false;
+    while (ext_now() < until && (!eof || !exited)) {
+        CHECK(gt__process_jobs_step(native_jobs) == GT_OK);
+        if (!eof) {
+            launch_jobs_call(rpc,
+                             &sequence,
+                             "\"action\":\"read\",\"ref\":\"1\",\"stderr\":false,\"maxBytes\":512",
+                             reply);
+            const char *part = strstr(reply, "\"hex\":\"");
+            CHECK(part);
+            part += 7;
+            const char *end = strchr(part, '"');
+            CHECK(end && used + (size_t)(end - part) < sizeof(actual));
+            memcpy(actual + used, part, (size_t)(end - part));
+            used += (size_t)(end - part);
+            eof = strstr(reply, "\"state\":\"eof\"") != NULL;
+        }
+        launch_jobs_call(rpc, &sequence, "\"action\":\"poll\",\"ref\":\"1\"", reply);
+        exited = strstr(reply, "\"exited\":true") != NULL;
+        if (exited) {
+            CHECK(strstr(reply, "\"code\":0") && strstr(reply, "\"signal\":0"));
+        }
+        struct timespec pause = {0, 1000000};
+        nanosleep(&pause, NULL);
+    }
+    actual[used] = 0;
+    CHECK(eof && exited && !strcmp(actual, hex));
+    launch_jobs_call(rpc, &sequence, "\"action\":\"release\",\"ref\":\"1\"", reply);
+    CHECK(gt__process_rpc_destroy(&rpc) == GT_OK && !rpc);
+    CHECK(gt__process_jobs_destroy(&native_jobs) == GT_OK && !native_jobs);
+    CHECK(gt__runtime_resources_destroy(&native_roots) == GT_RUNTIME_RESOURCE_OK && !native_roots);
+    CHECK(ext_fds() == before);
+}
+
 static void launch_jobs_native(rpc_pair_t *f,
                                gt_package_checked_t *package,
                                const gt_runtime_root_t *root,
@@ -452,6 +531,9 @@ int main(int argc, char **argv) {
         {"cat", "/bin/cat", "fixture-cat", process_digests[0], NULL, 0},
         {"env", "/usr/bin/env", "fixture-env", process_digests[1], NULL, 0},
         {"pwd", "/bin/pwd", "fixture-pwd", process_digests[2], NULL, 0}};
+    if (!strcmp(mode, "process-argv")) {
+        programs[0].executable = "/usr/bin/printf";
+    }
     char workspace_environment[4200];
     CHECK(snprintf(workspace_environment,
                    sizeof(workspace_environment),
@@ -551,9 +633,13 @@ int main(int argc, char **argv) {
     }
     gt_ext_session_t *original = f.pair.e;
     gt_package_snapshot_t *original_sdk = sdk;
-    bool direct = !strcmp(mode, "process-native");
+    bool direct = !strcmp(mode, "process-native") || !strcmp(mode, "process-argv");
     if (direct) {
-        launch_jobs_native(&f, package, &workspace, &config.process);
+        if (!strcmp(mode, "process-argv")) {
+            launch_jobs_arguments(&f, package, &workspace, &config.process);
+        } else {
+            launch_jobs_native(&f, package, &workspace, &config.process);
+        }
     }
     gt_status_t status =
         direct ? GT_OK

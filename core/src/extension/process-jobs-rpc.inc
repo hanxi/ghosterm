@@ -39,6 +39,7 @@ static bool process_jobs_dispatch(gt_process_rpc_t *p) {
             return false;
         }
         const char *argv[GT_EXT_PROCESS_ARGUMENTS_MAX];
+        char argument_bytes[GT_EXT_PROCESS_ARGUMENT_BYTES_MAX];
         size_t argc = 0, used = 0;
         for (uint16_t i = d->nodes[array].child; i; i = d->nodes[i].next) {
             const json_node_t *n = &d->nodes[i];
@@ -47,7 +48,9 @@ static bool process_jobs_dispatch(gt_process_rpc_t *p) {
                 n->size + 1 > GT_EXT_PROCESS_ARGUMENT_BYTES_MAX - used) {
                 return false;
             }
-            argv[argc++] = (const char *)d->strings + n->text;
+            argv[argc++] = argument_bytes + used;
+            memcpy(argument_bytes + used, d->strings + n->text, n->size);
+            argument_bytes[used + n->size] = 0;
             used += n->size + 1;
         }
         if (!p->jobs) {
@@ -172,8 +175,8 @@ static bool process_jobs_dispatch(gt_process_rpc_t *p) {
                 process_append(p,
                                ",\"exited\":%s,\"code\":%d,\"signal\":%d,\"reason\":\"%s\"",
                                info.process.exited ? "true" : "false",
-                               info.process.exit_code,
-                               info.process.term_signal,
+                               info.process.exited ? info.process.exit_code : 0,
+                               info.process.exited ? info.process.term_signal : 0,
                                info.reason)) &&
                process_append(p, "}");
     }

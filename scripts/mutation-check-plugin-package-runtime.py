@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');parser.add_argument('--invocation',action='store_true');parser.add_argument('--table',action='store_true');parser.add_argument('--diff',action='store_true');parser.add_argument('--task',action='store_true');parser.add_argument('--case',action='append',help='select named mutation groups; default remains all groups');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities,args.invocation,args.table,args.diff,args.task])<=1
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--process',action='store_true');parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');parser.add_argument('--invocation',action='store_true');parser.add_argument('--table',action='store_true');parser.add_argument('--diff',action='store_true');parser.add_argument('--task',action='store_true');parser.add_argument('--case',action='append',help='select named mutation groups; default remains all groups');args=parser.parse_args();assert sum([args.process,args.public,args.registry,args.registry_api,args.capabilities,args.invocation,args.table,args.diff,args.task])<=1
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -55,6 +55,9 @@ def main():
    ('side',registry,'        if (!e->package || e->executor != executor) {\n','        if (!e->package || (false && e->executor != executor)) {\n',None),
   ]
   executable='test_plugin_registry';pattern='^plugin_registry$';objects=['registry','package-check']
+ if args.process:
+  cases=[('process-catchable-denial',ENGINE,'return JS_ThrowPlainError(c, "authorized process could not start");','return JS_ThrowInternalError(c, "authorized process could not start");','process-caught-denial')]
+  pattern='^plugin_package_runtime_process'
  if args.registry_api:
   api='core/src/extension/registry-api.c'
   cases=[

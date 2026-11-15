@@ -1024,7 +1024,9 @@ static JSValue runtime_process_spawn_call(
             (void)gt__ext_process_signal(slot->process, SIGKILL);
             (void)gt__ext_process_destroy(&slot->process);
         }
-        return JS_ThrowInternalError(c, "authorized process could not start");
+        /* Program denial and spawn IO are recoverable operation failures.
+         * QuickJS-NG InternalError is uncatchable and would kill the Runtime. */
+        return JS_ThrowPlainError(c, "authorized process could not start");
     }
     uint64_t now;
     if (!runtime_now(&now) || now > UINT64_MAX - r->process_lifetime_ms) {

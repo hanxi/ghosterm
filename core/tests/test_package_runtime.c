@@ -151,10 +151,10 @@ static const char *load_process_output =
     "if(!limited)throw Error('output quota not reported')}};}";
 
 static bool load_process_mode(const char *mode) {
-    return !strcmp(mode, "process") || !strcmp(mode, "process-close") ||
-           !strcmp(mode, "process-identity") || !strcmp(mode, "process-digest") ||
-           !strcmp(mode, "process-deadline") || !strcmp(mode, "process-deadline-live") ||
-           !strcmp(mode, "process-output");
+    return !strcmp(mode, "process") || !strcmp(mode, "process-caught-denial") ||
+           !strcmp(mode, "process-close") || !strcmp(mode, "process-identity") ||
+           !strcmp(mode, "process-digest") || !strcmp(mode, "process-deadline") ||
+           !strcmp(mode, "process-deadline-live") || !strcmp(mode, "process-output");
 }
 
 static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) {
@@ -194,6 +194,19 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                          : !strcmp(mode, "process-deadline-live") ? load_process_deadline_live
                          : !strcmp(mode, "process-output")        ? load_process_output
                                                                   : load_echo;
+    if (!strcmp(mode, "process-caught-denial")) {
+        static char caught[4096];
+        CHECK(snprintf(caught, sizeof(caught), "%s", load_process_roundtrip) > 0);
+        load_replace(caught,
+                     sizeof(caught),
+                     "const child=await ",
+                     "let denied=false;try{await ctx.process.spawn({program:'missing',"
+                     "argv:['missing'],cwd:ctx.invocation.workspaceHandle,"
+                     "envPolicy:'selected-user-environment',cancellation:ctx.cancellation})}"
+                     "catch{denied=true}if(!denied)throw Error('missing program accepted');"
+                     "const child=await ");
+        script = caught;
+    }
     if (!strcmp(mode, "relative")) {
         script = "import {value} from '../shared/value.js';export function "
                  "activate(){if(value!==42)throw Error('relative');return {dispose(){}}}";
