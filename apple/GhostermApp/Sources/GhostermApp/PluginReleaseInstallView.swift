@@ -137,7 +137,7 @@ struct PluginReleaseInstallView: View {
                         }.disabled(draft.busy).accessibilityIdentifier("plugin-release-retry-cleanup")
                     }
                 }
-                Text("检查会验证签名、ZIP 完整字节及解压内容，并展示 Core 兼容性结果。安装保存独立版本，不覆盖已有版本、不批准来源或授予 Session 权限；运行中的实例继续使用原快照。自动升级、回滚与已安装版本管理尚未接入。")
+                Text("检查会验证签名、ZIP 完整字节及解压内容，并展示 Core 兼容性结果。安装保存独立版本，不覆盖已有版本、不批准来源或授予 Session 权限；请在已安装版本管理中重新核对并选择活动版本。运行中的实例继续使用原快照，自动更新尚未接入。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
             }
         }.onDisappear { draft.clear() }

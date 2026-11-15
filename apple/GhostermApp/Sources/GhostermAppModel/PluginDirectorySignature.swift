@@ -59,6 +59,16 @@ public enum PluginDirectorySignatureVerifier {
         }
     }
 
+    static func declaration(_ descriptor: Data) throws -> Identity {
+        guard descriptor.count <= 65536 else { throw Failure.limit }
+        let value = try ReleaseJSON.parse(descriptor).object()
+        guard let id = try value["pluginId"]?.string(), pluginID(id),
+              let version = try value["pluginVersion"]?.string(), text(version),
+              let publisher = try value["publisher"]?.string(), text(publisher),
+              let sha = try value["packageSHA256"]?.string(), digest(sha) else { throw Failure.descriptor }
+        return Identity(id: id, version: version, publisher: publisher, packageSHA256: sha)
+    }
+
     // Internal preflight used by the ZIP installer; a directory proof is only
     // returned publicly after binding the authenticated claims to Core metadata.
     static func authenticate(descriptor: Data, signature: Data, trustedPolicy: Data) throws -> Authenticated {
@@ -133,13 +143,14 @@ public enum PluginDirectorySignatureVerifier {
 
 /// Small bounded host-policy decoder. Preserve number lexemes and decoded keys:
 /// Foundation dictionaries alone discard duplicate keys and round large numbers.
-private struct ReleaseJSON {
+struct ReleaseJSON {
     typealias Failure = PluginDirectorySignatureVerifier.Failure
     indirect enum Value {
-        case object([String: Value]), array([Value]), string(String), number(String), other
+        case object([String: Value]), array([Value]), string(String), number(String), boolean(Bool), other
         func object() throws -> [String: Value] { guard case let .object(v) = self else { throw Failure.json }; return v }
         func array() throws -> [Value] { guard case let .array(v) = self else { throw Failure.json }; return v }
         func string() throws -> String { guard case let .string(v) = self else { throw Failure.json }; return v }
+        func bool() throws -> Bool { guard case let .boolean(v) = self else { throw Failure.json }; return v }
         func integer(maximum: UInt64) throws -> UInt64? {
             guard case let .number(raw) = self else { return nil }
             var value = raw.lowercased()
@@ -227,7 +238,12 @@ private struct ReleaseJSON {
         }
         for word in ["true", "false", "null"] {
             let encoded = Array(word.utf8)
-            if bytes[at...].starts(with: encoded) { at += encoded.count; return .other }
+            if bytes[at...].starts(with: encoded) {
+                at += encoded.count
+                if word == "true" { return .boolean(true) }
+                if word == "false" { return .boolean(false) }
+                return .other
+            }
         }
         let start = at
         if bytes[at] == 45 { at += 1 }

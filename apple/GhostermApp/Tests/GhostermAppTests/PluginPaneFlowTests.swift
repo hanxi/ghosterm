@@ -38,10 +38,14 @@ final class PluginPaneFlowTests: XCTestCase {
     func testImageThroughProxyJumpControls() async throws {
         try await runPreview(.image, jump: true)
     }
+    func testRunningPreviewSurvivesVersionSelectionAndDisable() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionChanges: true)
+    }
 
     private enum Format { case markdown, html, image }
 
-    private func runPreview(_ format: Format, jump: Bool) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -158,6 +162,12 @@ final class PluginPaneFlowTests: XCTestCase {
             try set("plugin-" + name + "-" + id, value)
             try await Task.sleep(for: .milliseconds(25))
         }
+        if versionChanges {
+            try set("plugin-client-workspace", workspace.path)
+            try await Task.sleep(for: .milliseconds(25))
+            try press("plugin-client-workspace-allow")
+            try await Task.sleep(for: .milliseconds(25))
+        }
         XCTAssertNil(model.extensionRun, "editing the launch form must not connect")
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
@@ -185,6 +195,39 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
         }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+        if versionChanges {
+            let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!)
+            let original = try await controller.stepRuntime()
+            let prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
+                descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            let installed = try await controller.installPreparedRelease(id: prepared.id)
+            let selected = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256,
+                expectedRevision: nil, trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            let retained: ExtensionController.RuntimeState
+            do { retained = try await controller.stepRuntime() }
+            catch { XCTFail("version selection must retain the running Runtime: \(error)"); return }
+            XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue, "version selection must retain the running Runtime")
+            XCTAssertEqual(retained.packageDigest, original.packageDigest)
+            _ = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: selected.catalog.revision)
+            let disabled: ExtensionController.RuntimeState
+            do { disabled = try await controller.stepRuntime() }
+            catch { XCTFail("disable must retain the running Runtime: \(error)"); return }
+            XCTAssertEqual(disabled.phase, ExtensionRuntime.Phase.active.rawValue, "disable must retain the running Runtime")
+            XCTAssertEqual(disabled.packageDigest, original.packageDigest)
+            do {
+                _ = try await controller.publishClientResource(instanceID: disabled.instanceID, relativePath: "site/index.md")
+                let deadline = ProcessInfo.processInfo.systemUptime + 10
+                var receipt = try await controller.stepRuntime()
+                while receipt.publication?.confirmed != true, ProcessInfo.processInfo.systemUptime < deadline {
+                    try await Task.sleep(for: .milliseconds(25)); receipt = try await controller.stepRuntime()
+                }
+                XCTAssertTrue(receipt.publication?.confirmed == true, "old Runtime must still publish and receive a real peer receipt after disable")
+                XCTAssertEqual(receipt.publication?.sha256, SHA256.hash(data: markdown).map { String(format: "%02x", $0) }.joined())
+            } catch { XCTFail("old Runtime business transport failed after disable: \(error)"); return }
+            XCTAssertEqual(model.extensionRun?.receivedResources.map(\.sha256), resources.map(\.sha256))
+            let denied = try await controller.resolve(command: "preview", selectedID: original.packageID, selectedDigest: original.packageDigest)
+            XCTAssertNotEqual(denied.status, 0, "disabled selection must block a new admission")
+        }
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(100))
         var retainedHTML: [WKWebView] = []

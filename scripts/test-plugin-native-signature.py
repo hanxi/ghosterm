@@ -119,8 +119,13 @@ def main():
     parser.add_argument('--tools', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
+    parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
+    parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.versions:
+        args.install = True
+        if not args.gterm: parser.error('--versions requires --gterm')
     out, tools = args.out.resolve(), args.tools.resolve(strict=True)
     assert ROOT / 'tmp' in out.parents
     spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
@@ -131,6 +136,11 @@ def main():
     binaries = {str(p): sha(p) for p in tools.rglob('*') if p.is_file()}
     for p in [node, ROOT / 'core/build/libghosterm_core.a', ROOT / 'core/build/libghosterm_quickjs.a', ROOT / 'build/host-native/lib/libssh2.a']:
         binaries[str(p)] = sha(p)
+    if args.gterm:
+        args.gterm = args.gterm.resolve(strict=True)
+        binaries[str(args.gterm)] = sha(args.gterm)
+        inputs['core/CMakeLists.txt'] = sha(ROOT / 'core/CMakeLists.txt')
+        inputs.update({str(p.relative_to(ROOT)): sha(p) for p in (ROOT / 'cli/gterm').rglob('*') if p.is_file() and 'build' not in p.parts})
     recipes = [
         ('signature', VERIFIER, 'guard publicKey.isValidSignature(signatureBytes, for: message)',
          'guard publicKey.rawRepresentation.count == 32', TEST + 'testRealSignatureBindsRawDescriptorAndDomain'),
@@ -168,6 +178,28 @@ def main():
             ('install-snapshot', stage, 'guard files[path] == FileStamp(value) else', 'guard files[path] != nil else', selected + 'testChangedPreparedFilesMustNotPublish'),
             ('install-member-set', stage, 'guard verifiedFiles == files.count else', 'guard verifiedFiles <= files.count else', selected + 'testAddedOrMissingPreparedMembersMustNotPublish'),
         ]
+    if args.versions:
+        catalog = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseCatalog.swift'
+        view = 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift'
+        selected = 'PluginReleaseCatalogTests.'
+        live = 'PluginPaneFlowTests.testRunningPreviewSurvivesVersionSelectionAndDisable'
+        recipes += [
+            ('catalog-enabled', CONTROLLER, 'let choice = access.choices[record.review.id], choice.enabled,',
+             'let choice = access.choices[record.review.id],', selected + 'testUpgradeRollbackAndDisableNeedFreshSourceApproval'),
+            ('catalog-generation', CONTROLLER, 'return !requireApproval || record.approvalGeneration == choice.generation',
+             'return !requireApproval || choice.generation.count > 0', selected + 'testOtherControllerDisableAndStaleRevisionCannotBeBypassed'),
+            ('catalog-cas', catalog, 'try beforeRename?()\n        guard try selection().revision == expected else',
+             'try beforeRename?()\n        guard fd >= 0 else', selected + 'testAtomicSelectionCASAndFailureBeforeRename'),
+            ('catalog-durability', catalog, 'parentSync(fd) == 0)', 'parentSync(fd) != 42)', selected + 'testSelectionParentSyncFailureIsPublishedButUnknown'),
+            ('catalog-no-follow', catalog, 'O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC', 'O_RDONLY | O_NONBLOCK | O_CLOEXEC', selected + 'testStrictSelectionRejectsDuplicateBooleanAndSymlink'),
+            ('catalog-policy', CONTROLLER, 'signature: handle.read("release.sig", limit: 64), trustedPolicy: PluginSignatureFile.read(trustedPolicy, limit: 131072)',
+             'signature: handle.read("release.sig", limit: 64), trustedPolicy: handle.read("policy.json", limit: 131072)', selected + 'testCurrentPolicyRevocationCannotUseStoredPolicyAsTrust'),
+            ('catalog-identity', CONTROLLER, 'let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,\n                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))',
+             'let proof = authenticated.proof', selected + 'testAlteredPayloadCannotBorrowStoredSignature'),
+            ('catalog-ui', view, 'await draft.select(version, controller: controller)', 'Optional<ExtensionController.VersionSelectionResult>.none', 'PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls'),
+            ('catalog-live-owner', CONTROLLER, 'self.invalidateSourceDecisions(pluginID: metadata.id)',
+             'self.runtime?.stop(); self.invalidateSourceDecisions(pluginID: metadata.id)', live),
+        ]
     originals = {name: (ROOT / name).read_bytes() for name in {recipe[1] for recipe in recipes}}
     for label, filename, old, _, _ in recipes:
         assert originals[filename].count(old.encode()) == 1, label
@@ -186,16 +218,24 @@ def main():
         (source / 'core').mkdir()
         for name in ['include', 'build']:
             (source / 'core' / name).symlink_to(ROOT / 'core' / name, target_is_directory=True)
-        for name in ['build', 'patches']:
+        for name in ['build', 'patches', 'plugins']:
             (source / name).symlink_to(ROOT / name, target_is_directory=True)
         (source / 'tmp').mkdir()
         env['GHOSTERM_TEST_SIGNED_RELEASE'] = str(fixture)
         package = source / 'apple/GhostermApp'
 
         def run(label, selected, count=1, red=False):
+            lifetime = selected.startswith('PluginPaneFlowTests.testRunningPreviewSurvives')
+            child_env = dict(env)
+            if lifetime:
+                child_env.update(GHOSTERM_TEST_GTERM=str(args.gterm), GHOSTERM_APP_TEST_PACKAGE=str(package), GHOSTERM_APP_TEST_FILTER=selected)
+                for key in list(child_env):
+                    if key.startswith('GHOSTERM_SSH_'): del child_env[key]
+                payload = ['bash', 'scripts/apple-app-gate.sh']
+            else: payload = ['swift', 'test', '--package-path', str(package), '--filter', selected]
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require native-signature; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
-                       'native-signature', str(ROOT), 'swift', 'test', '--package-path', str(package), '--filter', selected]
-            child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+                       'native-signature', str(ROOT), *payload]
+            child = subprocess.Popen(command, cwd=ROOT, env=child_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 output, _ = child.communicate(timeout=360)
             finally:
@@ -204,6 +244,7 @@ def main():
                     try: child.communicate(timeout=8)
                     except subprocess.TimeoutExpired: os.killpg(child.pid, signal.SIGKILL); child.communicate()
             log = output.decode(errors='replace')
+            if lifetime: log += (ROOT / 'tmp/apple-app-test.log').read_text()
             (work / (label + '.log')).write_bytes(output)
             if red:
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
@@ -217,7 +258,11 @@ def main():
 
         baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests)' if args.install else '(PluginDirectorySignatureTests|PluginSignatureUITests)'
         baseline_count = 28 if args.install else 11
+        if args.versions:
+            baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests)'
+            baseline_count = 39
         run('baseline', baseline, count=baseline_count)
+        if args.versions: run('live-version-baseline', live)
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
             stem = Path(filename).stem
@@ -238,10 +283,12 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed'
     assert all(sha(Path(name)) == digest for name, digest in binaries.items()), 'tool/archive changed'
     out.parent.mkdir(parents=True, exist_ok=True)
-    scope = ('macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
+    scope = ('macOS version inventory, explicit policy revalidation, atomic select/disable/rollback, and active owned SSH Runtime; no permission persistence' if args.versions else
+             'macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
-        baselineTests=baseline_count, installation=args.install, inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
+        baselineTests=baseline_count, lifetimeTests=1 if args.versions else 0, installation=args.install, versions=args.versions,
+        inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 
 

@@ -72,8 +72,10 @@ final class PluginReleaseInstallTests: XCTestCase {
         XCTAssertEqual(value.st_mode & 0o777, 0o500, "published package directory must be read-only")
         XCTAssertEqual(lstat(installed.directory.appendingPathComponent("plugin.json").path, &value), 0)
         XCTAssertEqual(value.st_mode & 0o222, 0, "published members must be read-only")
-        let resolution = try await controller.resolve(command: "preview", selectedID: prepared.review.id, selectedDigest: prepared.review.digest)
-        XCTAssertNotEqual(resolution.status, 0, "installation must not approve source")
+        do {
+            let resolution = try await controller.resolve(command: "preview", selectedID: prepared.review.id, selectedDigest: prepared.review.digest)
+            XCTAssertNotEqual(resolution.status, 0, "installation must not approve source")
+        } catch { XCTFail("published read-only version must remain inspectable: \(error)") }
         XCTAssertFalse(installed.review.authorizationGranted)
         let closed = await controller.close(); XCTAssertTrue(closed)
     }
@@ -96,11 +98,12 @@ final class PluginReleaseInstallTests: XCTestCase {
         let input = try fixture(), root = try directory(), controller = try controller(root)
         let first = try await prepare(controller, input)
         let old = try await controller.installPreparedRelease(id: first.id)
+        _ = try await controller.selectInstalledVersion(releaseID: first.signature.descriptorSHA256, expectedRevision: nil, trustedPolicy: input.appendingPathComponent("policy.json"))
         _ = try await controller.approve(id: first.review.id, digest: first.review.digest)
         let second = try await prepare(controller, input.appendingPathComponent("v2"))
         let next = try await controller.installPreparedRelease(id: second.id)
         XCTAssertNotEqual(old.review.digest, next.review.digest)
-        XCTAssertEqual(try names(root.appendingPathComponent("installed")).count, 2)
+        XCTAssertEqual(try names(root.appendingPathComponent("installed")).filter(PluginReleaseCatalog.digest).count, 2)
         XCTAssertEqual(hash(try Data(contentsOf: old.directory.appendingPathComponent("integrity.json"))), old.review.digest)
         let selected = try await controller.resolve(command: "preview", selectedID: old.review.id, selectedDigest: old.review.digest)
         XCTAssertEqual(selected.status, 0, "new publication must retain the exact old checked package")
@@ -161,10 +164,11 @@ final class PluginReleaseInstallTests: XCTestCase {
         let input = try fixture(), root = try directory(), controller = try controller(root)
         let first = try await prepare(controller, input)
         let installed = try await controller.installPreparedRelease(id: first.id)
+        _ = try await controller.selectInstalledVersion(releaseID: first.signature.descriptorSHA256, expectedRevision: nil, trustedPolicy: input.appendingPathComponent("policy.json"))
         _ = try await controller.approve(id: first.review.id, digest: first.review.digest)
         for bad in ["crc", "identity"] {
             do { _ = try await prepare(controller, input.appendingPathComponent("bad/" + bad)); XCTFail("bad replacement accepted") } catch {}
-            XCTAssertEqual(try names(root.appendingPathComponent("installed")), [first.signature.descriptorSHA256])
+            XCTAssertEqual(try names(root.appendingPathComponent("installed")), [first.signature.descriptorSHA256, PluginReleaseCatalog.selectionName].sorted())
             XCTAssertEqual(hash(try Data(contentsOf: installed.directory.appendingPathComponent("integrity.json"))), first.review.digest)
             let selected = try await controller.resolve(command: "preview", selectedID: first.review.id, selectedDigest: first.review.digest)
             XCTAssertEqual(selected.status, 0, "failed replacement must retain old source decision and checked bytes")

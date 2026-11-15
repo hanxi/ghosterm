@@ -87,6 +87,14 @@ struct ExtensionsPane: View {
                     var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry)
                 }
             }
+            PluginInstalledVersionsView(controller: model.extensionController) { pluginID, result in
+                for index in entries.indices where entries[index].review.id == pluginID { entries[index].decision = "尚未批准" }
+                if let installed = result.release {
+                    let entryID = installed.review.id + ":" + installed.review.digest
+                    if let index = entries.firstIndex(where: { $0.id == entryID }) { entries[index].installation = installed }
+                    else { var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry) }
+                }
+            }
 
             if model.extensionController == nil {
                 Label("此构建未启用 Portable JS 插件运行时。", systemImage: "exclamationmark.circle")

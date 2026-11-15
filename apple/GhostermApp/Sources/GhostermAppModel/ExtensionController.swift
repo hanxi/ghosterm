@@ -116,6 +116,28 @@ public actor ExtensionController {
         }
         public var errorDescription: String? { "安装暂存清理失败，保留于 \(directory.path)：\(reason)" }
     }
+    public struct InstalledVersion: Sendable, Equatable, Identifiable {
+        public let releaseID: String, pluginID: String, version: String, publisher: String, packageSHA256: String
+        public let selected: Bool, enabled: Bool
+        public var id: String { releaseID }
+    }
+    public struct InstalledCatalog: Sendable, Equatable {
+        public let revision: String?
+        public let versions: [InstalledVersion]
+        public let issues: [String]
+        public let maintenanceCount: Int
+        public let selections: [InstalledSelection]
+    }
+    public struct InstalledSelection: Sendable, Equatable, Identifiable {
+        public let pluginID: String, releaseID: String
+        public let enabled: Bool
+        public var id: String { pluginID }
+    }
+    public struct VersionSelectionResult: Sendable, Equatable {
+        public let release: InstalledRelease?
+        public let catalog: InstalledCatalog
+        public let durabilityConfirmed: Bool
+    }
 
     public struct Resolution: Sendable, Equatable {
         /// 0 is success; other values preserve ExtensionRegistry.Status raw values.
@@ -338,6 +360,13 @@ public actor ExtensionController {
     }
     public func discardPreparedRelease(id: String) async throws { try await worker.discardPreparedRelease(id: id) }
     public func retryFailedInstallCleanup() async throws { try await worker.retryFailedInstallCleanup() }
+    public func installedVersions() async throws -> InstalledCatalog { try await worker.installedVersions() }
+    public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
+        try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
+    }
+    public func disableInstalledPlugin(pluginID: String, expectedRevision: String?) async throws -> VersionSelectionResult {
+        try await worker.disableInstalledPlugin(pluginID: pluginID, expectedRevision: expectedRevision)
+    }
 
     /// Attests the immutable checked directory against an explicitly trusted
     /// public policy snapshot. Does not approve a source or grant capabilities.
@@ -505,6 +534,8 @@ public actor ExtensionController {
             let package: ExtensionPackage
             let review: PackageReview
             var source: SourceDecision
+            var managedReleaseID: String? = nil
+            var approvalGeneration: String? = nil
         }
         private var packages: [String: Record] = [:]
         private struct Prepared {
@@ -516,6 +547,8 @@ public actor ExtensionController {
         private var failedInstallDiscards = Set<String>()
         private var retainedInstallStages: [PluginReleaseStage] = []
         private let installationDirectory: URL?
+        private var managedPluginIDs = Set<String>()
+        private var registeredDigests: [String: String] = [:]
         private var closed = false
         private var closeComplete = false
         private var closeResult = false
@@ -558,6 +591,118 @@ public actor ExtensionController {
 
         func review(directory: URL) async throws -> PackageReview {
             try await perform { try self.reviewOnQueue(directory: directory) }
+        }
+
+        private struct ManagedAccess {
+            let owner: PluginReleaseCatalog?
+            let choices: [String: PluginReleaseCatalog.Choice]
+            let managedIDs: Set<String>
+        }
+        private func catalogOwner(exclusive: Bool) throws -> PluginReleaseCatalog? {
+            if !exclusive, let pending = prepared.values.first { return try PluginReleaseCatalog(borrowing: pending.stage) }
+            guard let directory = installationDirectory else { return nil }
+            return try PluginReleaseCatalog(directory: directory, exclusive: exclusive)
+        }
+        private func managedAccess() throws -> ManagedAccess {
+            guard let owner = try catalogOwner(exclusive: false) else {
+                return ManagedAccess(owner: nil, choices: [:], managedIDs: managedPluginIDs)
+            }
+            let inventory = try owner.inventory(), selection = try owner.selection()
+            guard inventory.issues.isEmpty else { throw PluginReleaseCatalog.Failure.invalid }
+            for (id, choice) in selection.choices where choice.enabled {
+                guard inventory.versions.contains(where: { $0.releaseID == choice.releaseID && $0.pluginID == id }) else {
+                    throw PluginReleaseCatalog.Failure.invalid
+                }
+            }
+            managedPluginIDs.formUnion(inventory.versions.map(\.pluginID))
+            managedPluginIDs.formUnion(selection.choices.keys)
+            return ManagedAccess(owner: owner, choices: selection.choices, managedIDs: managedPluginIDs)
+        }
+        private func admitted(_ record: Record, _ access: ManagedAccess, requireApproval: Bool) -> Bool {
+            guard access.managedIDs.contains(record.review.id) else { return true }
+            guard let choice = access.choices[record.review.id], choice.enabled,
+                  record.managedReleaseID == choice.releaseID else { return false }
+            return !requireApproval || record.approvalGeneration == choice.generation
+        }
+        private func catalogView(_ owner: PluginReleaseCatalog, selection: PluginReleaseCatalog.Selection? = nil) throws -> InstalledCatalog {
+            let inventory = try owner.inventory(), current = try selection ?? owner.selection()
+            return catalogView(inventory, selection: current)
+        }
+        private func catalogView(_ inventory: PluginReleaseCatalog.Inventory, selection current: PluginReleaseCatalog.Selection) -> InstalledCatalog {
+            return InstalledCatalog(revision: current.revision, versions: inventory.versions.map { version in
+                let choice = current.choices[version.pluginID]
+                return InstalledVersion(releaseID: version.releaseID, pluginID: version.pluginID, version: version.version,
+                    publisher: version.publisher, packageSHA256: version.packageSHA256,
+                    selected: choice?.releaseID == version.releaseID, enabled: choice?.enabled ?? false)
+            }, issues: inventory.issues, maintenanceCount: inventory.maintenanceCount,
+                selections: current.choices.keys.sorted().compactMap { id in
+                    current.choices[id].map { InstalledSelection(pluginID: id, releaseID: $0.releaseID, enabled: $0.enabled) }
+                })
+        }
+        func installedVersions() async throws -> InstalledCatalog {
+            try await perform {
+                try self.checkOpen()
+                guard let owner = try self.catalogOwner(exclusive: false) else {
+                    return InstalledCatalog(revision: nil, versions: [], issues: [], maintenanceCount: 0, selections: [])
+                }
+                return try self.catalogView(owner)
+            }
+        }
+        private func invalidateSourceDecisions(pluginID: String) {
+            for key in Array(packages.keys) where packages[key]?.review.id == pluginID {
+                packages[key]?.source = .unknown
+                packages[key]?.approvalGeneration = nil
+            }
+            managedPluginIDs.insert(pluginID)
+        }
+        func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
+            try await perform {
+                try self.checkOpen()
+                guard let directory = self.installationDirectory,
+                      let owner = try PluginReleaseCatalog(directory: directory, exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                var selection = try owner.selection()
+                let inventory = try owner.inventory()
+                guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
+                let handle = try owner.openVersion(releaseID)
+                let descriptor = try handle.read("release.json", limit: 65536)
+                guard PluginReleaseCatalog.sha(descriptor) == releaseID else { throw PluginReleaseCatalog.Failure.invalid }
+                let authenticated = try PluginDirectorySignatureVerifier.authenticate(descriptor: descriptor,
+                    signature: handle.read("release.sig", limit: 64), trustedPolicy: PluginSignatureFile.read(trustedPolicy, limit: 131072))
+                let payload = try handle.payload()
+                defer { Darwin.close(payload) }
+                let captured = try self.captureOnQueue(directoryFD: payload)
+                do {
+                    let metadata = try captured.package.metadata()
+                    let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,
+                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
+                    try owner.validateVersion(releaseID, handle: handle, payload: payload)
+                    selection.choices[metadata.id] = PluginReleaseCatalog.Choice(releaseID: releaseID, enabled: true, generation: UUID().uuidString)
+                    let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
+                    self.invalidateSourceDecisions(pluginID: metadata.id)
+                    let key = self.key(metadata.id, metadata.packageDigest)
+                    if self.packages[key] == nil { self.packages[key] = captured }
+                    else { try? captured.package.close() }
+                    self.packages[key]?.managedReleaseID = releaseID
+                    let installed = InstalledRelease(review: captured.review, signature: proof,
+                        directory: directory.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
+                    return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
+                } catch { try? captured.package.close(); throw error }
+            }
+        }
+        func disableInstalledPlugin(pluginID: String, expectedRevision: String?) async throws -> VersionSelectionResult {
+            try await perform {
+                try self.checkOpen()
+                guard let directory = self.installationDirectory,
+                      let owner = try PluginReleaseCatalog(directory: directory, exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                var selection = try owner.selection()
+                let inventory = try owner.inventory()
+                guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
+                guard let current = selection.choices[pluginID] else { throw PluginReleaseCatalog.Failure.inactive }
+                selection.choices[pluginID] = PluginReleaseCatalog.Choice(releaseID: current.releaseID, enabled: false, generation: UUID().uuidString)
+                let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
+                self.invalidateSourceDecisions(pluginID: pluginID)
+                return VersionSelectionResult(release: nil, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
+            }
         }
 
         func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
@@ -702,6 +847,9 @@ public actor ExtensionController {
                       record.review.commands.contains(where: { $0.path == command }) else {
                     throw ControllerError.registry(ExtensionRegistry.Status.stale.rawValue)
                 }
+                let access = try self.managedAccess()
+                defer { withExtendedLifetime(access.owner) {} }
+                guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
                 return try record.package.decodeCommandArguments(path: command, arguments: arguments)
             }
         }
@@ -857,6 +1005,9 @@ public actor ExtensionController {
                 guard let record = self.packages[packageKey], record.source == .allowed else {
                     throw ControllerError.registry(ExtensionRegistry.Status.unknown.rawValue)
                 }
+                let access = try self.managedAccess()
+                defer { withExtendedLifetime(access.owner) {} }
+                guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
                 guard executorDigest.utf8.count == 64,
                       executorDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                       !hostVersion.isEmpty, hostVersion.utf8.count <= 64,
@@ -928,6 +1079,15 @@ public actor ExtensionController {
                     throw ControllerError.sessionUnavailable
                 }
                 let info = try session.info()
+                if allow {
+                    let access = try self.managedAccess()
+                    defer { withExtendedLifetime(access.owner) {} }
+                    guard let record = self.packages[packageKey], record.source == .allowed,
+                          self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
+                    guard info.phase == .consent, info.consentToken == consentToken,
+                          try session.decide(ticket: consentToken, decision: .allow) == 0 else { throw ControllerError.sessionUnavailable }
+                    return try self.sessionState(session, packageKey: packageKey)
+                }
                 guard info.phase == .consent, info.consentToken == consentToken,
                       try session.decide(ticket: consentToken, decision: allow ? .allow : .deny) == 0 else {
                     throw ControllerError.sessionUnavailable
@@ -947,6 +1107,9 @@ public actor ExtensionController {
                       record.review.commands.contains(where: { $0.path == command }) else {
                     throw ControllerError.sessionUnavailable
                 }
+                let access = try self.managedAccess()
+                defer { withExtendedLifetime(access.owner) {} }
+                guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
                 let selected = try self.registryOnQueue().resolve(command: command, executor: false,
                                                                    selectedID: pluginID,
                                                                    selectedDigest: packageDigest)
@@ -1514,6 +1677,11 @@ public actor ExtensionController {
             guard fd >= 0 else { throw ControllerError.invalidPackageURL }
             defer { _ = Darwin.close(fd) }
 
+            return try captureOnQueue(directoryFD: fd)
+        }
+        private func captureOnQueue(directoryFD fd: Int32) throws -> Record {
+            try checkOpen()
+
             let package: ExtensionPackage
             do { package = try ExtensionPackage(directoryFD: fd, owner: queue) }
             catch { throw ControllerError.packageCapture(String(describing: error)) }
@@ -1560,18 +1728,24 @@ public actor ExtensionController {
                 throw ControllerError.invalidPackageURL
             }
             if approved {
-                let expected = record.source == .allowed ? digest : nil
+                let access = try managedAccess()
+                defer { withExtendedLifetime(access.owner) {} }
+                guard admitted(record, access, requireApproval: false) else { return ExtensionRegistry.Status.denied.rawValue }
+                let expected = record.source == .allowed ? digest : (record.managedReleaseID == nil ? nil : registeredDigests[id])
                 let status = try registryOnQueue().put(record.package, source: .allowed,
                                                        expectedDigest: expected)
                 guard status == .ok else { return status.rawValue }
                 record.source = .allowed
+                record.approvalGeneration = access.choices[id]?.generation
+                registeredDigests[id] = digest
                 packages[key(id, digest)] = record
                 return ExtensionRegistry.Status.ok.rawValue
             }
-            if record.source == .allowed {
+            if record.source == .allowed, registeredDigests[id] == digest {
                 let status = try registryOnQueue().remove(id: id, executor: false,
                                                           expectedDigest: digest)
                 guard status == .ok else { return status.rawValue }
+                registeredDigests.removeValue(forKey: id)
             }
             record.source = .denied
             packages[key(id, digest)] = record
@@ -1589,8 +1763,12 @@ public actor ExtensionController {
                 return Resolution(status: ExtensionRegistry.Status.invalid.rawValue,
                                   packageID: nil, packageDigest: nil, command: nil)
             }
+            let access = try packages.isEmpty
+                ? ManagedAccess(owner: nil, choices: [:], managedIDs: managedPluginIDs) : managedAccess()
+            defer { withExtendedLifetime(access.owner) {} }
             let matches = packages.values.filter { record in
                 guard record.source != .denied else { return false }
+                guard admitted(record, access, requireApproval: false) else { return false }
                 return record.review.commands.contains { overlaps(command, $0.path) }
             }
             if selectedID == nil, matches.count > 1 {
@@ -1608,6 +1786,10 @@ public actor ExtensionController {
                 chosen = matches.first
             }
             if let chosen {
+                guard admitted(chosen, access, requireApproval: chosen.source == .allowed) else {
+                    return Resolution(status: ExtensionRegistry.Status.denied.rawValue,
+                        packageID: chosen.review.id, packageDigest: chosen.review.digest, command: nil)
+                }
                 switch chosen.source {
                 case .unknown:
                     return Resolution(status: ExtensionRegistry.Status.unknown.rawValue,

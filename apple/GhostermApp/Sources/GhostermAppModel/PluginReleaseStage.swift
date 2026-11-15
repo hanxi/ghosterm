@@ -64,7 +64,7 @@ final class PluginReleaseStage {
                 let dot = withUnsafePointer(to: &entry.pointee.d_name) {
                     $0.withMemoryRebound(to: CChar.self, capacity: 1024) { String(cString: $0) }
                 }
-                if dot != "." && dot != ".." { count += 1 }
+                if dot != "." && dot != ".." && dot != PluginReleaseCatalog.selectionName { count += 1 }
                 guard count < 64 else { throw Failure.limit }
             }
         } catch { Darwin.close(parent); parent = -1; throw error }
@@ -77,6 +77,12 @@ final class PluginReleaseStage {
         }
     }
     deinit { if root >= 0 { Darwin.close(root) }; if parent >= 0 { Darwin.close(parent) } }
+    func catalogLease() throws -> Int32 {
+        try validate()
+        let copy = fcntl(parent, F_DUPFD_CLOEXEC, 3)
+        guard copy >= 0 else { throw Failure.io }
+        return copy
+    }
 
     private func same(_ a: stat, _ b: stat) -> Bool {
         a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode & S_IFMT == S_IFDIR && a.st_uid == geteuid()
