@@ -118,6 +118,6 @@ CR / 无末尾换行、最多三行 / 2048 JSON 字节。`validateDiffPage` 可�
 known / unknown 不折叠；结果与运行阶段、取消确认分开。`validateTaskSnapshot` 另核对
 实例 / 修订、序列和进度不倒退、已知总量与终态不改写。取消确认不代表已停止；回包不明
 保留 requestId，不自动重放，可以显式只读观察同一活动任务。官方 `task primes` 样例按
-既有 worker hook 分步筛素数，已接可移植契约 / Executor 与 macOS 原生 `ui.task`；
-Android 原生任务视图仍待接，缺服务明确不支持。此片不增加 C ABI，也不提供通用命令式
+既有 worker hook 分步筛素数，已接可移植契约 / Executor 与 macOS / Android 原生 `ui.task`；
+缺服务明确不支持。此片不增加 C ABI，也不提供通用命令式
 `ctx.views` 对象。

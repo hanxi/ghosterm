@@ -24,8 +24,8 @@ internal object PluginViewValue {
             .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(value))
         return ByteArray(bytes.remaining()).also { bytes.get(it) }
     }
-    fun success(bytes: ByteArray): Map<String, Value> {
-        require(bytes.size <= 3072) { "视图回包超过上限" }
+    fun envelope(bytes: ByteArray, maximum: Int = 3072): Map<String, Value> {
+        require(bytes.size <= maximum) { "视图回包超过上限" }
         val source = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
         val root = JsonReader(StringReader(source)).use { reader ->
@@ -64,6 +64,10 @@ internal object PluginViewValue {
             }
             val result = read(0).fields(); require(reader.peek() == JsonToken.END_DOCUMENT) { "视图 JSON 后存在额外内容" }; result
         }
+        return root
+    }
+    fun success(bytes: ByteArray): Map<String, Value> {
+        val root = envelope(bytes)
         require((root["kind"] as? Value.Text)?.value == "success") { "视图结果尚未确认" }
         root.keys(setOf("kind", "value"))
         val value = checkNotNull(root["value"])

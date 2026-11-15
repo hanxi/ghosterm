@@ -61,7 +61,24 @@ testkit 复制 Native 源码并链接这份显式启用库，根工程 `core/bui
 - 关闭或失效保留最后观察，不凭 EOF / dispose 填造成功或取消。
 
 原生字段 / 生命周期专项、位图 / 进程内 AX、实际路由与变异分别记账；真实 SSH 结果不
-替代真实丢包、重连、系统 VoiceOver 或物理设备验收。Android 原生 ui.task 仍待接，缺
-服务须显式不支持。范围与最新证据见[插件计划 P5](../reference/plan-plugin-bridge.md)。
+替代真实丢包、重连、系统辅助技术或物理设备验收。macOS / Android 已接原生 ui.task，
+缺服务须显式不支持。范围与最新证据见[插件计划 P5](../reference/plan-plugin-bridge.md)。
+
+## 验证 Android 原生任务视图
+
+在已准备仓库锁定 Android JDK / SDK / NDK、Gradle 缓存及 API29 / API36 arm64 系统镜像的
+macOS 开发机上，复用上面同一份包与 gterm：
+
+```sh
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.py \
+  --build tmp/native-task/cli --package tmp/native-task/package-v2 --mutate \
+  --receipt tmp/native-task/android-task.json
+```
+
+脚本复制 Android 源码，显式构建 JS-enabled APK，创建自有 `-no-window` AVD，核对实际
+安装 APK 摘要；不选择用户设备或现有模拟器。它对同一包执行直连 / 两跳、任务完成 /
+空任务 / 真实按钮取消，以及原生 codec / 模型 / Compose 和隔离变异。`--api 29` 或
+`--api 36` 可单独选档，`--case 名称` 只筛变异组，基线与实际 SSH 仍执行。签名发行、
+物理设备、TalkBack / IME 和完整客户端验收须另记，不能从本专项推导。
 
 结束后清理本次创建的 tmp 子目录；保留仍在使用的构建与非本次输入，不操作用户服务。

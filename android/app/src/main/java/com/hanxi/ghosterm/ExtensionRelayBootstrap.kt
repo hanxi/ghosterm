@@ -182,7 +182,7 @@ object ExtensionRelayBootstrap {
 
     fun build(request: Request): String {
         require(request.clientCapabilities.size <= 2 && request.clientCapabilities.distinct().size == request.clientCapabilities.size &&
-            request.clientCapabilities.all { it in listOf("ui.table", "ui.diff") }) {
+            request.clientCapabilities.all { it in listOf("ui.table", "ui.diff", "ui.task") }) {
             "此 Host 仅支持显式声明的标准 Client 服务"
         }
         require(request.executable.isNotBlank()) { "请指定远端 gterm 可执行文件" }

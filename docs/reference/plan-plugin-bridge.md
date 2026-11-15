@@ -21,8 +21,9 @@ Client 服务协商与真实本机 / 直连 / ProxyJump；第六批补 Android �
 Portable 进度 / 取消契约及真实分步素数计算 Executor；公开 Core 和两档无窗口 Android
 standalone 探针验证结果、取消去重及未知后的显式只读观察。第八批接 macOS 标准
 ui.task、精确进度、只读刷新与实际取消按钮；同一包经本机 / 直连 / ProxyJump 完成和
-取消，明确 RPC 失败 / 请求取消 / unknown 分开。Android 原生任务视图与完整开发体验
-仍待接；缺能力显式不支持，P5 和 P1–P6 均未记完成。
+取消，明确 RPC 失败 / 请求取消 / unknown 分开。第九批接 Android 对应通用组件、
+准确命令 / 能力与代次隔离，复用同一任务包和已有 C ABI。完整开发体验、系统辅助
+技术 / 生命周期 / 设备矩阵仍待完成；缺能力显式不支持，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -7013,3 +7014,92 @@ macOS arm64 Release 在独立 scratch 完整构建后，对最后视图修改实
 
 最终清理 **1,284 个**所属 tmp 项、逻辑大小约 **845.2 MiB**；仅保留三份原 eq 输入，
 各 SHA256 与本轮开始一致。未操作用户 Java、应用、AVD 或 SSH 服务。
+
+### P5 实施第九批：Android 标准 Native task 与取消结果（2026-11-15）
+
+Android 按准确批准命令的 views / session.rpc / ui.task 创建通用任务模型与 Compose
+Text / ProgressIndicator / Button；不识别素数命令或加入业务专属 pane。Host profile 与
+bootstrap 仅在实际接线后宣称 ui.task；未知 / 重复服务或不属于已批准命令的服务拒绝。
+沿既有 ViewModel → Controller worker → JNI / C 门面，未增加 C ABI、SDK 源码身份、
+vendor pin 或 Core 预算。默认 App 仍 JS-off，候选包不自动安装 / 启用 / 发行。
+
+共享严格 JSON reader 抽出 envelope，既有 table / diff 成功回包仍为 3072 原始字节 /
+2048 值字节；任务值同限，通用失败另按 wire 的 1024 标量与 8192 原始字节边界读取。
+重复字段、非法 UTF-8 / surrogate、非规范 uint64、未知字段、布尔类型与 body 字节均
+显式拒绝；计数、总数零 / 未知、修订、序号及已确认终态不折叠或改写。通用失败的
+控制字符可见转义，不因合法长 Unicode 消息而误写 unknown。
+
+单次取消保留请求 ID；受理回执与确认停止分开。确认不明或调用方取消后不重发，用户
+可显式读取同一有效任务，旧取消仍保留未确认。模型主线程单 owner、单个在途操作，
+scope / Runtime 失效和迟到回复隔离；UNDISPATCHED 在首次挂起前建立 finally，取消不
+留下 PENDING。视图挂载期间每 500 ms 最多一个只读请求；未知暂停，普通显式读回后
+恢复，未知取消仍只允许显式查询。总量未知不画成零，进度条不替代精确计数。
+
+标准任务使用保留 terminal outcome 的 Native RPC 门面，声明的 failed / cancelled /
+unknown 与任务自身 phase / result 分开；未确认 success 保持 unknown。入队前明确
+拒绝为 effect:none，已接受句柄先登记再检查 coroutine / 代次，确保取消时走原 finally
+回收 / 取消路径；其它调用维持既有返回策略。实际 SDK 无效只读输入的 INVALID_INPUT /
+effect:none 通过同一生产路径观察，不把请求被取消当作任务停止。
+
+开发与同包本机 / 远端说明见[任务插件指南](../how-to/plugin-task.md)。本批设备目标仅
+为 helper 自建的 API29 / API36 arm64、4 KiB 页、无窗口 AVD；SSH 端点为自有环回服务，
+内存密钥 / agent / 独立配置，不访问用户主机、密钥、AVD 或服务。复现先按前批构建显式
+JS / SSH-on gterm、锁定 TS tools 与同一官方 task 目录包，再运行：
+
+```bash
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.py \
+  --build tmp/android-task/cli --package tmp/android-task/package-v3 --mutate \
+  --receipt tmp/android-task/native-v4.json
+```
+
+前置失败单列：首次 Kotlin 编译缺少嵌套 Value 类型导入，未记断言红；冻结文档前两次
+设置阶段主动中止，其中一次 Gradle 晚到文件导致临时目录清理报非空，未运行设备目标，
+不计成功 / 目标红。初轮 API29 基线与六 SSH 场景通过，九组已通过后，caller-cancelled
+变异发现重复锚点而未起跑；改为 finally 内的唯一赋值锚点，并重新执行最终整轮。
+没有因设置 / 编译失败提高测试期限或 CPU / 内存预算。
+
+TalkBack / IME / 用户键盘、16 KiB / 物理设备、真实丢包 / 断线恢复、task IPC、ctx.views /
+多视图与完整用户选包 / 批准点击链、生命周期 / 客户端矩阵及开发工具 / testkit 余项
+仍未完成，P5 / P1–P6 不勾选完成，不增加 macOS CI 二十份。
+
+最终自有 API29 / API36 各 **33 项任务 codec / 模型 / UI、既有 table 23 项 / diff 27 项**
+通过。浅 / 深主题 × 1× / 2× 字号分别核对实际字形像素、精确 semantics 和真实取消
+action；实际挂载视图另验自动读取、未知暂停及显式读回后恢复。每端 **直连 / 两跳 ×
+10,000 完成 / 空任务 / 百万上限取消六场景**，同一官方包 / gterm / Core，真实 Settings
+页面 consent / 取消、声明失败保留、停止失效及启用后的释放按钮均执行。百万为取消，
+不冒充百万完成；unknown 取消为模型 / adapter 证据，不冒充真实 SSH 丢包。review /
+approve / launch 由测试明确调用生产动作，不将其说成完整 SAF 选包到启动的用户点击链。
+
+**十七组隔离变异**在 API29 最终整轮通过：view / 修订、序号、进度、已知总量、终态、
+取消回执身份 / 不重放、迟到回复、调用方取消十组；bootstrap 服务、真实取消按钮 /
+自动读取三组；以及 ViewModel 创建 / 标准方法 / terminal outcome 保留 / 页面渲染四组。
+每组实际重编、生产 APK 改变、单条正常断言红、同 APK 独立 Core 配置绿、恢复目标绿
+及源码 / APK / SHA256。四次实际恢复重复路线不增加六种场景数。566 份输入与最终源码
+逐项一致，收据 SHA256：`eb0b373af6afc19a74ff09be57bc829f4a2dd1abbdacfd5ac7775c32d8374ba8`。
+
+最终两设备恢复生产 APK 为 `9ad54944545238c420e18d53255c170184510ccc1d5de426dc11d987af73fb81`，
+测试 APK 为 `706822eeb342366c90b99c440ee8ea121906d266d39a083d2b01feb80b6556a5`。
+API29 前置基线与六 SSH 场景使用初始生产 APK
+`943c0502c1f6ac2610e308f3cd07d80fdb91be124f73ea326d63ad05e98dfc39`，测试 APK 相同；
+最终 API29 / API36 模型复验的恢复 APK 相同，API36 完整六场景使用恢复包。均核对实际
+安装字节，不称全矩阵一次同 APK，不把本地设备专项当成发行或完整客户端验收。
+
+共享 parser / ViewModel 影响的旧 table 在 API36 另复验 **body-bytes / native-methods 两组**，
+以及 **23 项基线 / 最终、直连 / 两跳 × 百万行 / 空表四场景**，正常断言红、同 APK
+配置绿、恢复 / APK / SHA256 全通过。不声称旧十二组全重跑。564 份输入一致，收据为
+`f8fd8ce365222c5d3999c260ee34e6e770bc1976319601ba1a7d57bd182a820a`；初始生产 APK
+`cf36d2075db521fca0c1ba212ecbd63bc6bf85ea26f91b5f06643dea1e5c0e23`，恢复 APK
+`6b8f2809327b8c301d67899c9118b7191a0aa775aab3dd392475b345cd74209c`，测试 APK 与任务
+轮相同；独立分轮，不将它们说成同一生产 APK。
+
+根工程最终 JS-enabled **Debug / 测试 APK / 未签名 Release / app、bridge、data、terminal
+四模块 Release lint**通过；`minifyReleaseWithR8` 实际执行。默认 Core 保持 JS-off /
+tests-on，**588/588 CTest / 181 ABI**；C 格式 **19.1.7 / 258 文件**、Apple **178/3**、
+JNI **144/37**、SDK 九模块离线闭包、Python 语法和 diff 检查通过。无本轮 Core enabled
+全套、macOS App / Release 或完整 Android 客户端重跑结论，不借旧结果记绿。
+根工程最终未签名 Release SHA256 为
+`5c3e2e36df912150de3c2d7b9c8a221d677f75e147448739ba219322e5f2a62b`；此为构建证据，
+未安装该 Release 做设备验收，设备 Debug APK / 输入摘要按上述分轮单列。未推送 / 发行。
+
+验收结束清理 **101 个**所属 tmp 项、逻辑大小约 **167.0 MiB**；自有 AVD / agent / SSH
+均已退出，保留原三份 eq 输入并核对 SHA256 未变，不操作用户 Java 或其它服务。

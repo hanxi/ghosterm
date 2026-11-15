@@ -1324,3 +1324,21 @@ IPC、ctx.views / 多视图、完整生命周期 / 设备、开发工具 / testk
 enabled Core 825、默认 Core 588/181、App 默认档 578 项 / 35 明确跳过 / 零失败、macOS
 独立 Release 最终重编 / 重链、Android JS-enabled bridge Release、C 格式 258 文件及
 Apple 178/3 / JNI 144/37 通过。无本片 Android APK / 设备 / lint / R8 或打包 / 云端结论。
+
+**插件 P5 Android 原生 task（2026-11-15）**：准确批准命令 views / ui.task 驱动通用
+Compose 进度、阶段、结果和实际取消按钮；精确 uint64、零 / 未知、唯一取消 ID、
+回执 / 停止分开，未知后显式只读、不重放。标准 Native RPC 门面保留 failed / cancelled /
+unknown 与 effect，接受句柄先登记再检查取消 / 代次，声明请求取消不改写任务终态。
+共享 parser 抽 envelope，table / diff 成功回包原 3072 / 2048 界限不变，wire 长 Unicode /
+控制字符失败另按既有字段界限处理。自有 API29 / 36 arm64、4 KiB、无窗口档各 33 项
+任务、旧 table 23 / diff 27 项通过，含浅深主题 × 1× / 2× 字号、实际字形 / semantics /
+取消 / 自动读取暂停与恢复；每端直连 / 两跳各完成 / 空 / 百万取消六场景，真实 SDK
+INVALID_INPUT / effect:none、停止失效和实际释放按钮通过。十七组 API29 隔离变异
+同轮：编译后正常单条断言红、同 APK Core 配置绿、恢复 / APK / SHA256；566 输入一致。
+两设备最终恢复 APK 相同，API29 前置六 SSH 使用初始包，分轮见插件计划第九批，
+不称全矩阵一次同 APK。最初缺导入、设置中止 / 清理非空及重复锚点未记目标红或通过。
+旧 table 在 API36 另复验共享字节 / 方法两组与 23 项 / 四 SSH；根工程 Debug / 测试
+APK / 未签名 Release / 实际 R8 / 四模块 lint、默认 Core 588/181、C 格式 258 文件、
+Apple 178/3、JNI 144/37 通过。无新 ABI / SDK 身份或预算提高。非 TalkBack / IME /
+键盘、16 KiB / 真机、真实丢包 / 重连、完整选包点击链 / 生命周期 / 客户端或发行证据；
+task IPC、ctx.views / 多视图及完整 P5 / P1–P6 未完成，默认 JS-off，不增加 CI 二十份。

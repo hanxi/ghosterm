@@ -289,6 +289,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
                         extensions.table?.let { PluginTableContent(it) }
                         extensions.diff?.let { PluginDiffContent(it) }
+                        extensions.task?.let { PluginTaskContent(it) }
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
