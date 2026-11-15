@@ -165,7 +165,9 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
           mkdtemp(f->root));
     f->fd = open(f->root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     CHECK(f->fd >= 0);
-    bool client = !strcmp(mode, "client") || !strcmp(mode, "role");
+    bool table = !strncmp(mode, "client-table", 12) || !strcmp(mode, "executor-table");
+    bool client = !strcmp(mode, "client") || !strcmp(mode, "role") ||
+                  !strncmp(mode, "client-table", 12) || !strcmp(mode, "client-service");
     char entry[4097] = "executor/index.js";
     if (client) {
         strcpy(entry, "client/index.js");
@@ -241,7 +243,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         script = "/* invalid \xc0\x80 */export function activate(){return {dispose(){}}}";
     }
     bool nonportable = !strcmp(mode, "nonportable"), old_sdk = !strcmp(mode, "sdk-version"),
-         service = !strcmp(mode, "service");
+         service = !strcmp(mode, "service") || !strcmp(mode, "client-service");
     char entry_json[8200], manifest_json[16384], side[12288];
     json_text(entry_json, sizeof(entry_json), entry);
     if (client) {
@@ -249,7 +251,9 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                        sizeof(side),
                        "\"client\":{\"runtime\":\"portable-js\",\"entry\":%s,\"requires\":[%s]}",
                        entry_json,
-                       service ? "\"session.rpc\",\"ui.chat\"" : "\"session.rpc\"") > 0);
+                       table     ? "\"session.rpc\",\"ui.table\""
+                       : service ? "\"session.rpc\",\"ui.chat\""
+                                 : "\"session.rpc\"") > 0);
     }
     if (!client) {
         CHECK(snprintf(side,
@@ -259,6 +263,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                        nonportable ? "node" : "portable-js",
                        entry_json,
                        process   ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                       : table   ? "\"session.rpc\",\"ui.table\""
                        : service ? "\"session.rpc\",\"ui.chat\""
                                  : "\"session.rpc\"",
                        nonportable ? ",\"runtimeVersionRange\":\">=20.0.0\"" : "") > 0);
@@ -459,6 +464,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                    old_sdk ? "0.1.1" : GT_PLUGIN_SDK_API_VERSION,
                    nonportable ? "node" : "portable-js",
                    process ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                   : table ? "\"session.rpc\",\"ui.table\""
                            : "\"session.rpc\",\"ui.chat\"") > 0);
     bool conflict = !strcmp(mode, "association") || !strcmp(mode, "associated");
     CHECK(snprintf(registry, sizeof(registry), "[%s]", manifest_json) > 0);
@@ -556,10 +562,16 @@ static void load_pair(rpc_pair_t *p, const load_fixture_t *f, const char *mode) 
     if (!strcmp(mode, "digest")) {
         memset(c.executor_digest, 'a', 64);
     }
-    if (!strcmp(mode, "service")) {
+    if (!strcmp(mode, "service") || !strcmp(mode, "client-service")) {
         c.required_count = c.available_count = 2;
         strcpy(c.required[1], "ui.chat");
         strcpy(c.available[1], "ui.chat");
+    }
+    if (!strncmp(mode, "client-table", 12) || !strcmp(mode, "executor-table")) {
+        c.required_count = !strcmp(mode, "client-table-ungranted") ? 1 : 2;
+        c.available_count = 2;
+        strcpy(c.required[1], "ui.table");
+        strcpy(c.available[1], "ui.table");
     }
     gt_ext_rpc_method_t methods[4];
     rpc_methods(methods);
@@ -683,7 +695,8 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
     } else {
         rpc_pair_t p;
         load_pair(&p, &f, mode);
-        bool client = !strcmp(mode, "client");
+        bool client = !strcmp(mode, "client") || !strncmp(mode, "client-table", 12) ||
+                      !strcmp(mode, "client-service");
         gt_ext_session_t **owned = client ? &p.pair.h : &p.pair.e;
         gt_ext_session_t *peer = client ? p.pair.e : p.pair.h;
         gt_runtime_config_t config = {.role = client ? GT_EXT_HOST : GT_EXT_EXECUTOR,
@@ -734,10 +747,12 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
             expected = GT_ERR_PROTOCOL;
         }
         if (!strcmp(mode, "sdk-version") || !strcmp(mode, "nonportable") ||
-            !strcmp(mode, "service")) {
+            !strcmp(mode, "service") || !strcmp(mode, "client-service") ||
+            !strcmp(mode, "executor-table")) {
             expected = GT_ERR_UNSUPPORTED;
         }
-        if (!strcmp(mode, "association") || !strcmp(mode, "ungranted")) {
+        if (!strcmp(mode, "association") || !strcmp(mode, "ungranted") ||
+            !strcmp(mode, "client-table-ungranted")) {
             expected = GT_ERR_AUTH;
         }
         if (!strcmp(mode, "inactive") || !strcmp(mode, "revoked") || !strcmp(mode, "invalid")) {
@@ -851,10 +866,10 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                 CHECK(load_info(r).error == GT_RUNTIME_SCRIPT);
             }
             bool echo = !strcmp(mode, "roundtrip") || !strcmp(mode, "client") ||
-                        !strcmp(mode, "unicode") || !strcmp(mode, "long-path") ||
-                        !strcmp(mode, "frozen") || !strcmp(mode, "unused") ||
-                        !strcmp(mode, "share") || !strcmp(mode, "associated") ||
-                        !strcmp(mode, "allocation");
+                        !strcmp(mode, "client-table") || !strcmp(mode, "unicode") ||
+                        !strcmp(mode, "long-path") || !strcmp(mode, "frozen") ||
+                        !strcmp(mode, "unused") || !strcmp(mode, "share") ||
+                        !strcmp(mode, "associated") || !strcmp(mode, "allocation");
             if (echo) {
                 load_echo_request(r, &p, client);
             }

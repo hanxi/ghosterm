@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');parser.add_argument('--invocation',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities,args.invocation])<=1
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');parser.add_argument('--invocation',action='store_true');parser.add_argument('--table',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities,args.invocation,args.table])<=1
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -89,6 +89,12 @@ def main():
    ('invocation-declared',ENGINE,'        if (!found) {\n','        if (false && !found) {\n','package:registry'),
   ]
   executable='test_runtime';pattern='^(ext_)?runtime_invocation$|^ext_package_registry$';objects=['runtime','runtime-api']
+ if args.table:
+  cases=[
+   ('native-table-support',PACKAGE,'role == GT_BRIDGE_HOST && !strcmp(name, "ui.table")','false && role == GT_BRIDGE_HOST && !strcmp(name, "ui.table")','client-table'),
+   ('native-table-side',PACKAGE,'role == GT_BRIDGE_HOST && !strcmp(name, "ui.table")','!strcmp(name, "ui.table")','executor-table'),
+   ('native-table-grant',PACKAGE,'if (gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED)','if (strcmp(name, "ui.table") && gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED)','client-table-ungranted'),
+  ]
  for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]

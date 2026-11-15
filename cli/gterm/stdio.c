@@ -215,7 +215,8 @@ int gterm_stdio_invocation_index(int argc, char **argv) {
                 ? 2
             : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
                     !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
-                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment")
+                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment") ||
+                    !strcmp(option, "--client-capability")
                 ? 1
                 : -1;
         if (count < 0 || count >= argc - at) {
@@ -235,6 +236,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                *node_sha = NULL;
     const char *sdk_directory = NULL, *sdk_sha = NULL;
     bool execution_authorized = false;
+    bool client_table = false;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     process_program_t process_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     source_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
@@ -250,6 +252,14 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     size_t root_count = 0;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--");) {
+        if (!strcmp(argv[at], "--client-capability")) {
+            if (client_table || at + 1 >= argc || strcmp(argv[at + 1], "ui.table")) {
+                return diagnostic("unknown or duplicate Client service requirement", 2);
+            }
+            client_table = true;
+            at += 2;
+            continue;
+        }
         if (!strcmp(argv[at], "--allow-process-execution")) {
             if (execution_authorized) {
                 return diagnostic("duplicate execution approval", 2);
@@ -613,6 +623,17 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         } else if (!strcmp(metadata.requires[i], "process.pipes")) {
             process_pipes = true;
         }
+    }
+    /* A Native Client explicitly asks to use its own table service. This is
+     * a shared Session requirement, not an Executor rendering capability or
+     * execution approval. The peer must negotiate and consent to the same set. */
+    if (client_table) {
+        if (!rpc || config.required_count >= 16 || config.available_count >= 16) {
+            result = diagnostic("Client table requires declared RPC and a capability slot", 4);
+            goto done;
+        }
+        strcpy(config.required[config.required_count++], "ui.table");
+        strcpy(config.available[config.available_count++], "ui.table");
     }
     if ((receive_resources && !resource_store_available) || (scoped_reads && !root_count) ||
         (scoped_reads && !receive_resources)) {

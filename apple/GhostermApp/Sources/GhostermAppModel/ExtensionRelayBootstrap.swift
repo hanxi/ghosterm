@@ -79,6 +79,7 @@ public enum ExtensionRelayBootstrap {
         public let clientDigest: String
         public let methods: [String]
         public let hostMethods: [String]
+        public let clientCapabilities: [String]
         public let scopedRoots: [ScopedRoot]
         public let processPrograms: [ProcessProgram]
         public let processEnvironmentNames: [String]
@@ -89,6 +90,7 @@ public enum ExtensionRelayBootstrap {
 
         public init(executable: String, executorDirectory: String, executorDigest: String,
                     clientDigest: String, methods: [String], hostMethods: [String] = [],
+                    clientCapabilities: [String] = [],
                     scopedRoots: [ScopedRoot] = [],
                     processPrograms: [ProcessProgram] = [],
                     processEnvironmentNames: [String] = [],
@@ -98,6 +100,7 @@ public enum ExtensionRelayBootstrap {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
             self.methods = methods; self.hostMethods = hostMethods
+            self.clientCapabilities = clientCapabilities
             self.scopedRoots = scopedRoots
             self.processPrograms = processPrograms
             self.processEnvironmentNames = processEnvironmentNames
@@ -179,6 +182,9 @@ public enum ExtensionRelayBootstrap {
     }
 
     private static func arguments(_ request: Request, local: Bool) throws -> [String] {
+        guard request.clientCapabilities.count <= 1, request.clientCapabilities.allSatisfy({ $0 == "ui.table" }) else {
+            throw invalid("此 Host 仅支持显式声明的 ui.table Client 服务")
+        }
         guard !request.executable.isEmpty, (request.attachment != nil || !request.executorDirectory.isEmpty),
               !request.command.isEmpty else { throw invalid("请指定 gterm、Executor 目录和完整插件命令") }
         guard isDigest(request.executorDigest), isDigest(request.clientDigest) else {
@@ -246,6 +252,9 @@ public enum ExtensionRelayBootstrap {
         }
         for method in request.methods {
             argv.append(contentsOf: ["--method", method])
+        }
+        for capability in request.clientCapabilities {
+            argv.append(contentsOf: ["--client-capability", capability])
         }
         for method in request.hostMethods {
             argv.append(contentsOf: ["--host-method", method])

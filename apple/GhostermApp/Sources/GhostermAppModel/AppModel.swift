@@ -22,7 +22,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table"]
 
     /// The wire protocol carries semantic versions with three numeric
     /// components. Apple's marketing version commonly omits the patch (for
@@ -106,6 +106,8 @@ public final class AppModel: ObservableObject {
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
+    @Published public private(set) var extensionTable: PluginTableModel?
+    private var extensionViews: [String] = []
     @Published public private(set) var localReservationEntries: [ExtensionLocalJournalEntry] = []
     @Published public private(set) var localReservationBusy = false
     @Published public private(set) var localReservationIssue: String?
@@ -1146,7 +1148,12 @@ public final class AppModel: ObservableObject {
                   selected.packageDigest == packageDigest, selected.command?.path == command else {
                 throw GhostermError.failed("只能启动本进程已批准摘要中的精确 Client 命令")
             }
-            guard (methods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
+            let tableContribution = selected.command?.views.contains("table") == true
+            if tableContribution && !["session.rpc", "ui.table"].allSatisfy(selected.requiredCapabilities.contains) {
+                throw GhostermError.failed("表格贡献必须声明 session.rpc 与 ui.table")
+            }
+            let sessionMethods = tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+            guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
                 throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
             }
             try clientWorkspace?.validate(requiredCapabilities: selected.requiredCapabilities)
@@ -1157,7 +1164,8 @@ public final class AppModel: ObservableObject {
                 packageDigest: packageDigest, command: command, arguments: arguments)
             let request = ExtensionRelayBootstrap.Request(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
-                clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
+                clientDigest: packageDigest, methods: sessionMethods, hostMethods: hostMethods,
+                clientCapabilities: tableContribution ? ["ui.table"] : [],
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment,
                 command: command, arguments: arguments)
@@ -1175,7 +1183,7 @@ public final class AppModel: ObservableObject {
             } else {
                 _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
             }
-            let rpcMethods = methods.map {
+            let rpcMethods = sessionMethods.map {
                 ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
                     receiver: GhostermCore.ExtensionSession.Role.executor.rawValue)
             } + hostMethods.map {
@@ -1191,6 +1199,8 @@ public final class AppModel: ObservableObject {
                 session = try await extensionController.adoptSSHSession(pluginID: packageID, packageDigest: packageDigest, executorDigest: executorDigest, hostVersion: version, peerIdentity: peerIdentity, methods: rpcMethods, additionalRequiredCapabilities: additionalCapabilities)
             }
             extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
+            extensionTable?.invalidate(); extensionTable = nil
+            extensionViews = selected.command?.views ?? []
             claudeRPC?.invalidate(); claudeRPC = nil
             claudeConversation?.invalidate(); claudeConversation = nil
             extensionRunGeneration = UUID()
@@ -1205,7 +1215,7 @@ public final class AppModel: ObservableObject {
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
-                peerIdentity: peerIdentity, remoteCommand: bootstrap, executorExecution: executorExecution, executorAttachment: executorAttachment, localLaunch: localLaunch, clientWorkspace: clientWorkspace, methods: methods, hostMethods: hostMethods,
+                peerIdentity: peerIdentity, remoteCommand: bootstrap, executorExecution: executorExecution, executorAttachment: executorAttachment, localLaunch: localLaunch, clientWorkspace: clientWorkspace, methods: sessionMethods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -1282,6 +1292,7 @@ public final class AppModel: ObservableObject {
 
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        extensionTable?.invalidate()
         claudeRPC?.invalidate(); claudeRPC = nil
         claudeConversation?.invalidate(); claudeConversation = nil
         extensionRunGeneration = UUID()
@@ -1323,6 +1334,7 @@ public final class AppModel: ObservableObject {
             extensionLastLocalProcess = try? await extensionController.localProcessState()
             extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRun = nil; extensionRunInvocation = nil
+            extensionTable = nil; extensionViews = []
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
@@ -1642,6 +1654,7 @@ public final class AppModel: ObservableObject {
             }
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
+            extensionTable?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             cancelCodexChangeReview()
@@ -1683,6 +1696,7 @@ public final class AppModel: ObservableObject {
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
+            extensionTable?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             codexPendingApprovals = []
@@ -1696,6 +1710,20 @@ public final class AppModel: ObservableObject {
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
             codexEvents: run.codexEvents)
+        if extensionViews.contains("table"), run.requiredCapabilities.contains("ui.table"),
+           runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionTable == nil,
+           PluginTableModel.methods.allSatisfy(run.methods.contains) {
+            let generation = extensionRunGeneration
+            extensionTable = PluginTableModel(rpc: { [weak self] method, input in
+                guard let self else { throw CancellationError() }
+                try self.checkExtensionRunGeneration(generation)
+                return try await self.callExtensionExecutor(method, inputBytes: input, command: run.command)
+            }, isCurrent: { [weak self] in
+                guard let self else { return false }
+                return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
+                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+            })
+        }
         if run.command == "ai claude", runtime.phase == ExtensionRuntime.Phase.active.rawValue,
            ClaudeRPCClient.methods.allSatisfy(run.methods.contains),
            claudeConversation == nil {

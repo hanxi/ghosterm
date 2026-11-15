@@ -10,6 +10,11 @@
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
+**最新 P5 进展：** 第一批提供 Portable 表格契约与真正按页计算的官方 Executor；第二批
+接入 macOS 通用 Native 表格、分页、错误 / 迟到回复隔离与 Client 服务协商。同一包经本机、
+直连 / ProxyJump SSH 完成实际 RPC。Android table 服务仍未接，缺能力继续显式不支持；
+diff、持续交互样例及完整开发体验仍待完成，P5 和 P1–P6 均未记完成。
+
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
 > 除实施记录明确列出的已实现部分，本计划中的目录、API、命令、运行时与包后缀仍为设计草案。P0 关闭记录冻结的仅是逻辑 wire v1 envelope 与 SSH exec 长度帧格式；独立 local IPC、TTY carrier、gateway、公开 C ABI 名称、包格式、安装信任和协商宿主预算均未因此冻结或视为已实现。方案获认可不代表这些能力已实现，也不改变 [AGENTS.md](../../AGENTS.md) 的架构、退役和验收规则。
@@ -6295,3 +6300,99 @@ SHA256（临时原件验收后清理）：
 专项与构建进程已退出、自有 AVD 已停止后，清理 70 个 tmp 根入口 / 8636 项 /
 226.0 MiB 账面分配；仅保留原三份 eq-*，SHA256 一致。未终止无关 Java、用户 App 或
 既有服务；无前台自动测试窗口，根 Core 保持 JS-off / tests-on。
+
+### P5 实施第二批：macOS 标准 Native 表格与 Client 服务协商（2026-11-15）
+
+`PluginTableModel` / `PluginTableView` 是可被任意命令复用的 Native 组件。AppModel 按已批准
+命令的 `views: ["table"]` 创建模型，不按 `table` 命令名写专属窗格；仅 ACTIVE Runtime、
+声明 `session.rpc` / `ui.table` 且具有两条标准方法时启用。原生授权页显示本次准确能力与
+分页方法，Client 元数据兼容检查、来源批准和 Session consent 继续分开。普通 App 仍默认
+JS-off，不自动安装包 / CLI / 依赖。尚未提供通用 `ctx.views` 对象或多表格句柄。
+
+原生模型通过既有 Controller / Runtime RPC 接缝读取 descriptor 和选中页，一次最多一条
+在途查询，只保留当前页。切页即移除旧行，不能把旧数据标成新页；返回后再核对原 Runtime
+代次、模型状态、取消状态、viewId / 正 uint64 revision、offset、total、精确行数与列数。
+同样限制八列 / 十六行 / 2048 JSON 字节，拒绝未知字段、重复键、非法 UTF-8 / surrogate、
+控制字符、布尔冒充整数与重复行列 ID。字节计数按 JSON.stringify 的值计算，不因 Foundation
+额外转义或输入数字的 1.0 / 1e0 写法漂移。未知 / 错误、确认为空表、正在读取分别展示，
+不自动重试失败查询；旧 Runtime 结束或停止先撤销模型，迟到值与错误不能重开控件。
+
+SwiftUI Grid / ScrollView / Text / Button 提供语义化表头、行号 / 列名与完整值的辅助功能
+节点、选择复制、横纵滚动和前 / 后 / 末页 / 重新读取。窄宽度下控件纵排，长单元格折行。
+离屏实测浅 / 深主题与 13 / 28 pt 字体，像素 OCR 核对实际列头；通过测试进程自己的增强
+AX 树读取单元格标签 / 值，并执行真正“下一页”控件的公开 AX action，观察页 17。
+这不是操作系统 VoiceOver、用户键盘焦点、完整设置窗口或完整安装点击链验收。
+
+原 Session 的 required 集合是双向精确协商，不能把 Native Client 的 UI 服务当成 gterm
+Executor 自有渲染能力。新增显式 `--client-capability ui.table`：只接受一次已实现名称，
+Executor 仍须声明 RPC；该项仅加入本次共享 Session 要求，必须由 Native Host 提供并明确
+consent，gterm 的 Executor 兼容 profile 不因此宣称有 UI。Host 按命令声明自动带入参数。
+已有前台实例附着不修改其配置；本片未验 table 的 IPC 附着，不借新启动结果称附着完成。
+
+Core package runtime 原先统一拒绝 ui.*。现在仅对 **HOST** 的 `ui.table` 声明放行，并保留
+当前 Session lease / capability 的逐项检查；Executor 的 UI 声明、Host 的未接服务、未授权
+table 仍拒绝。新增 client-table / client-table-ungranted / executor-table / client-service
+四 CTest，既有 client / service 继续对照。没有新增 C ABI、跨语言 DTO、wire 或 SDK 身份，
+共享 Core 不包含平台 UI。Android 产品 profile 不宣称 `ui.table`，仍显式 UNSUPPORTED。
+
+复现（CLI 显式 JS/SSH-on，根 Core 默认档不变）：
+
+```bash
+export TMPDIR="$PWD/tmp" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+cmake -S cli/gterm -B tmp/native-table/cli -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON
+cmake --build tmp/native-table/cli -j2
+python3 scripts/build-plugin-sample.py --source plugins/official/table --tools tmp/native-table/tools --out tmp/native-table/package
+python3 scripts/test-plugin-table-native.py --build tmp/native-table/cli --package tmp/native-table/package --mutate --receipt tmp/native-table/native.json
+python3 scripts/test-gterm-client-service.py --build tmp/native-table/cli --package tmp/native-table/package --mutate --receipt tmp/native-table/cli.json
+python3 scripts/mutation-check-plugin-package-runtime.py --table
+```
+
+Native runner 在工程 tmp 复制三个 Apple 包与公共头，链接明确的 enabled Core，使用同一
+官方候选包的实际 Client / Executor；SSH 是自有回环 OpenSSH 两跳，临时 hostkey 与登录
+材料只在内存 / 自有 agent / 本轮认证 socket 中传递，落盘只有公钥与准确 pin，拒绝保存
+凭据。启用请求来自 AppModel 的生产动作，不冒充 fileImporter / 选包 / consent 全用户点击。
+六种实际场景为 local / direct / jump 各百万行与空表；读取首 / 次 / 末页、准确大整数、
+生产 ExtensionsPane 绘制和停止关闭。本机另核对真实进程 reap、Native TMPDIR 移除。
+不把一个已确认页面升级为全部远端 gterm / 子树退出或未决业务成功。
+
+前置失败单列：最初透明后台测试窗被 AppKit 约束回屏内，保持 alpha=0 / 后台排序，
+随后加窗口坐标守卫，最终断言与所有屏幕不相交。测试进程未启用增强 AX 时树为空；
+启用 / 收回本进程 AX 后读取真实节点，SwiftUI 节点不声明正式协议 conformance，改由
+公开 ObjC press selector 执行动作。错误的 Swift 协议名导致的编译失败、最初无效 action
+引起的断言失败均未记绿。首轮实际本机握手虽成功，Runtime 因 Core 未接 ui.table 拒绝；
+补齐上述 Host-only 准入后六种场景通过，未扩大 CPU / 握手 / RPC 期限。
+初轮 Native 方法保护变异出现两条串联断言，未计合格单条红；保留第一条方法集合断言并
+在其失败后返回，随后重新执行。CLI 探针对照缺少 GT_TEST_TMP_DIR、protocol 宏类型错误
+的两次编译失败亦未计通过。
+
+最终证据为 **15 项无跳过 Native 值 / 状态 / 组件测试、六种本机 / SSH 实际场景、九组
+Native 变异**；六组模型变异另核对真实 Swift 对象变化，三组接线变异经实际 AppModel /
+官方包 / 绘制断言验证。每组编译后单条正常断言红、同构件配置读取绿、恢复绿与 SHA256。
+Core `--table` 三组优化 ASan/UBSan 变异及 **53 项**包运行时基线 / 最终复验通过；CLI
+服务三条真实拒绝 / 两组 O1 ASan/UBSan 变异通过，同 archive 配置绿、复原与 SHA256，
+无 LSan。CLI 只对其代码做 sanitizer，linked Core 为明确 enabled archive，不冒充整库
+sanitizer；Core 专项的隔离库单列。旧 CLI **12**、stdio **17**、IPC **36** 项均通过。
+
+完整 Debug JS-on / SSH-on **819/819 CTest**，默认根 Core **JS-off / tests-on：588/588
+CTest、181 ABI**；Apple **178/3**、JNI **144/37** 对拍一致。完整 macOS App gate
+**535 项、19 项默认档 / 专用夹具缺失的显式跳过、零失败**，真实 SSH 和 WebKit CSS /
+PNG 绘制通过；十五项 Native 新测试未跳过，表格实际路线由独立 enabled 运行证明。
+Xcode 27.1 / Swift 6.4 **arm64 Release**、Android JS-enabled **bridge Release 原生
+编译**、clang-format 19.1.7 **256 文件**、SDK 七模块生成 / 输入守卫、脚本语法和 diff
+检查通过。Android 无本片 APK / 设备 / 原生 table；未重跑四模块 lint，不冒充发行、
+云端 Swift 6.1.2、全量插件或完整客户端通过。不增加 macOS CI 二十份。
+
+四份最终收据逐项比对当前源码；Native 与 CLI 服务测试的 enabled Core archive 相同：
+
+- Native / 九组 / 263 输入：`7cc77c13fcb37cd5f3f1af691ae91af63de2e18155947d7f6dbd7a3aa6bb91ce`。
+- Core / 三组 / 713 输入：`deb5e47f06b28ea38b3a2b7c1cb5a5d12fe5077b4839733b02d6a325aa997395`。
+- CLI 服务 / 两组 / 28 输入：`3e2fd5ae16617e239fc7aae163a20b18b355c7febff37e2cc03a1e65e05b7684`。
+- 旧 IPC / 36 项 / 139 输入：`c5c3ab50b4d169fdeca3abd396ec93646795d564ae7cc64b39b14f5e4060b103`。
+
+本批仍未接 Android table、通用 `ctx.views` / 多视图句柄、table IPC 附着、OS VoiceOver /
+键盘焦点、完整 UI 选包 / 批准点击、真实设备与完整生命周期矩阵；P5 的 diff / 持续交互
+样例、安装信任和既有 P1–P6 缺口继续，默认 JS-off，不推送 / 发行。
+
+全部自有测试 / 构建 / 回环服务退出后，清理 550 个 tmp 根入口 / 10191 项 /
+241.2 MiB 账面分配，只保留原三份 eq-* 且 SHA256 一致。未终止无关 Java、用户 App
+或既有服务；测试窗口维持透明 / 离屏 / 后台，根 Core 保持 JS-off / tests-on。

@@ -413,6 +413,9 @@ struct ExtensionsPane: View {
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
                 codexControls(run: run)
+                if let table = model.extensionTable {
+                    PluginTableView(model: table)
+                }
                 if run.command == "ai claude", let conversation = model.claudeConversation {
                     ClaudeConversationView(model: conversation)
                 } else if run.command == "ai claude", run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue {

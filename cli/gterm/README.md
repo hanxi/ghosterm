@@ -377,3 +377,16 @@ gterm 的 HUP 处理走已有取消及有界释放，修复 pane 关闭直接终
 RPC 成功记成整个远端任务成功。这里只证明明确列出的资源方向和场景；SAF 来源发布、
 App TerminalSurface 与 tmux 的完整交互、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
 macOS CI 二十份变异。
+
+### Client 提供的原生表格服务
+
+`relay --stdio --client-capability ui.table` 要求 Native Client 提供该服务。
+当前仅接受一次 `ui.table`，且 Executor 包必须声明 `session.rpc`。这不是 gterm 本机
+渲染能力或执行批准：该项加入共享 Session 的精确协商集合，Host 仍须实际提供能力并
+显式 consent。缺少参数时不会猜测 Client 服务，旧 Host / 集合不匹配时拒绝握手。
+包兼容性检查的 Executor profile 不因此声称具有 `ui.table`；其它未接服务仍显式不支持。
+已有 `--listen` 实例的配置在附着时不更改，所需服务须在其创建时声明。
+
+macOS 实验插件页按已批准命令的 `views: ["table"]` 加入标准分页方法及上述要求，
+同一官方 Executor 目录可用于本机进程通道或显式 SSH 路线。普通构建仍关闭 JS；这不
+提供插件安装、终端 TTY 回写、Android 表格或正式分发。

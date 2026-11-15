@@ -1202,3 +1202,20 @@ SDK 增至七模块并同步生成身份 / 输入 / 测试闭包，无新 ABI。
 P5 与完整 P1–P6 仍未完成，不增加 macOS CI 二十份。原件、前置失败和收据见插件计划 P5 第一批。
 默认 Core 588/181、JS/SSH-on 815 CTest、Apple 178/3、JNI 144/37、C 格式 256 文件、
 Android JS-enabled 未签名 Release / 四模块 lint 通过；native 实际重构建，R8 复用缓存。
+
+**插件 P5 macOS 原生表格（2026-11-15）**：按已批准命令的 views 声明复用 Native 模型 /
+Grid / Text / Button，不增加业务专属 C ABI 或窗格类型。十五项含准确分页 / 迟到隔离、
+浅深主题、13 / 28 pt、进程内 AX 标签 / 值和真实下一页 action；同一官方包经本机 / 直连 /
+ProxyJump 各百万行与空表六项，九组实际重编 Native 变异通过：单条正常断言红、同构件
+配置绿、复原及 SHA256。三组 Core RelWithDebInfo ASan/UBSan 变异及其 53 项包运行时
+基线、两组 CLI O1 ASan/UBSan 行为变异通过，均正常断言红 / 同 archive 配置绿 / 恢复 /
+SHA256、无 LSan；CLI 的 linked Core 为单列 enabled archive，不冒充整库 sanitizer。
+gterm 显式 Client 服务要求纳入精确协商 / Native consent，不宣称 Executor 自有 UI；
+Core 仅允许 Host 的已授权 ui.table，其它服务与 Executor UI 仍不支持。未提高 CPU /
+握手 / RPC 期限。旧 CLI 12 / stdio 17 / IPC 36、enabled Core 819 项通过。
+Android table、OS VoiceOver / 键盘焦点、table IPC 附着、完整选包 / 授权用户点击链、
+设备 / 生命周期与 P5 / P1–P6 仍未完成；默认 App JS-off，不增加 CI 二十份，未发行。
+前置失败、独立收据与 Native / C / CLI 证据边界见插件计划 P5 第二批。
+默认 Core 588/181、Apple 178/3、JNI 144/37、完整 App 535 项含十九跳过 / 零失败、真实
+SSH / WebKit、macOS arm64 Release、Android JS-enabled bridge Release 原生编译与 C
+格式 256 文件通过。Android 本片无 APK / 设备 / table UI 或四模块 lint 复跑结论。

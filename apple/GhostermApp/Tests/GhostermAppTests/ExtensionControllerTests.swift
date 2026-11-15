@@ -15,7 +15,7 @@ final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
         XCTAssertEqual(AppModel.extensionHostCapabilities,
-                       ["session.rpc", "resource.receive", "file.readScoped"])
+                       ["session.rpc", "resource.receive", "file.readScoped", "ui.table"])
     }
 
     func testNativeResourceDirectoryRequiresLocalGrantAndClientResourceService() throws {
