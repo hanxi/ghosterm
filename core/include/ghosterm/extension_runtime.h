@@ -195,6 +195,21 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
  * Business outcomes remain separate from runtime lifecycle/error observations. */
 gt_ext_runtime_phase_t gt_ext_runtime_step(gt_ext_runtime_t *);
 bool gt_ext_runtime_info(const gt_ext_runtime_t *, gt_ext_runtime_info_t *);
+/* Explicit native view-registration service, not proof of rendering. Enable
+ * once before the first step, Host only; table=1, diff=2, task=4. Package mode
+ * also requires the selected invocation's declared views. Live Session grants
+ * remain mandatory. No process/Executor UI service or implicit fallback.
+ * <=8 live registrations. Handles are opaque and never reused by this owner.
+ * APIs run on the same non-UI Runtime worker. JS-off returns UNSUPPORTED. */
+gt_status_t gt_ext_runtime_views_enable(gt_ext_runtime_t *, uint32_t kinds);
+/* Borrowed UTF-8 JSON <=8192 bytes: {instanceId,epoch,revision,views:[
+ * {handle,viewId,kind,methods:{describe,read[,cancel]}}]}. Counters are uint64
+ * decimal strings. Copy before any mutating call/step/close. Failure zeroes
+ * outputs; stopped/revoked owners never expose stale view registrations. */
+gt_status_t gt_ext_runtime_views_snapshot(gt_ext_runtime_t *, const char **json, size_t *size);
+/* A Native close invalidates the corresponding JS handle. NOT_FOUND includes
+ * stale/foreign handles; closing a view does not cancel Executor business. */
+gt_status_t gt_ext_runtime_view_close(gt_ext_runtime_t *, const char *handle);
 /* The transport child adopted with Session, independent of any Executor or
  * business process reported by runtime_info. Final snapshot survives internal
  * Session destruction at close, until Runtime destroy. Snapshot only, no IO;

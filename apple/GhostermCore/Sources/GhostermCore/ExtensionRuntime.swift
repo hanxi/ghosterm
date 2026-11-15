@@ -228,6 +228,23 @@ public final class ExtensionRuntime {
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
         } } } }
     }
+    /// Local registration service; callers must consume snapshots to render.
+    /// Enable before the first step. table=1, diff=2, task=4; no implied grant.
+    public func enableViews(kinds: UInt32) throws {
+        let status = gt_ext_runtime_views_enable(try pointer(), kinds)
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法启用插件视图注册") }
+    }
+    public func viewsSnapshot() throws -> Data {
+        var json: UnsafePointer<CChar>?, size = 0
+        let status = gt_ext_runtime_views_snapshot(try pointer(), &json, &size)
+        guard status == GT_OK, let json, (1...8192).contains(size) else { throw GhostermError.status(Int32(status.rawValue), "无法读取插件视图注册") }
+        return Data(bytes: json, count: size)
+    }
+    public func closeView(handle: String) throws {
+        guard !handle.utf8.contains(0), handle.utf8.count <= 64 else { throw GhostermError.failed("插件视图句柄无效") }
+        let status = try handle.withCString { gt_ext_runtime_view_close(try pointer(), $0) }
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法关闭插件视图注册") }
+    }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_runtime_step(try pointer()).rawValue) ?? .failed }
     public func info() throws -> Info {
         var v = gt_ext_runtime_info_t(); guard gt_ext_runtime_info(try pointer(), &v) else { throw GhostermError.failed("运行时观察无效") }

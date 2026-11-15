@@ -35,6 +35,26 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             "运行时已释放或不在创建它的非 UI worker"
         }
     }
+    /** Local registration only; Native UI must explicitly consume snapshots. */
+    fun enableViews(kinds: Int) {
+        owner(); require(kinds in 1..7)
+        val status = NativeExtensionRuntime.viewsEnable(handle, kinds)
+        if (status != 0) throw ExtensionChannelException(status, "无法启用插件视图注册")
+    }
+    fun viewsSnapshot(): ByteArray {
+        owner()
+        val fields = NativeExtensionRuntime.viewsSnapshot(handle)
+        val meta = fields[0] as LongArray; val bytes = fields[1] as ByteArray
+        check(meta.size == 2 && bytes.size == 8192 && meta[1] in 0..8192)
+        if (meta[0] != 0L) throw ExtensionChannelException(meta[0].toInt(), "无法读取插件视图注册")
+        check(meta[1] > 0)
+        return bytes.copyOf(meta[1].toInt())
+    }
+    fun closeView(viewHandle: String) {
+        owner()
+        val status = NativeExtensionRuntime.viewClose(handle, encode(viewHandle, 64))
+        if (status != 0) throw ExtensionChannelException(status, "无法关闭插件视图注册")
+    }
     fun step(): Phase { owner(); return Phase.entries[NativeExtensionRuntime.step(handle)] }
     fun info(): Info {
         owner(); val v = NativeExtensionRuntime.info(handle); check(v.size == 20)
@@ -183,6 +203,9 @@ class ExtensionRuntime private constructor(private val worker: Thread,
 internal object NativeExtensionRuntime {
     init { System.loadLibrary("ghosterm_android") }
     external fun support(): Int
+    external fun viewsEnable(handle: Long, kinds: Int): Int
+    external fun viewsSnapshot(handle: Long): Array<Any>
+    external fun viewClose(handle: Long, viewHandle: ByteArray): Int
     external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
     external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
     external fun step(handle: Long): Int

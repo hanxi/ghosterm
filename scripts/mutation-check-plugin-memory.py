@@ -44,7 +44,7 @@ def main():
  parser.add_argument('--sdk',type=Path,required=True)
  parser.add_argument('--case',action='append',default=[])
  args=parser.parse_args();sdk=args.sdk.resolve()
- for name in ['index.js','codec.js','session.js','wire-contract.js','resources.js','table.js']:
+ for name in ['index.js','codec.js','session.js','wire-contract.js','resources.js','table.js','diff.js','task.js','views.js']:
   if not (sdk/name).is_file():parser.error('missing compiled SDK: '+name)
  if set(args.case)-{c[0] for c in CASES}:parser.error('unknown case')
  cases=[c for c in CASES if not args.case or c[0] in args.case]
@@ -74,7 +74,7 @@ def main():
   (source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True);(source/'tmp').mkdir()
   run('configure',['cmake','-S',source/'core','-B',build,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON',
     '-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
-  targets=['test_plugin_memory','test_package_json','test_runtime','test_ext_runtime','test_config']
+  targets=['test_plugin_memory','test_package_json','test_runtime','test_ext_runtime','test_runtime_views','test_config']
   run('baseline-build',['cmake','--build',build,'--target',*targets,'-j','4'],budget=300)
   pattern=r'^(plugin_memory_|plugin_package_json_|runtime_|ext_runtime_)'
   # Ownership/boundary targets are covered by the ordinary enabled full build.
@@ -84,7 +84,9 @@ def main():
    excluded={'runtime_boundary_outbound','ext_runtime_boundary_outbound',
              *('ext_runtime_'+n for n in ['outgoing-owner','taken-owner','untaken-peer','resource-owner'])}
    selected=[t for t in tests if re.match(pattern,t['name']) and t['name'] not in excluded]
-   assert len(selected)==91,len(selected)
+   # 37 private + 37 public Runtime, 24 JSON, 3 shared-memory, 15 Native views.
+   # Keep every discovered test backed by an explicitly built executable.
+   assert len(selected)==116,len(selected)
    for t in selected:assert 'command' in t and Path(t['command'][0]).name in targets,t['name']
    names='^('+'|'.join(re.escape(t['name']) for t in selected)+')$'
    output=run(label,['ctest','--test-dir',build,'-R',names,'--output-on-failure'],budget=180)

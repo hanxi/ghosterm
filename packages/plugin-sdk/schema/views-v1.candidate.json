@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/views-v1.candidate.json",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "viewId",
+        "methods"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "table",
+            "diff"
+          ]
+        },
+        "viewId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "describe",
+            "read"
+          ],
+          "properties": {
+            "describe": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9_.-]{0,127}$"
+            },
+            "read": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9_.-]{0,127}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "viewId",
+        "methods"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "task"
+          ]
+        },
+        "viewId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+        },
+        "methods": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "describe",
+            "read",
+            "cancel"
+          ],
+          "properties": {
+            "describe": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9_.-]{0,127}$"
+            },
+            "read": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9_.-]{0,127}$"
+            },
+            "cancel": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9_.-]{0,127}$"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

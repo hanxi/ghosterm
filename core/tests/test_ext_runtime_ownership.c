@@ -41,14 +41,16 @@ int main(int argc, char **argv) {
                            "wire-contract.js",
                            "table.js",
                            "diff.js",
-                           "task.js"},
+                           "task.js",
+                           "views.js"},
                *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
                          "sdk:/wire-contract.js",
                          "sdk:/table.js",
                          "sdk:/diff.js",
-                         "sdk:/task.js"};
+                         "sdk:/task.js",
+                         "sdk:/views.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])

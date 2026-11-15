@@ -3,6 +3,7 @@
 #include "extension/session-owner.h"
 #include "extension/package-runtime.h"
 #include "extension/package-cli-decoder.h"
+#include "extension/runtime-views.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
 #include <quickjs.h>
@@ -48,6 +49,7 @@ typedef union {
 } runtime_allocation_t;
 
 struct gt_bridge_runtime {
+    runtime_views_t *views;
     gt_ext_session_t *session;
     gt_ext_transport_process_info_t transport_process;
     gt_status_t transport_process_status;
@@ -387,6 +389,9 @@ static JSValue runtime_decode_arguments(gt_bridge_runtime_t *r, JSContext *c, JS
     }
     return decoded;
 }
+
+/* View registration is local native state; it never enters Session/wire IO. */
+#include "extension/runtime-views.inc"
 
 static JSValue
 runtime_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, int op) {
@@ -1138,6 +1143,19 @@ static int runtime_bind(JSContext *c, JSModuleDef *module) {
             return -1;
         }
     }
+    for (int i = 0; i < 3; i++) {
+        if (JS_SetModuleExport(c,
+                               module,
+                               runtime_view_exports[i],
+                               JS_NewCFunctionMagic(c,
+                                                    runtime_view_native,
+                                                    runtime_view_exports[i],
+                                                    0,
+                                                    JS_CFUNC_generic_magic,
+                                                    i))) {
+            return -1;
+        }
+    }
     for (int i = 0; i < 9; i++) {
         if (JS_SetModuleExport(c,
                                module,
@@ -1264,6 +1282,11 @@ static JSModuleDef *runtime_load(JSContext *ctx, const char *name, void *opaque)
                 return NULL;
             }
         }
+        for (int i = 0; i < 3; i++) {
+            if (JS_AddModuleExport(ctx, m, runtime_view_exports[i])) {
+                return NULL;
+            }
+        }
         for (int i = 0; i < 9; i++) {
             if (JS_AddModuleExport(ctx, m, runtime_resource_exports[i])) {
                 return NULL;
@@ -1294,6 +1317,11 @@ static JSModuleDef *runtime_load(JSContext *ctx, const char *name, void *opaque)
 }
 
 static void runtime_free_engine(gt_bridge_runtime_t *r) {
+    if (r->views) {
+        gt__secure_erase(r->views, sizeof(*r->views));
+        runtime_free(r, r->views);
+        r->views = NULL;
+    }
     if (r->engine) {
         JS_SetHostPromiseRejectionTracker(r->engine, NULL, NULL);
     }
@@ -1758,16 +1786,17 @@ static bool runtime_start(gt_bridge_runtime_t *r) {
         "{activate} from %s;"
         "const session=new SessionChannel(port);let state=0,disposable;const "
         "cancellation=Object.freeze({get cancelled(){return !port.alive()}});"
-        "%sconst process=%s;const "
+        "%sconst process=%s;%sconst "
         "invocation=port.invocation();if(invocation){Object.freeze(invocation.arguments);const "
         "workspace=port.workspaceHandle();if(workspace)invocation.workspaceHandle=Object.freeze("
         "workspace);"
         "Object.freeze(invocation)}const "
         "context=Object.freeze({invocation,session,side:'%s',instanceId:'%s',epoch:'%" PRIu64
-        "',cancellation,capabilities:Object.freeze({query(name){return port.access(name)}})%s%s});"
+        "',cancellation,capabilities:Object.freeze({query(name){return "
+        "port.access(name)}})%s%s%s});"
         "export function pump(){session.step();resources?.step();if(state>0&&typeof "
         "disposable.step==='function')disposable.step();return state}export function "
-        "dispose(){session.dispose();resources?.dispose();disposable?.dispose()}"
+        "dispose(){views?.dispose();session.dispose();resources?.dispose();disposable?.dispose()}"
         "Promise.resolve().then(()=>activate(context)).then(value=>{if(!value || typeof "
         "value.dispose!=='function')throw "
         "Error('entry');disposable=value;state=1},()=>{state=-1}).catch(()=>{state=-1});",
@@ -1776,11 +1805,15 @@ static bool runtime_start(gt_bridge_runtime_t *r) {
                                "resources=new ResourceBroker(port);"
                              : "const resources=undefined;",
         r->process_service ? "Object.freeze({spawn:port.processSpawn})" : "undefined",
+        r->views ? "const {ViewRegistry}=await import('sdk:/views.js');const views=new "
+                   "ViewRegistry(port);"
+                 : "const views=undefined;",
         r->role == GT_EXT_HOST ? "client" : "executor",
         r->lease.instance,
         r->lease.epoch,
         r->resources_enabled ? ",resources" : "",
-        r->process_service ? ",process" : "");
+        r->process_service ? ",process" : "",
+        r->views ? ",views" : "");
     if (n < 0 || (size_t)n >= sizeof(script)) {
         runtime_fail(r, GT_RUNTIME_PROTOCOL);
         return false;

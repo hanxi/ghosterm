@@ -92,6 +92,9 @@ gt_status_t gt__bridge_runtime_open_package(gt_ext_session_t **session,
  * Limits govern JS; blocking native services still need independent budgets. */
 gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *);
 bool gt__bridge_runtime_info(const gt_bridge_runtime_t *, gt_runtime_info_t *);
+gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *, uint32_t);
+gt_status_t gt__bridge_runtime_views_snapshot(gt_bridge_runtime_t *, const char **, size_t *);
+gt_status_t gt__bridge_runtime_view_close(gt_bridge_runtime_t *, const char *);
 gt_status_t gt__bridge_runtime_transport_process_info(const gt_bridge_runtime_t *,
                                                       gt_ext_transport_process_info_t *);
 void gt__bridge_runtime_stop(gt_bridge_runtime_t *);

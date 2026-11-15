@@ -22,7 +22,9 @@ Portable 进度 / 取消契约及真实分步素数计算 Executor；公开 Core
 standalone 探针验证结果、取消去重及未知后的显式只读观察。第八批接 macOS 标准
 ui.task、精确进度、只读刷新与实际取消按钮；同一包经本机 / 直连 / ProxyJump 完成和
 取消，明确 RPC 失败 / 请求取消 / unknown 分开。第九批接 Android 对应通用组件、
-准确命令 / 能力与代次隔离，复用同一任务包和已有 C ABI。完整开发体验、系统辅助
+准确命令 / 能力与代次隔离，复用同一任务包和已有 C ABI。第十批提供 Portable 开发
+命令 / 真实 RPC testkit；第十一批补本地 `ctx.views` 注册服务、可回收句柄与 Swift /
+JNI 门面，原生面板尚未消费该注册表。完整开发体验、系统辅助
 技术 / 生命周期 / 设备矩阵仍待完成；缺能力显式不支持，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
@@ -7156,4 +7158,71 @@ task IPC 及其余计划继续；新增手工脚本不增加 CI 二十份。操�
 
 结束后清理本轮 **30 个 tmp 项、逻辑大小 66.9 MiB**，仅保留原三份 eq 输入并核对
 SHA256 不变；受控测试 / worker 已退出，无窗口 / AVD，不操作用户 Java 或其它服务。
+本批仅本地提交，未推送 / 发行。
+
+### P5 实施第十一批：本地视图注册服务与 ctx.views 句柄（2026-11-15）
+
+新增通用注册服务，而非插件专属窗格类型：Native Host 在第一次 Runtime step 前显式
+启用 table / diff / task 子集，Client 才获得 `ctx.views`。包模式核对准确 invocation、
+所选命令 views、Client required 能力及当前 Session 授权；另一个没有声明的命令
+不能沿用权限。绑定必须是本次 allowlist 内的 Executor / session.rpc 方法。最多八个
+活动注册、唯一 viewId、不复用的独立句柄；Native / JS 关闭、同 ID 重开、晚到旧 close
+与 dispose 分开，关闭不取消业务。SDK 保留 unknown / denied / revoked / unsupported。
+
+新增 `gt_ext_runtime_views_enable / views_snapshot / view_close` 三个公共入口，均走
+同一非 UI owner；这是通用服务的 C ABI 切片，不增加业务命令 enum 或 terminal 字节
+路径。JSON 快照最多 8192 字节，instance / epoch / revision 绑定本次 Runtime，失败
+清空借用输出，停止后不暴露旧注册；关闭时擦除并归还同一 heap / Core 计费内存。
+Swift 与 JNI / Kotlin 同步启用 / 复制快照 / 关闭门面。未配置服务、Executor / Node /
+Exec / JS-off 均不伪装可用。注册成功不代表完成渲染，产品仍不启用该新服务。
+
+Portable `views.ts`、独立 `views-v1.candidate.json` 与 typed handles 已接。
+SDK 为 **十模块**、实际常规值闭包八模块；宿主嵌入身份重新生成：
+`970b2da3489fc2515d01cc3a6debb76dfc41022c5215f44f9c309735868986a4`。
+原 64 模块预算不变，包边界夹具同步为 55 个额外模块到达 64、56 个到达 65 并拒绝。
+同步 raw-module SDK 列表、探针 loader、离线输入守卫与旧变异脚本，不提高预算。
+
+**十九项 Core 基线 / 恢复与四十四项值 / adapter 检查通过**：十五个真实公开
+Runtime / Session / SDK 场景，以及四个真实 checked package 的所选命令约束。
+Native 边界的三组错误适配器刻意绕过 SDK 限制，不冒充产品 UI。SDK 另修复实际
+生命周期缺陷：Host 关闭后重开同 ID，旧 JS 句柄的迟到 close 原本会删掉新句柄
+账本；现核对对象身份再移除，保留新注册。
+
+**九组隔离变异**通过：Core 的角色、授权、停止、方向、容量、重复、关闭与准确
+命令八组，SDK 迟到关闭一组。每组实际重编、正常断言红、同库独立配置绿、恢复绿
+与源码 / 对象 SHA256；ASan / UBSan，LeakSanitizer 未启用。272 份输入与最终相关
+源码一致，收据 SHA256：
+`16644d0f9baf46a3bc481d9ec50aeab6ab9792283a6cc8c19c0eed0d0cbd1d9d`。
+命令：`python3 scripts/test-plugin-views.py --tools tmp/plugin-views/tools --mutate --receipt tmp/plugin-views/proof-final.json`。
+
+默认 JS-off **588/588 CTest、184 ABI**，JS-enabled / 锁定 SSH **844/844 CTest**，
+C 格式 **19.1.7 / 262 文件**、Apple **181/3**、JNI **147/37** 通过。macOS 独立
+arm64 Release、Android JS-enabled 测试 APK / 未签名 Release / 实际 R8 与四模块
+Release lint 通过；未启动 AVD 或系统窗口，无两端新 UI 行为 / 设备证据。
+Android 未签名 Release SHA256 为
+`55e787610dd88a6a24ccea379ad46420130285013418ce285b15902f0c9254dd`，仅构建，未安装验收。
+
+旧开发命令十六组基线通过，56 输入一致，收据为
+`2fe6cca8ed1c1b6be7a4291efb531c9f4f7259bea0a8cd3187767d767dbf9bff`。
+旧 SDK 的十七种场景、native-owned 与 36 项 schema 对拍通过，收据为
+`b1a1b6ebbc5f0343338880935e7e500ecad15983fa52dcfe732ba4b00a8c242a`。
+旧 capabilities 冻结 / dispose-error 两组编译后正常断言红、配置绿、恢复绿 / SHA256，
+分轮收据为 `88d820af38ca9acfc2517ab7e6eb367aaabca7b9a1816ed8e6d52707336a82a2`。
+共享 heap 计费旧变异一组及 116 项相关基线 / 恢复通过，保留原全部用例并纳入新
+views 可执行文件；不是把未构建的新测试排除。收据为
+`94ec37b349e9405fe7d604983da74d0290064051b066b56a06be3e4ee6186189`。
+
+前置失败独立记账：最初未重配 CMake 的空发现未计通过；错误适配器漏 SDK 导出、
+两命令 / views 夹具仍沿用旧数量断言均修正后重跑。ASan Debug 首轮十九项激活 /
+validator 基线失败，未记目标红或通过；后续按既有变异脚本的 RelWithDebInfo 档，
+同 Runtime 预算通过，不称 Debug sanitizer 已绿。JS-enabled 全量首轮 SSH-off 的
+三个 SSH 失败，经匹配锁定依赖复验；SDK 旧探针缺锁定缓存的起跑失败及内存脚本
+发现数过期的失败亦未计通过。
+
+完整 Native 多视图渲染 / 焦点 / 隐藏 / 关闭、Client / Executor 真正业务绑定、IPC /
+SSH / tmux 组合、系统辅助技术、OOM / RSS 与设备 / 生命周期矩阵仍待完成，P5 /
+P1–P6 不勾选，不增加 CI 二十份。操作与精确边界见[视图注册指南](../how-to/plugin-views.md)。
+
+结束后清理本轮 **75 个 tmp 项，逻辑大小约 657.6 MiB**；只保留原三份 eq 输入，
+SHA256 未变。自有测试 / worker / 构建进程已结束，不操作原有 Java 或其它用户服务。
 本批仅本地提交，未推送 / 发行。

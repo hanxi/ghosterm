@@ -41,7 +41,7 @@ class ExtensionRuntimeTest {
         MessageDigest.getInstance("SHA-256").digest(source).joinToString("") { "%02x".format(it.toInt() and 255) })
     private fun config(plugin: String = echo, role: ExtensionSession.Role = ExtensionSession.Role.EXECUTOR, cpu: Int = 500, resources: Boolean = false): ExtensionRuntime.Config {
         val assets = InstrumentationRegistry.getInstrumentation().context.assets
-        val names = listOf("index.js", "codec.js", "session.js", "wire-contract.js") + if (resources) listOf("resources.js") else emptyList()
+        val names = listOf("index.js", "codec.js", "session.js", "wire-contract.js", "table.js", "diff.js", "task.js", "views.js") + if (resources) listOf("resources.js") else emptyList()
         val modules = names.map { name ->
             module("sdk:/$name", assets.open("runtime-sdk/$name").use { it.readBytes() }) }.toMutableList()
         modules += module("plugin:/entry.js", plugin.toByteArray())

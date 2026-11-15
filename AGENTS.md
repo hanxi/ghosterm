@@ -1356,3 +1356,18 @@ Apple 178/3、JNI 144/37 通过；无 enabled Core 全套或平台 App / APK 新
 [开发指南](docs/how-to/plugin-development.md)。无新 ABI / SDK 身份、安装或权限
 授予。macOS arm64 手工证据，不增加 CI 二十份；Node / Exec 开发、Client 激活、
 完整资源 / Native UI / SSH / 设备 / 生命周期及 P5 / P1–P6 仍未完成。
+
+**插件 P5 本地视图注册服务（2026-11-15）**：`ctx.views` 通过 Host-only 显式服务
+注册 table / diff / task 方法绑定；核对准确命令 / 必需能力 / 活跃授权 / 方法方向，
+八个活动注册、独立不复用句柄、旧 close 不移除重开项，关闭不冒充业务取消。
+新增三 C ABI 入口与 Swift / JNI / Kotlin 门面，原生面板尚未消费；注册不是渲染。
+十九项真实 Core / 包命令约束、四十四项 Portable 值 / adapter 与九组隔离变异通过：
+正常断言红、同库配置绿、恢复 / SHA256，272 输入一致。优化档 ASan / UBSan；
+Debug sanitizer 前置失败单列，非已绿，未用编译失败 / 崩溃冒充目标红。
+SDK 十模块 / 常规值闭包八模块、身份重新生成，64 模块与既有 Runtime 预算不变。
+默认 Core 588/184、enabled / 锁定 SSH Core 844、C 格式 262、Apple 181/3、JNI 147/37，
+macOS 独立 Release、Android JS-enabled 测试 APK / 未签名 Release / 实际 R8 / 四模块
+lint 通过。旧 SDK / CLI、两组能力 / dispose 及一组 heap 变异分轮见插件计划第十一批。
+无新原生 UI / AVD / 设备 / 业务 SSH 或发行结论；完整多视图、任务 IPC、完整开发 /
+生命周期 / 客户端矩阵及 P5 / P1–P6 未完成，不增加 CI 二十份。见
+[视图注册指南](docs/how-to/plugin-views.md)。

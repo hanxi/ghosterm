@@ -2,6 +2,30 @@
 #include "extension/runtime.h"
 #include <string.h>
 #ifndef GT_HAVE_PLUGIN_JS
+gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kinds) {
+    (void)r;
+    (void)kinds;
+    return GT_ERR_UNSUPPORTED;
+}
+
+gt_status_t
+gt__bridge_runtime_views_snapshot(gt_bridge_runtime_t *r, const char **json, size_t *size) {
+    (void)r;
+    if (json) {
+        *json = NULL;
+    }
+    if (size) {
+        *size = 0;
+    }
+    return GT_ERR_UNSUPPORTED;
+}
+
+gt_status_t gt__bridge_runtime_view_close(gt_bridge_runtime_t *r, const char *handle) {
+    (void)r;
+    (void)handle;
+    return GT_ERR_UNSUPPORTED;
+}
+
 gt_status_t gt__bridge_runtime_open(gt_ext_session_t **s,
                                     const gt_runtime_config_t *c,
                                     gt_bridge_runtime_t **out) {

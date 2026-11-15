@@ -30,7 +30,7 @@ func runtimeModule(_ name: String, _ text: Data) -> ExtensionRuntime.Module {
 }
 func runtimeModules(_ plugin: String, resources: Bool = false) throws -> [ExtensionRuntime.Module] {
     guard let root = ProcessInfo.processInfo.environment["GHOSTERM_RUNTIME_TEST_SDK"] else { throw GhostermError.failed("compiled SDK fixture missing") }
-    var names = ["index.js", "codec.js", "session.js", "wire-contract.js"]; if resources { names.append("resources.js") }
+    var names = ["index.js", "codec.js", "session.js", "wire-contract.js", "table.js", "diff.js", "task.js", "views.js"]; if resources { names.append("resources.js") }
     var result = try names.map {
         try runtimeModule("sdk:/" + $0, Data(contentsOf: URL(fileURLWithPath: root).appendingPathComponent($0)))
     }

@@ -2790,6 +2790,63 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_ste
     return phase;
 }
 
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_viewsEnable(
+    JNIEnv *e, jobject self, jlong id, jint kinds) {
+    (void)self;
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        return GT_ERR_INVALID_ARG;
+    }
+    gt_status_t status = gt_ext_runtime_views_enable(s->runtime, (uint32_t)kinds);
+    extension_unpin(s);
+    return status;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_viewsSnapshot(
+    JNIEnv *e, jobject self, jlong id) {
+    (void)self;
+    jlongArray meta;
+    jbyteArray bytes;
+    jobjectArray result = session_rpc_arrays(e, 2, 8192, &meta, &bytes);
+    if (!result) {
+        return NULL;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        return NULL;
+    }
+    const char *json = NULL;
+    size_t size = 0;
+    gt_status_t status = gt_ext_runtime_views_snapshot(s->runtime, &json, &size);
+    if (status == GT_OK && (!json || !size || size > 8192)) {
+        status = GT_ERR_PROTOCOL;
+        size = 0;
+    }
+    if (status == GT_OK) {
+        (*e)->SetByteArrayRegion(e, bytes, 0, (jsize)size, (const jbyte *)json);
+    }
+    jlong values[] = {status, (jlong)size};
+    (*e)->SetLongArrayRegion(e, meta, 0, 2, values);
+    extension_unpin(s);
+    return result;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_viewClose(
+    JNIEnv *e, jobject self, jlong id, jbyteArray value) {
+    (void)self;
+    char *handle = extension_text(e, value, 64);
+    if (!handle) {
+        return GT_ERR_INVALID_ARG;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    gt_status_t status = s ? gt_ext_runtime_view_close(s->runtime, handle) : GT_ERR_INVALID_ARG;
+    if (s) {
+        extension_unpin(s);
+    }
+    free(handle);
+    return status;
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_transportProcessObservation(JNIEnv *e,
                                                                                   jobject self,

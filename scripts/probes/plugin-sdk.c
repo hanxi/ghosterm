@@ -158,6 +158,7 @@ static char *normalize(JSContext *c, const char *base, const char *name, void *u
                              "table.js",
                              "diff.js",
                              "task.js",
+                             "views.js",
                              "index.js"};
     for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
         const char *n = !strncmp(name, "./", 2) ? name + 2 : name;

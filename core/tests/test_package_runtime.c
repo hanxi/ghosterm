@@ -230,8 +230,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         !strcmp(mode, "module-boundary-overflow") || !strcmp(mode, "source-total")) {
         static char loop[4096];
         unsigned n = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 56
-                     : !strcmp(mode, "module-boundary-overflow") ? 57
+                     : !strcmp(mode, "module-boundary")          ? 55
+                     : !strcmp(mode, "module-boundary-overflow") ? 56
                                                                  : 8;
         size_t used = 0;
         for (unsigned i = 0; i < n; i++) {
@@ -285,6 +285,21 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                    "\"argsSchema\":\"schemas/input.json\"}],%s,\"permissions\":[]}",
                    old_sdk ? "0.1.0" : "1.0.0",
                    side) > 0);
+    if (!strncmp(mode, "client-table-views", 18)) {
+        const char *views =
+            !strcmp(mode, "client-table-views-undeclared") ? "" : ",\"views\":[\"table\"]";
+        char commands[1024];
+        CHECK(snprintf(commands,
+                       sizeof(commands),
+                       "\"argsSchema\":\"schemas/"
+                       "input.json\"%s},{\"path\":[\"other\"],\"title\":\"Other\",\"argsSchema\":"
+                       "\"schemas/input.json\"}]",
+                       views) > 0);
+        load_replace(manifest_json,
+                     sizeof(manifest_json),
+                     "\"argsSchema\":\"schemas/input.json\"}]",
+                     commands);
+    }
     if (process) {
         load_replace(manifest_json,
                      sizeof(manifest_json),
@@ -411,8 +426,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         free(large);
     }
     unsigned extra = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 56
-                     : !strcmp(mode, "module-boundary-overflow") ? 57
+                     : !strcmp(mode, "module-boundary")          ? 55
+                     : !strcmp(mode, "module-boundary-overflow") ? 56
                      : !strcmp(mode, "source-total")             ? 8
                                                                  : 0;
     for (unsigned i = 0; i < extra; i++) {
@@ -497,7 +512,9 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
     CHECK(!f->info.authorization_granted && !f->info.publisher_authenticated &&
           f->memory.live == 1);
     gt_package_command_t command;
-    size_t command_count = !strcmp(mode, "command-many") ? 64 : 1;
+    size_t command_count = !strcmp(mode, "command-many")              ? 64
+                           : !strncmp(mode, "client-table-views", 18) ? 2
+                                                                      : 1;
     CHECK(gt__package_checked_command_count(f->package) == command_count &&
           gt__package_checked_command(f->package, 0, &command));
     if (!strcmp(mode, "command-boundary")) {
@@ -524,7 +541,14 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                       !strcmp(mode, "registry-prefix")     ? "fixture child"
                       : !strcmp(mode, "registry-neighbor") ? "fixturex"
                                                            : "fixture") &&
-              !strcmp(command.title, "Fixture") && command.view_count == 0);
+              !strcmp(command.title, "Fixture") &&
+              command.view_count == (!strncmp(mode, "client-table-views", 18) &&
+                                             strcmp(mode, "client-table-views-undeclared")
+                                         ? 1u
+                                         : 0u));
+        if (command.view_count) {
+            CHECK(!strcmp(command.views[0], "table"));
+        }
     }
     CHECK(!strcmp(command.args_schema, "schemas/input.json"));
     memset(&command, 0x55, sizeof(command));
@@ -722,6 +746,12 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                                       .cpu_ms = 1000,
                                       .activation_ms = 10000,
                                       .jobs_per_step = 128};
+        gt_ext_invocation_t view_invocation = {
+            .command = !strcmp(mode, "client-table-views-other-command") ? "other" : "fixture"};
+        if (!strncmp(mode, "client-table-views", 18) &&
+            strcmp(mode, "client-table-views-no-invocation")) {
+            config.invocation = &view_invocation;
+        }
         gt_ext_process_program_mapping_t process_programs[] = {
             {"cat", "/bin/cat", "fixture-1", NULL, NULL, 0},
             {"env", "/usr/bin/env", "fixture-1", NULL, NULL, 0}};
@@ -811,6 +841,15 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         } else {
             CHECK(r && !*owned && load_info(r).phase == GT_RUNTIME_CREATED &&
                   load_info(r).module_bytes == 0);
+            if (!strncmp(mode, "client-table-views", 18)) {
+                bool admitted = !strcmp(mode, "client-table-views");
+                CHECK(gt__bridge_runtime_views_enable(r, 1) == (admitted ? GT_OK : GT_ERR_AUTH));
+                const char *json = (void *)1;
+                size_t size = 123;
+                CHECK(gt__bridge_runtime_views_snapshot(r, &json, &size) ==
+                      (admitted ? GT_OK : GT_ERR_UNSUPPORTED));
+                CHECK(admitted ? json && size && strstr(json, "\"views\":[]") : !json && !size);
+            }
             rpc_pair_t second = {0};
             gt_bridge_runtime_t *other = NULL;
             if (!strcmp(mode, "share")) {

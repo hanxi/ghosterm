@@ -61,6 +61,34 @@ static gt_ext_runtime_error_t ext_runtime_error(gt_runtime_error_t error) {
 
 #include "extension/runtime-process-api.inc"
 
+gt_status_t gt_ext_runtime_views_enable(gt_ext_runtime_t *r, uint32_t kinds) {
+    if (!r) {
+        return GT_ERR_INVALID_ARG;
+    }
+    return r->process_mode ? GT_ERR_UNSUPPORTED : gt__bridge_runtime_views_enable(r->inner, kinds);
+}
+
+gt_status_t gt_ext_runtime_views_snapshot(gt_ext_runtime_t *r, const char **json, size_t *size) {
+    if (json) {
+        *json = NULL;
+    }
+    if (size) {
+        *size = 0;
+    }
+    if (!r || !json || !size) {
+        return GT_ERR_INVALID_ARG;
+    }
+    return r->process_mode ? GT_ERR_UNSUPPORTED
+                           : gt__bridge_runtime_views_snapshot(r->inner, json, size);
+}
+
+gt_status_t gt_ext_runtime_view_close(gt_ext_runtime_t *r, const char *handle) {
+    if (!r || !handle) {
+        return GT_ERR_INVALID_ARG;
+    }
+    return r->process_mode ? GT_ERR_UNSUPPORTED : gt__bridge_runtime_view_close(r->inner, handle);
+}
+
 gt_status_t gt_ext_runtime_support(void) {
 #ifdef GT_HAVE_PLUGIN_JS
     return GT_OK;

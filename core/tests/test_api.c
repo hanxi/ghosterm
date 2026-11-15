@@ -17,6 +17,13 @@ static int fail = 0, pass = 0;
     } while (0)
 
 int main(void) {
+    const char *views_json = (void *)1;
+    size_t views_size = 123;
+    CHECK(gt_ext_runtime_views_enable(NULL, 1) == GT_ERR_INVALID_ARG &&
+              gt_ext_runtime_view_close(NULL, "none") == GT_ERR_INVALID_ARG &&
+              gt_ext_runtime_views_snapshot(NULL, &views_json, &views_size) == GT_ERR_INVALID_ARG &&
+              !views_json && !views_size,
+          "invalid view registration APIs clear outputs, never succeed");
     const char *v = gt_version();
     CHECK(v && *v, "gt_version() 非空");
     gt_ext_channel_t *extension = (gt_ext_channel_t *)1;

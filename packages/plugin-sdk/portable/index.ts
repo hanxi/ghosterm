@@ -17,6 +17,8 @@ export { TaskDescribeMethod, TaskReadMethod, TaskCancelMethod, TaskDescriptorCod
   TaskReadRequestCodec, TaskCancelRequestCodec, TaskCancelAckCodec, TASK_BODY_BYTES_MAX,
   taskIsTerminal, validateTaskSnapshot, validateTaskCancelAck } from "./task.js";
 export type { TaskDescriptor, TaskSnapshot, TaskReadRequest, TaskCancelRequest, TaskCancelAck, TaskTotal, TaskResult, TaskPhase } from "./task.js";
+export { ViewRegistry, ViewSpecCodec, VIEWS_MAX } from "./views.js";
+export type { ViewKind, ViewStatus, ViewSpec, ViewHandle, NativeViewPort } from "./views.js";
 
 /** Current Session grant observation, not a promise that a host service exists.
  * Queries are live: revocation is never a cached allowed result. */
@@ -25,7 +27,7 @@ export interface CapabilitySet { query(name: string): CapabilityAccess; }
 export interface CancellationToken { readonly cancelled: boolean; }
 /** Optional bounded worker hook. Called once per native Runtime pump after activation. */
 export interface Disposable { step?(): void; dispose(): void; }
-/** UI remains unavailable. Optional resources/processes exist only when the
+/** Optional services exist only when the
  * native Host has configured the corresponding service and Session capability. */
 export interface Invocation {
   readonly command: string;
@@ -45,5 +47,7 @@ export interface PluginContext {
   readonly session: import("./session.js").SessionChannel;
   readonly resources?: import("./resources.js").ResourceBroker;
   readonly process?: import("./process.js").ProcessService;
+  /** Local Native registration service, not proof that any view was rendered. */
+  readonly views?: import("./views.js").ViewRegistry;
 }
 export interface PluginEntry { activate(context: PluginContext): Promise<Disposable> | Disposable; }

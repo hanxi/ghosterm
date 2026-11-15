@@ -73,7 +73,7 @@ def main():
    ('access-unsupported',ENGINE,'                return JS_NewString(c, "unsupported");\n','                return JS_NewString(c, "unknown");\n','capabilities'),
    ('access-revoked',ENGINE,'                return JS_NewString(c, "revoked");\n','                return JS_NewString(c, "allowed");\n','capabilities'),
    ('access-input',ENGINE,'        if (!size || size > 128 || memchr(name, 0, size)) {\n','        if (false) {\n','capabilities'),
-   ('access-frozen',ENGINE,'capabilities:Object.freeze({query(name){return port.access(name)}})','capabilities:({query(name){return port.access(name)}})','capabilities'),
+   ('access-frozen',ENGINE,'capabilities:Object.freeze({query(name){return ','capabilities:({query(name){return ','capabilities'),
    ('dispose-error',ENGINE,'resources?.dispose();disposable?.dispose()','resources?.dispose();try{disposable?.dispose()}catch{}','dispose-throw'),
   ]
   executable='test_runtime';pattern='^(ext_)?runtime_(capabilities|dispose-throw)$';objects=['runtime']

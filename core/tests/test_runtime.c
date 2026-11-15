@@ -108,15 +108,22 @@ static void runtime_case(const char *mode, const char *root) {
     memset(&empty, 1, sizeof(empty));
     CHECK(!gt__bridge_runtime_info(NULL, &empty) && !empty.steps && !empty.jobs &&
           !empty.module_bytes && !empty.engine_released);
-    const char *names[] = {
-        "index.js", "codec.js", "session.js", "wire-contract.js", "table.js", "diff.js", "task.js"};
+    const char *names[] = {"index.js",
+                           "codec.js",
+                           "session.js",
+                           "wire-contract.js",
+                           "table.js",
+                           "diff.js",
+                           "task.js",
+                           "views.js"};
     const char *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
                          "sdk:/wire-contract.js",
                          "sdk:/table.js",
                          "sdk:/diff.js",
-                         "sdk:/task.js"};
+                         "sdk:/task.js",
+                         "sdk:/views.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])
@@ -495,15 +502,22 @@ static void runtime_case(const char *mode, const char *root) {
 
 static void runtime_many(const char *root, unsigned count) {
     CHECK(count && count <= 10);
-    const char *names[] = {
-        "index.js", "codec.js", "session.js", "wire-contract.js", "table.js", "diff.js", "task.js"};
+    const char *names[] = {"index.js",
+                           "codec.js",
+                           "session.js",
+                           "wire-contract.js",
+                           "table.js",
+                           "diff.js",
+                           "task.js",
+                           "views.js"};
     const char *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
                          "sdk:/wire-contract.js",
                          "sdk:/table.js",
                          "sdk:/diff.js",
-                         "sdk:/task.js"};
+                         "sdk:/task.js",
+                         "sdk:/views.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])
