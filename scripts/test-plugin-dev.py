@@ -186,6 +186,50 @@ def run_case(name, work, tools, core):
         for change, status, state in [({'capabilities': []}, 4, 'unsupported'), ({'deniedCapabilities': ['session.rpc']}, 6, 'denied'), ({'sdkVersion': 'unknown'}, 3, 'unknown')]:
             hostfile.write_text(json.dumps({**host, 'side': 'client', **change}))
             assert cli(*arguments, '--side', 'client', status=status)['compatibility'] == state
+    elif name == 'paired-rpc':
+        contract = project / 'plugin.pair.test.json'
+        report = native(contract, side='paired')
+        assert report['side'] == 'paired' and report['observations'][1]['outcome']['value'] == {'text': 'client:executor:callback:hello'}
+        assert all(report['observations'][-1][k] for k in ['clientActivated', 'executorActivated', 'clientEngineReleased', 'executorEngineReleased', 'fdBalance'])
+        package = work / 'package'; cli('build', *common, '--out', package)
+        assert cli('test', '--package', package, '--tools', tools, '--contract', contract, '--core-build', core, '--side', 'paired')['side'] == 'paired'
+        reverse = json.loads(contract.read_text()); reverse.update(method='dev.exchange', expected={'text': 'executor:callback:hello'})
+        other = work / 'reverse.json'; other.write_text(json.dumps(reverse))
+        assert native(other, side='paired')['kind'] == 'tested'
+    elif name == 'paired-contract':
+        contract = json.loads((project / 'plugin.pair.test.json').read_text()); other = work / 'invalid.json'
+        for update, code in [({'methods': []}, 'TEST_PAIR_METHODS'), ({'methods': contract['methods'] * 2}, 'TEST_PAIR_DUPLICATE'), ({'method': 'dev.missing'}, 'TEST_PAIR_DIRECTION'), ({'expected': {'text': 'executor was bypassed'}}, 'TEST_RESPONSE')]:
+            other.write_text(json.dumps({**contract, **update}))
+            assert native(other, side='paired', status=2)['code'] == code
+    elif name == 'paired-failures':
+        for side in ['client', 'executor']:
+            target = project / side / 'index.ts'; original = target.read_text()
+            for text in ['export function activate() { throw new Error("Paired activation fixture"); }\n', original.replace('live = false;', 'live = false; throw new Error("Paired dispose fixture");')]:
+                target.write_text(text)
+                assert native(project / 'plugin.pair.test.json', side='paired', status=1, diagnostic='ASSERT:')['kind'] == 'error'
+            target.write_text(original)
+        assert native(project / 'plugin.pair.test.json', side='paired')['side'] == 'paired'
+    elif name == 'paired-hosts':
+        facts = {s: {**host, 'side': s} for s in ['client', 'executor']}
+        # Incompatibility must be diagnosed before compiling/running a probe.
+        arguments = ['test', *common, '--contract', project / 'plugin.pair.test.json', '--core-build', work / 'must-not-run', '--side', 'paired', '--host-json', hostfile]
+        for invalid in [host, {'client': facts['client']}, {'client': facts['executor'], 'executor': facts['client']}]:
+            hostfile.write_text(json.dumps(invalid))
+            assert cli(*arguments, status=2)['code'] == 'TEST_PAIR_HOSTS'
+        for side in ['client', 'executor']:
+            for change, status, state in [({'capabilities': []}, 4, 'unsupported'), ({'deniedCapabilities': ['session.rpc']}, 6, 'denied'), ({'sdkVersion': 'unknown'}, 3, 'unknown')]:
+                hostfile.write_text(json.dumps({**facts, side: {**facts[side], **change}}))
+                report = cli(*arguments, status=status)
+                assert report['compatibility'] == state and report['checkedSide'] == side
+    elif name == 'paired-declarations':
+        target = project / 'plugin.json'; original = json.loads(target.read_text())
+        for side in ['client', 'executor']:
+            manifest = json.loads(json.dumps(original))
+            selected = manifest['client'] if side == 'client' else manifest['executor']['variants'][0]
+            selected['requires'] = []
+            manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != side]
+            target.write_text(json.dumps(manifest))
+            assert native(project / 'plugin.pair.test.json', side='paired', status=1, diagnostic='TEST_REQUIRES_DECLARED_RPC')['kind'] == 'error'
     elif name == 'activation-failure':
         (project / 'executor/index.ts').write_text('export function activate() { throw new Error("fixture activation failure"); }\n')
         assert native(status=1)['kind'] == 'error'
@@ -239,6 +283,7 @@ def run_case(name, work, tools, core):
 
 
 CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports', 'physical-inputs', 'json-inputs', 'integrity', 'conflicts', 'publication', 'rpc', 'activation-failure', 'dispose-failure', 'rpc-required', 'services-unsupported', 'interrupt-cleanup', 'client-rpc', 'client-contract', 'client-failures', 'client-rpc-required', 'side-profile']
+CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'paired-declarations']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -250,6 +295,10 @@ MUTATIONS = [
     ('client-declaration', 'client-rpc-required', 'scripts/plugin-dev-worker.mjs', "selected?.requires.includes('session.rpc')", "manifest.executor.variants[0].requires.includes('session.rpc')"),
     ('client-response', 'client-contract', 'scripts/gterm-plugin', "require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')", "require(True, 'TEST_RESPONSE')"),
     ('host-side', 'side-profile', 'scripts/gterm-plugin', "require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')", "require(True, 'TEST_HOST_SIDE')"),
+    ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
+    ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
+    ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
+    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True)", "report = worker(work, tools, package, None, host['client'], registry, True)"),
 ]
 
 
@@ -257,7 +306,7 @@ def mutations(work, tools, core):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
-    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
+    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     build = isolated / 'tmp/core'; build.mkdir()
@@ -296,7 +345,7 @@ def main():
     parser.add_argument('--tools', type=Path, required=True); parser.add_argument('--core-build', type=Path, required=True)
     parser.add_argument('--case', choices=CASES); parser.add_argument('--mutate', action='store_true'); parser.add_argument('--receipt', type=Path)
     args = parser.parse_args(); core, tools = args.core_build.resolve(), args.tools.resolve()
-    sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
+    sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:
         sources.update(p for p in (ROOT / directory).rglob('*') if p.is_file())

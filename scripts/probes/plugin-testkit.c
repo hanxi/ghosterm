@@ -55,6 +55,7 @@ kit_bind(char output[GT_EXT_RPC_BODY_MAX + 1], const char *input, const gt_ext_l
     output[at] = 0;
 }
 
+#ifndef GT_TESTKIT_HELPERS_ONLY
 static void kit_request(gt_ext_session_t *peer,
                         gt_ext_runtime_t *runtime,
                         const gt_ext_lease_t *lease,
@@ -224,3 +225,4 @@ int main(int argc, char **argv) {
          "\"stale\":true,\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true}");
     return 0;
 }
+#endif

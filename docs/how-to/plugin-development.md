@@ -3,8 +3,8 @@
 `scripts/gterm-plugin` 提供候选 `init/check/build/pack/test` 命令，当前构建对象为
 Portable Client 加单个 Portable Executor。命令读取固定副本，不执行项目的 npm
 脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
-默认测试 Executor，`--side client` 测试 Client。Node / Exec 包构建、双 JS 端同时激活、
-文件 / 进程 / UI 服务测试仍待接入。
+默认测试 Executor，`--side client` 测试 Client，`--side paired` 同时激活两侧。
+Node / Exec 包构建、文件 / 进程 / UI 服务测试仍待接入。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -56,6 +56,7 @@ cmake -S core -B tmp/plugin-dev/core -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WIT
 cmake --build tmp/plugin-dev/core --target ghosterm_core test_config -j 4
 python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.test.json --core-build tmp/plugin-dev/core
 python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.test.json --core-build tmp/plugin-dev/core --side client
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.pair.test.json --core-build tmp/plugin-dev/core --side paired
 python3 scripts/test-plugin-dev.py --tools tmp/plugin-dev/tools --core-build tmp/plugin-dev/core --mutate --receipt tmp/plugin-dev/receipt.json
 ```
 
@@ -67,6 +68,28 @@ macOS 显式设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`。
 测试 Client 时由 Executor peer 发请求，方法的 receiver 为 Host，使用 Executor 自己的
 lease，不能把 Host token 复制过去。输出 `side` 记录实际测试侧。显式 `--host-json`
 的 `side` 必须与 `--side` 相同；缺能力 / 拒绝 / 未知继续分别报告，不以测试选项授予权限。
+
+`--side paired` 使用脚手架的 `plugin.pair.test.json`。它在普通契约上增加 `methods`
+数组，每项为 `{"name":"dev.run","receiver":"client"}`；最多十六项，名字不可重复，
+必须显式声明两个方向，根 `method` 也必须在表内。每个方法的输入 / 输出为 JSON
+对象，具体业务 schema 由两侧 SDK 校验。脚手架的实际链路是 Client `dev.run` →
+Executor `dev.exchange` → Client `dev.callback`，最后返回
+`client:executor:callback:hello`。错误仍独立比对 outcome kind，不能把进程退出当业务回包。
+
+paired 的显式 Host 文件必须提供各侧自己的事实，分别做 metadata / Native 包检查：
+
+```json
+{
+  "client": {"side":"client","sdkVersion":"1.0.0","protocols":[1],"runtimes":["portable-js"],"capabilities":["session.rpc"]},
+  "executor": {"side":"executor","sdkVersion":"1.0.0","protocols":[1],"runtimes":["portable-js"],"capabilities":["session.rpc"]}
+}
+```
+
+两端分别捕获同一固定包并核对 digest，在同一非 UI worker 上按各自预算轮询。
+Native 控制请求使用接收侧对端的原 lease，仅借用 Runtime 持有的 Session；两侧
+Session 都由各自 Runtime 销毁。成功值必须来自真实 JS 往返，不安装假业务 handler。
+两个入口都须激活，两个 engine 都须独立释放，整体 fd 数量回到起点；这不覆盖
+跨进程内存 / RSS、SSH、Native UI 或平台生命周期。
 
 测试契约是脚手架生成的 `plugin.test.json`：命令、原始 argv、方法、输入 / 预期对象、
 错误输入与预期 outcome kind。仅授予 `session.rpc`，需要其它服务会显式失败。

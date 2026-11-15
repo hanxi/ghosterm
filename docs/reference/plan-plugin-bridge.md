@@ -26,7 +26,8 @@ ui.task、精确进度、只读刷新与实际取消按钮；同一包经本机 
 命令 / 真实 RPC testkit；第十一批补本地 `ctx.views` 注册服务、可回收句柄与 Swift /
 JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费多视图，
 第十四批补两端 task / 多视图的一次性前台 IPC、断流 unknown 与有界 disposer 修复。
-第十五批为开发 testkit 增加显式选侧 Client 激活与反向 RPC。各批覆盖与证据见文末；
+第十五批为开发 testkit 增加显式选侧 Client 激活与反向 RPC，第十六批补双 JS 端
+同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -7569,3 +7570,55 @@ QuickJS archive `6368b0c242a5c39c53ff87fa2a89593713437e11f328514aa123d98c56001a6
 App / APK、enabled Core 全套或设备回归。十组变异和 56 输入在清理前再次核对一致。
 
 结束清理本轮 **30 个 tmp 项、逻辑大小约 54.7 MiB**，原三份 eq 输入摘要不变。全部自有工具 / 测试进程已退出，无 GUI / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+### P5 实施第十六批：开发 testkit 的双 QuickJS 往返（2026-11-15）
+
+补第十五批留下的双端激活缺口：`scripts/gterm-plugin test --side paired` 在真实
+Core / QuickJS 中同时启动 Client 与 Executor，继续只支持明确的 Portable / RPC
+服务。`init` 另生成 `plugin.pair.test.json`，精确列出最多十六个方法及 receiver；
+不允许重复、单向表或未声明的根方法。实际脚手架为 Native 控制请求触发 Client
+`dev.run` → Executor `dev.exchange` → Client `dev.callback`，最终回包为
+`client:executor:callback:hello`；任一业务处理器都不是 C 假响应。另以 Executor
+为根的契约验证反向调用。原单侧 `dev.echo` 及默认测试方式保留，不新增 C ABI。
+
+显式 Host 输入为 client / executor 两份事实，分别做 metadata / 声明检查，任一
+侧 unsupported / denied / unknown 立即报告对应侧，不能用 Client 事实覆盖
+Executor。Native 分别捕获 / 检查两份同路径包并对拍 digest，之后两个 Runtime
+各自接管相应 Session；只在原非 UI worker 内按已有 Native RPC 门面方式借用
+Session / 原 lease 发送控制请求，不共享 token、不由夹具销毁被接管的 Session。
+两个入口必须均 ACTIVE，分别验证相同配置上限拒绝且不接管、关闭 / disposer /
+engine 释放，并核对包引用和整体 fd 平衡；预算数值没有提高。
+
+正常业务回包与 unknown 单独对拍；错误 expected / outcome 不许报告成功。排队
+取消是发送前的 Native 控制请求取消，不冒充业务任务停止。Host 两份事实 / side
+无效、方法表无效 / 重复 / 根方法缺失、Client 或 Executor 激活 / 清理抛错均有
+拒绝用例。兼容负向特意提供不存在的 Core 构建路径，证明不兼容事实在编译或
+启动测试进程之前拒绝，而不是通过后续启动失败掩盖另一侧检查缺失。
+
+完整 `scripts/test-plugin-dev.py --mutate` **二十六项基线、十四组隔离变异**同轮
+通过：新增五项为双端项目 / 包 / 反向根 RPC、契约负向、两侧激活 / 清理失败、
+两侧 Host 事实及权限声明；新增四组为 **paired-executor-pump / paired-direction /
+paired-executor-release / paired-executor-facts**，旧十组均复验通过。每组正常
+断言红、独立 Core 配置绿、恢复绿与 SHA256；C 变异真实编译后须有 `ASSERT:`，
+编译失败 / 崩溃 / sanitizer / 超时不算正常目标红。本片 macOS arm64 / C11 /
+-Wall / -Wextra / -Werror、RelWithDebInfo；没有 sanitizer 新结论。
+
+**57 份输入**与当前相关工具 / SDK / 头文件源码一致，收据 SHA256
+`82b37be727dca38a8963e0f03ad65f6c243ed26d1cb35bd9f70815a699dabd99`；
+JS-enabled / libssh2-off Core archive
+`0ef766b17ee4a6795bd5c1f05b267526f74f8c5ffd9467910a4b4207a11494f0`，
+QuickJS archive `3c00c8d83dfd938f92662114bec200413c257c2d52930713ed5a5473ab7d73b5`。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-pair-dev/tools --core-build tmp/plugin-pair-dev/core --mutate --receipt tmp/plugin-pair-dev/receipt.json`。
+
+本片没有 Core / 平台产品源码、公共 ABI / SDK 身份变化；不借开发夹具结论称
+Native App / Android 设备、SSH / tmux 或跨进程资源验收通过。Node / Exec 开发、
+文件 / 进程 / UI 服务 testkit、系统辅助技术与完整开发 / 生命周期 / 分发矩阵仍
+待完成，P5 / P1–P6 保持未完成；手工证据，不增加 CI 二十份。
+
+最终默认 Core **JS-off / tests-on：588/588 CTest、184 ABI**、C 格式 **19.1.7 /
+263 文件**（含新增 paired C 夹具）、Apple **181 引用 / 3 登记未用**、JNI **147 /
+37**、Python 语法与 diff 检查通过。未修改平台产品，无新 App / APK / 设备构建；
+独立公开 C 门面 / QuickJS 夹具是真实编译和运行，不记新的 enabled Core 全套。
+清理前再次核对全部 57 输入，源码与完整回归 / 十四组变异时一致。
+
+结束清理本轮 **30 个 tmp 项、逻辑大小约 54.7 MiB**，原三份 eq 输入摘要不变。所有自有测试 / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。

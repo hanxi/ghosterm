@@ -1435,3 +1435,17 @@ outcome、激活 / 清理失败、旧 epoch / 撤权 / 排队取消、预算准�
 产品 / ABI / SDK 身份 / 预算变化或 App / APK / 设备 / SSH / 发行结论。双 JS 激活、
 Node / Exec 开发、文件 / 进程 / UI testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI
 二十份；分轮 / 收据见插件计划第十五批与[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 开发 testkit 的双 JS 端往返（2026-11-15）**：`test --side paired`
+分别核对 Client / Executor 兼容事实与固定包 digest，两个 Runtime 各自接管 Session；
+准确方法表 / receiver，Native 控制只在原 worker 借用原 lease，不自行销毁 Runtime
+所有的 Session。脚手架真实 Client → Executor → Client 回调往返与反向根调用、
+unknown / 错误值、排队控制请求取消 / 旧 epoch / 撤权、两入口激活 / 预算准入和
+两 engine 独立释放 / fd 平衡通过，不冒充业务取消或跨进程 RSS。二十六项工具基线、
+十四组隔离变异（新增 Executor pump / 方向 / 释放 / 事实四组）正常断言红、独立
+Core 配置绿、恢复 / SHA256；57 输入一致。C11 / -Wall / -Wextra / -Werror、
+RelWithDebInfo，无 sanitizer 新结论。默认 Core 588/184、C 格式 263、Apple 181/3、
+JNI 147/37 通过。无产品 Core / 平台 / 公共 ABI / SDK 身份 / 预算变化或新 App /
+APK / 设备 / SSH / 发行结论；Node / Exec 开发、文件 / 进程 / UI testkit 和完整
+P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划第十六批与[开发指南](docs/how-to/plugin-development.md)。
