@@ -51,7 +51,8 @@ internal object PluginTableCodec {
 
 /** One Main owner and one read at a time, bound to a captured Runtime scope. */
 internal class PluginTableModel(private val scope: CoroutineScope,
-    private val request: suspend (String, ByteArray) -> ByteArray, private val isCurrent: () -> Boolean = { true }) {
+    private val request: suspend (String, ByteArray) -> ByteArray, private val expectedViewID: String? = null,
+    private val isCurrent: () -> Boolean = { true }) {
     companion object { val methods = listOf("view.table.describe", "view.table.page") }
     data class State(val descriptor: PluginTableDescriptor? = null, val page: PluginTablePage? = null,
         val selectedOffset: Int = 0, val busy: Boolean = false, val issue: String? = null, val valid: Boolean = true)
@@ -72,6 +73,7 @@ internal class PluginTableModel(private val scope: CoroutineScope,
                 val bytes = request(methods[0], "{}".toByteArray())
                 if (current(expected)) {
                     val description = PluginTableCodec.descriptor(bytes)
+                    require(expectedViewID == null || expectedViewID == description.viewID) { "视图描述符 ID 与注册不一致" }
                     mutable.value = state.value.copy(descriptor = description)
                     readPage(description, 0, expected)
                 }

@@ -70,7 +70,8 @@ internal object PluginDiffCodec {
 
 /** One selected page and bounded cursor history; no retained prior row content. */
 internal class PluginDiffModel(private val scope: CoroutineScope,
-    private val request: suspend (String, ByteArray) -> ByteArray, private val isCurrent: () -> Boolean = { true }) {
+    private val request: suspend (String, ByteArray) -> ByteArray, private val expectedViewID: String? = null,
+    private val isCurrent: () -> Boolean = { true }) {
     companion object { val methods = listOf("view.diff.describe", "view.diff.page") }
     data class State(val descriptor: PluginDiffDescriptor? = null, val page: PluginDiffPage? = null,
         val selectedOffset: Int = 0, val busy: Boolean = false, val issue: String? = null, val valid: Boolean = true)
@@ -91,6 +92,7 @@ internal class PluginDiffModel(private val scope: CoroutineScope,
                 val bytes = request(methods[0], "{}".toByteArray())
                 if (current(expected)) {
                     val description = PluginDiffCodec.descriptor(bytes)
+                    require(expectedViewID == null || expectedViewID == description.viewID) { "视图描述符 ID 与注册不一致" }
                     mutable.value = state.value.copy(descriptor = description)
                     readPage(description, 0, PluginDiffCursor.ZERO, expected)
                 }

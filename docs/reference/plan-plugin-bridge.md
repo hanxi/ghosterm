@@ -7301,3 +7301,83 @@ Root Core 仍为 JS-off / tests-on，不因本片产品接线改默认构建档�
 结束后清理本轮 **449 个 tmp 项，逻辑大小约 619.0 MiB**；仅保留原三份
 eq 输入并逐项核对 SHA256 不变。所有自有测试 / worker / SSH / agent 已退出，未启动
 AVD，不操作旧 Java 或其它用户服务。本批仅本地提交，未推送 / 发行。
+
+### P5 实施第十三批：Android 原生多视图与独立生命周期（2026-11-15）
+
+Android JS-enabled 产品按准确批准命令的 ui.views / 标准 kind / RPC allowlist 启用
+已有 Core 注册服务，controller 在原 Handler worker、第一次 step 前配置并复制
+快照。采用真实 Session instance / epoch 与独立 Runtime UUID；Native close 校验
+所属活跃 Runtime，返回关闭后的新快照。若接管 Session 后启用失败，保留真实
+Runtime owner 供停止 / 释放，不退回失效 Session 路径。无新公共 ABI、SDK 身份或
+Runtime 预算提高。四种实际 Client 服务可同时声明，重复 / 未知仍显式拒绝。
+
+ViewModel 按 handle 创建通用 Compose table / diff / task，旧单视图入口保持原契约。
+严格有界 JSON、instance / epoch / 修订、方法集合、不可变绑定与描述符 ID 校验；
+一份 nonce / 高水位拒绝已关闭句柄复活，不积累无限 tombstone。关闭期间禁用原
+控件和轮询；失败保留控件及显式重试，恢复可用后重新启动任务读取。关闭任务视图
+不会取消业务；同 Runtime 八个任务 scope 的观察账本保留取消 ID / 未知结果和
+终态，不因重开重复发送，也不因满额淘汰旧账。停止与释放使全部旧模型失效。
+
+官方 views 样例与 macOS 相同，两张表、一页 diff、一个可取消内存计数任务，
+没有设备 / 平台专属业务分支。数据及重开都走原 Session RPC 接缝，Client 才能用
+新的 handle 重新注册；没有为样例添加 C 命令 enum 或业务窗格。Android Host profile
+在实际接线后才声明 ui.views；JS-off 仍保持显式不支持。
+
+前置失败单列：首次 Kotlin 编译漏限定 PluginViewValue.Value，修正后生产源码通过；
+新增参数最初放在原 isCurrent lambda 后，导致既有尾随 lambda 测试无法编译，调整
+内部构造参数顺序保留旧调用后重编。两者均未记目标红或通过。后续 Native / JUnit
+变异必须编译成功且单条正常断言失败，崩溃、sanitizer、超时及编译错误均拒绝冒充。
+
+完整 TalkBack、硬件键盘 / IME、16 KiB / 真机、真实断网重连、用户选包 / 文件提供方
+完整点击链及 task IPC / 开发 / 生命周期矩阵仍待完成，P5 / P1–P6 不勾选。
+手工设备脚本不增加 macOS CI 二十份；不借本次 Android 专项记新 macOS 构建 / UI、
+发行或全客户端通过。操作见[视图注册指南](../how-to/plugin-views.md)。
+
+前置真实链失败另记：首轮 API29 的 native-owner 恢复在「Task widget close」正常
+断言失败，未记整轮通过；补新表就绪等待后，第二轮仍在重开表等待处失败，诊断
+为 ACTIVE、error=null、注册有效且四项完整。测试的轮询没有推进 Compose 测试帧，
+因此重开控件的 LaunchedEffect 尚未运行。补显式帧推进、四关闭控件重新挂载断言
+和布局空闲等待，保留原关闭 / 取消断言及原时间上限，再做定向与完整复验；不改
+Runtime 预算或把前置失败当变异目标红。
+
+最终完整同源复验在自有 **API29 / 36、arm64、4 KiB 页、-no-window** 两设备通过：
+各 **27 项**新 registry / 模型 / Compose 测试（含浅深主题 × 1× / 2× 字号与实际
+字形像素、独立分页、关闭按钮、关闭失败保留与轮询恢复），旧 table **23**、diff
+**27**、task **33** 项分轮通过，均零跳过。相同官方样例各经 SSH 直连 / 两跳，实际
+生产 ViewModel / Settings / 原生 Session 授权后同时显示四组件；两表分页隔离、
+Native 关闭 / Client 新句柄重开、关闭任务控件后业务仍 running、明确取消至
+cancelled / effect:none、停止失效及实际资源释放按钮通过。审阅 / 批准调用生产
+门面，不将其称完整用户选包 / 文件提供方点击链。
+
+**十三组 API29 隔离变异同轮通过**：八个模型组护 instance / epoch、同修订换内容、
+移除后复活、方法绑定、旧模型停用、未知取消历史及描述符 ID；五个生产组护首步前
+启用、Native Runtime UUID、Settings 实际渲染、真实关闭按钮与失败关闭后的轮询
+恢复。每组真实编译、生产 APK 变化、正常单条断言红、同 APK Core 配置绿、恢复绿
+与源码 / 安装 APK / SHA256，不借旧 Core 后端或 macOS 变异覆盖。
+
+最终 **576 份输入**与当前相关源码一致，收据 SHA256：
+`e13c02374488b09d3e46ecbb73c80082297088f9f3fd6ab09c12b2f6d4b01367`。
+命令：`build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-android-native.py --build tmp/plugin-android-views/cli --package tmp/plugin-android-views/package --mutate --receipt tmp/plugin-android-views/final.json`。
+初始生产 APK `6a444345ec7c606beb38bd044ff78d1964efb8cb02d438128c20e65d9d28361e`，
+恢复生产 APK `34c5ff2dc081176ce2fbcb4c27daa62fa42219a56f8d22f0e7872a2fab4b7337`；
+两者测试 APK 均 `2f83f600dce71eeba1fecd17d125ba5e8c851eeab7b8b253aceb50c8dfcd1d94`。
+API29 前置标准组件 / 两 SSH 使用初始包，最终 27 项用恢复包；API36 的完整所列
+分轮使用恢复包，安装字节逐次核对。两设备最后恢复 APK 一致，不把整矩阵写成
+一次同生产 APK。前置定向 owner 复验另有一组与三条正向 SSH，576 输入一致，
+收据 `086dec4a431dd9e1d971e4041c60f2dfe3b01407fa5acf7d42adec7b036bf842`。
+
+最终根工程 JS-enabled **Debug / 测试 APK、未签名 Release / 实际 R8 与 app / bridge /
+data / terminal 四模块 Release lint**通过。未签名 Release 为 **9,912,984 字节**，
+SHA256 `8257d3b71c49d1b80aa44f9517e2eee6b6e4af879424315d78d0ddb312f33180`；
+包内 `assets/ghosterm-build.json` 明确记录 `13097a26` / dirty 来源，不当成干净提交或
+云端发行。没有安装该 Release 做设备验收，设备所用 Debug / 测试 APK 按上文分轮。
+
+默认离线 gate **588/588 CTest、184 ABI**，C 格式 **19.1.7 / 262 文件**、Apple
+**181/3**、JNI **147/37**、样例可复现 `--check`、Python 语法 / 旧 table / diff / task
+Native 变异锚点唯一性与 diff 检查通过。Root Core 仍为 JS-off / tests-on；本片没有
+Core 源码或 Swift 产品修改，没有新 enabled Core 全套 / macOS 构建、系统辅助技术、
+真实丢包恢复、16 KiB / 真机、全客户端或发行结论，未推送。P5 / P1–P6 仍未完成。
+
+结束后清理本轮 **92 个 tmp 项，逻辑大小约 64.2 MiB**；仅保留原三份
+eq 输入，各 SHA256 未变。自有 AVD / 测试 / worker / SSH / agent 全部退出，所有
+设备均无窗口；未操作旧 Java 或其它用户应用 / 服务。本批仅本地提交，未推送 / 发行。

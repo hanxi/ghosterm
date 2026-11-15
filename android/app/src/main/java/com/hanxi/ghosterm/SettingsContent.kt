@@ -290,6 +290,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         extensions.table?.let { PluginTableContent(it) }
                         extensions.diff?.let { PluginDiffContent(it) }
                         extensions.task?.let { PluginTaskContent(it) }
+                        extensions.registeredViews?.let { PluginViewsContent(it) }
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {

@@ -5,8 +5,8 @@
 了元数据，不表示画面已显示、用户已操作或 Executor 业务已完成。
 
 当前已接 Core、Portable SDK、Swift 与 JNI / Kotlin 的启用、快照和关闭门面。
-macOS 的 JS-enabled 面板按所选命令的 `ui.views` 必需能力消费注册表，可同时显示多个标准
-组件；Android 产品尚未接多视图，不宣称 `ui.views`，对此类包显式报告不支持。
+macOS 与 Android 的 JS-enabled 面板按所选命令的 `ui.views` 必需能力消费注册表，
+可同时显示多个标准组件。缺少已实现服务的宿主对此类包显式报告不支持。
 没有声明该能力的旧单 table / diff / task 入口继续使用既有数据链。完整键盘焦点、
 系统辅助技术、隐藏 / 恢复与用户选包点击整链仍待验收。
 
@@ -59,7 +59,7 @@ methods 必须另含 cancel；其它 kind 不接受 cancel。各方法的参数 
 关闭注册，此后 JS 句柄 state 为 closed。同 ID 重开会获得新句柄，旧句柄的迟到
 close 不会删除新注册。
 
-macOS 以 Runtime / epoch / handle 保存独立模型，描述符 viewId 须与注册一致；相同
+两端以 Runtime / epoch / handle 保存独立模型，描述符 viewId 须与注册一致；相同
 快照保持分页状态。关闭按钮调用 Native owner，移除后停用旧模型，旧页和旧快照不
 能复活已关闭句柄。关闭失败保留视图及显式重试入口。同 Runtime 的任务观察另有
 最多八个业务 scope 记录；关闭 / 重开保留取消 ID、未知结果及已确认终态，不自动
@@ -106,3 +106,17 @@ build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-native.py --bui
 外且透明。它验证生产 AppModel 的审阅 / 授权 / 启动门面、真实 Runtime 注册、独立
 分页、原生关闭 / 重开及取消按钮；不代表用户文件选择器整链、系统 VoiceOver 或
 Android / 真机验收。具体分轮结果见插件计划 P5 第十二批。
+
+Android 产品消费的独立验证使用相同官方样例：
+
+```sh
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-android-native.py --build tmp/plugin-views/cli --package tmp/plugin-views/package --mutate --receipt tmp/plugin-views/android.json
+```
+
+脚本创建并销毁自有 API 29 / 36 arm64、4 KiB 页模拟器，强制 `-no-window`；不选择
+已有用户设备。使用 APK 及实际安装包摘要对拍、正常单条断言红 / 同 APK Core
+配置对照 / 恢复绿与源码摘要验证回归保护。真实 Settings 面板经独立 SSH 直连 /
+两跳，按 Native 按钮分页、关闭、重开及取消，运行时释放与暂存目录一并回收。
+只在设备自身测试沙箱保存包夹具，内存身份经有 token 的一次性本机服务传入；
+不安装外部插件或访问用户主机。完整 TalkBack、键盘 / IME、16 KiB / 真机、真实
+断网重连及完整选包点击链仍待验收。证据见插件计划 P5 第十三批。

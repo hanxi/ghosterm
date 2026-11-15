@@ -39,6 +39,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         private set
     internal var task: PluginTaskModel? by mutableStateOf(null)
         private set
+    internal var registeredViews: PluginViewsModel? by mutableStateOf(null)
+        private set
     private var handshakeJob: Job? = null
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
@@ -57,7 +59,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionController(
                 ExtensionController.HostProfile(
                     sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task")),
+                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views")),
                 application.applicationContext)
         }.getOrNull()
     } else null
@@ -85,6 +87,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         clientWorkspace: ExtensionController.ClientWorkspace? = null) {
         val owner = controller ?: return
         val selectedCommand = command.copy(views = command.views.toList())
+        val registeredContribution = "ui.views" in entry.review.requiredCapabilities
         val tableContribution = "table" in selectedCommand.views
         val diffContribution = "diff" in selectedCommand.views
         val taskContribution = "task" in selectedCommand.views
@@ -92,8 +95,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             (tableContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.table"))) ||
             (diffContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.diff"))) ||
             (taskContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.task"))) ||
+            (registeredContribution && !tableContribution && !diffContribution && !taskContribution) ||
             request.clientCapabilities.distinct().size != request.clientCapabilities.size ||
-            request.clientCapabilities.any { when (it) { "ui.table" -> !tableContribution; "ui.diff" -> !diffContribution; "ui.task" -> !taskContribution; else -> true } }) {
+            request.clientCapabilities.any { when (it) { "ui.table" -> !tableContribution; "ui.diff" -> !diffContribution; "ui.task" -> !taskContribution; "ui.views" -> !registeredContribution; else -> true } }) {
             error = "只能启动已批准的准确命令与已声明的 Client 服务"; return
         }
         val baseRequest = if (selectedCommand.path == "ai codex") request.copy(
@@ -101,12 +105,18 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             hostMethods = (request.hostMethods + codexHostMethods).distinct())
         else if (selectedCommand.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
         else request
-        val tableRequest = if (tableContribution) baseRequest.copy(
+        val tableRequest = if (!registeredContribution && tableContribution) baseRequest.copy(
             methods = (baseRequest.methods + PluginTableModel.methods).distinct(), clientCapabilities = listOf("ui.table")) else baseRequest
-        val diffRequest = if (diffContribution) tableRequest.copy(
+        val diffRequest = if (!registeredContribution && diffContribution) tableRequest.copy(
             methods = (tableRequest.methods + PluginDiffModel.methods).distinct(), clientCapabilities = (tableRequest.clientCapabilities + "ui.diff").distinct()) else tableRequest
-        val configuredRequest = if (taskContribution) diffRequest.copy(
+        val taskRequest = if (!registeredContribution && taskContribution) diffRequest.copy(
             methods = (diffRequest.methods + PluginTaskModel.methods).distinct(), clientCapabilities = (diffRequest.clientCapabilities + "ui.task").distinct()) else diffRequest
+        val configuredRequest = if (registeredContribution) baseRequest.copy(clientCapabilities = buildList {
+            if (tableContribution) add("ui.table")
+            if (diffContribution) add("ui.diff")
+            if (taskContribution) add("ui.task")
+            add("ui.views")
+        }) else taskRequest
         val launchRequest = configuredRequest.copy(arguments = configuredRequest.arguments.toList(),
             methods = configuredRequest.methods.toList(), hostMethods = configuredRequest.hostMethods.toList(),
             processPrograms = configuredRequest.processPrograms.map { it.copy(prefixArguments = it.prefixArguments.toList()) },
@@ -172,7 +182,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         claudeConversation?.invalidate(); claudeConversation = null
                         table?.invalidate(); table = null
                         diff?.invalidate(); diff = null
-                        task?.invalidate(); task = null
+                        registeredViews?.invalidate(); task?.invalidate(); task = null; registeredViews = null
                         codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, selectedCommand,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
@@ -409,7 +419,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private fun invalidateExtensionCalls() {
         table?.invalidate()
         diff?.invalidate()
-        task?.invalidate()
+        registeredViews?.invalidate(); task?.invalidate()
         claudeConversation?.invalidate()
         claudeRPC?.invalidate(); claudeRPC = null
         rpcGeneration = Any()
@@ -502,7 +512,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 sessionGeneration = Any(); invalidateExtensionCalls()
                 activeRuntime = null; activeSession = null; receivedResources = emptyList()
                 claudeConversation = null
-                table = null; diff = null; task = null
+                table = null; diff = null; task = null; registeredViews = null
                 codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { error = "释放插件资源失败：${failure.message ?: failure.javaClass.simpleName}" }
@@ -526,6 +536,35 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         catch (failure: Throwable) { error = "插件 Session 握手失败：${failure.message ?: failure.javaClass.simpleName}" }
     }
 
+    private fun updateRegisteredViews(owner: ExtensionController, state: ExtensionController.RuntimeState) {
+        state.viewIssue?.let { error = it }
+        val active = activeSession ?: return
+        if ("ui.views" !in active.requiredCapabilities || state.info.phase != ExtensionRuntime.Phase.ACTIVE) return
+        try {
+            val bytes = checkNotNull(state.views) { "视图注册快照缺失" }
+            val views = registeredViews ?: run {
+                val expected = rpcGeneration; val runtimeID = state.instanceID
+                PluginViewsModel(viewModelScope, checkNotNull(state.viewSessionInstance), checkNotNull(state.viewSessionEpoch),
+                    active.command.views.map { wire -> PluginViewRegistration.Kind.entries.first { it.wire == wire } }.toSet(),
+                    active.requiredCapabilities.toSet(), active.methods.toSet(), request = { method, input ->
+                        checkRPCGeneration(expected)
+                        requestPluginViewOutcome(method, input).also { checkRPCGeneration(expected) }
+                    }, isCurrent = {
+                        expected === rpcGeneration && !launchBusy && activeRuntime?.instanceID == runtimeID && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                    }, close = { handle ->
+                        checkRPCGeneration(expected)
+                        val closed = owner.closeRuntimeView(runtimeID, handle)
+                        checkRPCGeneration(expected)
+                        checkNotNull(closed.views) { "关闭后的视图快照缺失" }
+                    }).also { registeredViews = it }
+            }
+            views.apply(bytes)
+        } catch (failure: Exception) {
+            registeredViews?.invalidate()
+            error = "插件视图注册不可用，可停止并释放：${failure.message}"
+        }
+    }
+
     private suspend fun advanceRuntime(owner: ExtensionController) {
         val generation = sessionGeneration
         try {
@@ -533,7 +572,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val state = owner.stepRuntime()
                 if (generation !== sessionGeneration) return
                 activeRuntime = state
+                updateRegisteredViews(owner, state)
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&
+                    "ui.views" !in activeSession?.requiredCapabilities.orEmpty() &&
                     "table" in activeSession?.command?.views.orEmpty() && "ui.table" in activeSession?.requiredCapabilities.orEmpty() &&
                     PluginTableModel.methods.all { it in activeSession?.methods.orEmpty() }) {
                     val expected = rpcGeneration
@@ -545,6 +586,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     })
                 }
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && diff == null &&
+                    "ui.views" !in activeSession?.requiredCapabilities.orEmpty() &&
                     "diff" in activeSession?.command?.views.orEmpty() && "ui.diff" in activeSession?.requiredCapabilities.orEmpty() &&
                     PluginDiffModel.methods.all { it in activeSession?.methods.orEmpty() }) {
                     val expected = rpcGeneration
@@ -556,6 +598,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     })
                 }
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && task == null &&
+                    "ui.views" !in activeSession?.requiredCapabilities.orEmpty() &&
                     "task" in activeSession?.command?.views.orEmpty() && "ui.task" in activeSession?.requiredCapabilities.orEmpty() &&
                     PluginTaskModel.methods.all { it in activeSession?.methods.orEmpty() }) {
                     val expected = rpcGeneration
@@ -594,7 +637,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         ExtensionRuntime.Phase.CREATED)) {
                     table?.invalidate()
                     diff?.invalidate()
-                    task?.invalidate()
+                    registeredViews?.invalidate(); task?.invalidate()
                     claudeRPC?.invalidate()
                     claudeConversation?.invalidate()
                     codex = codex.copy(approvals = emptyList())
@@ -609,7 +652,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             if (generation !== sessionGeneration) return
             table?.invalidate()
             diff?.invalidate()
-            task?.invalidate()
+            registeredViews?.invalidate(); task?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             changeReview.cancel()

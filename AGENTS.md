@@ -1386,3 +1386,18 @@ SHA256；相同官方包本机 / 直连 / 两跳与屏幕外透明面板真实�
 VoiceOver / 完整键盘、真实断网重连 / 用户选包整链，Android 多视图、task IPC、
 完整开发 / 生命周期 / 设备矩阵及 P5 / P1–P6 待完成，不增加 CI 二十份。分轮原件、
 前置失败与构建证据见插件计划 P5 第十二批及[指南](docs/how-to/plugin-views.md)。
+
+
+**插件 P5 Android 多视图消费（2026-11-15）**：JS-enabled 产品按准确命令 ui.views /
+kind / RPC allowlist 显式启用注册表，Handler worker 核对真实 Session / epoch 及
+Runtime UUID；通用 Compose 控件按 handle 保持独立模型，关闭返回新快照，旧句柄 /
+RPC 不可复活。关闭失败保留并恢复轮询；task 关闭不取消业务，有界历史保留未知
+取消 ID 和终态，不因重开重放。自有 API29 / 36 arm64、4 KiB、-no-window 各 27 项
+新模型 / UI，旧 table 23 / diff 27 / task 33 分轮与各直连 / 两跳通过，含浅深主题 ×
+两档字号 / 字形像素和实际分页 / 关闭 / 重开 / 取消 / 释放。十三组 API29 隔离变异
+同轮正常单条断言红、同 APK Core 配置绿、恢复 / 安装字节 / SHA256，576 输入一致；
+两端最终恢复 APK 一致，初始 / 恢复及前置时序失败分轮见插件计划第十三批。
+默认 Core 588/184、C 格式 262、Apple 181/3、JNI 147/37、Debug / 测试 APK、未签名
+Release / 实际 R8 与四模块 lint 通过。无新 ABI / SDK 身份或预算提高；非系统
+TalkBack / 键盘 / IME、16 KiB / 真机、真实断网重连、用户选包整链或完整客户端；
+task IPC、完整开发 / 生命周期及 P5 / P1–P6 仍未完成，不增加 CI 二十份，未发行。

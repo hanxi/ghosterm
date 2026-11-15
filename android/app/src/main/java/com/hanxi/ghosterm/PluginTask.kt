@@ -113,6 +113,7 @@ internal object PluginTaskCodec {
 }
 
 internal class PluginTaskModel(private val scope: CoroutineScope, private val request: suspend (String, ByteArray) -> ByteArray,
+    private val expectedViewID: String? = null, private val history: PluginTaskHistory? = null,
     private val isCurrent: () -> Boolean = { true }) {
     companion object { val methods = listOf("view.task.cancel", "view.task.describe", "view.task.read") }
     enum class Cancellation { IDLE, PENDING, REQUESTED, ALREADY_FINISHED, UNCONFIRMED, FAILED, CANCELLED }
@@ -136,7 +137,12 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
                 if (description == null) {
                     val bytes = request("view.task.describe", "{}".toByteArray())
                     if (!current(expected)) return@launch
-                    description = PluginTaskCodec.descriptor(bytes); mutable.value = state.value.copy(descriptor = description)
+                    description = PluginTaskCodec.descriptor(bytes)
+                    require(expectedViewID == null || expectedViewID == description.viewID) { "视图描述符 ID 与注册不一致" }
+                    val prior = history?.restore(description)
+                    mutable.value = if (prior == null) state.value.copy(descriptor = description) else state.value.copy(descriptor = description,
+                        snapshot = prior.snapshot, cancelRequestID = prior.requestID,
+                        cancellation = if (prior.cancellation == Cancellation.PENDING) Cancellation.UNCONFIRMED else prior.cancellation)
                 }
                 read(description, expected)
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -149,6 +155,7 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
         main(); val description = state.value.descriptor ?: return null; if (!canCancel) return null
         val expected = Any(); generation = expected; val requestID = UUID.randomUUID().toString()
         mutable.value = state.value.copy(busy = true, issue = null, cancelRequestID = requestID, cancellation = Cancellation.PENDING)
+        history?.action(description, requestID, state.value.cancellation)
         return scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val bytes = request("view.task.cancel", input(description).put("requestId", requestID).toString().toByteArray(Charsets.UTF_8))
@@ -169,6 +176,7 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
                     mutable.value = if (state.value.cancellation == Cancellation.PENDING) state.value.copy(busy = false, cancellation = Cancellation.UNCONFIRMED,
                         issue = "取消结果不明，不会再次发送。请显式读取任务状态。") else state.value.copy(busy = false)
                 }
+                history?.action(description, requestID, state.value.cancellation)
             }
         }
     }
@@ -177,11 +185,16 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
         mutable.value = state.value.copy(valid = false, busy = false,
             cancellation = if (state.value.cancellation == Cancellation.PENDING) Cancellation.UNCONFIRMED else state.value.cancellation,
             issue = if (state.value.snapshot?.phase?.terminal == true) "任务所属会话已结束；保留此前已确认的结果" else "任务所属会话已结束；保留最后观察，当前运行状态不明")
+        val last = state.value
+        if (last.descriptor != null && last.cancelRequestID != null) history?.action(last.descriptor, last.cancelRequestID, last.cancellation)
     }
     private suspend fun current(expected: Any) = generation === expected && available && currentCoroutineContext().isActive
     private fun input(d: PluginTaskDescriptor) = JSONObject().put("viewId", d.viewID).put("revision", d.revision)
     private suspend fun read(description: PluginTaskDescriptor, expected: Any) {
         val bytes = request("view.task.read", input(description).toString().toByteArray(Charsets.UTF_8))
-        if (current(expected)) mutable.value = state.value.copy(snapshot = PluginTaskCodec.snapshot(bytes, description, state.value.snapshot))
+        if (current(expected)) {
+            val snapshot = PluginTaskCodec.snapshot(bytes, description, state.value.snapshot)
+            mutable.value = state.value.copy(snapshot = snapshot); history?.observe(description, snapshot)
+        }
     }
 }

@@ -111,7 +111,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }
     }
     data class RuntimeState(val packageID: String, val packageDigest: String, val command: String, val info: ExtensionRuntime.Info,
-        val publication: ResourcePublication? = null, val instanceID: String = "")
+        val publication: ResourcePublication? = null, val instanceID: String = "",
+        val views: ByteArray? = null, val viewSessionInstance: String? = null, val viewSessionEpoch: String? = null, val viewIssue: String? = null)
 
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
@@ -135,6 +136,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private var runtimePackageKey: Key? = null
     private var runtimeInstanceID: String? = null
     private var runtimeCommand: String? = null
+    private var runtimeViewScope: Pair<String, String>? = null
+    private var runtimeViewIssue: String? = null
     private var clientRootFD: java.io.FileDescriptor? = null
     private var clientSource: ExtensionFileSource? = null
     private var clientPublication: ResourcePublication? = null
@@ -282,6 +285,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(record.source == Source.ALLOWED && record.review.commands.any { it.path == command }) {
             "命令不属于已批准的固定插件包"
         }
+        val registryViews = "ui.views" in record.review.requiredCapabilities
+        var viewKinds = 0
         val selected = registryOnWorker().resolve(command, executor = false, selectedId = pluginID,
             selectedDigest = packageDigest)
         val exact = selected.packageBytes ?: error("命令解析失败：${selected.status}")
@@ -289,7 +294,16 @@ class ExtensionController(profile: HostProfile, context: Context) {
             check(selected.command?.path == command && exact.metadata().packageDigest == packageDigest) {
                 "命令解析没有返回精确插件包"
             }
+            if (registryViews) {
+                selected.command?.views.orEmpty().forEach { kind ->
+                    val bit = when (kind) { "table" -> 1; "diff" -> 2; "task" -> 4; else -> 0 }
+                    check(bit != 0 && "ui.$kind" in record.review.requiredCapabilities) { "所选命令没有声明标准视图能力" }
+                    viewKinds = viewKinds or bit
+                }
+                check(viewKinds != 0 && "session.rpc" in record.review.requiredCapabilities) { "视图注册需要标准视图与 RPC" }
+            }
         } finally { exact.close() }
+        val sessionInfo = current.info()
         clientWorkspace?.validate(record.review.requiredCapabilities)
         var rootFD = clientWorkspace?.let {
             Os.open(it.directory, OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
@@ -304,7 +318,16 @@ class ExtensionController(profile: HostProfile, context: Context) {
         } finally { rootFD?.let(Os::close) }
         session = null; sessionPackageKey = null; runtime = active
         runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command; runtimeInstanceID = UUID.randomUUID().toString()
-        RuntimeState(pluginID, packageDigest, command, active.info(), instanceID = checkNotNull(runtimeInstanceID))
+        runtimeViewScope = if (registryViews) sessionInfo.instance to sessionInfo.epoch.toULong().toString() else null
+        runtimeViewIssue = null
+        if (registryViews) {
+            try { active.enableViews(viewKinds) }
+            catch (failure: Exception) {
+                // Adoption already happened; retain the real Runtime owner for stop/release.
+                runtimeViewIssue = "无法启用插件视图注册：${failure.message}"; active.stop()
+            }
+        }
+        runtimeState(active)
     }
 
     suspend fun takeRuntimeResource(): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> = onWorker {
@@ -363,8 +386,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 if (admission.status == ExtensionFileSource.Status.OK) ExtensionFileSource.Phase.HASHING else ExtensionFileSource.Phase.FAILED,
                 admission.status, released = admission.source == null)
         }
-        val key = checkNotNull(runtimePackageKey)
-        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info(), clientPublication, checkNotNull(runtimeInstanceID))
+        runtimeState(current)
     }
     suspend fun cancelClientPublication(id: String) = onWorker {
         check(clientPublication?.id == id) { "发布不属于当前实例" }
@@ -409,7 +431,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }
         check(released && clientSource == null) { "运行时与发布资源仍在释放，保留 owner" }
         clientPublication = null
-        runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null
+        runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null
         clientRootFD?.let { fd -> clientRootFD = null; Os.close(fd) }
     }
 
@@ -427,8 +449,22 @@ class ExtensionController(profile: HostProfile, context: Context) {
             }
             if (SystemClock.elapsedRealtimeNanos() >= deadline) break
         }
+        runtimeState(current)
+    }
+
+    private fun runtimeState(current: ExtensionRuntime): RuntimeState {
         val key = checkNotNull(runtimePackageKey)
-        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info(), clientPublication, checkNotNull(runtimeInstanceID))
+        val info = current.info()
+        val views = if (runtimeViewScope != null && info.phase == ExtensionRuntime.Phase.ACTIVE && runtimeViewIssue == null) current.viewsSnapshot() else null
+        return RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), info, clientPublication, checkNotNull(runtimeInstanceID),
+            views, runtimeViewScope?.first, runtimeViewScope?.second, runtimeViewIssue)
+    }
+
+    suspend fun closeRuntimeView(instanceID: String, viewHandle: String): RuntimeState = onWorker {
+        val current = checkNotNull(runtime)
+        check(runtimeInstanceID == instanceID && runtimeViewScope != null && current.info().phase == ExtensionRuntime.Phase.ACTIVE) { "视图不属于当前活跃实例" }
+        current.closeView(viewHandle)
+        runtimeState(current)
     }
 
     /** Runtime stop is the only Native runtime operation allowed off-worker. */
@@ -442,7 +478,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
             check(current.info().phase !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING,
                 ExtensionRuntime.Phase.ACTIVE)) { "请先停止仍在运行的插件" }
             closeClientRuntime(current)
-            runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null
+            runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null
         }
         session?.let { current ->
             check(current.info().phase in setOf(ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED)) {
@@ -551,7 +587,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
                 // Close consumers before the transport/package owners they borrow.
-                runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null }
+                runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null }
                 session?.let { current -> current.close(); session = null; sessionPackageKey = null }
                 // Channel close can retain its native owner while it drains.
                 // Do not release packages or stop this worker until a retry

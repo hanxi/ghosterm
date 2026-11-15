@@ -14,7 +14,7 @@ import kotlinx.coroutines.isActive
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun PluginTaskContent(model: PluginTaskModel) {
     val state by model.state.collectAsState()
-    LaunchedEffect(model) {
+    LaunchedEffect(model, model.available) {
         if (model.state.value.descriptor == null && model.state.value.issue == null) model.load()?.join()
         while (isActive && model.available) {
             delay(500)
