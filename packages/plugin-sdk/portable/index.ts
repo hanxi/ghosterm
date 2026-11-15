@@ -9,6 +9,10 @@ export { TableDescribeMethod, TablePageMethod, TableDescriptorCodec, TablePageRe
   TABLE_PAGE_ROWS_MAX, TABLE_COLUMNS_MAX, TABLE_BODY_BYTES_MAX, validateTablePage } from "./table.js";
 export type { TableDescriptor, TablePageRequest, TablePage } from "./table.js";
 
+export { DiffDescribeMethod, DiffPageMethod, DiffDescriptorCodec, DiffPageRequestCodec, DiffPageCodec,
+  DIFF_PAGE_ROWS_MAX, DIFF_LINES_MAX, DIFF_TEXT_MAX, DIFF_BODY_BYTES_MAX, validateDiffPage } from "./diff.js";
+export type { DiffDescriptor, DiffPageRequest, DiffPage, DiffRow } from "./diff.js";
+
 /** Current Session grant observation, not a promise that a host service exists.
  * Queries are live: revocation is never a cached allowed result. */
 export type CapabilityAccess = "unknown" | "allowed" | "denied" | "revoked" | "unsupported";

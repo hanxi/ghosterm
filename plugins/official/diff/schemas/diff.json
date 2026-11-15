@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "before": { "type": "string", "maxLength": 3072 },
+    "after": { "type": "string", "maxLength": 3072 },
+    "beforeLabel": { "type": "string", "maxLength": 64 },
+    "afterLabel": { "type": "string", "maxLength": 64 }
+  },
+  "required": ["before", "after", "beforeLabel", "afterLabel"],
+  "additionalProperties": false,
+  "x-ghosterm-cli": {
+    "version": 1,
+    "fields": {
+      "before": { "option": "before", "default": "\"\"" },
+      "after": { "option": "after", "default": "\"\"" },
+      "beforeLabel": { "option": "before-label", "default": "Before" },
+      "afterLabel": { "option": "after-label", "default": "After" }
+    }
+  }
+}

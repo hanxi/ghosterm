@@ -35,21 +35,23 @@ int main(int argc, char **argv) {
     rpc_pair_t pair;
     rpc_open(&pair, "timeout");
     rpc_adopt_hook = NULL;
-    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js", "table.js"},
+    const char *names[] =
+        {"index.js", "codec.js", "session.js", "wire-contract.js", "table.js", "diff.js"},
                *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
                          "sdk:/wire-contract.js",
-                         "sdk:/table.js"};
-    char *scripts[5];
-    gt_ext_runtime_module_t modules[6] = {0};
-    for (unsigned i = 0; i < 5; i++) {
+                         "sdk:/table.js",
+                         "sdk:/diff.js"};
+    char *scripts[6];
+    gt_ext_runtime_module_t modules[7] = {0};
+    for (unsigned i = 0; i < 6; i++) {
         scripts[i] = read_module(argv[2], names[i]);
         module(&modules[i], ids[i], scripts[i]);
     }
-    module(&modules[5], "plugin:/entry.js", echo_plugin);
+    module(&modules[6], "plugin:/entry.js", echo_plugin);
     gt_ext_runtime_config_t c = {.modules = modules,
-                                 .module_count = 6,
+                                 .module_count = 7,
                                  .entry = "plugin:/entry.js",
                                  .role = GT_EXT_EXECUTOR,
                                  .cpu_ms = 500};
@@ -110,7 +112,7 @@ int main(int argc, char **argv) {
     }
     rt_drop(&runtime);
     ext_drop(&pair.pair.h);
-    for (unsigned i = 0; i < 5; i++) {
+    for (unsigned i = 0; i < 6; i++) {
         free(scripts[i]);
     }
     if (owner_store) {

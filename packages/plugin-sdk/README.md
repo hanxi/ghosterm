@@ -96,9 +96,19 @@ quickjs-libc 的 QuickJS-NG 0.18.0 中，调用实际公开 C Session / socketpa
 验证：`python3 scripts/mutation-check-plugin-runtime-resources.py`；三项 adapter 故障观测不当作
 真实网络 / 磁盘证据。完整行为、限额、原生绑定和证据见插件计划第二十七批。
 
-runtime 已接 Session / 资源及受限 activate / dispose；尚未实现完整 PluginContext、
-事件 / UI / 进程服务、模块安装器、App 页面 / 激活入口、gterm IPC 或多实例调度。
+runtime 已分批接 Session / 资源 / 受控进程及 activate / dispose，两端实验 App 入口和
+显式 gterm IPC 的范围见插件计划。服务须由实际 Host 配置并逐项授权；这些切片不代表
+完整 PluginContext、安装器或多实例调度已经完成，默认 App 仍关闭插件 JS。
 运行时门面验证见 `python3 scripts/mutation-check-plugin-runtime-api.py`；Android 显式测试档另见
 `scripts/mutation-check-plugin-runtime-api-jni.py --device 设备`。未来网关只预留，不在当前实现范围。
 
 `ProcessSpawnOptions.argv` 使用完整 POSIX argv，必须包括 argv[0]；它不用于查找可执行文件，实际程序仍由 Host 的 `program` 映射决定。例如 Codex 使用 `["codex", "app-server"]`。`ProcessChild.release()` 完成后原生句柄失效，不得再读写、signal 或 poll；需要的状态必须在 release 前观察并保存。release 只证明退出和回收，不能补出先前未知的退出码。
+
+标准视图使用声明的数据契约与 Session RPC。`table.ts` 提供有界表格描述 / 所选页，
+两端实验 Host 按已批准命令的 `views: ["table"]` 接原生组件并要求 `ui.table`。
+`diff.ts` 提供只读逐行比较：正 uint64 修订、精确所选页、前后行号 / 游标、LF / CRLF /
+CR / 无末尾换行、最多三行 / 2048 JSON 字节。`validateDiffPage` 可接前一页核对连续性；
+请求代次和迟到回复仍由 Host 另行隔离。差异行不是文件身份或写入 / 审批授权。
+官方 diff 样例比较显式提供的 JSON 编码文本，使用有界 LCS；原生 `ui.diff` 组件仍待接，
+缺服务须明确不支持。没有通用命令式 `ctx.views` 对象，不通过创建新 C ABI 或专属业务
+窗格绕过标准契约。样例构建和证据范围见[插件计划 P5](../../docs/reference/plan-plugin-bridge.md)。

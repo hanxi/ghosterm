@@ -13,8 +13,10 @@
 **最新 P5 进展：** 第一批提供 Portable 表格契约与真正按页计算的官方 Executor；第二批
 接入 macOS 通用 Native 表格、分页、错误 / 迟到回复隔离与 Client 服务协商。同一包经本机、
 直连 / ProxyJump SSH 完成实际 RPC。第三批补 Android 通用 Native 表格、精确 Client 服务、
-所选页代次和两端同一官方包；API29 / 36 无窗口档的分页 / 授权 / 停止证据见文末。缺能力仍显式不支持；
-diff、持续交互样例及完整开发体验仍待完成，P5 和 P1–P6 均未记完成。
+所选页代次和两端同一官方包；API29 / 36 无窗口档的分页 / 授权 / 停止证据见文末。
+第四批提供独立于 Codex 的只读 diff 契约与有界比较 Executor，保持原 CPU / RPC 预算；
+七种 standalone Core 场景在两设备通过，原生 ui.diff 与真实 SSH 组合仍待接。缺能力仍
+显式不支持；持续交互样例及完整开发体验继续，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -6486,3 +6488,98 @@ Controller 一项、Claude 启动五项 / 回包观察十二项及 Core Identity
 全部本轮构建 / 测试 / 回环服务 / 自有 AVD 已退出后，清理 32 个 tmp 根入口、3115 项、
 60.7 MiB 账面分配，仅保留原三份 eq-* 且 SHA256 一致。未终止无关 Java、用户 App 或
 既有服务；测试始终无窗口 / 后台，根 Core 维持 JS-off / tests-on。
+
+### P5 实施第四批：Portable diff 契约与有界文本比较 Executor（2026-11-15）
+
+`plugins/official/diff` 比较两份由用户显式提供的 JSON 编码文本，参数为 `--before` /
+`--after`，`--before-label` / `--after-label` 只作显示名称。用 JSON 编码保留换行并避免把
+原始 CR / LF 放进启动命令；每份编码最多 3072 UTF-8 字节、128 行，每行最多 128 个
+Unicode code point。传输自身的 argv / SSH 命令长度限制仍生效，不承诺本机可用的所有
+长参数都能塞进 SSH 启动命令。输入不作 Unicode / 空白 / 行尾归一化；LF、CRLF、CR
+及无末尾换行独立保存。插件不读文件、不申请进程 / 网络 / 账号服务，不应用补丁。
+
+Executor 计算有界 LCS，平局先删除；精确行先 intern 成整数，完全相同或无公共行走
+线性路径。准备过程使用既有 `Disposable.step()`，分批推进标识、矩阵、编辑行和游标；
+没有新增定时器、C ABI 或业务专用 native 入口。描述 / 页面请求等待完整结果，准备
+阶段不能冒充空比较，关闭唤醒等待并撤销访问。SDK 的 diff 形状按实际使用延迟构造，
+避免所有导入聚合 SDK 的 Runtime 都在 activation 内构造未用视图 schema。未提高
+原 25 ms CPU slice、1000 ms RPC 或 2000 次观测上限。
+
+`portable/diff.ts` 提供 descriptor / page request / page codec 与 `validateDiffPage`：
+正 uint64 修订、精确 view / 修订 / offset / limit / total、增删统计、前后行号和起始
+游标，最多三行 / 2048 JSON UTF-8 字节。`ending=none` 只允许对应来源的最后一行；
+给出前页时还核对同一修订、无跳页及双游标连续性。数据在边界复制 / 冻结，拒绝额外
+字段、getter、控制字符和不合法行坐标。它是只读比较数据，不是文件身份或写入 / 审批
+授权；Host 仍须另存当前请求代次，原生视图以后按同一契约接入。
+
+聚合 SDK 从七个模块增至八个，生成器、CMake 离线输入守卫与手工 C 测试闭包同步。
+运行时总模块上限仍为 64；边界夹具只扣除增加的 SDK 依赖，保留第 64 个模块可用、
+第 65 个明确失败。候选 API 1.0.0 / wire v1 不变，新 SDK digest 为
+`7c5badd614cfb5e431cee9d3d94d09974625ec6aa5f25312eedc573cd5d4f128`。
+没有修改 vendor pin、公共 C ABI、平台绑定或原生 UI / Host 能力声明。
+
+复现（先准备锁定 TS 5.9.3 工具；所有路径均在工程 tmp）：
+
+```bash
+export TMPDIR="$PWD/tmp" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+node tmp/diff/tools/node_modules/typescript/bin/tsc -p packages/plugin-sdk/tsconfig.json --outDir tmp/diff/sdk
+python3 scripts/build-plugin-sample.py --source plugins/official/diff --tools tmp/diff/tools --out tmp/diff/package
+cmake -S cli/gterm -B tmp/diff/cli -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_PLUGIN_SDK_DIR="$PWD/tmp/diff/sdk"
+cmake --build tmp/diff/cli -j2
+cc -std=c11 -Wall -Wextra -Werror -Icore/include scripts/probes/plugin-diff.c tmp/diff/cli/core/libghosterm_core.a tmp/diff/cli/core/libghosterm_quickjs.a -Lbuild/host-native/lib -lssh2 -o tmp/diff/probe
+python3 scripts/test-plugin-diff.py --build tmp/diff/cli/core --probe tmp/diff/probe --tools tmp/diff/tools --mutate --receipt tmp/diff/host.json
+```
+
+主机最终 **2107 项**编译后值 / 模拟 adapter / 算法检查：包括 31×31 小序列的独立
+子序列穷举最小编辑数、两份原文的精确重建、Unicode / 各类行尾、完整页、连续性、
+准备等待和关闭。**十二组**隔离重编变异通过：七组值契约、三组真实 Core 业务、一组
+worker 推进、一组 dispose 撤权；正常断言红、同 archive 的独立配置绿、复原、实际
+JS 产物变化与源码 SHA256。真实公共 package → Session → QuickJS 有普通 / 空 /
+相同 / Unicode / 最大无公共行 / 最大交错 / 宽 Unicode 七种场景，逐页重建两份文本并
+核对增删数、行号、游标、字节及过期 UNKNOWN；缺 Native 服务必须 UNSUPPORTED。
+
+同一 NDK arm64 / API29 ELF 与官方包在自有 **API29 / API36、4 KiB、无窗口** AVD
+各跑上述七种场景、过期拒绝与缺服务检查。上设备后逐一对拍 ELF 和包成员 SHA256，
+只操作本轮 guest 目录，最后关闭自有 AVD。它是 standalone Core 证据，不是 JNI / APK /
+原生 diff UI、SSH、用户真机或发行证据。当前两端尚未实现 `ui.diff`；候选 Client 保留
+明确服务要求，不能用空 activate 假装已显示 diff。两端通用原生 diff、实际 SSH 组合、
+持续交互样例与完整开发体验继续推进，P5 / P1–P6 均未勾选完成。
+
+前置失败单列：初始 TS 缺括号 / 引入未导出的 fail、探针复制误把 portable-js 写成
+pordiff-js、CMake 输入清单漏新模块均未计通过。模块数同步曾误改独立 argv 夹具的
+五项循环导致崩溃，恢复原边界后定向与完整 **819/819** enabled CTest 通过；一次漏带
+DEVELOPER_DIR 的重链接失败和随后运行旧二进制的失败亦未计绿。最大输入最初在主机 /
+设备 activation 触发 CPU；诊断确认为 CPU，先做整数比较 / 线性路径，再延迟未用 schema，
+最后将准备移到既有有界 worker hook，才在原预算下完整通过。异步重构后 cursor 变异
+首版制造 unused 绑定的 TS 编译失败，改为取第零游标且仍使用该绑定，之后正常断言红。
+所有编译、崩溃和 CPU 失败不当作目标断言红，不借后续成功抹掉前置记录。
+
+旧表格 **56 项**值 / adapter 与真实 Core 分页基线复验通过，未重复执行旧八组变异。
+旧 SDK 的 **17 个场景、36 项 Ajv schema 对拍**通过，O1 ASan/UBSan、无 LSan；它的
+confirmation 用例仍是模拟 adapter，不外推为真实网络成功。既有 package loader 的
+`module-count` 一组手工选跑（只选择原 case，未改断言 / 预算 / sanitizer 设置），
+RelWithDebInfo ASan/UBSan 的 **53 项**基线 / 最终复验、编译后正常断言红、同 archive
+配置绿、复原与 SHA256 通过；不称旧默认十四组已全部重跑。
+
+本批主机 / 两设备使用同一官方包，交集输入与当前工作区逐文件一致；独立收据 SHA256
+如下，临时原件验收后按工程约定清理：
+
+- diff 主机 / 十二组 / 161 输入：`ce049364590f3ab16485b0540a8c2360d904cba8b48a38f4b3b810d027def4fa`。
+- 同一 ELF / API29 / 36 / 159 输入：`48b8b60dfa6d0f136b4e504bf3b74f40e0e7f6293d858162135f8febf50d6beb`。
+- 旧表格 / 160 输入：`b01f1d262396f470929641df1b9d80ab97d717646e10be26f04bcf73f99998f5`。
+- 旧 SDK ASan/UBSan / 36 schema：`18a60e06b644881ce8d61002a20443ff578d3ef6fbae396e6f40978f29861065`。
+- 模块边界一组 / 719 输入：`4040e773b594cdfa8da1a161319e705a84f02982e73c9ea620c7b5d77bed79d8`。
+
+最终公共 / 平台闸门：默认 Core **JS-off / tests-on：588/588 CTest / 181 ABI**，显式
+JS-on / SSH-on Debug **819/819 CTest**；Apple **178 引用 / 3 登记未用**、JNI **144 / 37**、
+clang-format **19.1.7 / 257 文件**、SDK 八模块生成 / 离线输入守卫、脚本语法和 diff
+检查通过。macOS **Xcode 27.1 / Swift 6.4 / arm64 Release** 在独立 scratch 目录完整
+重编链接，Android **JS-enabled Debug / 测试 APK、未签名 Release 与 app / bridge /
+data / terminal 四模块 Release lint**通过，native 实际重编、R8 为 UP-TO-DATE。
+本片没有原生 UI 源码修改，未重跑 App 全量或旧 Native UI 变异；standalone 设备证据
+不替代 APK / JNI / 原生 diff 页面、用户真机或云端 Swift 6.1.2。默认 App 仍 JS-off，
+本地分批提交，不推送 / 发行，不增加 macOS CI 二十份。
+
+本轮构建 / 测试 / 自有 AVD 已全部退出后，清理 79 个 tmp 根入口、12078 项、594.7 MiB
+账面分配，只保留原三份 eq-* 且 SHA256 不变。未终止无关 Java、用户 App 或既有服务；
+自动测试保持无窗口 / 后台，根 Core 仍为 JS-off / tests-on。

@@ -17,6 +17,7 @@ foreach(_gt_group inputs outputs)
       packages/plugin-sdk/portable/resources.ts
       packages/plugin-sdk/portable/session.ts
       packages/plugin-sdk/portable/table.ts
+      packages/plugin-sdk/portable/diff.ts
       packages/plugin-sdk/portable/wire-contract.ts
       packages/plugin-sdk/tsconfig.json
       packages/plugin-sdk/sdk-version.json

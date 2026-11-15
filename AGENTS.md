@@ -1237,3 +1237,18 @@ release lint 通过。手工模拟器证据，不增加 macOS CI 二十份；Tal
 默认 App 保持 JS-off，未推送 / 发行。
 既有 Preview / Controller / Claude 启动与观察 / Core 配置组合最终 25 项通过；首轮
 Controller 的 CPU_BUDGET 与相同 APK / 预算的独立复验通过分账，不据未复现称已修复。
+
+**插件 P5 Portable diff（2026-11-15）**：只读 JSON 文本比较、精确 Unicode / LF / CRLF /
+CR / 无末尾换行，标准描述 / 页 / 双行号与游标契约；有界 LCS 经既有 worker hook 分步
+准备，不提高 25 ms CPU / 1000 ms RPC / 2000 次观测上限。2107 项编译后检查、十二组
+隔离变异通过：七组值、三组真实 Core 业务、worker 推进及 dispose 撤权；正常断言红、
+同 archive 配置绿、恢复目标 / JS 产物 / SHA256。相同 NDK ELF 与官方包在自有 API29 /
+36 arm64、4 KiB、无窗口 AVD 各七种 standalone Core 场景通过，含最大交错和宽 Unicode。
+聚合 SDK 八模块，64 / 65 边界保持；既有 module-count 一组选跑优化 ASan/UBSan、53 项
+基线 / 最终通过，无 LSan，不称默认十四组已重跑。旧 SDK 17 场景 / 36 schema 与表格
+56 项基线通过；默认 Core 588/181、enabled Core 819、Apple 178/3、JNI 144/37、C 格式
+19.1.7 / 257 文件、macOS arm64 Release、Android JS-enabled Debug / 测试 APK / 未签名
+Release 与四模块 lint 通过，R8 为 UP-TO-DATE。两端 ui.diff / 实际 SSH、原生主题 / 大字号 /
+无障碍、完整交互与设备矩阵仍待接；默认 JS-off，不增加 CI 二十份，P5 / P1–P6 未完成，
+未推送 / 发行。前置编译 / 夹具崩溃 / activation CPU 与失败变异的编译错误见计划第四批，
+均未计普通断言红或通过。

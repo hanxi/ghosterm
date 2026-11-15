@@ -226,8 +226,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         !strcmp(mode, "module-boundary-overflow") || !strcmp(mode, "source-total")) {
         static char loop[4096];
         unsigned n = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 58
-                     : !strcmp(mode, "module-boundary-overflow") ? 59
+                     : !strcmp(mode, "module-boundary")          ? 57
+                     : !strcmp(mode, "module-boundary-overflow") ? 58
                                                                  : 8;
         size_t used = 0;
         for (unsigned i = 0; i < n; i++) {
@@ -403,8 +403,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         free(large);
     }
     unsigned extra = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 58
-                     : !strcmp(mode, "module-boundary-overflow") ? 59
+                     : !strcmp(mode, "module-boundary")          ? 57
+                     : !strcmp(mode, "module-boundary-overflow") ? 58
                      : !strcmp(mode, "source-total")             ? 8
                                                                  : 0;
     for (unsigned i = 0; i < extra; i++) {
