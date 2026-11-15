@@ -2,8 +2,9 @@
 
 `scripts/gterm-plugin` 提供候选 `init/check/build/pack/test` 命令，当前构建对象为
 Portable Client 加单个 Portable Executor。命令读取固定副本，不执行项目的 npm
-脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活 Executor。
-Node / Exec 包构建、Client 激活、文件 / 进程 / UI 服务测试仍待接入。
+脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
+默认测试 Executor，`--side client` 测试 Client。Node / Exec 包构建、双 JS 端同时激活、
+文件 / 进程 / UI 服务测试仍待接入。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -54,23 +55,30 @@ node tmp/plugin-dev/tools/node_modules/typescript/bin/tsc -p packages/plugin-sdk
 cmake -S core -B tmp/plugin-dev/core -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=OFF -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_PLUGIN_SDK_DIR="$PWD/tmp/plugin-dev/sdk"
 cmake --build tmp/plugin-dev/core --target ghosterm_core test_config -j 4
 python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.test.json --core-build tmp/plugin-dev/core
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.test.json --core-build tmp/plugin-dev/core --side client
 python3 scripts/test-plugin-dev.py --tools tmp/plugin-dev/tools --core-build tmp/plugin-dev/core --mutate --receipt tmp/plugin-dev/receipt.json
 ```
 
 macOS 显式设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`。本片验收
 工具链是 macOS arm64，Linux 原子发布分支未据此记为已验。
 
+脚手架两侧各注册 `dev.echo`，使同一契约可以分别验证 Client 与 Executor 的实际入口；
+业务插件可为两侧准备不同契约。测试只激活指定的一侧，另侧为自有 Native RPC peer；
+测试 Client 时由 Executor peer 发请求，方法的 receiver 为 Host，使用 Executor 自己的
+lease，不能把 Host token 复制过去。输出 `side` 记录实际测试侧。显式 `--host-json`
+的 `side` 必须与 `--side` 相同；缺能力 / 拒绝 / 未知继续分别报告，不以测试选项授予权限。
+
 测试契约是脚手架生成的 `plugin.test.json`：命令、原始 argv、方法、输入 / 预期对象、
 错误输入与预期 outcome kind。仅授予 `session.rpc`，需要其它服务会显式失败。
 预期值及输入中的完整字符串 `${instanceId}` / `${epoch}` 可绑定本次 lease；字符串
 内嵌片段不替换。夹具使用本次 epoch 的本机 socketpair、真实包检查 / SDK / RPC，
-验证激活、成功值、声明错误类别、发送前排队取消、旧 epoch、撤权、配置预算拒绝、
+对选定侧验证激活、成功值、声明错误类别、发送前排队取消、旧 epoch、撤权、配置预算拒绝、
 引擎释放和 fd 数量平衡。脚手架的 `throw` 是明确错误夹具，结果为 unknown，不能
 将其当作成功业务结果。
 
 配置预算准入不等于 OOM / RSS 扫描；请求取消不等于业务任务取消。本片不覆盖 OS
 沙箱、SSH、tmux、原生 UI、外部资源服务、整进程预算或完整插件生命周期矩阵。
-六组隔离变异各要求正常断言红、独立 Core 配置绿、恢复绿及源码 SHA256；编译失败、
+隔离变异各要求正常断言红、独立 Core 配置绿、恢复绿及源码 SHA256；编译失败、
 崩溃和超时不计目标红。新增手工脚本未加入 CI 二十份。
 
 用完删除本次创建的 `tmp/plugin-dev/`，保留其它工作的临时目录。开发命令每次调用的

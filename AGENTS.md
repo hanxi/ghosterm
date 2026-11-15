@@ -1420,3 +1420,18 @@ Release，Android Debug / 测试 APK / 未签名 Release / 四模块 lint、C �
 Apple 181/3、JNI 147/37 通过；本轮 R8 为 UP-TO-DATE。无 ABI / SDK 身份或预算
 提高；非系统辅助技术、16 KiB / 真机、真实断网重连、用户选包整链 / 完整生命周期 /
 开发 / 分发矩阵或发行结论；P5 / P1–P6 仍未完成，不增加 CI 二十份。
+
+
+**插件 P5 开发 testkit 的 Client 激活（2026-11-15）**：`scripts/gterm-plugin test
+--side client` 显式选择已检查包的 Client，默认仍为 Executor；项目和已构建目录均
+可测，脚手架两端各注册 typed echo。真实 Core / QuickJS 只激活所选侧，Native 对端
+按准确 receiver / 自己的 lease 发送 RPC，不冒充双 JS 互调。Host 事实 side 不匹配
+拒绝，所选侧自己声明 session.rpc；兼容三态 / 授权边界不变。二十一项工具基线、
+十组隔离变异（新增角色 / 声明 / 回包 / Host side 四组）正常断言红、独立 Core
+配置绿、恢复 / SHA256；56 输入一致。Client 专有返回值 / Executor 对照、错误值 /
+outcome、激活 / 清理失败、旧 epoch / 撤权 / 排队取消、预算准入和 engine / fd 释放
+通过。前置 NULL 对端清理夹具失败保留，修正后通过；产品 Core 未改，无 sanitizer
+新结论。默认 Core 588/184、C 格式 262、Apple 181/3、JNI 147/37 通过；无新平台
+产品 / ABI / SDK 身份 / 预算变化或 App / APK / 设备 / SSH / 发行结论。双 JS 激活、
+Node / Exec 开发、文件 / 进程 / UI testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI
+二十份；分轮 / 收据见插件计划第十五批与[开发指南](docs/how-to/plugin-development.md)。

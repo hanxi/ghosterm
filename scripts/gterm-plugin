@@ -243,12 +243,7 @@ export function activate(context: PluginContext) {
   return { dispose() { live = false; } };
 }
 '''
-    client = '''import type { PluginContext } from "@ghosterm/plugin-sdk";
-export function activate(context: PluginContext) {
-  if (context.side !== "client" || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Client RPC required");
-  return { dispose() {} };
-}
-'''
+    client = executor.replace('"executor"', '"client"').replace('Executor RPC required', 'Client RPC required')
     files = {'plugin.json': encoded(manifest), 'client/index.ts': client.encode(), 'executor/index.ts': executor.encode(),
         'schemas/command.json': encoded({'type': 'object', 'additionalProperties': False, 'properties': {}, 'required': [], 'x-ghosterm-cli': {'version': 1, 'fields': {}}}),
         'plugin.project.json': encoded(dict(schemaVersion=1, sources=['client/index.ts', 'executor/index.ts'], assets=['README.md', 'LICENSES/MIT.txt', 'schemas/command.json'])),
@@ -273,17 +268,18 @@ def native_test(work, core, package, host, contract):
     require(core.is_relative_to(TMP), 'TEST_BUILD_USE_PROJECT_TMP')
     cache = (core / 'CMakeCache.txt').read_text()
     require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
-    require(host['side'] == 'executor' and host['capabilities'] == ['session.rpc'] and host['runtimes'] == ['portable-js'], 'TEST_RPC_PROFILE_ONLY')
+    require(host['side'] in ('client', 'executor') and host['capabilities'] == ['session.rpc'] and host['runtimes'] == ['portable-js'], 'TEST_RPC_PROFILE_ONLY')
     compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
     libraries = [core / 'libghosterm_core.a', core / 'libghosterm_quickjs.a', '-lm']
     if 'GHOSTERM_WITH_LIBSSH2:BOOL=ON' in cache:
         libraries += ['-L' + str(ROOT / 'build/host-native/lib'), '-lssh2']
     probe = work / 'probe'
     run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/include'), ROOT / 'scripts/probes/plugin-testkit.c', *libraries, '-o', probe], 120)
-    trace = run([probe, package, encoded(host).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *contract['arguments']], 30)
+    trace = run([probe, package, encoded(host).decode(), host['side'], contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *contract['arguments']], 30)
     observations = [decode(line) for line in trace.splitlines()]
     require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', 'lifecycle'], 'TEST_DISCOVERY')
     lease = observations[0]
+    require(lease.get('side') == host['side'], 'TEST_RUNTIME_SIDE')
     def bind(value):
         if value == '${instanceId}': return lease['instanceId']
         if value == '${epoch}': return lease['epoch']
@@ -294,8 +290,8 @@ def native_test(work, core, package, host, contract):
     require(observations[2]['outcome']['kind'] == contract['errorKind'], 'TEST_ERROR_OUTCOME')
     require(observations[3]['outcome'] == dict(kind='cancelled', effect='none'), 'TEST_REQUEST_CANCEL')
     require(all(observations[4].get(key) is True for key in ('activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance')), 'TEST_LIFECYCLE')
-    return dict(kind='tested', observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
-                scope='real Core/QuickJS Executor RPC fixture; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no OS services, Native UI or SSH')
+    return dict(kind='tested', side=host['side'], observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
+                scope='real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH')
 
 
 def main():
@@ -309,7 +305,9 @@ def main():
         command.add_argument('--tools', required=True, type=Path); command.add_argument('--host-json', type=Path)
         command.add_argument('--registry-package', type=Path, action='append', default=[])
         if name in ('build', 'pack'): command.add_argument('--out', type=Path, required=True)
-        if name == 'test': command.add_argument('--contract', type=Path, required=True); command.add_argument('--core-build', type=Path, required=True)
+        if name == 'test':
+            command.add_argument('--contract', type=Path, required=True); command.add_argument('--core-build', type=Path, required=True)
+            command.add_argument('--side', choices=('client', 'executor'), default='executor', help='activate this package side against an owned native RPC peer')
     args = parser.parse_args()
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
     require(args.action != 'build' or args.project is not None, 'BUILD_REQUIRES_PROJECT')
@@ -322,7 +320,9 @@ def main():
         captured = capture(source, snapshot, bool(args.project))
         host = read_json(args.host_json) if args.host_json else None
         if args.action == 'test' and host is None:
-            host = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])
+            host = dict(side=args.side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])
+        if args.action == 'test':
+            require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')
         registry = []
         for index, item in enumerate(args.registry_package):
             fixed = work / ('registry-' + str(index)); fixed.mkdir(); capture(item, fixed)

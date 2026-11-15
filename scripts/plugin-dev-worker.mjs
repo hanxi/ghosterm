@@ -156,7 +156,10 @@ try {
     if (['unknown', 'unsupported', 'denied'].includes(error.state)) { compatibility = error.state; reason = error.code; }
     else throw error;
   }
-  if (host && manifest.executor?.variants?.[0] && request.testProfile) demand(manifest.executor.variants[0].requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
+  if (host && request.testProfile) {
+    const selected = host.side === 'client' ? manifest.client : manifest.executor?.variants?.[0];
+    demand(selected?.requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
+  }
   console.log(JSON.stringify({ structural: true, compatibility, reason, exitCode: { compatible: 0, unknown: 3, unsupported: 4, denied: 6 }[compatibility],
     id: manifest.id, packageSHA256: digest(catalog.get('integrity.json')), authorization: 'not-granted', publisherAuthenticated: false, facts }));
 } catch (error) {

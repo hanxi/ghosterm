@@ -24,12 +24,13 @@ def tree(directory):
 
 
 def run_case(name, work, tools, core):
-    def cli(*arguments, status=0):
+    def cli(*arguments, status=0, diagnostic=None):
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1')
         result = subprocess.run(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments)], capture_output=True, env=env, timeout=160)
         assert result.returncode == status, (arguments, result.returncode, result.stdout.decode(), result.stderr.decode())
         report = json.loads(result.stdout)
         assert b'Traceback' not in result.stderr
+        if diagnostic is not None: assert diagnostic.encode() in result.stderr, result.stderr.decode()
         return report
 
     project = work / 'project'
@@ -39,8 +40,8 @@ def run_case(name, work, tools, core):
     hostfile = work / 'host.json'; hostfile.write_text(json.dumps(host))
     def check(status=0):
         return cli('check', *common, '--host-json', hostfile, status=status)
-    def native(contract=None, status=0):
-        return cli('test', *common, '--contract', contract or project / 'plugin.test.json', '--core-build', core, status=status)
+    def native(contract=None, status=0, side='executor', diagnostic=None):
+        return cli('test', *common, '--contract', contract or project / 'plugin.test.json', '--core-build', core, '--side', side, status=status, diagnostic=diagnostic)
     def reject(suffix, data, code=None, status=1):
         target = project / suffix; before = target.read_bytes() if target.exists() else None
         target.write_bytes(data)
@@ -138,6 +139,53 @@ def run_case(name, work, tools, core):
         contract['input'] = contract['expected'] = {'text': 'quoted "${epoch}"; ${instanceId}'}
         alternate = work / 'contract.json'; alternate.write_text(json.dumps(contract))
         assert native(alternate)['observations'][1]['outcome']['value'] == contract['expected']
+    elif name == 'client-rpc':
+        # Distinct Client bytes and response prove we did not activate Executor.
+        target = project / 'client/index.ts'
+        target.write_text(target.read_text().replace('return { text: input.text };', 'return { text: "client:" + input.text };'))
+        contract = json.loads((project / 'plugin.test.json').read_text())
+        contract['expected'] = {'text': 'client:hello'}
+        alternate = work / 'client.json'; alternate.write_text(json.dumps(contract))
+        report = native(alternate, side='client')
+        assert report['side'] == 'client' and report['observations'][0]['side'] == 'client'
+        assert report['observations'][1]['outcome']['value'] == contract['expected']
+        assert report['observations'][2]['outcome']['kind'] == 'unknown'
+        assert all(report['observations'][-1][key] for key in ['activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance'])
+        assert native()['side'] == 'executor'
+        # Check already built packages as well as TypeScript project input.
+        package = work / 'package'; cli('build', *common, '--out', package)
+        assert cli('test', '--package', package, '--tools', tools, '--contract', alternate, '--core-build', core, '--side', 'client')['side'] == 'client'
+    elif name == 'client-contract':
+        assert native(side='client')['side'] == 'client'
+        contract = json.loads((project / 'plugin.test.json').read_text())
+        contract['expected'] = {'text': 'a response the Client never sent'}
+        alternate = work / 'wrong.json'; alternate.write_text(json.dumps(contract))
+        assert native(alternate, side='client', status=2)['code'] == 'TEST_RESPONSE'
+        contract['expected'] = {'text': 'hello'}; contract['errorKind'] = 'failed'
+        alternate.write_text(json.dumps(contract))
+        assert native(alternate, side='client', status=2)['code'] == 'TEST_ERROR_OUTCOME'
+    elif name == 'client-failures':
+        target = project / 'client/index.ts'; original = target.read_text()
+        for text in ['export function activate() { throw new Error("Client activation fixture"); }\n', original.replace('live = false;', 'live = false; throw new Error("Client dispose fixture");')]:
+            target.write_text(text)
+            assert native(side='client', status=1)['kind'] == 'error'
+        target.write_text(original)
+        assert native(side='client')['kind'] == 'tested'
+    elif name == 'client-rpc-required':
+        target = project / 'plugin.json'; manifest = json.loads(target.read_text())
+        manifest['client']['requires'] = []
+        manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != 'client']
+        target.write_text(json.dumps(manifest))
+        assert native(side='client', status=1, diagnostic='TEST_REQUIRES_DECLARED_RPC')['kind'] == 'error'
+    elif name == 'side-profile':
+        arguments = ['test', *common, '--contract', project / 'plugin.test.json', '--core-build', core, '--host-json', hostfile]
+        assert cli(*arguments, '--side', 'client', status=2)['code'] == 'TEST_HOST_SIDE'
+        hostfile.write_text(json.dumps({**host, 'side': 'client'}))
+        assert cli(*arguments, status=2)['code'] == 'TEST_HOST_SIDE'
+        assert cli(*arguments, '--side', 'client')['side'] == 'client'
+        for change, status, state in [({'capabilities': []}, 4, 'unsupported'), ({'deniedCapabilities': ['session.rpc']}, 6, 'denied'), ({'sdkVersion': 'unknown'}, 3, 'unknown')]:
+            hostfile.write_text(json.dumps({**host, 'side': 'client', **change}))
+            assert cli(*arguments, '--side', 'client', status=status)['compatibility'] == state
     elif name == 'activation-failure':
         (project / 'executor/index.ts').write_text('export function activate() { throw new Error("fixture activation failure"); }\n')
         assert native(status=1)['kind'] == 'error'
@@ -190,14 +238,18 @@ def run_case(name, work, tools, core):
         raise AssertionError(name)
 
 
-CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports', 'physical-inputs', 'json-inputs', 'integrity', 'conflicts', 'publication', 'rpc', 'activation-failure', 'dispose-failure', 'rpc-required', 'services-unsupported', 'interrupt-cleanup']
+CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports', 'physical-inputs', 'json-inputs', 'integrity', 'conflicts', 'publication', 'rpc', 'activation-failure', 'dispose-failure', 'rpc-required', 'services-unsupported', 'interrupt-cleanup', 'client-rpc', 'client-contract', 'client-failures', 'client-rpc-required', 'side-profile']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
     ('integrity', 'integrity', 'scripts/plugin-dev-worker.mjs', 'facts = inspect(manifest, integrity, observed, host, schemas);', 'facts = {};'),
-    ('queued-cancel', 'rpc', 'scripts/probes/plugin-testkit.c', 'gt_ext_session_cancel_request(pair.h, &lease, handle) == GT_EXT_RPC_OK', 'true'),
+    ('queued-cancel', 'rpc', 'scripts/probes/plugin-testkit.c', 'gt_ext_session_cancel_request(peer, &lease, handle) == GT_EXT_RPC_OK', 'true'),
     ('old-epoch', 'rpc', 'scripts/probes/plugin-testkit.c', 'stale.epoch ^= 1;', 'stale.epoch = lease.epoch;'),
-    ('revocation', 'rpc', 'scripts/probes/plugin-testkit.c', 'gt_ext_session_revoke(pair.h);', '(void)pair.h;'),
+    ('revocation', 'rpc', 'scripts/probes/plugin-testkit.c', 'gt_ext_session_revoke(peer);', '(void)peer;'),
+    ('client-role', 'client-rpc', 'scripts/probes/plugin-testkit.c', '.role = role, .invocation = &invocation', '.role = GT_EXT_EXECUTOR, .invocation = &invocation'),
+    ('client-declaration', 'client-rpc-required', 'scripts/plugin-dev-worker.mjs', "selected?.requires.includes('session.rpc')", "manifest.executor.variants[0].requires.includes('session.rpc')"),
+    ('client-response', 'client-contract', 'scripts/gterm-plugin', "require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')", "require(True, 'TEST_RESPONSE')"),
+    ('host-side', 'side-profile', 'scripts/gterm-plugin', "require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')", "require(True, 'TEST_HOST_SIDE')"),
 ]
 
 
