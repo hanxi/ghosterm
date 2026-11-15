@@ -29,7 +29,8 @@ JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费
 第十五批为开发 testkit 增加显式选侧 Client 激活与反向 RPC，第十六批补双 JS 端
 同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。第十七批接通 Node / Exec
 构建 / 检查 / 打包与按运行档隔离的类型检查，第十八批接单侧显式授权的 Node / Exec
-开发执行、固定摘要 / 版本核对及实际 INT / TERM 清理。各批覆盖与证据见文末；
+开发执行、固定摘要 / 版本核对及实际 INT / TERM 清理；第十九批补 Portable Client
+与真实 Node / Exec 的双侧回调、角色隔离和两个 owner 的有界退出。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -7748,3 +7749,54 @@ macOS arm64 / C11 / -Wall / -Wextra / -Werror、RelWithDebInfo，无 sanitizer �
 清理前再次核对 64 源输入及 35 个固定 Node / SDK 构件，均与完整验证时一致。
 
 结束清理本轮 **30 个 tmp 项、逻辑大小约 81.4 MiB**；原三份 eq 输入摘要未变。所有自有测试 / Native owner / Node / Exec / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+### P5 实施第十九批：Portable Client 与 Node / Exec 双侧开发测试（2026-11-15）
+
+`test --side paired` 现在可复用第十八批的显式 execution JSON / 本次授权，仍要求
+两份 Host 事实：Client 只用 Portable，Executor 才用 Node / Exec 的版本 / 平台 /
+依赖事实。两份固定包仍各自检查 / 核对 digest；只有 Executor options 配进程
+执行服务。缺授权、Client 冒用 Node profile、Executor 缺依赖或实际摘要 / 版本
+不符均拒绝，不把 Executor 的能力赋给 Client，不转测其它运行档。
+
+实际链路保持 Client `dev.run` → Executor `dev.exchange` → Client `dev.callback`。
+Node 通过真实 SDK handler，Exec 通过自有 C 协议 peer 的 request / result / forget
+再 respond；成功值读取真实 Client 回调并保留其 JSON 转义后才添加 Executor 前缀，
+没有宿主假业务回包。两档都验根方法在 Client 与 Executor 两方向、中文 / 引号 /
+反斜线 / emoji、错误回调值不能通过及独立 unknown；Native 控制只触发 / 观察。
+两个 Runtime 同 worker 各自持有 Session，独立激活 / 关闭、外部 activated / reap、
+暂存为空、包引用释放及整体 fd 平衡分别核验；释放 flag 不代表进程 RSS / heap 验收。
+
+单侧与双侧共用执行输入 / 固定摘要 / 私有 TMPDIR 和中断处理。两个 owner 在
+失败或信号清理时先一起停止，再在同一既有三秒期限内关闭，不为新增双侧路径
+放大 Core 时间 / CPU / 内存 / 输出预算。Node / Exec 双侧各实际 INT / TERM，
+在自有 handler marker 与 CLI 活跃后注入，四次均为 130 / 143、无 JSON 成功输出 /
+traceback、子进程已退出且私有目录删除；连同原单侧四次，本轮 verifier 验八次。
+这些为实际中断，单独记账，不计普通变异目标红。
+
+完整 **44 项基线、27 组隔离变异**同轮通过；新增六项为 Node / Exec 双侧实际
+往返、双侧授权 / Host 角色 / 依赖、错误固定摘要 / 实际版本及两档中断。新增
+四变异 **pair-external-adoption / pair-external-release / pair-external-callback /
+pair-external-approval**，原二十三组复验通过：正常断言红、独立 Core 配置绿、
+恢复绿 / SHA256；C 变异必须真实编译后 ASSERT，编译 / 崩溃 / 超时不计目标红。
+
+**64 源输入、35 个 Node / SDK 构件输入**前后逐项一致；收据 SHA256
+`e06c874322362bf589f0255a90f397513381081c88cc52e1f3fbcc6d05968963`。
+实际 Node 26.4.0 / 字节摘要沿第十八批，SDK catalog 仍为
+`b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`。
+显式 JS-enabled / libssh2-off Core archive
+`1b7af99aa1dc62960277dd69bd1374cf79912f27827c0801a3c617ccb18c39fd`，
+QuickJS archive `cdee4abee0b3e0af8c99afa7b5dfc4086aae6ecdf0512a26a1e0f39b6040b62b`。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-pair-exec/tools --core-build tmp/plugin-pair-exec/core --execute --node-executable 实际Node路径 --node-sdk tmp/plugin-pair-exec/node-sdk --mutate --receipt tmp/plugin-pair-exec/receipt.json`。
+本片 macOS arm64 / C11 / -Wall / -Wextra / -Werror、RelWithDebInfo；无 sanitizer 新结论。
+
+未改产品 Core / 平台 / 公共 ABI、SDK 身份或 Runtime 预算，无新 App / APK /
+设备 / SSH / tmux / 真实模型 / 发行结论。资源 / 进程 / UI 服务 testkit 与完整开发 /
+生命周期 / 分发及 P5 / P1–P6 仍未完成；手工证据不增加 macOS CI 二十份。
+
+最终默认 Core **JS-off / tests-on：588/588 CTest、184 ABI**、C 格式 **19.1.7 /
+263 文件**、Apple **181 引用 / 3 登记未用**、JNI **147 / 37**、Python / Node
+语法与 diff 检查通过；自有 Exec 夹具按同版格式化，在实际 Exec 用例 / 回调变异
+中 -Werror 编译。无平台产品修改，不记新 App / APK / 设备构建。清理前全部
+64 源输入及 35 个固定构件再次一致。
+
+结束清理本轮 **30 个 tmp 项、逻辑大小约 81.4 MiB**；原三份 eq 输入摘要不变。全部自有工具 / 测试 / 两侧 owner / Node / Exec 已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。

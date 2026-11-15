@@ -1482,3 +1482,18 @@ unknown、排队控制取消 / 旧 epoch / 撤权、激活 / reap / 暂存 / fd�
 身份或 Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行。含外部执行的
 双侧测试、服务 testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件
 计划第十八批及[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 Node / Exec 双侧开发执行（2026-11-15）**：`test --side paired` 支持
+显式外部执行配置 / 本次授权；Client 保持 Portable，Executor 才用其 Node / Exec
+事实和进程服务。两份固定包 / 独立 Host 检查，真实 Client → Executor → Client
+回调及反向根调用、转义 / 中文 / emoji、错误值 / unknown 均验；没有宿主假业务
+响应。两个 owner 分别激活 / 释放，外部子进程 reap / 暂存 / 包引用 / fd 平衡通过；
+不据释放 flag 声称进程 RSS 验收。双侧 Node / Exec 各 INT / TERM 四次（本轮含
+原单侧共八次）均观察活跃 handler 后注入，130 / 143、子进程退出及目录回收通过。
+44 项基线、27 组隔离变异正常断言红 / 独立配置绿 / 恢复 / SHA256，64 源及 35
+固定构件一致；Node 26.4.0，macOS arm64 / C11 / -Werror，无 sanitizer 新结论。
+默认 Core 588/184、C 格式 263、Apple 181/3、JNI 147/37 通过。无产品 Core /
+平台 / ABI / SDK 身份或 Runtime 预算变化，不记新 App / APK / 设备 / SSH /
+发行；服务 testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划
+第十九批及[开发指南](docs/how-to/plugin-development.md)。

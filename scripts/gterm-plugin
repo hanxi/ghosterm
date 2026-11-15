@@ -310,7 +310,7 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
     require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
     profiles = list(host.values()) if paired else [host]
     runtime = execution['runtime'] if execution else 'portable-js'
-    require(all(h['side'] in ('client', 'executor') and h['capabilities'] == ['session.rpc'] and h['runtimes'] == [runtime] for h in profiles), 'TEST_RPC_PROFILE_ONLY')
+    require(all(h['side'] in ('client', 'executor') and h['capabilities'] == ['session.rpc'] and h['runtimes'] == ([runtime] if h['side'] == 'executor' else ['portable-js']) for h in profiles), 'TEST_RPC_PROFILE_ONLY')
     if paired:
         methods = contract['methods']
         require(isinstance(methods, list) and 1 <= len(methods) <= 16 and all(isinstance(m, dict) and set(m) == {'name', 'receiver'} and isinstance(m['name'], str) and re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', m['name']) and len(m['name']) <= 64 and m['receiver'] in ('client', 'executor') for m in methods), 'TEST_PAIR_METHODS')
@@ -324,15 +324,15 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         libraries += ['-L' + str(ROOT / 'build/host-native/lib'), '-lssh2']
     probe = work / 'probe'
     run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/include'), ROOT / ('scripts/probes/plugin-pair-testkit.c' if paired else 'scripts/probes/plugin-testkit.c'), *libraries, '-o', probe], 120)
+    extra = []
+    if execution:
+        stage = work / 'execution'; stage.mkdir(mode=0o700)
+        extra = [stage, *[execution.get(k, '') for k in ['nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256']]]
     if paired:
-        trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *contract['arguments']], 30)
+        trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *extra, *contract['arguments']], 30, cooperative=bool(execution))
     else:
-        extra = []
-        if execution:
-            stage = work / 'execution'; stage.mkdir(mode=0o700)
-            extra = [stage, *[execution.get(k, '') for k in ['nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256']]]
         trace = run([probe, package, encoded(host).decode(), runtime if execution else host['side'], contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *extra, *contract['arguments']], 30, cooperative=bool(execution))
-        if execution: require(not list(stage.iterdir()), 'TEST_EXECUTION_STAGE_RETAINED')
+    if execution: require(not list(stage.iterdir()), 'TEST_EXECUTION_STAGE_RETAINED')
     observations = [decode(line) for line in trace.splitlines()]
     require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', 'lifecycle'], 'TEST_DISCOVERY')
     lease = observations[0]
@@ -352,7 +352,7 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
     if execution:
         require(all(observations[4].get(k) is True for k in ('externalProcess', 'childActivated', 'childExited')), 'TEST_EXECUTION_LIFECYCLE')
     return dict(kind='tested', side=side, observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
-                runtime=runtime, scope=('real public Core authorized Node/Exec process RPC; native peer; pinned Node/SDK; observed activation/reap/stage cleanup; no OS sandbox/RSS, business cancellation, Native UI or SSH' if execution else 'real Core/QuickJS paired Client/Executor RPC fixture; no OS services, Native UI or SSH' if paired else 'real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH'))
+                runtime=runtime, scope=(('real public Core Portable Client and authorized Node/Exec paired RPC;' if paired else 'real public Core authorized Node/Exec process RPC; native peer;') + ' pinned Node/SDK; observed activation/reap/stage cleanup; no OS sandbox/RSS, business cancellation, Native UI or SSH' if execution else 'real Core/QuickJS paired Client/Executor RPC fixture; no OS services, Native UI or SSH' if paired else 'real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH'))
 
 
 def main():
@@ -378,7 +378,7 @@ def main():
     if args.action == 'test' and (args.execution_json or args.allow_process_execution):
         require(args.execution_json is not None, 'TEST_EXECUTION_CONFIG')
         require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)
-        require(args.side == 'executor', 'TEST_EXECUTION_SIDE')
+        require(args.side in ('executor', 'paired'), 'TEST_EXECUTION_SIDE')
         execution = execution_config(read_json(args.execution_json))
         require(args.host_json is not None, 'TEST_EXECUTION_HOST')
     tools = tools_path(args.tools)
@@ -406,7 +406,7 @@ def main():
         if paired:
             report['checkedSide'] = 'client'
             if report.get('exitCode', 0) == 0:
-                report = worker(work, tools, package, None, host['executor'], registry, True)
+                report = worker(work, tools, package, None, host['executor'], registry, True, execution)
                 report['checkedSide'] = 'executor'
         if args.action == 'check': return report, report.get('exitCode', 0)
         if report.get('exitCode', 0) != 0 and host is not None:

@@ -4,8 +4,8 @@
 Portable Client 加 Portable / Node / Exec Executor 运行档。命令读取固定副本，不执行项目的 npm
 脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
 默认测试 Executor，`--side client` 测试 Client，`--side paired` 同时激活两侧。
-`test` 默认只激活 Portable；单侧 Executor 可用显式执行配置测试 Node / Exec。
-双侧含 Node / Exec 的执行测试及文件 / 进程 / UI 服务测试仍待接入。
+`test` 默认只激活 Portable；显式执行配置可用于单侧 Node / Exec Executor，或
+Portable Client 与 Node / Exec 的双侧测试。文件 / 进程 / UI 服务测试仍待接入。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -86,8 +86,8 @@ denied 及版本；没有事实为 unknown，不会执行 `node --version` 或�
 未提供执行配置时，兼容的 Node / Exec Executor 仍明确返回退出码 4 /
 `TEST_RUNTIME_UNSUPPORTED`；也可以用 `--side client` 测试其 Portable Client。
 
-单侧 Node / Exec 的实际执行使用 `--execution-json 文件 --allow-process-execution`，
-且必须显式提供 `--host-json` 的 Executor 事实。执行授权只限这一次开发测试。
+Node / Exec 的实际执行使用 `--execution-json 文件 --allow-process-execution`，
+且必须显式提供 `--host-json` 的事实。执行授权只限这一次开发测试。
 Node 配置包含以下字段（路径和摘要须替换为自己独立核对的值）：
 
 ```json
@@ -118,7 +118,10 @@ python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plu
 记录真实激活、成功 / unknown、发送前取消 / 撤权、子进程退出、暂存目录为空及 fd
 平衡。外部模式拒绝嵌入式 heap / CPU 预算，不能据此宣称限制了 Node / Exec 的
 RSS；Core 的既有时间 / 输出限额仍生效。这不是同用户 OS 沙箱，不授予文件或
-业务进程服务。`--side client/paired` 拒绝外部执行配置，不静默改测另一个运行档。
+业务进程服务。`--side client` 拒绝外部执行配置，不静默改测另一个运行档。
+`--side paired` 可使用同一执行配置，但 Host JSON 须提供两侧事实：Client 的
+`runtimes` 为 `["portable-js"]`，Executor 为 `["node"]` 或 `["exec"]`，以及各自
+的版本 / 平台 / 依赖事实。不能把 Executor 的运行档或 Node 类型套到 Client。
 
 运行中 INT / TERM 会先请求受控 Native owner 清理，再在有限等待后停止仍存活的
 自有工具进程组。退出 130 / 143 表示测试被中断，不是业务成功或业务取消回执。
@@ -141,7 +144,7 @@ macOS 显式设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`。
 工具链是 macOS arm64，Linux 原子发布分支未据此记为已验。
 
 脚手架两侧各注册 `dev.echo`，使同一契约可以分别验证 Client 与 Executor 的实际入口；
-业务插件可为两侧准备不同契约。测试只激活指定的一侧，另侧为自有 Native RPC peer；
+业务插件可为两侧准备不同契约。单侧测试只激活指定的一侧，另侧为自有 Native RPC peer；
 测试 Client 时由 Executor peer 发请求，方法的 receiver 为 Host，使用 Executor 自己的
 lease，不能把 Host token 复制过去。输出 `side` 记录实际测试侧。显式 `--host-json`
 的 `side` 必须与 `--side` 相同；缺能力 / 拒绝 / 未知继续分别报告，不以测试选项授予权限。
@@ -165,8 +168,20 @@ paired 的显式 Host 文件必须提供各侧自己的事实，分别做 metada
 两端分别捕获同一固定包并核对 digest，在同一非 UI worker 上按各自预算轮询。
 Native 控制请求使用接收侧对端的原 lease，仅借用 Runtime 持有的 Session；两侧
 Session 都由各自 Runtime 销毁。成功值必须来自真实 JS 往返，不安装假业务 handler。
-两个入口都须激活，两个 engine 都须独立释放，整体 fd 数量回到起点；这不覆盖
+两个入口都须激活，两个 Runtime 资源都须独立释放，整体 fd 数量回到起点；这不覆盖
 跨进程内存 / RSS、SSH、Native UI 或平台生命周期。
+
+双侧外部执行例如：
+
+```sh
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/hello --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/hello/plugin.pair.test.json --core-build tmp/plugin-dev/core --side paired --host-json tmp/plugin-dev/paired-host.json --execution-json tmp/plugin-dev/execution.json --allow-process-execution
+```
+
+Client 仍在真实 QuickJS，Node 或 Exec 通过既有进程协议运行。契约的根方法可以
+属于任一侧；Native 控制请求只负责触发和观察，业务往返与回调必须由两侧实际
+处理器完成。结果同时记录两个 owner 的激活 / 释放和外部子进程退出；任一回调
+返回错误值、摘要 / 版本不符或清理失败都不能通过。INT / TERM 先停止两个 owner，
+再在同一有限期限内关闭它们；不把进程退出改写成业务成功 / 取消。
 
 测试契约是脚手架生成的 `plugin.test.json`：命令、原始 argv、方法、输入 / 预期对象、
 错误输入与预期 outcome kind。仅授予 `session.rpc`，需要其它服务会显式失败。

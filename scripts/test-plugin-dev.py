@@ -302,7 +302,8 @@ def run_case(name, work, tools, core, execution=None):
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
     elif name.startswith('execution-'):
         assert execution is not None
-        runtime = 'exec' if name in ('execution-exec', 'execution-exec-interrupt') else 'node'
+        paired = name.startswith('execution-pair-')
+        runtime = 'exec' if name in ('execution-exec', 'execution-exec-interrupt', 'execution-pair-exec', 'execution-pair-exec-interrupt') else 'node'
         original = (project / 'executor/index.ts').read_text()
         manifest, config = execution_project(runtime)
         if runtime == 'node':
@@ -319,15 +320,17 @@ def run_case(name, work, tools, core, execution=None):
             contract = json.loads((project / 'plugin.test.json').read_text()); contract['method'] = 'fixture.echo'
             (project / 'plugin.test.json').write_text(json.dumps(contract)); spec = {'runtime': 'exec'}
         (project / 'plugin.json').write_text(json.dumps(manifest))
+        facts = {'client': {**host, 'side': 'client'}, 'executor': facts} if paired else facts
         hostfile.write_text(json.dumps(facts)); specfile = work / 'execution.json'; specfile.write_text(json.dumps(spec))
-        arguments = ['test', *common, '--contract', project / 'plugin.test.json', '--core-build', core, '--host-json', hostfile, '--execution-json', specfile]
-        if name in ('execution-interrupt', 'execution-exec-interrupt'):
+        contractfile = project / ('plugin.pair.test.json' if paired else 'plugin.test.json')
+        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--execution-json', specfile, '--side', 'paired' if paired else 'executor']
+        if name in ('execution-interrupt', 'execution-exec-interrupt', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt'):
             if runtime == 'node':
                 text = (project / 'executor/index.ts').read_text()
                 text = 'import { writeFileSync } from "node:fs";\n' + text.replace('    if (input.text === "throw")', '    if (input.text === "wait") { const root = process.env.TMPDIR; if (!root) throw new Error("TMPDIR"); writeFileSync(root + "/entered", String(process.pid)); return new Promise<{text:string}>(() => {}); }\n    if (input.text === "throw")')
                 (project / 'executor/index.ts').write_text(text)
-            contract = json.loads((project / 'plugin.test.json').read_text()); contract['input'] = {'text': 'wait'}
-            (project / 'plugin.test.json').write_text(json.dumps(contract))
+            contract = json.loads(contractfile.read_text()); contract['input'] = {'text': 'wait'}
+            contractfile.write_text(json.dumps(contract))
             for number, expected_status in [(signal.SIGTERM, 143), (signal.SIGINT, 130)]:
                 existing = set((ROOT / 'tmp').glob('plugin-dev-*'))
                 process = subprocess.Popen(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments), '--allow-process-execution'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1'))
@@ -350,24 +353,39 @@ def run_case(name, work, tools, core, execution=None):
                     else: raise AssertionError('owned execution process survived interruption')
                 finally:
                     if process.poll() is None: process.terminate(); process.communicate(timeout=8)
-        elif name == 'execution-approval':
+        elif name in ('execution-approval', 'execution-pair-guards'):
             rejected = [a if a != core else work / 'must-not-run' for a in arguments]
             assert cli(*rejected, status=6)['code'] == 'TEST_EXECUTION_APPROVAL'
             assert cli(*rejected, '--allow-process-execution', '--side', 'client', status=2)['code'] == 'TEST_EXECUTION_SIDE'
             specfile.write_text(json.dumps({**spec, 'environment': {'NODE_OPTIONS': '--inspect'}}))
             assert cli(*rejected, '--allow-process-execution', status=2)['code'] == 'TEST_EXECUTION_CONFIG'
-        elif name == 'execution-pins':
+            if paired:
+                specfile.write_text(json.dumps(spec))
+                broken = json.loads(json.dumps(facts)); broken['client']['runtimes'] = ['node']; hostfile.write_text(json.dumps(broken))
+                assert cli(*rejected, '--allow-process-execution', status=4)['checkedSide'] == 'client'
+                broken = json.loads(json.dumps(facts)); broken['executor']['programs']['node'] = {'state': 'missing'}; hostfile.write_text(json.dumps(broken))
+                assert cli(*rejected, '--allow-process-execution', status=4)['checkedSide'] == 'executor'
+        elif name in ('execution-pins', 'execution-pair-pins'):
             assert cli(*arguments, '--allow-process-execution')['runtime'] == 'node'
             for key in ['nodeSHA256', 'nodeSDKCatalogSHA256']:
                 specfile.write_text(json.dumps({**spec, key: '0' * 64}))
                 assert cli(*arguments, '--allow-process-execution', status=1, diagnostic='ASSERT:')['kind'] == 'error'
             specfile.write_text(json.dumps(spec))
-            facts['programs']['node']['version'] = '999.0.0'; hostfile.write_text(json.dumps(facts))
+            selected = facts['executor'] if paired else facts
+            selected['programs']['node']['version'] = '999.0.0'; hostfile.write_text(json.dumps(facts))
             assert cli(*arguments, '--allow-process-execution', status=1, diagnostic='ASSERT:')['kind'] == 'error'
         else:
             report = cli(*arguments, '--allow-process-execution')
-            assert report['runtime'] == runtime and report['observations'][1]['outcome']['value'] == {'text': 'hello'}
+            assert report['runtime'] == runtime and report['observations'][1]['outcome']['value'] == {'text': 'client:executor:callback:hello' if paired else 'hello'}
             assert all(report['observations'][-1][k] for k in ['externalProcess', 'childActivated', 'childExited', 'engineReleased', 'fdBalance'])
+            if paired:
+                assert report['side'] == 'paired' and all(report['observations'][-1][k] for k in ['clientActivated', 'executorActivated', 'clientEngineReleased', 'executorEngineReleased'])
+                contract = json.loads(contractfile.read_text()); contract['input'] = {'text': '中文"\\😀'}; contract['expected'] = {'text': 'client:executor:callback:中文"\\😀'}
+                contractfile.write_text(json.dumps(contract)); assert cli(*arguments, '--allow-process-execution')['kind'] == 'tested'
+                contract.update(method='dev.exchange', expected={'text': 'executor:callback:中文"\\😀'})
+                contractfile.write_text(json.dumps(contract)); assert cli(*arguments, '--allow-process-execution')['kind'] == 'tested'
+                target = project / 'client/index.ts'; target.write_text(target.read_text().replace('"callback:" + input.text', '"wrong:" + input.text'))
+                assert cli(*arguments, '--allow-process-execution', status=2)['code'] == 'TEST_RESPONSE'
     elif name == 'activation-failure':
         (project / 'executor/index.ts').write_text('export function activate() { throw new Error("fixture activation failure"); }\n')
         assert native(status=1)['kind'] == 'error'
@@ -425,6 +443,7 @@ CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'p
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
 EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
+EXECUTION_CASES += ['execution-pair-node', 'execution-pair-exec', 'execution-pair-guards', 'execution-pair-pins', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -439,7 +458,7 @@ MUTATIONS = [
     ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
     ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
     ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
-    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True)", "report = worker(work, tools, package, None, host['client'], registry, True)"),
+    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution)", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
     ('portable-node-types', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "types: side.runtime === 'node' ? ['node'] : []", "types: ['node']"),
     ('node-esm', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "json(path.join(directory, 'package.json')).type === 'module'", "true"),
     ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
@@ -450,7 +469,11 @@ EXECUTION_MUTATIONS = [
     ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
     ('development-execution-environment', 'execution-approval', 'scripts/gterm-plugin', "require(set(value) == keys, 'TEST_EXECUTION_CONFIG')", "require(True, 'TEST_EXECUTION_CONFIG')"),
     ('development-execution-adoption', 'execution-node', 'scripts/probes/plugin-testkit.c', 'options.execution = &execution;', 'options.execution = NULL;'),
-    ('development-node-pin', 'execution-pins', 'scripts/probes/plugin-testkit.c', 'execution.node_sha256 = argv[10];', 'execution.node_sha256 = "0000000000000000000000000000000000000000000000000000000000000000";'),
+    ('development-node-pin', 'execution-pins', 'scripts/probes/plugin-testkit.c', 'execution->node_sha256 = fields[2];', 'execution->node_sha256 = "0000000000000000000000000000000000000000000000000000000000000000";'),
+    ('pair-external-adoption', 'execution-pair-node', 'scripts/probes/plugin-pair-testkit.c', 'executor_options.execution = &execution;', 'executor_options.execution = NULL;'),
+    ('pair-external-release', 'execution-pair-node', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing external release */'),
+    ('pair-external-callback', 'execution-pair-exec', 'scripts/fixtures/plugin-dev-executor.c', '\\"dev.callback\\"', '\\"dev.missing\\"'),
+    ('pair-external-approval', 'execution-pair-guards', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
 ]
 
 

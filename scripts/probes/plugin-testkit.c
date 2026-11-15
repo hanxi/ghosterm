@@ -56,8 +56,7 @@ kit_bind(char output[GT_EXT_RPC_BODY_MAX + 1], const char *input, const gt_ext_l
     output[at] = 0;
 }
 
-#ifndef GT_TESTKIT_HELPERS_ONLY
-static gt_ext_runtime_t *kit_live;
+static gt_ext_runtime_t *kit_live, *kit_second;
 static volatile sig_atomic_t kit_interrupted;
 
 static void kit_signal(int number) {
@@ -65,20 +64,26 @@ static void kit_signal(int number) {
 }
 
 static void kit_emergency_cleanup(void) {
-    if (!kit_live) {
-        return;
-    }
-    gt_ext_runtime_stop(kit_live);
-    uint64_t until = ext_now() + 3000;
-    while (ext_now() < until) {
-        if (gt_ext_runtime_close(kit_live) == GT_EXT_RELEASED) {
-            gt_ext_runtime_destroy(&kit_live);
-            return;
+    gt_ext_runtime_t **owners[] = {&kit_live, &kit_second};
+    for (size_t i = 0; i < 2; i++) {
+        if (*owners[i]) {
+            gt_ext_runtime_stop(*owners[i]);
         }
-        struct timespec pause = {0, 1000000};
-        nanosleep(&pause, NULL);
     }
-    fprintf(stderr, "ASSERT: development Runtime cleanup retained owner\n");
+    uint64_t until = ext_now() + 3000;
+    for (size_t i = 0; i < 2; i++) {
+        while (*owners[i] && ext_now() < until) {
+            if (gt_ext_runtime_close(*owners[i]) == GT_EXT_RELEASED) {
+                gt_ext_runtime_destroy(owners[i]);
+                break;
+            }
+            struct timespec pause = {0, 1000000};
+            nanosleep(&pause, NULL);
+        }
+        if (*owners[i]) {
+            fprintf(stderr, "ASSERT: development Runtime cleanup retained owner\n");
+        }
+    }
 }
 
 static void kit_yield(gt_ext_runtime_t *runtime) {
@@ -92,6 +97,38 @@ static void kit_yield(gt_ext_runtime_t *runtime) {
     }
 }
 
+static void kit_execution(gt_ext_runtime_execution_t *execution,
+                          gt_ext_process_environment_t *environment,
+                          char **fields,
+                          bool node) {
+    *execution = (gt_ext_runtime_execution_t){
+        .stage_parent_fd = -1, .node_sdk_directory_fd = -1, .execution_authorized = true};
+    execution->stage_parent_path = fields[0];
+    execution->stage_parent_fd = open(fields[0], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    kit_check(execution->stage_parent_fd >= 0, "private execution parent");
+    *environment = (gt_ext_process_environment_t){.name = "TMPDIR", .value = fields[0]};
+    execution->environment = environment;
+    execution->environment_count = 1;
+    if (node) {
+        execution->node_executable = fields[1];
+        execution->node_sha256 = fields[2];
+        execution->node_sdk_directory_fd =
+            open(fields[3], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        execution->node_sdk_catalog_sha256 = fields[4];
+        kit_check(execution->node_sdk_directory_fd >= 0, "explicit trusted Node SDK");
+    }
+}
+
+static void kit_execution_inputs_close(const gt_ext_runtime_execution_t *execution) {
+    if (execution->stage_parent_fd >= 0) {
+        close(execution->stage_parent_fd);
+    }
+    if (execution->node_sdk_directory_fd >= 0) {
+        close(execution->node_sdk_directory_fd);
+    }
+}
+
+#ifndef GT_TESTKIT_HELPERS_ONLY
 static void kit_request(gt_ext_session_t *peer,
                         gt_ext_runtime_t *runtime,
                         const gt_ext_lease_t *lease,
@@ -198,24 +235,10 @@ int main(int argc, char **argv) {
                                       .argv = (const char *const *)(argv + offset),
                                       .argc = (size_t)argc - (size_t)offset};
     gt_ext_runtime_config_t options = {.role = role, .invocation = &invocation};
-    gt_ext_runtime_execution_t execution = {
-        .stage_parent_fd = -1, .node_sdk_directory_fd = -1, .execution_authorized = true};
-    gt_ext_process_environment_t environment = {.name = "TMPDIR"};
+    gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1, .node_sdk_directory_fd = -1};
+    gt_ext_process_environment_t environment = {0};
     if (external) {
-        execution.stage_parent_path = argv[8];
-        execution.stage_parent_fd = open(argv[8], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-        kit_check(execution.stage_parent_fd >= 0, "private execution parent");
-        environment.value = argv[8];
-        execution.environment = &environment;
-        execution.environment_count = 1;
-        if (!strcmp(argv[3], "node")) {
-            execution.node_executable = argv[9];
-            execution.node_sha256 = argv[10];
-            execution.node_sdk_directory_fd =
-                open(argv[11], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-            execution.node_sdk_catalog_sha256 = argv[12];
-            kit_check(execution.node_sdk_directory_fd >= 0, "explicit trusted Node SDK");
-        }
+        kit_execution(&execution, &environment, argv + 8, !strcmp(argv[3], "node"));
         options.execution = &execution;
     }
     gt_ext_runtime_t *runtime = NULL;
@@ -227,12 +250,7 @@ int main(int argc, char **argv) {
     options.memory_bytes = 0;
     gt_status_t opened = gt_ext_runtime_open_package(slot, package, &options, true, &runtime);
     kit_live = runtime;
-    if (execution.stage_parent_fd >= 0) {
-        close(execution.stage_parent_fd);
-    }
-    if (execution.node_sdk_directory_fd >= 0) {
-        close(execution.node_sdk_directory_fd);
-    }
+    kit_execution_inputs_close(&execution);
     kit_check(opened == GT_OK && runtime && !*slot, "real Runtime adoption after rejected budget");
     gt_ext_runtime_info_t state;
     bool activated = false;

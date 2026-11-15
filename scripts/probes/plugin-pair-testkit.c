@@ -4,6 +4,8 @@
 #define GT_TESTKIT_HELPERS_ONLY 1
 #include "plugin-testkit.c"
 
+static bool pair_external, pair_child_activated, pair_child_exited;
+
 static gt_ext_package_t *pair_package(const char *directory, const char *host) {
     int fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     kit_check(fd >= 0, "pair package directory");
@@ -29,6 +31,7 @@ static gt_ext_package_t *pair_package(const char *directory, const char *host) {
 static void pair_pump(gt_ext_runtime_t *client, gt_ext_runtime_t *executor) {
     gt_ext_runtime_step(client);
     gt_ext_runtime_step(executor);
+    kit_yield(executor);
     gt_ext_runtime_info_t c, e;
     kit_check(gt_ext_runtime_info(client, &c) && gt_ext_runtime_info(executor, &e) &&
                   c.phase != GT_EXT_RUNTIME_FAILED && e.phase != GT_EXT_RUNTIME_FAILED,
@@ -75,22 +78,38 @@ static void pair_release(gt_ext_runtime_t **runtime) {
             released = true;
             break;
         }
+        kit_yield(*runtime);
     }
     gt_ext_runtime_info_t info;
     kit_check(released && gt_ext_runtime_info(*runtime, &info) && info.engine_released &&
                   !info.dispose_error && info.cleanup_error == GT_OK,
               "pair independent engine and cleanup");
+    if (info.external_process) {
+        kit_check(info.activated && info.child_exited, "pair external activation and reap");
+        pair_child_activated = info.activated;
+        pair_child_exited = info.child_exited;
+    }
+    gt_ext_runtime_t *owner = *runtime;
     kit_check(gt_ext_runtime_destroy(runtime) == GT_OK && !*runtime, "pair Runtime destroy");
+    if (kit_live == owner) {
+        kit_live = NULL;
+    }
+    if (kit_second == owner) {
+        kit_second = NULL;
+    }
 }
 
 int main(int argc, char **argv) {
     /* dir, client host, executor host, command, method, input, error input,
      * target side, count, then name=receiver entries, then raw invocation argv. */
     kit_check(argc >= 11, "pair arguments");
+    kit_check(!atexit(kit_emergency_cleanup), "pair cleanup registration");
+    kit_check(signal(SIGTERM, kit_signal) != SIG_ERR && signal(SIGINT, kit_signal) != SIG_ERR,
+              "pair interruption registration");
     char *end = NULL;
     unsigned long count = strtoul(argv[9], &end, 10);
     kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
-                  argc >= 10 + (int)count && argc <= 42 + (int)count,
+                  argc >= 10 + (int)count && argc <= 47 + (int)count,
               "pair methods and arguments");
     bool target_client = !strcmp(argv[8], "client");
     kit_check(target_client || !strcmp(argv[8], "executor"), "pair target side");
@@ -118,6 +137,11 @@ int main(int argc, char **argv) {
     kit_check(gt_ext_package_metadata(cp, &cm) && gt_ext_package_metadata(ep, &em) &&
                   !strcmp(cm.package_digest, em.package_digest),
               "pair same fixed package");
+    pair_external = strcmp(em.runtime, "portable-js") != 0;
+    kit_check(!pair_external || !strcmp(em.runtime, "node") || !strcmp(em.runtime, "exec"),
+              "pair external runtime");
+    int offset = 10 + (int)count + (pair_external ? 5 : 0);
+    kit_check(argc >= offset && argc <= offset + 32, "pair exact invocation arguments");
     gt_ext_session_config_t config = ext_config();
     strcpy(config.plugin_id, cm.id);
     strcpy(config.plugin_version, cm.version);
@@ -144,29 +168,37 @@ int main(int argc, char **argv) {
            lease.instance,
            lease.epoch);
     gt_ext_invocation_t invocation = {.command = argv[4],
-                                      .argv = (const char *const *)(argv + 10 + count),
-                                      .argc = (size_t)argc - 10 - count};
+                                      .argv = (const char *const *)(argv + offset),
+                                      .argc = (size_t)argc - (size_t)offset};
     gt_ext_runtime_config_t client_options = {.role = GT_EXT_HOST, .invocation = &invocation};
     gt_ext_runtime_config_t executor_options = {.role = GT_EXT_EXECUTOR, .invocation = &invocation};
+    gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1, .node_sdk_directory_fd = -1};
+    gt_ext_process_environment_t environment = {0};
+    if (pair_external) {
+        kit_execution(&execution, &environment, argv + 10 + count, !strcmp(em.runtime, "node"));
+        executor_options.execution = &execution;
+    }
     gt_ext_runtime_t *client = NULL, *executor = NULL;
     client_options.memory_bytes = executor_options.memory_bytes = 128u * 1024u * 1024u + 1u;
     kit_check(gt_ext_runtime_open_package(&pair.h, cp, &client_options, true, &client) ==
                       GT_ERR_INVALID_ARG &&
                   !client && pair.h &&
                   gt_ext_runtime_open_package(&pair.e, ep, &executor_options, true, &executor) ==
-                      GT_ERR_INVALID_ARG &&
+                      (pair_external ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG) &&
                   !executor && pair.e,
               "pair independent budget admission");
     client_options.memory_bytes = executor_options.memory_bytes = 0;
-    kit_check(gt_ext_runtime_open_package(&pair.h, cp, &client_options, true, &client) == GT_OK &&
-                  client && !pair.h,
-              "pair Client adoption");
-    kit_check(gt_ext_runtime_open_package(&pair.e, ep, &executor_options, true, &executor) ==
-                      GT_OK &&
-                  executor && !pair.e,
-              "pair Executor adoption");
+    gt_status_t opened = gt_ext_runtime_open_package(&pair.h, cp, &client_options, true, &client);
+    kit_live = client;
+    kit_check(opened == GT_OK && client && !pair.h, "pair Client adoption");
+    opened = gt_ext_runtime_open_package(&pair.e, ep, &executor_options, true, &executor);
+    kit_second = executor;
+    kit_execution_inputs_close(&execution);
+    kit_check(opened == GT_OK && executor && !pair.e, "pair Executor adoption");
     bool activated = false;
-    for (unsigned i = 0; i < 2000; i++) {
+    uint64_t activation_until = ext_now() + 10000;
+    for (unsigned i = 0; i < (pair_external ? 10000u : 2000u) && ext_now() < activation_until;
+         i++) {
         pair_pump(client, executor);
         gt_ext_runtime_info_t c, x;
         kit_check(gt_ext_runtime_info(client, &c) && gt_ext_runtime_info(executor, &x),
@@ -207,9 +239,13 @@ int main(int argc, char **argv) {
                   !ep,
               "pair package release");
     kit_check(ext_fds() == before, "pair descriptor balance");
-    puts("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,\"stale\":true,"
-         "\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,\"clientActivated\":true,"
-         "\"executorActivated\":true,\"clientEngineReleased\":true,\"executorEngineReleased\":"
-         "true}");
+    printf(
+        "{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,\"stale\":true,"
+        "\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,\"clientActivated\":true,"
+        "\"executorActivated\":true,\"clientEngineReleased\":true,\"executorEngineReleased\":"
+        "true,\"externalProcess\":%s,\"childActivated\":%s,\"childExited\":%s}\n",
+        pair_external ? "true" : "false",
+        pair_child_activated ? "true" : "false",
+        pair_child_exited ? "true" : "false");
     return 0;
 }
