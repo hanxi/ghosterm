@@ -36,7 +36,7 @@ JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费
 组合 Native 保留快照，或由 Client SDK 实际读取后返回精确回执，根仍只交给
 Executor。第二十二批接业务 ProcessService testkit：独立程序 / cwd / 环境 / 预算与
 授权，三运行档的单侧、paired 和实际子进程中断，并修复接线验证发现的可捕获拒绝、
-argv 终止、guard 最终清理及回收前退出状态问题。完整服务矩阵与 UI 服务 testkit 继续待验。各批覆盖与证据见文末；
+argv 终止、guard 最终清理及回收前退出状态问题。第二十三批补 Client `ctx.views` 显式种类授权、真实注册快照、独立 Native 关闭 / 过期句柄 / 撤权，支持 Client 单侧和三运行档 paired。完整服务组合与原生 UI testkit 继续待验。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -8044,3 +8044,99 @@ clang-format **19.1.7 / 265 文件**、Apple **181 引用 / 3 登记未用**、J
 750 源均再次与各自完整收据逐项一致；不同构建档和失败轮保持分开。
 
 结束清理本轮剩余 **53 个 tmp 项、逻辑大小约 387.0 MiB**；加上前述阶段回收约 155.1 MiB。原三份 eq 输入摘要未变，自有测试 / Node / Exec / 业务子进程 / Native owner 均退出，无窗口 / AVD；旧 Java 65439 与用户服务未操作。仅本地提交，未推送 / 发行。
+
+
+### P5 实施第二十三批：开发 testkit 的显式 Client 视图注册（2026-11-16）
+
+`scripts/gterm-plugin test` 增加 `--views-json` / `--allow-native-views`。
+JSON 只接受去重的 table / diff / task kinds；Client 单侧或 paired 可用，Executor
+单侧拒绝。Client 继续运行真实 Portable QuickJS；paired Executor 可以是 Portable、
+显式授权且固定 Node / SDK 摘要的 Node，或真实 Exec。运行档执行授权与本地视图
+注册授权分别检查，不自动赋予文件或业务进程服务，也不改变默认 RPC profile。
+
+所选 Client metadata 必须声明所启用的 ui.*，checked 包的当前 invocation 必须
+声明相应 views；公开 Core 门面在首次 step 前启用，重复启用拒绝。Host 可声明
+额外已知 UI 能力，但 Session 只授予所配置种类；Client requires 中每一项仍受
+Core 包准入，声明了却未授权的依赖不能跳过。Executor 启用及快照明确返回
+UNSUPPORTED，失败快照输出清零。该服务只使用已有 C ABI，无 Core / 平台源变化。
+
+契约增加 views 和显式双向 methods；根方法存在且单侧 Client 的根必须指向 Client，
+视图方法全部指向 Executor。预期有界一至八个注册，viewId 唯一、每项方法互异。
+Native 实际快照经 Python 核对 instance / epoch / 十进制 uint64 revision、随机
+handle 格式与唯一性、kind / viewId / 完整 methods，不把相同数量当成相同注册。
+随后 Native 独立关闭首个真实句柄；再次关闭和外来句柄拒绝，revision 恰加一，
+其余注册与句柄逐字段保持。停止后实际快照须 AUTH 且输出清零；仍核对既有
+两个 Runtime、Node / Exec child、资源与 fd 的释放，不以视图关闭取消业务任务。
+插件夹具另验临时注册可双次 close、状态 closed、其它三个句柄保持 ok。
+
+此档不调用每个视图声明的方法、不消费业务 descriptor、不渲染原生控件；输出
+scope 明确为注册及句柄生命周期。平台表格 / diff / task 的真实业务、绘制及生命周期
+仍由前序对应专项证明，不借本轮接线关闭 UI E2E / 可访问性 / 大字号 / 主题 / 设备矩阵。
+本次 profile 未提供产品多视图容器的 ui.views 能力；必需它的产品包仍明确不支持。
+该能力及容器 testkit、三服务组合、完整视图上限和跨平台开发环境仍待验，
+P5 / P1–P6 保持未完成。
+
+
+本批验收另补显式测试请求期限：原探针把根 RPC 写死为 1000 ms，业务夹具却允许
+子进程运行 3000 ms。首轮完整 74 基线通过后，business-root 变异的恢复绿因
+TEST_RESPONSE 失败；第二轮在 business-pair-node 基线再次出现。仅在自有临时
+诊断副本记录实际回包后，确认是 `confirmed=false` 的 unknown / no complete
+business response，不能记成错误的业务回执。连续二十次 Portable、另轮二十次
+paired Node 诊断通过也未抵消前述失败；后续诊断仍曾重现。采样的正常 paired
+请求约 0.3–0.6 s；本机 OPEN_MAX=1048575，当前 guard 两遍逐 fd 关闭，不能把
+该环境的启动延迟等同于 CI 或承诺一秒内完成。未修改此 guard，也未将这项性能
+缺口记作修复。
+
+测试契约现可显式给 timeoutMs=1..10000，缺省 1000，回执记录 requestTimeoutMs。
+Native 控制期限与业务子进程生命期独立，不自动根据 process 配置加长，也不改
+Core CPU / OOM / 进程预算。探针对成功及声明错误均要求 confirmed，过期生成的
+unknown 直接报清晰断言，不能满足 errorKind=unknown 后蒙混通过。对应自有业务
+契约与 Client 转发显式声明 4000 ms；子进程仍受原 3000 ms 上限，普通模板 / RPC
+仍为 1000 ms。新增自有子进程 delayed 模式等待 1200 ms，business-window 按
+1000 ms 失败 / 4000 ms 实际字节成功 / 1000 ms 再失败验证；未确认结果不提升成功。
+request-window-forwarding 变异将 Native 请求恢复为写死 1000，要求真实编译后的
+正常断言红及独立配置 / 恢复检查。临时诊断只对自有夹具，不进入生产日志。
+
+
+76 项完整基线已在生产接线与 fixture 最终版本上通过。随后 views-enable 的旧变异
+把启用条件替成 GT_OK==GT_OK，被 -Wtautological-compare / -Werror 拦为编译失败，
+未计目标红；views-close 同类配方也一并修正。两条配方现仅跳过对应 Native 调用，
+仍使用实际 runtime 指针且正常编译，由后续真实断言发现缺失操作。修正只涉及变异
+元数据，run_case / 生产接线 / fixture 未改变；启用、关闭、方法保护与期限转发
+四组单独预验均正常断言红、独立配置绿、恢复绿。76 基线与后续完整变异分轮记账，
+不将编译失败、初轮恢复失败或临时诊断当作整轮通过。
+
+
+后续完整变异又在 views-revocation 配方中发现仅替换唯一调用会产生
+-Wunused-function / -Werror，仍是编译失败，未计目标红。现将错误的停止后快照
+读取放在原撤权检查前，保留静态函数引用；由实际 AUTH 拒绝使错误读取断言失败。
+撤权 / Executor UI 拒绝 / 期限转发三组独立预验全部正常断言红、配置绿和恢复绿。
+这些变异配方缺陷与上述业务请求期限设计问题分开记账，不当作产品修复或通过。
+
+
+最终分轮证据：76 项完整基线通过后仅修正三条变异配方；最终 Client 基线与完整
+54 组变异通过，每组目标正常断言红、独立 test_config 绿、恢复绿 / SHA256。
+新增 views-approval / kinds / enable / close / snapshot / methods / revocation /
+executor 八组及 request-window-forwarding 一组均包含在上述完整 54 组中；旧
+Node / Exec 执行八组也完整复验，不把分轮合称一次 76+54 全量命令绿。
+收据最终核对 70 份源 / 35 份固定工具输入及两个静态库均一致，SHA256：
+`ebc577d9f5e9857255f62210d6a92c72ebbc4c6079c2b37052742119578d4d5c`。
+本机 Node 26.4.0，固定 SDK catalog 为
+`b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`；
+JS-on / SSH-off 的优化 Core 库为
+`f64e02231f39554e77bc0963acc00abdc7dd1862e8478230bbfeaf8be0b8beec`，
+QuickJS 库为 `7dd1aa8b9fabacfaf7ae1da4d21fb16cc1189506286c6244b18743ef8ffa8c3d`。
+既有公开 Core runtime_views 十五组在上述 JS-on 构件通过，0 failure / skip；
+不是完整 JS-on CTest。clang-format 19.1.7 全仓 266 文件、Apple ABI 181 / 3、
+JNI 147 / 37 通过；未改平台源，不记新 App / APK / 真机 / UI E2E 证据。
+
+
+默认 JS-off / SSH-on 的 scripts/gate.sh 通过 588/588 CTest、184 ABI 与未实现
+入口错误检查，0 failure；不借 JS-on 专项或旧 849 项结果替代本轮默认闸门。
+最后另对原保留的 1000 ms Node 夹具用临时诊断副本观察五次，请求均约 328–332 ms、
+deadline_elapsed=false 且 confirmed=true；这次没有重现原偶发 unknown，也没有
+捕获原失败同时的 deadline 标志。因此只把显式请求期限及受控超时当本批已验证
+行为，保留原偶发失败，不将其全部归因 fd 扫描或宣称生产延迟缺陷已修复。
+所有临时诊断均未改生产日志、Core 预算或版本 pin；不增加 CI 二十份。
+
+清理前再次核对收据全部源 / 工具 / 静态库一致；本轮与闸门共清理 41 个 tmp 顶层条目、3923 份普通文件，连同先前安装缓存的逻辑大小约 84.22 MiB（不当作 APFS 实际回收量）。原三个 eq 夹具保留，SHA256 逐一相同；工程 tmp 目录本身保留。无本轮存活探针或打开的临时文件；未停止原有 Java / 虚拟机等非本轮进程。

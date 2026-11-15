@@ -55,15 +55,19 @@ static void pair_request(gt_ext_session_t *caller,
     char json[GT_EXT_RPC_BODY_MAX + 1];
     kit_bind(json, input, lease);
     uint64_t handle = 0;
-    kit_check(gt_ext_session_request(caller, lease, method, json, strlen(json), 1000, &handle) ==
+    kit_check(gt_ext_session_request(
+                  caller, lease, method, json, strlen(json), kit_rpc_timeout, &handle) ==
                   GT_EXT_RPC_OK,
               "pair control request admission");
-    for (unsigned i = 0; i < 2000; i++) {
+    uint64_t until = ext_now() + kit_rpc_timeout + 1000u;
+    for (unsigned i = 0; i < 2000u + 2u * kit_rpc_timeout && ext_now() < until; i++) {
         pair_pump(client, executor);
         gt_ext_rpc_result_t result;
         kit_check(gt_ext_session_request_result(caller, lease, handle, &result) == GT_EXT_RPC_OK,
                   "pair control observation");
         if (result.state != GT_EXT_RPC_QUEUED && result.state != GT_EXT_RPC_PENDING) {
+            kit_check(result.confirmed,
+                      "complete business response within explicit test request window");
             printf("{\"case\":\"%s\",\"confirmed\":%s,\"outcome\":%.*s}\n",
                    label,
                    result.confirmed ? "true" : "false",
@@ -110,8 +114,11 @@ int main(int argc, char **argv) {
     /* dir, client host, executor host, command, method, input, error input,
      * target side, count, then name=receiver entries, then raw invocation argv. */
     kit_check(argc >= 11, "pair arguments");
-    kit_business = !strncmp(argv[8], "process-", 8);
-    const char *selected = argv[8] + (kit_business ? 8 : 0);
+    const char *selected = kit_request_mode(argv[8]);
+    bool views = !strncmp(selected, "views-", 6);
+    selected += views ? 6 : 0;
+    kit_business = !strncmp(selected, "process-", 8);
+    selected += kit_business ? 8 : 0;
     bool resources = !strncmp(selected, "resources-", 10);
     pair_resources = resources;
     const char *target = selected + (resources ? 10 : 0);
@@ -126,22 +133,14 @@ int main(int argc, char **argv) {
     char *end = NULL;
     unsigned long count = strtoul(argv[9], &end, 10);
     kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
-                  argc >= 10 + (int)count && argc <= 186 + (int)count,
+                  argc >= 10 + (int)count && argc <= 186 + (int)count + (views ? 1 : 0),
               "pair methods and arguments");
     bool target_client = !strcmp(target, "client");
     kit_check(target_client || !strcmp(target, "executor"), "pair target side");
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     bool root = false;
     for (size_t i = 0; i < count; i++) {
-        const char *split = strchr(argv[10 + i], '=');
-        kit_check(split && split != argv[10 + i] &&
-                      (size_t)(split - argv[10 + i]) < sizeof(methods[i].method),
-                  "pair method entry");
-        memcpy(methods[i].method, argv[10 + i], (size_t)(split - argv[10 + i]));
-        kit_check(!strcmp(split + 1, "client") || !strcmp(split + 1, "executor"), "pair receiver");
-        methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
-        methods[i].input_shape = methods[i].output_shape = GT_EXT_JSON_OBJECT;
-        strcpy(methods[i].capability, "session.rpc");
+        kit_view_method(&methods[i], argv[10 + i]);
         if (!strcmp(methods[i].method, argv[5])) {
             root = methods[i].receiver == (target_client ? GT_EXT_HOST : GT_EXT_EXECUTOR);
         }
@@ -161,6 +160,9 @@ int main(int argc, char **argv) {
     int offset = resource_offset + (resources ? 6 : 0);
     if (kit_business) {
         offset = kit_process_parse(argc, argv, offset);
+    }
+    if (views) {
+        offset = kit_views_parse(argc, argv, offset);
     }
     kit_check(argc >= offset && argc <= offset + 32, "pair exact invocation arguments");
     gt_ext_session_config_t config = ext_config();
@@ -195,6 +197,9 @@ int main(int argc, char **argv) {
     if (kit_business) {
         kit_process_declarations(&em);
         kit_process_capabilities(&config);
+    }
+    if (views) {
+        kit_views_capabilities(&cm, &config);
     }
     int sockets[2];
     kit_check(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), "pair owned stream");
@@ -274,6 +279,10 @@ int main(int argc, char **argv) {
         kit_res.root_fd = -1;
     }
     kit_check(opened == GT_OK && executor && !pair.e, "pair Executor adoption");
+    if (views) {
+        kit_views_enable(client);
+        kit_views_executor(executor);
+    }
     bool activated = false;
     uint64_t activation_until = ext_now() + 10000;
     for (unsigned i = 0; i < (pair_external ? 10000u : 2000u) && ext_now() < activation_until;
@@ -324,9 +333,16 @@ int main(int argc, char **argv) {
             kit_resource_take(resource_receiver, &resource_lease);
         }
     }
+    if (views) {
+        kit_views_observe(client);
+    }
     gt_ext_session_revoke(caller);
     status = gt_ext_session_request(caller, &lease, argv[5], "{}", 2, 1000, &handle);
     kit_check(status == GT_EXT_RPC_DENIED || status == GT_EXT_RPC_CLOSED, "pair revocation");
+    if (views) {
+        gt_ext_runtime_stop(client);
+        kit_views_revoked(client);
+    }
     pair_release(&client);
     pair_release(&executor);
     if (resources) {
@@ -336,13 +352,14 @@ int main(int argc, char **argv) {
                   !ep,
               "pair package release");
     kit_check(ext_fds() == before, "pair descriptor balance");
-    printf(
-        "{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,\"stale\":true,"
-        "\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,\"clientActivated\":true,"
-        "\"executorActivated\":true,\"clientEngineReleased\":true,\"executorEngineReleased\":"
-        "true,\"externalProcess\":%s,\"childActivated\":%s,\"childExited\":%s}\n",
-        pair_external ? "true" : "false",
-        pair_child_activated ? "true" : "false",
-        pair_child_exited ? "true" : "false");
+    printf("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,\"stale\":true,"
+           "\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,\"viewsRevoked\":%s,"
+           "\"clientActivated\":true,"
+           "\"executorActivated\":true,\"clientEngineReleased\":true,\"executorEngineReleased\":"
+           "true,\"externalProcess\":%s,\"childActivated\":%s,\"childExited\":%s}\n",
+           views ? "true" : "false",
+           pair_external ? "true" : "false",
+           pair_child_activated ? "true" : "false",
+           pair_child_exited ? "true" : "false");
     return 0;
 }

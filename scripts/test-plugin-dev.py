@@ -156,6 +156,15 @@ def run_case(name, work, tools, core, execution=None):
         contract['input'] = contract['expected'] = {'text': 'quoted "${epoch}"; ${instanceId}'}
         alternate = work / 'contract.json'; alternate.write_text(json.dumps(contract))
         assert native(alternate)['observations'][1]['outcome']['value'] == contract['expected']
+    elif name == 'request-window':
+        contract = json.loads((project / 'plugin.test.json').read_text())
+        contractfile = work / 'window.json'
+        for invalid in [0, True, 10001, '4000', None]:
+            contractfile.write_text(json.dumps({**contract, 'timeoutMs': invalid}))
+            assert native(contractfile, status=2)['code'] == 'TEST_REQUEST_TIMEOUT'
+        contractfile.write_text(json.dumps({**contract, 'timeoutMs': 4000}))
+        report = native(contractfile)
+        assert report['kind'] == 'tested' and report['requestTimeoutMs'] == 4000
     elif name == 'client-rpc':
         # Distinct Client bytes and response prove we did not activate Executor.
         target = project / 'client/index.ts'
@@ -300,6 +309,112 @@ def run_case(name, work, tools, core, execution=None):
         for variant in ['node', 'native']:
             hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
+    elif name.startswith('views-'):
+        paired = name != 'views-client'
+        runtime = 'node' if name.endswith('-node') else 'exec' if name.endswith('-exec') else 'portable-js'
+        manifest = json.loads((project / 'plugin.json').read_text())
+        config = json.loads((project / 'plugin.project.json').read_text())
+        original_executor = (project / 'executor/index.ts').read_text()
+        options = []
+        executor_host = host
+        if runtime != 'portable-js':
+            manifest, config = execution_project(runtime)
+            if runtime == 'node':
+                manifest['executor']['variants'][0]['runtimeVersionRange'] = '>=22.0.0 <1000.0.0'
+                (project / 'executor/index.ts').write_text(original_executor)
+                spec = {k: v for k, v in execution.items() if k != 'version'}
+                executor_host = {**host, 'runtimes': ['node'], 'programs': {'node': {'state': 'available', 'version': execution['version']}}}
+            else:
+                child = project / 'bin/fixture'
+                compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
+                built = subprocess.run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/src'), str(ROOT / 'scripts/fixtures/plugin-dev-executor.c'), str(core / 'libghosterm_core.a'), '-lpthread', '-lm', '-o', str(child)], capture_output=True, text=True, timeout=120)
+                assert built.returncode == 0, built.stderr
+                spec = {'runtime': 'exec'}
+                executor_host = {**host, 'runtimes': ['exec'], 'os': 'macos', 'arch': 'aarch64'}
+            specfile = work / 'execution.json'; specfile.write_text(json.dumps(spec))
+            options = ['--execution-json', specfile, '--allow-process-execution']
+        kinds = ['table', 'diff', 'task']
+        manifest['commands'][0]['views'] = kinds
+        manifest['client']['requires'] += ['ui.' + kind for kind in kinds]
+        manifest['permissions'] += [dict(side='client', capability='ui.' + kind, purpose='Explicit local test view registration.', scope='instance') for kind in kinds]
+        (project / 'plugin.json').write_text(json.dumps(manifest))
+        config['sources'].append('client/views.ts')
+        (project / 'plugin.project.json').write_text(json.dumps(config))
+        shutil.copyfile(ROOT / 'scripts/fixtures/plugin-dev-views.ts', project / 'client/views.ts')
+        client = project / 'client/index.ts'; text = client.read_text()
+        client.write_text('import { openDevelopmentViews } from "./views.js";\n' + text.replace('  let live = true;', '  openDevelopmentViews(context);\n  let live = true;'))
+        caps = ['session.rpc', *['ui.' + kind for kind in kinds]]
+        client_host = {**host, 'side': 'client', 'capabilities': caps}
+        facts = {'client': client_host, 'executor': executor_host} if paired else client_host
+        hostfile.write_text(json.dumps(facts))
+        viewfile = work / 'views.json'; viewfile.write_text(json.dumps(dict(kinds=kinds)))
+        contract = json.loads((project / 'plugin.pair.test.json').read_text())
+        contract['methods'] += [dict(name='dev.' + m, receiver='executor') for m in ['page', 'describe', 'cancel']]
+        contract['views'] = [dict(kind='table', viewId='table-a', methods=dict(describe='dev.exchange', read='dev.page')),
+                             dict(kind='diff', viewId='diff-b', methods=dict(describe='dev.describe', read='dev.page')),
+                             dict(kind='task', viewId='task-c', methods=dict(describe='dev.describe', read='dev.page', cancel='dev.cancel'))]
+        if not paired:
+            contract.update(method='dev.echo', expected={'text': 'hello'})
+            contract['methods'].append(dict(name='dev.echo', receiver='client'))
+        contractfile = work / 'views-contract.json'; contractfile.write_text(json.dumps(contract))
+        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--side', 'paired' if paired else 'client', '--views-json', viewfile, *options]
+        def test(status=0, diagnostic=None): return cli(*arguments, '--allow-native-views', status=status, diagnostic=diagnostic)
+        if name == 'views-guards':
+            assert cli(*arguments, status=6)['code'] == 'TEST_VIEWS_APPROVAL'
+            side = arguments.index('--side') + 1; arguments[side] = 'executor'
+            assert test(status=2)['code'] == 'TEST_VIEWS_SIDE'; arguments[side] = 'paired'
+            for invalid in [{}, {'kinds': []}, {'kinds': ['html']}, {'kinds': ['table', 'table']}, {'kinds': 'table'}, {'kinds': [True]}, {'kinds': kinds, 'extra': True}]:
+                viewfile.write_text(json.dumps(invalid)); assert test(status=2)['code'] == 'TEST_VIEWS_CONFIG'
+            viewfile.write_text(json.dumps(dict(kinds=kinds)))
+            for changes, status, state in [({'capabilities': ['session.rpc']}, 4, 'unsupported'), ({'deniedCapabilities': ['ui.table']}, 6, 'denied'), ({'sdkVersion': 'unknown'}, 3, 'unknown')]:
+                hostfile.write_text(json.dumps({**facts, 'client': {**client_host, **changes}}))
+                assert test(status=status)['compatibility'] == state
+            hostfile.write_text(json.dumps(facts))
+            manifest['client']['requires'].remove('ui.table')
+            manifest['permissions'] = [p for p in manifest['permissions'] if p['capability'] != 'ui.table']
+            (project / 'plugin.json').write_text(json.dumps(manifest))
+            assert test(status=1, diagnostic='TEST_REQUIRES_DECLARED_VIEWS')['kind'] == 'error'
+        elif name == 'views-contract':
+            for changes, code in [({'views': []}, 'TEST_VIEWS_EXPECTATION'), ({'views': contract['views'] * 2}, 'TEST_VIEW_DUPLICATE'), ({'views': [{**contract['views'][0], 'methods': {'read': 'dev.page'}}]}, 'TEST_VIEW_METHODS'), ({'views': [{**contract['views'][0], 'viewId': 'wrong'}]}, 'TEST_VIEWS_RESULT')]:
+                contractfile.write_text(json.dumps({**contract, **changes})); assert test(status=2)['code'] == code
+            wrong = [{**m, 'receiver': 'client'} if m['name'] == 'dev.page' else m for m in contract['methods']]
+            contractfile.write_text(json.dumps({**contract, 'methods': wrong})); assert test(status=2)['code'] == 'TEST_VIEW_DIRECTION'
+        elif name == 'views-package':
+            # Selected invocation and live Host kinds are rechecked by real Core.
+            manifest['commands'][0]['views'] = ['table']
+            (project / 'plugin.json').write_text(json.dumps(manifest))
+            assert test(status=1, diagnostic='ASSERT: explicit Native Client view registration service')['kind'] == 'error'
+            # Host advertises all three kinds; the package and this invocation
+            # require only table. Prove the disabled diff kind is not admitted.
+            manifest['client']['requires'] = ['session.rpc', 'ui.table']
+            manifest['permissions'] = [p for p in manifest['permissions'] if p['capability'] not in ('ui.diff', 'ui.task')]
+            (project / 'plugin.json').write_text(json.dumps(manifest))
+            (project / 'client/views.ts').write_text('''import { BoundaryError } from "@ghosterm/plugin-sdk";
+import type { PluginContext } from "@ghosterm/plugin-sdk";
+export function openDevelopmentViews(context: PluginContext) {
+  const views = context.views;
+  if (!views) throw new Error("Client views required");
+  let rejected = false;
+  try { views.open({kind:"diff",viewId:"disabled",methods:{describe:"dev.describe",read:"dev.page"}}); }
+  catch (error) { if (!(error instanceof BoundaryError) || error.code !== "VIEW_UNSUPPORTED") throw error; rejected = true; }
+  if (!rejected) throw new Error("Disabled kind was granted");
+  return [views.open({kind:"table",viewId:"table-a",methods:{describe:"dev.exchange",read:"dev.page"}})];
+}
+''')
+            viewfile.write_text(json.dumps(dict(kinds=['table'])))
+            contract['views'] = [contract['views'][0]]; contractfile.write_text(json.dumps(contract))
+            report = test()
+            assert len(report['observations'][4]['snapshot']['views']) == 1
+            assert report['observations'][4]['afterClose']['views'] == []
+        else:
+            report = test()
+            assert report['services'] == ['views'] and report['observations'][4]['staleRejected']
+            assert report['observations'][-1]['viewsRevoked'] and 'no native rendering receipt' in report['scope']
+            assert len(report['observations'][4]['snapshot']['views']) == 3
+            assert len(report['observations'][4]['afterClose']['views']) == 2
+            if paired:
+                contract.update(method='dev.exchange', expected={'text': 'executor:callback:hello'})
+                contractfile.write_text(json.dumps(contract)); assert test()['kind'] == 'tested'
     elif name.startswith('business-'):
         paired = '-pair-' in name
         runtime = 'node' if name.endswith('-node') else 'exec' if name.endswith('-exec') else 'portable-js'
@@ -329,13 +444,13 @@ def run_case(name, work, tools, core, execution=None):
         if paired:
             facts = dict(client={**host, 'side': 'client'}, executor=facts)
             client = project / 'client/index.ts'
-            client.write_text(client.read_text().replace('  let live = true;', '  if (context.process || context.invocation?.workspaceHandle) throw new Error("Client must not own process service");\n  let live = true;'))
+            client.write_text(client.read_text().replace('context.session.request(Exchange, input, 1000)', 'context.session.request(Exchange, input, 4000)').replace('  let live = true;', '  if (context.process || context.invocation?.workspaceHandle) throw new Error("Client must not own process service");\n  let live = true;'))
         (project / 'plugin.json').write_text(json.dumps(manifest)); hostfile.write_text(json.dumps(facts))
         workspace = work / 'workspace'; workspace.mkdir(); (workspace / 'sentinel').write_text('workspace-proof')
         config = dict(workspaceRoot=str(workspace), programs=[dict(name='business', executable=str(business), version='1.0.0', sha256=digest(business))], environment=[dict(name='GT_TEST_VALUE', value='selected')], lifetimeMs=3000, outputBytes=65536)
         processfile = work / 'process.json'; processfile.write_text(json.dumps(config))
         contractfile = project / ('plugin.pair.test.json' if paired else 'plugin.test.json'); contract = json.loads(contractfile.read_text())
-        contract.update(method='dev.run' if paired else 'fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text':'business'}, expected={'text':'client:executor:callback:process:2048:0' if paired else 'process:2048:0'})
+        contract.update(timeoutMs=4000, method='dev.run' if paired else 'fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text':'business'}, expected={'text':'client:executor:callback:process:2048:0' if paired else 'process:2048:0'})
         contractfile.write_text(json.dumps(contract))
         arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--side', 'paired' if paired else 'executor', '--process-json', processfile]
         if runtime != 'portable-js':
@@ -346,7 +461,13 @@ def run_case(name, work, tools, core, execution=None):
             try: os.kill(pid, 0)
             except ProcessLookupError: return
             raise AssertionError('owned business child was not reaped')
-        if name == 'business-guards':
+        if name == 'business-window':
+            contract['input'] = {'text': 'window'}
+            for timeout, status in [(1000, 1), (4000, 0), (1000, 1)]:
+                contract['timeoutMs'] = timeout; contractfile.write_text(json.dumps(contract))
+                report = cli(*arguments, '--allow-business-processes', status=status, diagnostic='ASSERT: complete business response within explicit test request window' if status else None)
+                assert report['kind'] == ('error' if status else 'tested'); gone()
+        elif name == 'business-guards':
             missing = [a if a != core else work / 'must-not-run' for a in arguments]
             assert cli(*missing, status=6)['code'] == 'TEST_PROCESS_APPROVAL'
             assert cli(*missing, '--allow-business-processes', '--side', 'client', status=2)['code'] == 'TEST_PROCESS_SIDE'
@@ -713,10 +834,13 @@ CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'p
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
 CASES += ['resource-portable', 'resource-guards', 'resource-boundaries', 'resource-pair-portable', 'resource-pair-guards', 'resource-pair-boundaries']
+CASES += ['request-window', 'business-window']
+CASES += ['views-client', 'views-paired', 'views-guards', 'views-contract', 'views-package']
 CASES += ['resource-pair-client', 'business-portable', 'business-pair-portable', 'business-guards', 'business-interrupt-portable']
 EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
 EXECUTION_CASES += ['execution-pair-node', 'execution-pair-exec', 'execution-pair-guards', 'execution-pair-pins', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt']
 EXECUTION_CASES += ['resource-node', 'resource-exec', 'resource-pair-node', 'resource-pair-exec']
+EXECUTION_CASES += ['views-pair-node', 'views-pair-exec']
 EXECUTION_CASES += ['resource-pair-client-node', 'resource-pair-client-exec', 'business-node', 'business-exec', 'business-pair-node', 'business-pair-exec', 'business-interrupt-node', 'business-interrupt-exec']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
@@ -730,9 +854,9 @@ MUTATIONS = [
     ('client-response', 'client-contract', 'scripts/gterm-plugin', "require(observations[1]['confirmed'] and observations[1]['outcome'] == dict(kind='success', value=bind(contract['expected'])), 'TEST_RESPONSE')", "require(True, 'TEST_RESPONSE')"),
     ('host-side', 'side-profile', 'scripts/gterm-plugin', "require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')", "require(True, 'TEST_HOST_SIDE')"),
     ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
-    ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
+    ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-testkit-views.inc', 'method->receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'method->receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
     ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
-    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root), bool(processes))", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
+    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root), bool(processes), views)", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
     ('portable-node-types', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "types: side.runtime === 'node' ? ['node'] : []", "types: ['node']"),
     ('node-esm', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "json(path.join(directory, 'package.json')).type === 'module'", "true"),
     ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
@@ -761,6 +885,21 @@ MUTATIONS += [
     ('business-pin', 'business-portable', 'scripts/probes/plugin-testkit-process.inc', '.verified_sha256 = argv[offset + 3]', '.verified_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"'),
     ('business-read', 'business-portable', 'scripts/fixtures/plugin-dev-process.ts', 'received += result.bytes.length;', 'received += 0;'),
 ]
+MUTATIONS += [
+    ('views-approval', 'views-guards', 'scripts/gterm-plugin', "require(args.allow_native_views, 'TEST_VIEWS_APPROVAL', 6)", 'pass'),
+    ('views-kinds', 'views-guards', 'scripts/gterm-plugin', "len(set(value['kinds'])) == len(value['kinds'])", 'True'),
+    ('views-enable', 'views-client', 'scripts/probes/plugin-testkit-views.inc', 'gt_ext_runtime_views_enable(runtime, kit_view_kinds) == GT_OK', 'runtime != NULL'),
+    ('views-close', 'views-client', 'scripts/probes/plugin-testkit-views.inc', 'gt_ext_runtime_view_close(runtime, handle) == GT_OK', 'runtime != NULL'),
+    ('views-snapshot', 'views-paired', 'scripts/fixtures/plugin-dev-views.ts', 'viewId: "diff-b"', 'viewId: "changed-b"'),
+    ('views-methods', 'views-paired', 'scripts/fixtures/plugin-dev-views.ts', 'read: "dev.page", cancel: "dev.cancel"', 'read: "dev.page", cancel: "dev.describe"'),
+    ('views-revocation', 'views-client', 'scripts/probes/plugin-testkit.c', '        kit_views_revoked(runtime);', '        kit_views_observe(runtime); kit_views_revoked(runtime);'),
+    ('views-executor', 'views-paired', 'scripts/probes/plugin-pair-testkit.c', '        kit_views_executor(executor);', '        kit_views_executor(client);'),
+]
+
+MUTATIONS += [
+    ('request-window-forwarding', 'business-window', 'scripts/probes/plugin-testkit.c', 'method, json, strlen(json), kit_rpc_timeout, &handle)', 'method, json, strlen(json), 1000, &handle)'),
+]
+
 EXECUTION_MUTATIONS = [
     ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
     ('development-execution-environment', 'execution-approval', 'scripts/gterm-plugin', "require(set(value) == keys, 'TEST_EXECUTION_CONFIG')", "require(True, 'TEST_EXECUTION_CONFIG')"),
@@ -777,10 +916,10 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
-    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/probes/plugin-testkit-process.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
+    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/probes/plugin-testkit-process.inc', 'scripts/probes/plugin-testkit-views.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
-    extra_sources = ['scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts', 'scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
+    extra_sources = ['scripts/fixtures/plugin-dev-views.ts', 'scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts', 'scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
     for name in extra_sources:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     build = isolated / 'tmp/core'; build.mkdir()
@@ -801,7 +940,7 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
             red = probe()
             diagnostics = red.stdout + red.stderr
             assert red.returncode == 1 and b'AssertionError' in diagnostics and b'error: ' not in diagnostics, (label, diagnostics.decode())
-            if filename.endswith(('.c', '.inc')) or label == 'pair-resource-client-pin':
+            if filename.endswith(('.c', '.inc')) or label in ('pair-resource-client-pin', 'views-methods'):
                 assert b'ASSERT:' in diagnostics, (label, 'requires a compiled native assertion red', diagnostics.decode())
             else:
                 assert b'TOOL_FAILED' not in diagnostics, (label, diagnostics.decode())
@@ -836,6 +975,7 @@ def main():
     sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
     sources.add(ROOT / 'scripts/probes/plugin-testkit-resource.inc')
+    sources.update(ROOT / n for n in ['scripts/probes/plugin-testkit-views.inc', 'scripts/fixtures/plugin-dev-views.ts'])
     sources.update(ROOT / n for n in ['scripts/probes/plugin-testkit-process.inc', 'scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts'])
     sources.update(ROOT / n for n in ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc'])
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:

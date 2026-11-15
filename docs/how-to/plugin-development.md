@@ -5,7 +5,7 @@ Portable Client 加 Portable / Node / Exec Executor 运行档。命令读取固�
 脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
 默认测试 Executor，`--side client` 测试 Client，`--side paired` 同时激活两侧。
 `test` 默认只激活 Portable；显式执行配置可用于单侧 Node / Exec Executor，或
-Portable Client 与 Node / Exec 的双侧测试。文件 / 进程 / UI 服务测试仍待接入。
+Portable Client 与 Node / Exec 的双侧测试。可显式配置只读资源根、业务进程服务和 Client 视图注册服务；具体授权与验收范围见下文。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -184,7 +184,12 @@ Client 仍在真实 QuickJS，Node 或 Exec 通过既有进程协议运行。契
 再在同一有限期限内关闭它们；不把进程退出改写成业务成功 / 取消。
 
 测试契约是脚手架生成的 `plugin.test.json`：命令、原始 argv、方法、输入 / 预期对象、
-错误输入与预期 outcome kind。默认仅授予 `session.rpc`，需要其它服务会显式失败。
+错误输入与预期 outcome kind。可加可选整数 `timeoutMs`（1–10000 毫秒），缺省为
+1000；它只配置本次 Native 控制请求的期限，输出 `requestTimeoutMs` 记账。
+它不改变插件内嵌套请求、业务子进程生命期或 Core 的 CPU / 内存预算；插件内部
+请求须按自己的业务策略选择期限。testkit 要求成功和声明错误都收到完整业务回包，
+期限耗尽产生的未确认 unknown 必须判测试失败，不能冒充声明错误。
+默认仅授予 `session.rpc`，需要其它服务会显式失败。
 预期值及输入中的完整字符串 `${instanceId}` / `${epoch}` 可绑定本次 lease；字符串
 内嵌片段不替换。夹具使用本次 epoch 的本机 socketpair、真实包检查 / SDK / RPC，
 对选定侧验证激活、成功值、声明错误类别、发送前排队取消、旧 epoch、撤权、配置预算拒绝、
@@ -291,7 +296,64 @@ EOF、实际 exit code / signal，再返回契约规定的业务回执；退出�
 成功。结果 `services` 包含 `processes`，Runtime / fd 释放与业务回执分别核验。
 可复验的自有 C 子进程和三运行档处理器见 `plugin-dev-business.c` /
 `plugin-dev-process.ts`；中断用例先观察自有子进程 PID，再发 INT / TERM 并核对
-实际回收，不以父进程退出代替子进程结束。完整输出 / 期限 / 进程树和平台矩阵仍待验。
+实际回收，不以父进程退出代替子进程结束。自有业务夹具的子进程生命期为 3000 ms，
+对应成功契约显式使用 `timeoutMs:4000`，Client 内的业务转发也显式请求 4000 ms；
+普通脚手架与其它 RPC 仍为 1000 ms。`business-window` 用 1200 ms 受控等待验证
+1000 ms 失败、4000 ms 成功、再改回 1000 ms 仍失败；没有增加生产预算或自动延长
+请求。完整输出 / 期限 / 进程树和平台矩阵仍待验。
+
+Client 的视图注册使用 `--views-json 文件 --allow-native-views`，支持 `--side client`
+和 `--side paired`。配置只接受如下 `kinds` 数组：一至三项、不重复，可选 table / diff / task。
+
+```json
+{"kinds":["table","diff","task"]}
+```
+
+Client 的 manifest `requires` / `permissions` 和 Host 事实必须声明配置中的
+`ui.table` / `ui.diff` / `ui.task`；所选命令的 `views` 必须覆盖这些种类。
+Host 可以另行声明其它已知 UI 种类，但 Native 只启用本次配置选择的种类。
+Client 声明的所有 requires 仍须获得本次 Session 授权；不能声明依赖三种 UI，
+却只授权一种并绕过 Core 的包准入。
+Executor 不获得 UI 服务，单侧 Executor 不接受此选项。两侧默认 profile 可在
+未提供 Host JSON 时使用；Node / Exec paired 仍须另行提供原执行配置与授权。
+
+测试契约在原字段之外增加 `methods` 和 `views`：
+
+```json
+{
+  "methods": [
+    {"name":"dev.echo","receiver":"client"},
+    {"name":"table.describe","receiver":"executor"},
+    {"name":"table.page","receiver":"executor"}
+  ],
+  "views": [
+    {"kind":"table","viewId":"table-a","methods":{"describe":"table.describe","read":"table.page"}}
+  ]
+}
+```
+
+这是对原 RPC 契约的补充，不是独立完整契约。`methods` 最多十六项、不重名，
+必须含根 RPC 方法和两个方向；单侧 Client 的根方法必须指向 Client。
+所有视图的 describe / read / cancel 方法必须显式指向 Executor。
+`views` 为一至八个预期注册，viewId 唯一；task 额外需要 `cancel`，每项的方法名
+必须互不相同。kind、viewId 与所有方法逐字段精确比较，不在预期中写随机 handle。
+
+```sh
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/views --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/views/plugin.test.json --core-build tmp/plugin-dev/core --side client --views-json tmp/plugin-dev/views.json --allow-native-views
+```
+
+插件在真实 Client Runtime 调用 `ctx.views.open`。testkit 用公开 Core 门面启用
+服务，在原成功 / 错误 / 排队取消检查后读取实际快照，核对实例 / epoch / revision、
+句柄格式 / 唯一性及预期注册；再由 Native 独立关闭首个视图，要求旧句柄与外来
+句柄拒绝、revision 恰加一、其余注册和句柄逐字保持。停止 Runtime 后必须清空
+快照输出，仍核对两个 engine、子进程及 fd 的既有释放条件。结果的 `services`
+包含 `views`，`observations` 增加关闭前后快照，生命周期记录 `viewsRevoked`。
+
+这证明本地注册服务和句柄生命周期；未自动调用每个视图业务方法，也未渲染原生
+表格 / diff / task，不代表可访问性、大字号、主题或 UI E2E。业务方法和原生
+呈现仍分别写契约或使用平台专项。此 profile 未提供产品多视图容器的 `ui.views` 能力；必需该能力的包继续明确
+不支持，不能将本地 kind 注册快照当成容器服务。三服务组合与完整种类 / 数量 / 平台矩阵另验；
+本轮 Client 单侧与三运行档 paired 的证据见插件计划第二十三批。
 
 用完删除本次创建的 `tmp/plugin-dev/`，保留其它工作的临时目录。开发命令每次调用的
 内部固定副本与探针会在正常退出、INT / TERM 中断时清理；TERM 同时收回受控工具进程组。

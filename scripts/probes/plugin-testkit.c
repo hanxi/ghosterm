@@ -98,6 +98,22 @@ static void kit_yield(gt_ext_runtime_t *runtime) {
     }
 }
 
+/* A test contract chooses its RPC deadline independently of process lifetime.
+ * This is a caller policy, not a change to Core's execution/CPU/OOM limits. */
+static uint32_t kit_rpc_timeout = 1000;
+
+static const char *kit_request_mode(const char *mode) {
+    if (strncmp(mode, "timed-", 6)) {
+        return mode;
+    }
+    char *end = NULL;
+    unsigned long timeout = strtoul(mode + 6, &end, 10);
+    kit_check(end && *end == '-' && timeout > 0 && timeout <= 10000,
+              "explicit bounded request deadline");
+    kit_rpc_timeout = (uint32_t)timeout;
+    return end + 1;
+}
+
 static void kit_execution(gt_ext_runtime_execution_t *execution,
                           gt_ext_process_environment_t *environment,
                           char **fields,
@@ -130,6 +146,7 @@ static void kit_execution_inputs_close(const gt_ext_runtime_execution_t *executi
 }
 
 #include "plugin-testkit-process.inc"
+#include "plugin-testkit-views.inc"
 
 #ifndef GT_TESTKIT_HELPERS_ONLY
 #include "plugin-testkit-resource.inc"
@@ -143,10 +160,12 @@ static void kit_request(gt_ext_session_t *peer,
     char json[GT_EXT_RPC_BODY_MAX + 1];
     kit_bind(json, input, lease);
     uint64_t handle = 0;
-    kit_check(gt_ext_session_request(peer, lease, method, json, strlen(json), 1000, &handle) ==
-                  GT_EXT_RPC_OK,
-              "request admission");
-    for (unsigned step = 0; step < 2000; step++) {
+    kit_check(
+        gt_ext_session_request(peer, lease, method, json, strlen(json), kit_rpc_timeout, &handle) ==
+            GT_EXT_RPC_OK,
+        "request admission");
+    uint64_t until = ext_now() + kit_rpc_timeout + 1000u;
+    for (unsigned step = 0; step < 2000u + 2u * kit_rpc_timeout && ext_now() < until; step++) {
         gt_ext_session_step(peer, 0);
         gt_ext_runtime_step(runtime);
         kit_yield(runtime);
@@ -165,6 +184,8 @@ static void kit_request(gt_ext_session_t *peer,
         kit_check(gt_ext_session_request_result(peer, lease, handle, &result) == GT_EXT_RPC_OK,
                   "request observation");
         if (result.state != GT_EXT_RPC_QUEUED && result.state != GT_EXT_RPC_PENDING) {
+            kit_check(result.confirmed,
+                      "complete business response within explicit test request window");
             printf("{\"case\":\"%s\",\"state\":%u,\"confirmed\":%s,\"outcome\":%.*s}\n",
                    label,
                    (unsigned)result.state,
@@ -181,14 +202,33 @@ static void kit_request(gt_ext_session_t *peer,
 
 int main(int argc, char **argv) {
     /* directory, host JSON, side, command, method, input, error input, then raw argv */
-    kit_business = argc >= 8 && !strncmp(argv[3], "process-", 8);
-    const char *selected = argc >= 8 ? argv[3] + (kit_business ? 8 : 0) : "";
+    const char *selected = kit_request_mode(argc >= 8 ? argv[3] : "");
+    bool views = !strncmp(selected, "views-", 6);
+    selected += views ? 6 : 0;
+    kit_business = !strncmp(selected, "process-", 8);
+    selected += kit_business ? 8 : 0;
     bool resources = !strncmp(selected, "resources-", 10);
     const char *mode = selected + (resources ? 10 : 0);
     bool external = !strcmp(mode, "node") || !strcmp(mode, "exec");
     int offset = (external ? 13 : 8) + (resources ? 6 : 0);
     if (kit_business) {
         offset = kit_process_parse(argc, argv, offset);
+    }
+    gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
+    size_t method_count = 1;
+    if (views) {
+        kit_check(!strcmp(mode, "client"), "views require selected Client");
+        offset = kit_views_parse(argc, argv, offset);
+        kit_check(offset < argc, "view method count");
+        char *end = NULL;
+        unsigned long count = strtoul(argv[offset++], &end, 10);
+        kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
+                      argc >= offset + (int)count,
+                  "bounded view method table");
+        method_count = (size_t)count;
+        for (size_t i = 0; i < method_count; i++) {
+            kit_view_method(&methods[i], argv[offset++]);
+        }
     }
     if (argc < offset || argc > offset + 32) {
         return 2;
@@ -252,11 +292,15 @@ int main(int argc, char **argv) {
         kit_process_declarations(&metadata);
         kit_process_capabilities(&config);
     }
-    gt_ext_rpc_method_t method = {
-        .receiver = role, .input_shape = GT_EXT_JSON_OBJECT, .output_shape = GT_EXT_JSON_OBJECT};
-    kit_check(strlen(argv[5]) < sizeof(method.method), "method length");
-    strcpy(method.method, argv[5]);
-    strcpy(method.capability, "session.rpc");
+    if (views) {
+        kit_views_capabilities(&metadata, &config);
+    } else {
+        methods[0].receiver = role;
+        methods[0].input_shape = methods[0].output_shape = GT_EXT_JSON_OBJECT;
+        kit_check(strlen(argv[5]) < sizeof(methods[0].method), "method length");
+        strcpy(methods[0].method, argv[5]);
+        strcpy(methods[0].capability, "session.rpc");
+    }
     int sockets[2];
     kit_check(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), "owned local stream");
     gt_ext_channel_t *h = ext_channel(sockets[0]), *e = ext_channel(sockets[1]);
@@ -264,16 +308,23 @@ int main(int argc, char **argv) {
     if (resources) {
         kit_check(
             gt_ext_session_open_resources(
-                &h, GT_EXT_HOST, &config, &method, 1, kit_res.host, 1048576, &pair.h) == GT_OK &&
-                gt_ext_session_open_resources(
-                    &e, GT_EXT_EXECUTOR, &config, &method, 1, kit_res.executor, 1048576, &pair.e) ==
-                    GT_OK,
+                &h, GT_EXT_HOST, &config, methods, method_count, kit_res.host, 1048576, &pair.h) ==
+                    GT_OK &&
+                gt_ext_session_open_resources(&e,
+                                              GT_EXT_EXECUTOR,
+                                              &config,
+                                              methods,
+                                              method_count,
+                                              kit_res.executor,
+                                              1048576,
+                                              &pair.e) == GT_OK,
             "actual resources and RPC Session pair");
         kit_res.peer = pair.h;
     } else {
-        kit_check(gt_ext_session_open_rpc(&h, GT_EXT_HOST, &config, &method, 1, &pair.h) == GT_OK &&
-                      gt_ext_session_open_rpc(&e, GT_EXT_EXECUTOR, &config, &method, 1, &pair.e) ==
-                          GT_OK,
+        kit_check(gt_ext_session_open_rpc(
+                      &h, GT_EXT_HOST, &config, methods, method_count, &pair.h) == GT_OK &&
+                      gt_ext_session_open_rpc(
+                          &e, GT_EXT_EXECUTOR, &config, methods, method_count, &pair.e) == GT_OK,
                   "owned Session pair");
     }
     ext_allow(&pair);
@@ -320,6 +371,9 @@ int main(int argc, char **argv) {
         kit_res.root_fd = -1;
     }
     kit_check(opened == GT_OK && runtime && !*slot, "real Runtime adoption after rejected budget");
+    if (views) {
+        kit_views_enable(runtime);
+    }
     gt_ext_runtime_info_t state;
     bool activated = false;
     uint64_t activation_until = ext_now() + 10000;
@@ -363,11 +417,17 @@ int main(int argc, char **argv) {
     if (resources) {
         kit_resource_take(peer, &lease);
     }
+    if (views) {
+        kit_views_observe(runtime);
+    }
     gt_ext_session_revoke(peer);
     status = gt_ext_session_request(peer, &lease, argv[5], "{}", 2, 1000, &handle);
     kit_check(status == GT_EXT_RPC_DENIED || status == GT_EXT_RPC_CLOSED,
               "revoked capability cannot enqueue");
     gt_ext_runtime_stop(runtime);
+    if (views) {
+        kit_views_revoked(runtime);
+    }
     bool released = false;
     for (unsigned i = 0; i < 2000; i++) {
         if (gt_ext_runtime_close(runtime) == GT_EXT_RELEASED) {
@@ -394,7 +454,9 @@ int main(int argc, char **argv) {
     kit_check(ext_fds() == before, "native descriptor balance");
     printf("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,"
            "\"stale\":true,\"revocation\":true,\"engineReleased\":true,\"fdBalance\":true,"
+           "\"viewsRevoked\":%s,"
            "\"externalProcess\":%s,\"childActivated\":%s,\"childExited\":%s}\n",
+           views ? "true" : "false",
            external ? "true" : "false",
            state.activated ? "true" : "false",
            state.child_exited ? "true" : "false");

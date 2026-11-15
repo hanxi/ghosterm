@@ -16,7 +16,7 @@ export function activate(context: PluginContext) {
     if (!directory || !process) throw new Error("Revoked");
     let child: ProcessChild;
     try {
-      child = await process.spawn({ program, argv: ["business", "quoted ' \" $() 中文", mode === "stderr" ? "stderr" : mode === "cancel" || mode === "wait" ? "wait" : "roundtrip"], cwd: directory, envPolicy: "selected-user-environment", cancellation: context.cancellation });
+      child = await process.spawn({ program, argv: ["business", "quoted ' \" $() 中文", mode === "window" ? "delayed" : mode === "stderr" ? "stderr" : mode === "cancel" || mode === "wait" ? "wait" : "roundtrip"], cwd: directory, envPolicy: "selected-user-environment", cancellation: context.cancellation });
     } catch (error) { if (mode !== "missing" && mode !== "outside") throw error; return "DENIED"; }
     try {
       if (child.verifiedVersion !== "1.0.0") throw new Error("Version");

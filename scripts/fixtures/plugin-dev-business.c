@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,7 +58,11 @@ int main(int argc, char **argv) {
             pause();
         }
     }
-    if (strcmp(argv[2], "roundtrip")) {
+    if (!strcmp(argv[2], "delayed")) {
+        struct timespec delay = {1, 200000000};
+        while (nanosleep(&delay, &delay) && errno == EINTR) {
+        }
+    } else if (strcmp(argv[2], "roundtrip")) {
         return 85;
     }
     for (;;) {
