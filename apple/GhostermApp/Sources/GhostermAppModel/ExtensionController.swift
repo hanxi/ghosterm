@@ -229,6 +229,10 @@ public actor ExtensionController {
         public let instanceID: String
         public let process: ProcessState?
         public let temporary: ExtensionLocalTemporaryState?
+        public let views: Data?
+        public let viewSessionInstance: String?
+        public let viewSessionEpoch: String?
+        public let viewIssue: String?
     }
 
     public struct HostRPCRequest: Sendable {
@@ -389,6 +393,9 @@ public actor ExtensionController {
     public func stepRuntime() async throws -> RuntimeState {
         try await worker.stepRuntime()
     }
+    public func closeRuntimeView(instanceID: String, handle: String) async throws -> RuntimeState {
+        try await worker.closeRuntimeView(instanceID: instanceID, handle: handle)
+    }
 
     /// Sends a Native Host -> remote Executor call through the Session owned by
     /// the active Client Runtime. The returned handle is never retried for the caller.
@@ -466,6 +473,8 @@ public actor ExtensionController {
         private var runtimePackageKey: String?
         private var runtimeInstanceID: String?
         private var runtimeCommand: String?
+        private var runtimeViewScope: (instance: String, epoch: String)?
+        private var runtimeViewIssue: String?
         private var clientRootFD: Int32 = -1
         private var clientSource: ExtensionFileSource?
         private var clientPublication: ResourcePublication?
@@ -774,6 +783,17 @@ public actor ExtensionController {
                     guard rootFD >= 0, fstat(rootFD, &info) == 0,
                           (info.st_mode & S_IFMT) == S_IFDIR else { throw ControllerError.resourceUnavailable }
                 }
+                let sessionInfo = try session.info()
+                let registry = record.review.requiredCapabilities.contains("ui.views")
+                var viewKinds: UInt32 = 0
+                if registry {
+                    for kind in selected.command?.views ?? [] {
+                        let bit: UInt32 = kind == "table" ? 1 : kind == "diff" ? 2 : kind == "task" ? 4 : 0
+                        guard bit != 0, record.review.requiredCapabilities.contains("ui." + kind) else { throw ControllerError.runtimeUnavailable }
+                        viewKinds |= bit
+                    }
+                    guard viewKinds != 0, record.review.requiredCapabilities.contains("session.rpc") else { throw ControllerError.runtimeUnavailable }
+                }
                 let runtime = try ExtensionRuntime(session: session, package: record.package,
                                                    role: .host, associated: true,
                                                    invocation: .init(command: command, arguments: arguments))
@@ -781,6 +801,17 @@ public actor ExtensionController {
                 self.session = nil; self.sessionPackageKey = nil
                 self.runtime = runtime; self.runtimePackageKey = sessionKey
                 self.runtimeCommand = command; self.runtimeInstanceID = UUID().uuidString
+                self.runtimeViewScope = registry ? (sessionInfo.instance, String(sessionInfo.epoch)) : nil
+                self.runtimeViewIssue = nil
+                if registry {
+                    do { try runtime.enableViews(kinds: viewKinds) }
+                    catch {
+                        // Session was already adopted. Retain the real owner for
+                        // stop/release, rather than leaving a stale Session path.
+                        self.runtimeViewIssue = "无法启用插件视图注册：\(error)"
+                        runtime.stop()
+                    }
+                }
                 return try self.runtimeState(runtime, packageKey: sessionKey, command: command)
             }
         }
@@ -868,6 +899,16 @@ public actor ExtensionController {
                     }
                     if ProcessInfo.processInfo.systemUptime >= deadline { break }
                 }
+                return try self.runtimeState(runtime, packageKey: packageKey, command: command)
+            }
+        }
+        func closeRuntimeView(instanceID: String, handle: String) async throws -> RuntimeState {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime, self.runtimeInstanceID == instanceID,
+                      self.runtimeViewScope != nil, try runtime.info().phase == .active,
+                      let packageKey = self.runtimePackageKey, let command = self.runtimeCommand else { throw ControllerError.runtimeUnavailable }
+                try runtime.closeView(handle: handle)
                 return try self.runtimeState(runtime, packageKey: packageKey, command: command)
             }
         }
@@ -1076,7 +1117,9 @@ public actor ExtensionController {
             guard let record = packages[packageKey] else { throw ControllerError.runtimeUnavailable }
             return RuntimeState(packageID: record.review.id, packageDigest: record.review.digest,
                                 command: command, phase: info.phase.rawValue, failure: info.error.rawValue,
-                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0, publication: clientPublication, instanceID: runtimeInstanceID ?? "", process: try processSnapshot(), temporary: localTemporary?.observation ?? lastLocalTemporary)
+                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0, publication: clientPublication, instanceID: runtimeInstanceID ?? "", process: try processSnapshot(), temporary: localTemporary?.observation ?? lastLocalTemporary,
+                                views: runtimeViewScope != nil && info.phase == .active && runtimeViewIssue == nil ? try runtime.viewsSnapshot() : nil,
+                                viewSessionInstance: runtimeViewScope?.instance, viewSessionEpoch: runtimeViewScope?.epoch, viewIssue: runtimeViewIssue)
         }
 
         private func releaseOwners(forceStop: Bool) throws {
@@ -1096,6 +1139,7 @@ public actor ExtensionController {
                 }
                 guard released, clientSource == nil else { throw local ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
                 self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
+                runtimeViewScope = nil; runtimeViewIssue = nil
                 clientPublication = nil
                 if clientRootFD >= 0 {
                     let fd = clientRootFD; clientRootFD = -1

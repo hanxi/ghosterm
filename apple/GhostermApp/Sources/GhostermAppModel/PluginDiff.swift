@@ -104,7 +104,10 @@ enum PluginDiffCodec {
     private var cursors: [Int: PluginDiffCursor] = [0: .zero]
     private let rpc: RPC
     private let isCurrent: @MainActor () -> Bool
-    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool) { self.rpc = rpc; self.isCurrent = isCurrent }
+    private let expectedViewID: String?
+    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool, expectedViewID: String? = nil) {
+        self.rpc = rpc; self.isCurrent = isCurrent; self.expectedViewID = expectedViewID
+    }
     public var available: Bool { valid && isCurrent() }
     public var canPrevious: Bool { available && !busy && page != nil && selectedOffset > 0 }
     public var canNext: Bool { available && !busy && page.map { $0.offset + $0.rows.count < (descriptor?.total ?? 0) } == true }
@@ -115,7 +118,9 @@ enum PluginDiffCodec {
         do {
             let data = try await rpc(Self.methods[0], Data("{}".utf8))
             guard current(token) else { return }
-            let value = try PluginDiffCodec.descriptor(data); descriptor = value
+            let value = try PluginDiffCodec.descriptor(data)
+            guard expectedViewID == nil || expectedViewID == value.viewID else { throw PluginViewValue.Failure.invalidResponse }
+            descriptor = value
             try await readPage(value, offset: 0, prefix: .zero, token: token)
         } catch { if current(token) { issue = "差异读取失败，未显示新页面：\(error)" } }
     }

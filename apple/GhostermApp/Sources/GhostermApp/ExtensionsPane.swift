@@ -413,6 +413,9 @@ struct ExtensionsPane: View {
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
                 codexControls(run: run)
+                if let views = model.extensionRegisteredViews {
+                    PluginViewsView(model: views)
+                }
                 if let table = model.extensionTable {
                     PluginTableView(model: table)
                 }

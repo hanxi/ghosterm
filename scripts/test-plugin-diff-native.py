@@ -166,7 +166,7 @@ def main():
                     actual('local-' + scenario, 'local', scenario)
                     print('PASS actual Native local diff ' + scenario, flush=True)
                 native = [
-                    ('native-declaration', APP, 'if extensionViews.contains("diff"),', 'if false,', 'local'),
+                    ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("diff"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(sessionMethods + PluginDiffModel.methods)).sorted()', 'methods', 'local'),
                     ('native-render', PANE, 'if let diff = model.extensionDiff {', 'if let diff = model.extensionDiff, false {', 'local'),
                 ]

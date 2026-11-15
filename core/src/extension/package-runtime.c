@@ -104,9 +104,10 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
         bool native_view =
             role == GT_BRIDGE_HOST &&
             (!strcmp(name, "ui.table") || !strcmp(name, "ui.diff") || !strcmp(name, "ui.task"));
-        if (!native_view && strcmp(name, "session.rpc") && strcmp(name, "file.readScoped") &&
-            strcmp(name, "resource.receive") && strcmp(name, "process.spawn") &&
-            strcmp(name, "process.pipes")) {
+        bool view_registry = role == GT_BRIDGE_HOST && !strcmp(name, "ui.views");
+        if (!native_view && !view_registry && strcmp(name, "session.rpc") &&
+            strcmp(name, "file.readScoped") && strcmp(name, "resource.receive") &&
+            strcmp(name, "process.spawn") && strcmp(name, "process.pipes")) {
             return GT_ERR_UNSUPPORTED;
         }
         if (gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED) {

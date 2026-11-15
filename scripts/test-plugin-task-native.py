@@ -168,7 +168,7 @@ def main():
                         actual(route + '-' + scenario, route, scenario)
                         print('PASS actual Native ' + route + ' task ' + scenario, flush=True)
                 native = [
-                    ('native-declaration', APP, 'if extensionViews.contains("task"),', 'if false,', 'local'),
+                    ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("task"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(sessionMethods + PluginTaskModel.methods)).sorted()', 'methods', 'local'),
                     ('native-outcome', APP, 'command: command, returnTerminalOutcome: true)', 'command: command, returnTerminalOutcome: false)', 'local'),
                     ('native-render', PANE, 'if let task = model.extensionTask {', 'if let task = model.extensionTask, false {', 'local'),

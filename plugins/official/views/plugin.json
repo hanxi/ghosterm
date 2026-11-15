@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.views",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": "^1.0.0",
+  "bridgeProtocolRange": [
+    1
+  ],
+  "publisher": "Ghosterm",
+  "license": "MIT",
+  "commands": [
+    {
+      "path": [
+        "views",
+        "demo"
+      ],
+      "title": "Two tables, a diff and a task",
+      "argsSchema": "schemas/demo.json",
+      "views": [
+        "table",
+        "diff",
+        "task"
+      ]
+    }
+  ],
+  "client": {
+    "runtime": "portable-js",
+    "entry": "client/index.js",
+    "requires": [
+      "session.rpc",
+      "ui.table",
+      "ui.diff",
+      "ui.task",
+      "ui.views"
+    ]
+  },
+  "executor": {
+    "variants": [
+      {
+        "id": "portable",
+        "runtime": "portable-js",
+        "entry": "executor/index.js",
+        "requires": [
+          "session.rpc"
+        ]
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "side": "client",
+      "capability": "session.rpc",
+      "purpose": "Display independently scoped Native components.",
+      "scope": "instance"
+    },
+    {
+      "side": "client",
+      "capability": "ui.table",
+      "purpose": "Display independently scoped Native components.",
+      "scope": "instance"
+    },
+    {
+      "side": "client",
+      "capability": "ui.diff",
+      "purpose": "Display independently scoped Native components.",
+      "scope": "instance"
+    },
+    {
+      "side": "client",
+      "capability": "ui.task",
+      "purpose": "Display independently scoped Native components.",
+      "scope": "instance"
+    },
+    {
+      "side": "client",
+      "capability": "ui.views",
+      "purpose": "Display independently scoped Native components.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "session.rpc",
+      "purpose": "Serve bounded demo data and an internal counter.",
+      "scope": "instance"
+    }
+  ]
+}

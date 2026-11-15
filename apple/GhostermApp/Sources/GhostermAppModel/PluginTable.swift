@@ -87,9 +87,12 @@ public final class PluginTableModel: ObservableObject {
     @Published public private(set) var valid = true
     private let rpc: RPC
     private let isCurrent: @MainActor () -> Bool
+    private let expectedViewID: String?
     private var generation = UUID()
 
-    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool) { self.rpc = rpc; self.isCurrent = isCurrent }
+    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool, expectedViewID: String? = nil) {
+        self.rpc = rpc; self.isCurrent = isCurrent; self.expectedViewID = expectedViewID
+    }
     public var available: Bool { valid && isCurrent() }
     public var lastOffset: Int { descriptor.map { $0.total == 0 ? 0 : (($0.total - 1) / $0.pageSize) * $0.pageSize } ?? 0 }
     public var canPrevious: Bool { available && !busy && page != nil && selectedOffset > 0 }
@@ -103,6 +106,7 @@ public final class PluginTableModel: ObservableObject {
             let data = try await rpc(Self.methods[0], Data("{}".utf8))
             guard current(token) else { return }
             let description = try PluginTableCodec.descriptor(data)
+            guard expectedViewID == nil || expectedViewID == description.viewID else { throw PluginViewValue.Failure.invalidResponse }
             descriptor = description
             try await readPage(description, offset: 0, token: token)
         } catch { if current(token) { issue = "表格读取失败，未显示新页面：\(error)" } }

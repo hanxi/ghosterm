@@ -1371,3 +1371,18 @@ lint 通过。旧 SDK / CLI、两组能力 / dispose 及一组 heap 变异分轮
 无新原生 UI / AVD / 设备 / 业务 SSH 或发行结论；完整多视图、任务 IPC、完整开发 /
 生命周期 / 客户端矩阵及 P5 / P1–P6 未完成，不增加 CI 二十份。见
 [视图注册指南](docs/how-to/plugin-views.md)。
+
+
+**插件 P5 macOS 多视图消费（2026-11-15）**：JS-enabled 产品按准确命令 ui.views /
+标准 kind / RPC allowlist 显式启用注册表，通用组件按 Runtime / epoch / 独立 handle
+保留分页和模型；关闭返回新快照，旧项 / 晚到 RPC / 快照不能复活。描述符 ID 须与
+注册一致，关闭失败显式重试；task 关闭不取消业务。同 Runtime 八个业务 scope 的
+观察账本保留取消 ID / 未知及终态，不因重开重放，不因满额淘汰旧账。Android 产品
+未接多视图，必需 ui.views 显式不支持。十九模型 / 两服务与 profile、旧 table 十五 /
+diff 十五 / task 二十六项，八组正常单条断言红 / 同构件配置绿 / 对象变化 / 恢复 /
+SHA256；相同官方包本机 / 直连 / 两跳与屏幕外透明面板真实分页、关闭、重开和取消
+按钮通过。默认 Core 588/184、enabled 844、App 默认档 599 项 / 22 明确跳过 / 零失败
+及真实 WebKit CSS / PNG 通过。无新 ABI / SDK 身份或 Runtime 预算提高；非系统
+VoiceOver / 完整键盘、真实断网重连 / 用户选包整链，Android 多视图、task IPC、
+完整开发 / 生命周期 / 设备矩阵及 P5 / P1–P6 待完成，不增加 CI 二十份。分轮原件、
+前置失败与构建证据见插件计划 P5 第十二批及[指南](docs/how-to/plugin-views.md)。

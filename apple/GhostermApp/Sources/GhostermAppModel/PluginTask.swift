@@ -172,7 +172,11 @@ enum PluginTaskCodec {
     private var generation = UUID()
     private let rpc: RPC
     private let isCurrent: @MainActor () -> Bool
-    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool) { self.rpc = rpc; self.isCurrent = isCurrent }
+    private let expectedViewID: String?
+    private let history: PluginTaskHistory?
+    public init(rpc: @escaping RPC, isCurrent: @escaping @MainActor () -> Bool, expectedViewID: String? = nil, history: PluginTaskHistory? = nil) {
+        self.rpc = rpc; self.isCurrent = isCurrent; self.expectedViewID = expectedViewID; self.history = history
+    }
     public var available: Bool { valid && isCurrent() }
     public var canCancel: Bool { available && !busy && descriptor?.cancellable == true && cancelRequestID == nil &&
         (snapshot?.phase == .queued || snapshot?.phase == .running) }
@@ -186,9 +190,17 @@ enum PluginTaskCodec {
             if descriptor == nil {
                 let data = try await rpc("view.task.describe", Data("{}".utf8))
                 guard current(token) else { return }
-                descriptor = try PluginTaskCodec.descriptor(data)
+                let description = try PluginTaskCodec.descriptor(data)
+                guard expectedViewID == nil || expectedViewID == description.viewID else { throw PluginViewValue.Failure.invalidResponse }
+                if let prior = try history?.restore(description) {
+                    snapshot = prior.snapshot; cancelRequestID = prior.requestID
+                    cancellation = prior.cancellation == .pending ? .unconfirmed : prior.cancellation
+                }
+                descriptor = description
             }
             if let descriptor { try await read(descriptor, token: token) }
+        } catch let failure as PluginTaskHistory.Failure {
+            if current(token) { issue = failure == .full ? "本次任务观察记录已满，请停止并释放插件后再试。" : "同一任务修订的身份描述已改变，未显示新状态。" }
         } catch let failure as PluginTaskCodec.RPCFailure {
             if current(token) { issue = "\(failure.message)。保留上次观察。" }
         } catch { if current(token) { issue = "读取结果不明，保留上次观察。可显式重新读取：\(error)" } }
@@ -197,6 +209,7 @@ enum PluginTaskCodec {
         guard canCancel, let descriptor else { return }
         let token = UUID(); generation = token; busy = true; issue = nil
         let requestID = UUID().uuidString; cancelRequestID = requestID; cancellation = .pending
+        history?.action(descriptor, requestID: requestID, state: cancellation)
         defer {
             if generation == token {
                 busy = false
@@ -204,6 +217,7 @@ enum PluginTaskCodec {
                     cancellation = .unconfirmed; issue = "取消结果不明，不会再次发送。请显式读取任务状态。"
                 }
             }
+            history?.action(descriptor, requestID: requestID, state: cancellation)
         }
         do {
             let input = try JSONSerialization.data(withJSONObject: ["viewId": descriptor.viewID, "revision": descriptor.revision, "requestId": requestID], options: [.sortedKeys])
@@ -228,6 +242,7 @@ enum PluginTaskCodec {
     public func invalidate() {
         generation = UUID(); valid = false; busy = false
         if cancellation == .pending { cancellation = .unconfirmed }
+        if let descriptor, let cancelRequestID { history?.action(descriptor, requestID: cancelRequestID, state: cancellation) }
         issue = "任务所属会话已结束；保留最后观察，不能据此确认仍在运行或已停止"
     }
     private func current(_ token: UUID) -> Bool { generation == token && available && !Task.isCancelled }
@@ -236,5 +251,6 @@ enum PluginTaskCodec {
         let data = try await rpc("view.task.read", input)
         guard current(token) else { return }
         snapshot = try PluginTaskCodec.snapshot(data, descriptor: d, previous: snapshot)
+        if let snapshot { history?.observe(d, snapshot: snapshot) }
     }
 }

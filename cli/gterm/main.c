@@ -33,7 +33,7 @@ static int usage(void) {
           "[--node-runtime PATH VERSION SHA256 --node-sdk DIRECTORY SHA256] "
           "--trust-development-digest SHA256 --client-digest SHA256 "
           "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
-          "[--client-capability ui.table|ui.diff|ui.task] "
+          "[--client-capability ui.table|ui.diff|ui.task|ui.views] "
           "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
           "[--process-argument NAME VALUE]... [--process-environment NAME]... "
           "-- DIRECTORY COMMAND [ARG...]\n"

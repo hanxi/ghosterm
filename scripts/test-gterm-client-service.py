@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, required=True)
-    parser.add_argument('--service', choices=('ui.table', 'ui.diff', 'ui.task'), default='ui.table')
+    parser.add_argument('--service', choices=('ui.table', 'ui.diff', 'ui.task', 'ui.views'), default='ui.table')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--receipt', type=Path, required=True)
     args = parser.parse_args()
@@ -70,6 +70,7 @@ def main():
         if status: raise RuntimeError('control compile failed\n' + err.decode(errors='replace'))
         no_rpc = work / 'no-rpc'; shutil.copytree(package, no_rpc)
         manifest = json.loads((no_rpc / 'plugin.json').read_text()); manifest['executor']['variants'][0]['requires'] = []
+        command = ' '.join(manifest['commands'][0]['path'])
         manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != 'executor']
         (no_rpc / 'plugin.json').write_text(json.dumps(manifest, separators=(',', ':')))
         members = [dict(path=str(p.relative_to(no_rpc)), bytes=p.stat().st_size, sha256=sha(p))
@@ -82,7 +83,7 @@ def main():
             elif case == 'duplicate': options *= 2
             digest = sha(selected / 'integrity.json')
             status, _, error = run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
-                '--client-digest', digest, *options, '--', selected, 'task primes' if contribution == 'task' else contribution])
+                '--client-digest', digest, *options, '--', selected, command])
             expected = ('Client ' + contribution + ' requires declared RPC and a capability slot').encode() if case == 'rpc' else b'unknown or duplicate Client service requirement'
             assert status == (4 if case == 'rpc' else 2) and expected in error, 'Client service rejection: ' + case
         compile()

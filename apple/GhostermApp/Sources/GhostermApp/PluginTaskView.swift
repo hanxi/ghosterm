@@ -34,7 +34,7 @@ struct PluginTaskView: View {
             if model.busy { ProgressView("正在读取任务…").accessibilityIdentifier("plugin-task-loading") }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-task")
-            .task {
+            .task(id: model.available) {
                 if model.descriptor == nil && model.issue == nil { await model.load() }
                 while !Task.isCancelled && model.available {
                     do { try await Task.sleep(for: .milliseconds(500)) } catch { break }

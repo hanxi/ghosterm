@@ -22,7 +22,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"]
 
     /// The wire protocol carries semantic versions with three numeric
     /// components. Apple's marketing version commonly omits the patch (for
@@ -109,6 +109,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var extensionTable: PluginTableModel?
     @Published public private(set) var extensionDiff: PluginDiffModel?
     @Published public private(set) var extensionTask: PluginTaskModel?
+    @Published public private(set) var extensionRegisteredViews: PluginViewsModel?
     private var extensionViews: [String] = []
     @Published public private(set) var localReservationEntries: [ExtensionLocalJournalEntry] = []
     @Published public private(set) var localReservationBusy = false
@@ -1162,12 +1163,17 @@ public final class AppModel: ObservableObject {
             if taskContribution && !["session.rpc", "ui.task"].allSatisfy(selected.requiredCapabilities.contains) {
                 throw GhostermError.failed("任务贡献必须声明 session.rpc 与 ui.task")
             }
-            var sessionMethods = tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
-            if diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
-            if taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
+            let registeredViews = selected.requiredCapabilities.contains("ui.views")
+            if registeredViews && !(tableContribution || diffContribution || taskContribution) {
+                throw GhostermError.failed("视图注册服务需要所选命令声明标准视图")
+            }
+            var sessionMethods = !registeredViews && tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+            if !registeredViews && diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
+            if !registeredViews && taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
             var clientServices = tableContribution ? ["ui.table"] : []
             if diffContribution { clientServices.append("ui.diff") }
             if taskContribution { clientServices.append("ui.task") }
+            if registeredViews { clientServices.append("ui.views") }
             guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
                 throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
             }
@@ -1214,9 +1220,11 @@ public final class AppModel: ObservableObject {
                 session = try await extensionController.adoptSSHSession(pluginID: packageID, packageDigest: packageDigest, executorDigest: executorDigest, hostVersion: version, peerIdentity: peerIdentity, methods: rpcMethods, additionalRequiredCapabilities: additionalCapabilities)
             }
             extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
+            extensionRegisteredViews?.invalidate()
             extensionTable?.invalidate(); extensionTable = nil
             extensionDiff?.invalidate(); extensionDiff = nil
             extensionTask?.invalidate(); extensionTask = nil
+            extensionRegisteredViews = nil
             extensionViews = selected.command?.views ?? []
             claudeRPC?.invalidate(); claudeRPC = nil
             claudeConversation?.invalidate(); claudeConversation = nil
@@ -1309,6 +1317,7 @@ public final class AppModel: ObservableObject {
 
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        extensionRegisteredViews?.invalidate()
         extensionTable?.invalidate()
         extensionDiff?.invalidate()
         extensionTask?.invalidate()
@@ -1353,7 +1362,7 @@ public final class AppModel: ObservableObject {
             extensionLastLocalProcess = try? await extensionController.localProcessState()
             extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRun = nil; extensionRunInvocation = nil
-            extensionTable = nil; extensionDiff = nil; extensionTask = nil; extensionViews = []
+            extensionTable = nil; extensionDiff = nil; extensionTask = nil; extensionViews = []; extensionRegisteredViews = nil
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
@@ -1691,6 +1700,7 @@ public final class AppModel: ObservableObject {
             }
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
+            extensionRegisteredViews?.invalidate()
             extensionTable?.invalidate()
             extensionDiff?.invalidate()
             extensionTask?.invalidate()
@@ -1735,6 +1745,7 @@ public final class AppModel: ObservableObject {
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
+            extensionRegisteredViews?.invalidate()
             extensionTable?.invalidate()
             extensionDiff?.invalidate()
             extensionTask?.invalidate()
@@ -1751,7 +1762,42 @@ public final class AppModel: ObservableObject {
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
             codexEvents: run.codexEvents)
-        if extensionViews.contains("table"), run.requiredCapabilities.contains("ui.table"),
+        if let issue = runtime.viewIssue { extensionRunIssue = issue }
+        if run.requiredCapabilities.contains("ui.views"), runtime.phase == ExtensionRuntime.Phase.active.rawValue {
+            do {
+                guard let data = runtime.views, let instance = runtime.viewSessionInstance, let epoch = runtime.viewSessionEpoch else {
+                    throw PluginViewValue.Failure.invalidResponse
+                }
+                if extensionRegisteredViews == nil {
+                    let generation = extensionRunGeneration, runtimeID = runtime.instanceID
+                    extensionRegisteredViews = try PluginViewsModel(instance: instance, epoch: epoch,
+                        kinds: Set(extensionViews.compactMap(PluginViewRegistration.Kind.init(rawValue:))),
+                        capabilities: Set(run.requiredCapabilities), methods: Set(run.methods),
+                        rpc: { [weak self] method, input in
+                            guard let self else { throw CancellationError() }
+                            try self.checkExtensionRunGeneration(generation)
+                            return try await self.callPluginViewOutcome(method, inputBytes: input, command: run.command)
+                        }, isCurrent: { [weak self] in
+                            guard let self else { return false }
+                            return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
+                                self.extensionRun?.runtime?.instanceID == runtimeID &&
+                                self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                        }, close: { [weak self] handle in
+                            guard let self, let controller = self.extensionController else { throw CancellationError() }
+                            try self.checkExtensionRunGeneration(generation)
+                            let state = try await controller.closeRuntimeView(instanceID: runtimeID, handle: handle)
+                            try self.checkExtensionRunGeneration(generation)
+                            guard let data = state.views else { throw PluginViewValue.Failure.invalidResponse }
+                            return data
+                        })
+                }
+                try extensionRegisteredViews?.apply(data)
+            } catch {
+                extensionRegisteredViews?.invalidate()
+                extensionRunIssue = "插件视图注册不可用，可停止并释放：\(error)"
+            }
+        }
+        if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("table"), run.requiredCapabilities.contains("ui.table"),
            runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionTable == nil,
            PluginTableModel.methods.allSatisfy(run.methods.contains) {
             let generation = extensionRunGeneration
@@ -1765,7 +1811,7 @@ public final class AppModel: ObservableObject {
                     self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
             })
         }
-        if extensionViews.contains("diff"), run.requiredCapabilities.contains("ui.diff"),
+        if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("diff"), run.requiredCapabilities.contains("ui.diff"),
            runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionDiff == nil,
            PluginDiffModel.methods.allSatisfy(run.methods.contains) {
             let generation = extensionRunGeneration
@@ -1779,7 +1825,7 @@ public final class AppModel: ObservableObject {
                     self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
             })
         }
-        if extensionViews.contains("task"), run.requiredCapabilities.contains("ui.task"),
+        if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("task"), run.requiredCapabilities.contains("ui.task"),
            runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionTask == nil,
            PluginTaskModel.methods.allSatisfy(run.methods.contains) {
             let generation = extensionRunGeneration

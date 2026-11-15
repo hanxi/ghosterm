@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "required": [],
+  "x-ghosterm-cli": {
+    "version": 1,
+    "fields": {}
+  }
+}

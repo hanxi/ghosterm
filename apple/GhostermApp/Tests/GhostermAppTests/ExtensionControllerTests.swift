@@ -15,7 +15,7 @@ final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
         XCTAssertEqual(AppModel.extensionHostCapabilities,
-                       ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task"])
+                       ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"])
     }
 
     func testNativeResourceDirectoryRequiresLocalGrantAndClientResourceService() throws {
@@ -287,6 +287,23 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(.init(directory: "/private/front", instance: instance, authorized: false))))
         XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(accepted, directory: "/other/package")))
         XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(accepted, roots: [.init(id: "workspace", directory: "/other")])) )
+    }
+
+    func testRelayBootstrapAcceptsFourUniqueImplementedViewServices() throws {
+        let digest = String(repeating: "a", count: 64)
+        func request(_ services: [String]) -> ExtensionRelayBootstrap.Request {
+            .init(executable: "/opt/gterm", executorDirectory: "/opt/plugins/executor",
+                  executorDigest: digest, clientDigest: digest, methods: ["alpha.page"],
+                  clientCapabilities: services, command: "views demo")
+        }
+        let services = ["ui.table", "ui.diff", "ui.task", "ui.views"]
+        let argv = try ExtensionRelayBootstrap.buildLocal(request(services))
+        XCTAssertEqual(argv.filter { $0 == "--client-capability" }.count, 4)
+        for service in services { XCTAssertTrue(argv.contains(service)) }
+        for invalid in [services + ["ui.views"], ["ui.views", "ui.views"], ["ui.unimplemented"]] {
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.buildLocal(request(invalid)))
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(invalid)))
+        }
     }
 
     func testRelayBootstrapValidatesAndQuotesEveryArgument() throws {

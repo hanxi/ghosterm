@@ -7226,3 +7226,78 @@ P1–P6 不勾选，不增加 CI 二十份。操作与精确边界见[视图注�
 结束后清理本轮 **75 个 tmp 项，逻辑大小约 657.6 MiB**；只保留原三份 eq 输入，
 SHA256 未变。自有测试 / worker / 构建进程已结束，不操作原有 Java 或其它用户服务。
 本批仅本地提交，未推送 / 发行。
+
+### P5 实施第十二批：macOS 原生多视图消费与独立生命周期（2026-11-15）
+
+macOS JS-enabled 产品路径按准确批准命令的 `ui.views`、标准 kind 与 RPC allowlist
+启用注册服务，在同一非 UI worker 复制快照；UI 使用通用 table / diff / task 组件，
+按独立 handle 保持模型，不识别样例命令或业务算法。未声明 ui.views 的旧入口继续
+原数据链。Android 尚无产品多视图消费者，Host profile 不声明 ui.views，必需该能力
+的包显式不支持。Core 的新能力准入仅 Host 可用，Executor 没有渲染服务；无新 C ABI、
+SDK 身份或预算提高。bootstrap 已实现服务的组合上限修正为四种，重复 / 未知仍拒绝，
+Session 原十六 capability / method 上限不变。
+
+Native 快照校验 instance / epoch、规范 uint64、不可变 handle 绑定及准确方法集合；
+同修订不能换内容，旧修订只忽略，单一高水位与 nonce 阻止已移除 handle 复活，不留
+无界 tombstone。Native close 返回关闭后的快照，移除后停用旧模型，晚到 RPC 不可
+写入新项。关闭失败保留原项及显式重试。table / diff / task 的描述符 viewId 必须与
+注册一致；task 关闭不冒充业务取消。同 Runtime 最多八个业务 scope 的观察账本保留
+最后有效状态、取消 ID 与未知结果；重开不能重放未知取消或重写已确认终态，满额
+显式报错，不清旧账让新动作通过。停止 / 释放后由 Runtime owner 一并结束。
+
+官方 `plugins/official/views` 是两张独立计算表、一页只读 diff 和可取消内存计数任务；
+所有 RPC 经同一生产 Native 门面。`views.reopen` 由 Executor 请求仍活跃的 Client，
+仅允许四个已知 viewId，以新句柄重新注册。关闭任务视图后实际 read 仍为 running，
+独立取消按钮才进入取消协议。样例没有外部文件 / 进程 / 模型或安装副作用。
+
+十九项新模型测试、四服务 bootstrap / Host profile 两项与旧 table 十五 / diff 十五 /
+task 二十六项通过。新八组隔离变异护 instance、epoch、相同修订换内容、关闭后复活、
+未批准方法、旧模型停用、取消历史与描述符 ID：编译后正常单条断言红、同复制构件
+独立配置绿、恢复绿，并核对实际 Swift 对象变化 / 源码 SHA256。不是新增 Core 后端
+变异。相同包经自有本机进程、SSH 直连、两跳 ProxyJump 三条真实链通过；真实屏幕外
+透明 ExtensionsPane 的进程内 AX 验四个关闭按钮、独立分页、Native 关闭 / 重新注册
+和实际任务取消，最后核对本机进程 reaped 与暂存 removed。
+
+前置失败单列：旧 bootstrap 上限为二导致四服务启动失败；diff 样例在业务 handler
+内重复做深层 codec 校验时实际收到 HANDLER_INTERRUPTED，去掉重复遍历后，通过
+SDK 入 / 出 codec 与 Native 描述符连续性完整校验，不提高 Runtime 预算。修改后的
+TypeScript 字面量类型、缺失构建产物导致 invalidPackageURL 以及测试抢在任务重新
+加载前按取消按钮均修正后复验，未计目标红或通过。开启全量 Core 测试时首轮遗漏
+编译后的 SDK 目录而 CMake 拒绝配置，补准确目录后才运行，不计测试通过。
+
+完整键盘焦点 / 系统 VoiceOver、隐藏恢复 / 真实断网重连、Android 多视图 / 设备、
+用户文件选择器及授权完整点击链、task IPC、完整开发 / 生命周期矩阵仍待完成，
+P5 / P1–P6 不勾选，不增加 macOS CI 二十份。所有窗口屏幕外透明，无 AVD；仅操作
+自有测试 SSH / agent，不接触用户服务。操作见[视图注册指南](../how-to/plugin-views.md)。
+
+默认 JS-off / tests-on 离线 gate **588/588 CTest、184 ABI**，JS-enabled / 锁定 SSH
+**844/844 CTest**通过。CLI 十二项与 stdio 十七项（含 preview / Unicode）通过；
+ui.views 的未知 / 重复 / 缺 RPC 三项实际拒绝与 **两组 CLI 隔离变异**通过，正常
+断言红、同 archive 配置绿、恢复 / SHA256。CLI 自身 O1 ASan / UBSan，所链接
+Core 为显式 enabled Debug 库，不将其写成整库 sanitizer 结论，未启用 LSan。
+二十八份输入一致，CLI 收据 SHA256：
+`133acddb478eef3b8d71a529f9ee385258be2c54af1d88ad77862260223552be`。
+
+App 默认档全量 **599 项、22 明确跳过、零失败**，同轮真本机 SSH 基线及独立
+WebKit custom-scheme CSS / PNG 绘制通过；该默认档的跳过不借给 Native 专项，
+后者要求零跳过。独立 macOS arm64 Release 重新编译 / 链接通过，产物 SHA256：
+`4c30fac0fff2c2a08f8166097b8cb4c604f1dcf064172ba4507828bb99ac6362`。
+C 格式 **19.1.7 / 262 文件**、Apple **181/3**、JNI **147/37**、Python 五脚本语法、
+旧 table / diff / task 变异锚点唯一性、样例可复现 `--check` 与 diff 检查通过。
+没有新的 Android 源码 / APK / 设备 / Release、云端 Swift 6.1.2 或发行结论，未推送。
+Root Core 仍为 JS-off / tests-on，不因本片产品接线改默认构建档。
+
+八组 Native 模型变异的 **417 份输入**与最终相关源码一致，初轮收据 SHA256：
+`a7b24800b84250448e3fd5c166f10dfa7393ee319d3aeff3255ef1484e072197`。
+该轮 gterm SHA256 `42005c58eac0241c7e8a9c128e2b6708542d6f9fb50420f635d3598ede97598f`；
+其后 C 格式对应构件重编、全量 Core 开启测试档后，实际 gterm 为
+`1f0224f5e487b541fd1ffad25ab8a2187d2f74f195d4b9209401b48e6cfdd948`，两轮分开记账。
+
+重构建后的 gterm 另以同源 Native 专项完整复验十九模型、两服务 / profile、旧标准
+组件及本机 / 直连 / 两跳三场景，零跳过；最终 **417 份输入**与当前源码一致，
+收据 SHA256 `2f029e85718711dc2e03155e17e438b331d45fdbefbfdf3d7c371306fe1e618a`。
+不把第一次变异所用构件与这次最终构件写成同一个 binary。
+
+结束后清理本轮 **449 个 tmp 项，逻辑大小约 619.0 MiB**；仅保留原三份
+eq 输入并逐项核对 SHA256 不变。所有自有测试 / worker / SSH / agent 已退出，未启动
+AVD，不操作旧 Java 或其它用户服务。本批仅本地提交，未推送 / 发行。

@@ -158,7 +158,7 @@ def main():
                         actual(route + '-' + str(count), route, count)
                         print('PASS actual Native ' + route + ' table count=' + str(count), flush=True)
                 native = [
-                    ('native-declaration', APP, 'if extensionViews.contains("table"),', 'if false,', 'local'),
+                    ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("table"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(methods + PluginTableModel.methods)).sorted()', 'methods', 'local'),
                     ('native-render', PANE, 'if let table = model.extensionTable {', 'if let table = model.extensionTable, false {', 'local'),
                 ]

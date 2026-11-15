@@ -5,9 +5,15 @@
 了元数据，不表示画面已显示、用户已操作或 Executor 业务已完成。
 
 当前已接 Core、Portable SDK、Swift 与 JNI / Kotlin 的启用、快照和关闭门面。
-产品面板尚未消费该注册表，默认不启用；现有单 table / diff / task 的原生入口继续
-使用其既有数据链。多视图的产品渲染、焦点、隐藏 / 恢复、原生关闭动作和用户点击
-链须继续实现并验收，不能仅凭本片 API 测试记为完成。
+macOS 的 JS-enabled 面板按所选命令的 `ui.views` 必需能力消费注册表，可同时显示多个标准
+组件；Android 产品尚未接多视图，不宣称 `ui.views`，对此类包显式报告不支持。
+没有声明该能力的旧单 table / diff / task 入口继续使用既有数据链。完整键盘焦点、
+系统辅助技术、隐藏 / 恢复与用户选包点击整链仍待验收。
+
+多视图 Client 需要声明 `session.rpc`、`ui.views` 和使用的 `ui.table` / `ui.diff` /
+`ui.task`；所选命令的 `views` 列出对应 kind。每个绑定方法仍须由用户纳入本次
+RPC allowlist。`gterm relay --client-capability ui.views` 仅协商 Client 服务，
+不会给 Executor 增加渲染能力。缺少 RPC、重复或未知服务均显式拒绝。
 
 Native owner 在同一非 UI Runtime worker、第一次 `step` 之前显式调用：
 
@@ -53,6 +59,12 @@ methods 必须另含 cancel；其它 kind 不接受 cancel。各方法的参数 
 关闭注册，此后 JS 句柄 state 为 closed。同 ID 重开会获得新句柄，旧句柄的迟到
 close 不会删除新注册。
 
+macOS 以 Runtime / epoch / handle 保存独立模型，描述符 viewId 须与注册一致；相同
+快照保持分页状态。关闭按钮调用 Native owner，移除后停用旧模型，旧页和旧快照不
+能复活已关闭句柄。关闭失败保留视图及显式重试入口。同 Runtime 的任务观察另有
+最多八个业务 scope 记录；关闭 / 重开保留取消 ID、未知结果及已确认终态，不自动
+重放取消，记录满时显式报错。停止并释放插件后才销毁该账本。
+
 `handle.state` 保留 ok / closed / unknown / denied / revoked / unsupported 等
 观察，不把未知当拒绝。`ctx.views.dispose()` 使本地句柄失效，逐个尝试 Native
 关闭；Runtime 的原生释放仍独立验证。停止 / 撤权后快照拒绝返回旧注册，关闭
@@ -80,3 +92,17 @@ codec / adapter 检查分别记账。八组 Core 变异与一组 SDK 迟到关�
 断言红、独立配置绿、恢复绿和 SHA256；编译失败、崩溃、sanitizer 报错不计红。
 sanitizer 档为 RelWithDebInfo + ASan / UBSan，LeakSanitizer 未启用。没有 Native UI、
 设备、真实 SSH / tmux 或完整客户端验收结论，也未增加 CI 二十份。
+
+macOS 产品消费的独立验证使用官方 `plugins/official/views` 样例（两张表、diff、
+可取消的内存计数任务），构建样例后执行：
+
+```sh
+python3 scripts/build-plugin-sample.py --source plugins/official/views --tools tmp/plugin-views/tools --out tmp/plugin-views/package
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-native.py --build tmp/plugin-views/cli --package tmp/plugin-views/package --mutate --receipt tmp/plugin-views/native.json
+```
+
+`cli` 须预先按开发指南构建为 JS-enabled / SSH-enabled 并带 CLI 测试夹具。脚本仅使用
+项目 tmp 内隔离副本、自有本机 / 直连 / 两跳测试服务和内存密钥，所有窗口放到屏幕
+外且透明。它验证生产 AppModel 的审阅 / 授权 / 启动门面、真实 Runtime 注册、独立
+分页、原生关闭 / 重开及取消按钮；不代表用户文件选择器整链、系统 VoiceOver 或
+Android / 真机验收。具体分轮结果见插件计划 P5 第十二批。
