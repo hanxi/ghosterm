@@ -134,7 +134,7 @@ def main():
          '仅显示已保存的声明，尚未用当前可信策略核验；不授权或执行插件。', '已验证发布者。'),
         ('page-unknown', page, view,
          'selected != null && selected.choices.isEmpty()', 'selected == null || selected.choices.isEmpty()'),
-        ('page-refresh', page, view, 'onClick = { selectionModel.cancel(); removalModel.refresh(); model.refresh() }', 'onClick = { selectionModel.cancel(); removalModel.refresh() }'),
+        ('page-refresh', page, view, 'onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); model.refresh() }', 'onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh() }'),
     ]
     selected = args.selected or [case[0] for case in cases]
     if len(selected) != len(set(selected)) or set(selected) - {c[0] for c in cases}: raise RuntimeError('Unknown or duplicate case')

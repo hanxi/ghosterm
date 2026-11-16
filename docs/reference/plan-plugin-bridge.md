@@ -10238,3 +10238,170 @@ lint 与普通 Debug / 测试 APK 重新通过，启用档五 JNI 的实际保�
 补正阶段清理 tmp 32 个顶层项 / 623 目录 / 8072 普通文件 / 265159930 逻辑字节
 （252.88 MiB），不等同 APFS 实际回收；原 eq 三件摘要不变，tmp 根保留。
 1596 指定输入清理后复算 `81447f532de0d6850e233489f3bd722220e12073a1269f8473ef38adc2d32b04` 一致。
+
+
+### P6 实施第十九批：Android 安装暂存持久归属与显式维护（2026-11-17）
+
+**实现范围：** 新安装的 `.install-UUID.json` 升级为严格格式 2，预约先持久化，
+创建目录后持有暂存自身的独占 fd，再登记父 / 子目录的 dev、inode、uid 和持久身份。
+API29 采用非零 inode generation，API30+ 采用创建时间；缺能力显式拒绝，不退回
+旧弱身份。新增 mkdir 后尚未登记身份的检查点，登记完成前不写 payload。旧格式 1
+归属记录保持无法核对，不自动迁移、恢复安装或按名字收养。
+
+`PluginInstallJournal` 有界只读枚举、严格 JSON / 字段 / UUID / 原始摘要检查；父目录
+强身份、暂存精确名字、原始归属摘要和目标描述摘要分别绑定。独立打开 fd 探测锁，
+不改变安装根或既有版本引用的锁；无身份的预约在根忙时不能据当前缺失判断已不存在。
+观察区分 ACTIVE / ABANDONED / PUBLISHED / ABSENT / UNCONFIRMED / CHANGED / INVALID；
+PUBLISHED 仅为同一对象的位置观察，不等于安装成功、签名或来源授权。无记录、记录
+损坏、替换目录与未知对象保留，128 个根对象 / 64 个归属记录上限包含异常记录。
+
+已登记遗留暂存经完整快照、独立确认和精确归属重核，复用显式删除流程；只有这一
+类型允许部分写入的私有可写文件，已安装版本继续要求只读。删除意图格式 2 绑定
+归属记录摘要 / 原始名字 / 目标描述，旧版本删除的格式 1 保留；先持久意图，再
+不覆盖移开、逐项核对删除、退役精确归属记录，最后清除删除意图。原路径 / 移开
+路径均已不存在的完成分支允许原元数据已移除的幂等回执，改变的记录仍不删除。
+暂存的逻辑摘要是归属记录摘要，不能误作版本摘要清理运行来源或版本缓存。
+
+PUBLISHED / ABSENT 可经另一独立确认只退役精确记录，永不删除目标发布目录或冲突
+对象。Controller 的已知 token、取消 / 晚到结果隔离、临时 worker、Main dispatcher
+和页面互斥观察接线均保留；打开、刷新和应用重启均不执行维护。设置中的「安装
+归属维护」展示七态，遗留暂存走原完整删除预览，元数据退役有独立 checkbox / 按钮。
+不加载来源、不授予 Session、不更改活动选择，不安装 / 部署 / 运行插件。
+
+新增 Journal 11、暂存删除 7、维护 model 4、Controller 3、实际 Settings 页面 1，
+共 26 项；普通组合在上一批 235 上增加为 261（含宿主注入的真实硬链接一项）。
+`--maintenance` 含既有 install / catalog / selection / removal 档；实际进程死亡由
+独立驱动执行，不混入正常断言红。死亡驱动覆盖预约、mkdir 未登记、登记、文件
+创建 / 写完、改名前 / 后、发布同步后和首项 unlink 后九场景 / 十次所属 PID 结束，
+重开先检查整个根 / 子树身份、权限和内容未变，再显式维护。未登记场景只证明
+保留，测试退出清理不算产品已能删除未知孤儿。
+
+前置失败单列：初次发布后死亡用例把测试命令路径硬编码为 fixture，实际 Core 报
+NOT_FOUND；改为使用真实已审查命令，再断言缺活动选择时 DENIED。首次维护变异的
+前十九组通过，第二十组移除页面入口后仅得到 ComposeTimeoutException，未接受为
+正常断言红。用例在等待结束后执行精确 tag 的存在断言，驱动继续要求正常单条
+AssertionError、预期 marker、同 APK Core 绿、恢复绿与 SHA；未修改生产行为或把
+框架异常放宽为红。初始 59 项后端 / 11 项页面定向为前置证据，不当最终全组合。
+
+本批仍不证明未知 / 无登记 / 旧弱归属孤儿删除、Android 当前策略批量复核、全局
+撤销、断电 / 所有磁盘故障与文件系统 / OS 升级 / 同 uid 恶意并发、真机 / 16 KiB /
+完整提供方 / 无障碍或全客户端矩阵。默认 App JS-off，不增加 macOS CI 二十份；
+P6 / P1–P6 均未完成。后续第二十批继续未知目录的完整只读核对与独立显式维护，
+再接 Android 当前策略批量复核。仅本地分批提交，不推送 / 发行。
+
+
+**新增变异证据：** `mutation-check-android-maintenance.py` 二十一个不同保护分轮
+19＋2，覆盖生产者格式 / 暂存独占锁、强父身份、名字 / 原始摘要 CAS、未确认归属、
+忙根预约、已发布观察、仅已解决记录退役、异常记录预算、暂存删除后的精确退役、
+安装版本只读隔离、Controller / model / 实际页面各自确认、未知非空、列表引用和
+晚到结果。每组真实编译后正常单条断言红、同 APK 独立 Core 绿、恢复重新编译绿
+及七份生产源 SHA；两轮七生产源逐项一致。两组页面前只修改等待后的精确存在断言，
+不称同一测试源全量扫描；十九组原件与新两组原件分别保留摘要，不把首次超时算红。
+
+- 十九组 accepted-results SHA256：`851f492c98b17aad97cd1b8f21ba6ff40e5febf6e649535836b069f580723caf`。
+- 页面两组 accepted-results SHA256：`134f275939d0650725e88af331d70942ddf6a3fa5f2e8d93bf92753b7088d40a`。
+- 前置后端 59 项驱动：`7f4d923be0c9a1889e29e5a9527e3ca365da5234f06d96037dc89d4475928e21`。
+- 前置 UI 11 项驱动：`c6025f8d51f670b50dd42429de6e707cee4327568453b5ff3d0970488d6f82a8`。
+- 初次死亡断言失败驱动：`8d3ce7a672450675a4734023f4505bd68fe7b48711e21c28868d6f99bb434177`。
+- 初次页面变异超时驱动：`e7eafd61a429960314f327d392c1361ae72595bb68e772b28197c232c76b2aa4`。
+
+
+受影响的既有 `mutation-check-android-removal.py` 27 组在当前版本 / 暂存共用删除
+实现上完整复验通过，每组真实编译后正常单条断言红、同 APK Core 绿、复原重编译
+绿及六份生产源 SHA；包含已有开发 Session / Runtime 后关联版本的实际两跳 SSH
+引用保护、所有目录已不存在的回执继续和成员同步失败后的准确效果计数。不是将
+本批 21 组与旧 27 组混称 48 个新增保护。旧 27 组 accepted-results SHA256：
+`8810fcfba4761d7934be25fad3128cd1bef2011b940c0bf19133bfca968423da`。
+
+旧安装六组（stage-reservation / stage-record-object / native-no-replace / native-source-object /
+native-no-follow / controller-cancellation）、旧 catalog 三组（page-unverified / page-unknown /
+page-refresh）定向复验通过；每组真实编译后正常单条断言红、同 APK Core 绿、恢复
+重新编译绿和各自生产源 SHA。未声称其它旧安装四十组或 catalog 四十五组全重跑。
+
+- install6 accepted-results SHA256：`018d238bfde2674be2550262ce0193980a4c89249c680e6bbef86eb6f3a24e75`。
+
+- catalog3 accepted-results SHA256：`3abd03b453f4237f02d777ab91501540636399eb6c3840dfca67efa96e1f954a`。
+
+
+变异结束后冻结生产 / 测试 / 驱动输入；同上一批范围的指定输入共 1605 份，
+聚合 SHA256 `80e393e0f1147ffa63e03d34d8fcc8282da9bcef5d70f5d7d8e4455203da3145`。
+范围含 Core、Android、Apple、terminal、packages、cli、scripts、patches、
+runtime-payload 与根构建 / 格式 / 许可清单；不含 docs / tmp / 构建产物，新增九份
+源文件。不以恢复重编译 APK 的字节变化声称可复现构建；最终设备组合与 SSH 均重装
+同一预先保存 APK 对，期间不修改输入，构件摘要以下文为准。
+
+
+API36 最终自有 no-window arm64 / 4 KiB 页模拟器，261 项组合正常结束，另四条
+真实两跳 SSH 的旧实例快照 / 独立远端完成 / 实际引用释放后删除专项通过。
+
+- API36 JUnit：`e013ada809053470d56677e8233589d7ad3f08633fbdc4684c0e221e0dd36c01`。
+- API36 anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease：`82baffea979ab3d43092e033e3dcf260b60562f984be319f809da172235f618c`。
+- API36 sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease：`a60fe81cb9f48deaf82e8b28ea1cda7d58b2cc5e88ba963c6e51e31fb80dbcdb`。
+- API36 developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval：`2472e36b95be80b8813ed85fa8cdaa7b899415d044e2693bd1cba26c9ffceacd`。
+- API36 developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval：`7797bb0d54a6cd7c7107f0ddd287623b71e5779cbcf0a3d8d1c3cb6f4195c593`。
+
+
+两设备实际死亡专项均为九场景 / 十次所属 PID 结束；意图 / 树在新进程只读观察前
+后保持，随后才执行显式维护。API36 / API29 accepted-results SHA256 分别为
+`b71bcecc029e78664a25919eed4bdeedc4283aab4013d955b9da84b909063e50` /
+`e3ef8fbf5ee79552c59e7d621b1be5e93cccf8035919f5924b438d2934de0045`。
+进程结束为夹具驱动的有意操作，不计普通断言红或 sanitizer 通过；也不等于断电。
+
+最终固定构件 SHA256：
+
+- app-debug.apk：`d0937b6f42d48d0e882c960ca1df093944b7c461770adc3ec39c2dc97d238d94`。
+- app-debug-androidTest.apk：`ab83aa6caee1285a9d3c947e9dfe176626267bf404189170dc8b5115a5905d29`。
+
+
+API29 最终同一固定 APK 对：261 项组合正常结束（85.731 秒；API36 为 115.270 秒），
+两设备均零失败 / 错误 / 跳过，另各四条真实两跳 SSH 通过。所属 AVD 均退出 0，
+1605 指定输入再次复算一致。API29 收据 SHA256：
+
+- 261 项 JUnit：`e3221769afc3e53d9d4729c3dc62feb57336c2cddf1e5266c75889df7d1a6639`。
+
+- anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease：`4461333b29b4dd1b089ceb652566f987330e710d8875e538b2a88be7d38af577`。
+
+- sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease：`b8fbc0f822b58bc4f5e5c69587348e7a6cb871540973e87b2151377d2e1066bb`。
+
+- developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval：`c45cc4a8a4e2e221f97d03e2f4b7c92df89b32f1bd6782b8011506db2b8ad2aa`。
+
+- developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval：`fc5ca71e5d0609398b1101f315845988b58fa5bb5634390cfac80646ecea8c1b`。
+
+最终设备驱动日志 SHA256：`04272f6ad0fea042b736e03b860c61832e5ed35e04d801c82581edee34a24766`。
+
+
+本批默认 Core JS-off / tests-on / SSH-on 离线闸门：589/589 CTest、185 公共符号
+与未实现入口检查通过。clang-format 19.1.7 的 272 份 C、Apple 182 引用 / 3 登记
+未用、Android JNI 148 / 37 通过。未改 Core 公开 ABI；私有 JNI detach 扩展暂存
+名字与可写暂存路径，未新增 JNI 方法。
+
+启用 JS 档未签名 Release / 实际 R8 与 app / bridge / terminal / data 四模块
+lintRelease 通过。五个 PluginInstallFiles JNI（lock / pin / publish / detach /
+identity）的 R8 mapping / keep seeds 和实际 APK arm64 ELF 导出均核对通过；
+未执行 Release APK 设备测试，不称云端 / 签名发行 / 干净检出构建。
+
+- core-gate.log：`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+
+- apple-abi.log：`70de1d6a7424602d805712d3bac38e769c494de31d03bc097be5c350f446263a`。
+
+- android-abi.log：`ea046ca560c228f5af6a182cc0cc3f3c66aeec3e8571211805e9566c991fd8e8`。
+
+- final-format.log：`6e72b64e4d86057a2401b1d07a516ee12b12de75a7b4cc9aaf8a7a4f359e3c66`。
+
+- enabled-release-lint.log：`832303d86ca4e0a0339684e934f157c42d96234706136ef34fc2a348c4c26602`。
+
+- enabled-jni-proof.log：`faab927d86a39b35f27f27e45d2676921c82574e6d81b2c400ad26140fd65aec`。
+
+
+普通 JS-off 档未签名 Release / 实际 R8、四模块 lintRelease 与最终普通 Debug /
+测试 APK 构建通过，日志 SHA256 `0cc762d67a22b14544c7370986d3854b98362754ccf40838eba8cabc9d6c802d`。
+两档都只证明本机原生构建，未借 debug 设备结果替代 Release 设备执行。Python 六
+驱动语法和 diff 检查通过；1605 指定输入在两档构建后再次复算，原始日志 / 变异
+收据 / 格式工具及测试 APK 副本在记录摘要后清理。
+
+
+本批收尾：两个 owned AVD 均退出 0，构建 JVM 40167 / 40321 已结束，旧 65439 /
+2637 未动，adb 无在线设备。验后清理 tmp 55 个顶层项 / 693 目录 / 8597 普通文件 /
+331103022 逻辑字节（315.76 MiB），镜像此前已由 owned context 清理；
+不把逻辑字节当 APFS 实际回收量。仅保留原 eq 三件与 tmp 根，三件 SHA256 均不变。
+1605 指定输入清理后复算 `80e393e0f1147ffa63e03d34d8fcc8282da9bcef5d70f5d7d8e4455203da3145` 一致。

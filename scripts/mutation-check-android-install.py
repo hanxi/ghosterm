@@ -45,6 +45,7 @@ def main():
     model = 'com.hanxi.ghosterm.PluginInstallDraftTest#'
     owner = 'com.hanxi.ghosterm.PluginInstallControllerTest#'
     page = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
+    publish = originals[native].decode().split('JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_publishDirectory(', 1)[1].split('JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachDirectory(', 1)[0]
     record = originals[stage].decode().split('    private fun verifyRecord() {', 1)[1].split('    private fun retireRecord()', 1)[0]
     cases = [
         ('capture-dispatch-owner', 'com.hanxi.ghosterm.PluginArchiveCaptureTest#cancelledDispatchOfCompletedCaptureClosesUndeliveredOwner', capture,
@@ -52,13 +53,13 @@ def main():
         ('stage-root-sync', st + 'rootEntrySyncMustSucceedBeforeReservationIncludingRetryOfExistingRoot', stage,
          'rootSync(ancestor.fileDescriptor)', 'Unit'),
         ('native-no-replace', fs + 'realDirectoryRenameIsAtomicAndNeverOverwritesExistingEmptySlot', native,
-         'parent, target, RENAME_NOREPLACE)', 'parent, target, 0)'),
+         publish, publish.replace('parent, target, RENAME_NOREPLACE)', 'parent, target, 0)')),
         ('native-frozen', fs + 'writableDirectoryAndRegularFileDescriptorsAreRejected', native,
          '!error && (selected.st_mode & 0222)', '!error && 0'),
         ('native-source-object', fs + 'sourceReplacementAndSymlinkCannotRedirectBorrowedDirectory', native,
-         'selected.st_ino != named.st_ino || ', ''),
+         publish, publish.replace('selected.st_ino != named.st_ino || ', '')),
         ('native-no-follow', fs + 'sourceReplacementAndSymlinkCannotRedirectBorrowedDirectory', native,
-         'source, &named, AT_SYMLINK_NOFOLLOW)', 'source, &named, 0)'),
+         publish, publish.replace('source, &named, AT_SYMLINK_NOFOLLOW)', 'source, &named, 0)')),
         ('native-lock', fs + 'locksAreBoundToIndependentOpenDescriptionsAndReleaseOnClose', native,
          '!error && flock(descriptor, LOCK_EX | LOCK_NB) < 0', '!error && 0'),
         ('native-directory', fs + 'writableDirectoryAndRegularFileDescriptorsAreRejected', native,
@@ -68,7 +69,7 @@ def main():
         ('stage-reservation', st + 'durableReservationPrecedesDirectoryCreationAndBindsIdentity', stage,
          'writeRecord(null)', 'Unit'),
         ('stage-record-object', st + 'durableReservationPrecedesDirectoryCreationAndBindsIdentity', stage,
-         'writeRecord(directoryIdentity)', 'Unit'),
+         'writeRecord(persistentDirectory)', 'Unit'),
         ('stage-root-object', st + 'replacementRootAndStageCannotRedirectPublicationOrCleanup', stage,
          'demand(privateDirectory(named) && identity(named) == parentIdentity)', 'demand(true)'),
         ('stage-record-proof', st + 'changedIntentPreventsDeletionOfAnyStage', stage,
@@ -98,7 +99,7 @@ def main():
         ('controller-declarations', owner + 'changedPreviewAndDeclaredPermissionsCannotBeInstalled', controller,
          'check(fresh == expected)', 'check(true)'),
         ('controller-cancellation', owner + 'prePublicationCancellationWaitsForOwnedCleanup', controller,
-         'val caller = currentCoroutineContext()', 'val caller = kotlin.coroutines.EmptyCoroutineContext'),
+         'val raw = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()\n        val caller = currentCoroutineContext()', 'val raw = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()\n        val caller = kotlin.coroutines.EmptyCoroutineContext'),
         ('controller-descriptor', owner + 'installsReadonlySignedVersionAndReopensWithFreshExplicitPolicy', controller,
          'stage.write("release.json", raw)', 'Unit'),
         ('controller-signature', owner + 'installsReadonlySignedVersionAndReopensWithFreshExplicitPolicy', controller,

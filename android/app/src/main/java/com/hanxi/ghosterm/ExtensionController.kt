@@ -841,6 +841,33 @@ class ExtensionController(profile: HostProfile, context: Context,
             }
         } }
     }
+    internal suspend fun installationMaintenance(): PluginInstallJournal.Observation = onWorker {
+        PluginInstallJournal.observe(versionDirectory)
+    }
+    internal suspend fun retireInstallationRecord(reference: PluginInstallJournal.Reference, acknowledged: Boolean): Boolean {
+        check(acknowledged) { "请确认只退役这条已解决的归属记录" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有安装归属目录")
+            owner.use { PluginInstallJournal.retire(owner, reference) }
+        } }
+    }
+    internal suspend fun previewStageRemoval(id: String, reference: PluginInstallJournal.Reference): PluginReleaseRemoval.Preview {
+        require(UUID.fromString(id).toString() == id)
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有安装归属目录")
+            owner.use {
+                val removal = PluginReleaseRemoval.prepareStage(owner, reference)
+                try {
+                    caller.ensureActive(); checkOpen()
+                    val view = removal.preview(id); pendingRemoval = id to removal; view
+                } catch (failure: Throwable) { removal.close(); throw failure }
+            }
+        } }
+    }
     internal fun cancelRemovalPreview(id: String) {
         Handler(thread.looper).post {
             if (pendingRemoval?.first == id) { pendingRemoval?.second?.close(); pendingRemoval = null }
@@ -890,7 +917,7 @@ class ExtensionController(profile: HostProfile, context: Context,
     /** Disk effects are final even if registry cleanup fails. Existing instances
      * retain their original immutable package until their actual release. */
     private fun forgetRemovedVersion(result: PluginReleaseRemoval.Result): PluginReleaseRemoval.Result {
-        if (!result.complete) return result
+        if (!result.complete || result.stage != null) return result
         var issue: String? = null
         val forgotten = mutableListOf<Pair<String, String>>()
         val iterator = records.iterator()

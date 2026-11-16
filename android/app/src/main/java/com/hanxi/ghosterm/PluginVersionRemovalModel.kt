@@ -18,6 +18,7 @@ internal class PluginVersionRemovalModel(
     private val resume: suspend (String) -> PluginReleaseRemoval.Result,
     private val withdraw: suspend (String) -> Boolean,
     private val changed: (PluginReleaseRemoval.Result?) -> Unit,
+    private val inspectStageRequest: (suspend (String, PluginInstallJournal.Reference) -> PluginReleaseRemoval.Preview)? = null,
 ) {
     private var closed = false
     private var epoch = Any()
@@ -54,11 +55,18 @@ internal class PluginVersionRemovalModel(
     }
     fun inspect(releaseID: String, revision: String?) {
         main(); if (!canPreview) return
+        beginInspect { id -> inspect(id, releaseID, revision) }
+    }
+    fun inspectStage(reference: PluginInstallJournal.Reference) {
+        main(); if (!canPreview || inspectStageRequest == null) return
+        beginInspect { id -> inspectStageRequest.invoke(id, reference) }
+    }
+    private fun beginInspect(action: suspend (String) -> PluginReleaseRemoval.Preview) {
         invalidate(); val id = UUID.randomUUID().toString(); requestID = id
         val generation = epoch; busy = true
         operation = scope.launch(Dispatchers.Main.immediate) {
             try {
-                val value = inspect(id, releaseID, revision)
+                val value = action(id)
                 if (!closed && generation === epoch) preview = value else cancelPreview(value.id)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { if (!closed && generation === epoch) { cancelPreview(id); requestID = null; issue = message(failure) } }

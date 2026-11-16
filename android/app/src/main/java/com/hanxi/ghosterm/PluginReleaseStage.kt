@@ -45,6 +45,8 @@ internal class PluginReleaseStage private constructor(
     private var directory: ParcelFileDescriptor? = null
     private var parentIdentity: Identity? = null
     private var directoryIdentity: Identity? = null
+    private var persistentParent: PluginReleaseRemoval.Stamp? = null
+    private var persistentDirectory: PluginReleaseRemoval.Stamp? = null
     private var record: ByteArray? = null
     private var recordStamp: Stamp? = null
     private var childCreated = false
@@ -78,6 +80,7 @@ internal class PluginReleaseStage private constructor(
         validateParent()
         val names = File(proc(parentFD)).list() ?: throw Rejected(Reason.IO)
         demand(names.size < 64, Reason.LIMIT)
+        persistentParent = PluginReleaseRemoval.stamp(parentFD)
         writeRecord(null)
         checkpoint("after-reservation")
         demand(LocalPublicationFile.mkdir(parentFD.fd, name) == 0, Reason.IO)
@@ -85,7 +88,11 @@ internal class PluginReleaseStage private constructor(
         directory = LocalPublicationFile.childDirectory(parentFD.fd, name)
         val selected = Os.fstat(rootFD.fileDescriptor)
         demand(privateDirectory(selected)); directoryIdentity = identity(selected)
-        writeRecord(directoryIdentity)
+        val owned = PluginInstallFiles.lock(rootFD.fd)
+        demand(owned == 0, if (owned == OsConstants.EAGAIN) Reason.BUSY else Reason.IO)
+        checkpoint("after-directory-create")
+        persistentDirectory = PluginReleaseRemoval.stamp(rootFD)
+        writeRecord(persistentDirectory)
         checkpoint("after-directory-record")
         validate()
     }
@@ -105,11 +112,11 @@ internal class PluginReleaseStage private constructor(
         demand(privateDirectory(selected) && privateDirectory(named) && identity(selected) == directoryIdentity && identity(named) == directoryIdentity)
         verifyRecord()
     }
-    private fun writeRecord(selected: Identity?) {
+    private fun writeRecord(selected: PluginReleaseRemoval.Stamp?) {
         validateParent()
         if (record != null) verifyRecord()
-        val raw = JSONObject().put("schema", 1).put("operation", operation).put("name", name)
-            .put("parent", checkNotNull(parentIdentity).json()).put("directory", selected?.json() ?: JSONObject.NULL)
+        val raw = JSONObject().put("schema", 2).put("operation", operation).put("name", name)
+            .put("parent", checkNotNull(persistentParent).json()).put("directory", selected?.json() ?: JSONObject.NULL)
             .put("target", releaseID).toString().toByteArray(Charsets.UTF_8)
         val temporary = ".intent-${UUID.randomUUID()}"
         LocalPublicationFile.candidate(parentFD.fd, temporary).use { output ->

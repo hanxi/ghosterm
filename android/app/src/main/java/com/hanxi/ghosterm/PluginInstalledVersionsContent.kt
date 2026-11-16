@@ -41,6 +41,11 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
         controller::previewInstalledVersion, { controller.confirmInstalledVersion(it, true) }, controller::cancelVersionPreview,
         { id, revision -> controller.disableInstalledVersion(id, revision, true) },
         { result -> changed.value(result); model.refresh() }) }
+    val maintenanceModel = remember(controller) { PluginInstallMaintenanceModel(scope,
+        { observationLock.withLock {
+            val inspector = controller.newReleaseInspector()
+            try { inspector.installationMaintenance() } finally { withContext(NonCancellable) { inspector.close() } }
+        } }, { controller.retireInstallationRecord(it, true) }, { model.refresh() }) }
     val removalModel = remember(controller) { PluginVersionRemovalModel(scope,
         { observationLock.withLock {
             val inspector = controller.newReleaseInspector()
@@ -48,13 +53,14 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
         } },
         controller::previewVersionRemoval, { controller.confirmVersionRemoval(it, true) }, controller::cancelRemovalPreview,
         { controller.resumeVersionRemoval(it, true) }, { controller.cancelPendingVersionRemoval(it, true) },
-        { result -> result?.let { removed.value(it) }; model.refresh() }) }
+        { result -> result?.let { removed.value(it) }; model.refresh(); maintenanceModel.refresh() }, controller::previewStageRemoval) }
+    DisposableEffect(maintenanceModel) { onDispose { maintenanceModel.close() } }
     DisposableEffect(removalModel) { onDispose { removalModel.close() } }
     DisposableEffect(model) { onDispose { model.close() } }
     DisposableEffect(selectionModel) { onDispose { selectionModel.close() } }
-    LaunchedEffect(model) { model.refresh(); removalModel.refresh() }
+    LaunchedEffect(model) { model.refresh(); removalModel.refresh(); maintenanceModel.refresh() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { selectionModel.cancel(); removalModel.refresh(); model.refresh() }, enabled = !model.busy && !selectionModel.committing && !removalModel.committing,
+        OutlinedButton(onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); model.refresh() }, enabled = !model.busy && !selectionModel.committing && !removalModel.committing && !maintenanceModel.committing,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-versions-refresh")) { Text("刷新版本列表") }
         if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (removalModel.preview == null && !removalModel.busy) PluginVersionPolicyContent(selectionModel)
@@ -86,13 +92,16 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
                 OutlinedButton(onClick = { removalModel.cancel(); selectionModel.inspect(version.releaseID, selected?.revision) },
                     enabled = selectionModel.canPreview && selected != null && !model.busy && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-select-${version.releaseID}")) { Text("核验并选择此版本…") }
-                OutlinedButton(onClick = { selectionModel.cancel(); removalModel.inspect(version.releaseID, selected?.revision) },
+                OutlinedButton(onClick = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspect(version.releaseID, selected?.revision) },
                     enabled = removalModel.canPreview && !selectionModel.busy && !model.busy && selected != null && selected.choices.values.none { it.enabled && it.releaseID == version.releaseID },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-remove-${version.releaseID}")) { Text("核对并删除此本机版本…") }
             }
             value.issues.forEach { Text(it, Modifier.testTag("plugin-versions-entry-issue"), color = MaterialTheme.colorScheme.error) }
             if (value.maintenanceCount > 0) Text("安装暂存和未识别对象 ${value.maintenanceCount} 项。", Modifier.testTag("plugin-versions-maintenance"))
         }
+        PluginInstallMaintenanceContent(maintenanceModel, removalModel,
+            canAct = !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
+            inspect = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectStage(it) })
         PluginVersionPreviewContent(selectionModel)
         PluginVersionRemovalContent(removalModel)
     }

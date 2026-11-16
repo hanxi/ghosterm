@@ -25,8 +25,8 @@ internal fun PluginVersionRemovalContent(model: PluginVersionRemovalModel) {
     }
     model.withdrawalDurability?.let { Text(if (it) "删除意图已撤销，原目录保留。" else "撤销回执持久性未确认，请刷新核对。", Modifier.testTag("plugin-removal-withdrawal")) }
     val value = model.preview ?: model.saved ?: return
-    Text(if (value.pending) "待处理的删除意图" else "本机版本删除预览", Modifier.testTag("plugin-removal-preview"), style = MaterialTheme.typography.titleMedium)
-    SelectionContainer { Text("目录：${value.directory}\n发布描述 SHA-256：${value.releaseID}\n清单 ${value.members.size} 项，共 ${value.bytes} 字节。",
+    Text(if (value.pending) "待处理的删除意图" else if (value.stage == null) "本机版本删除预览" else "安装暂存删除预览", Modifier.testTag("plugin-removal-preview"), style = MaterialTheme.typography.titleMedium)
+    SelectionContainer { Text("目录：${value.directory}\n${if (value.stage == null) "发布描述" else "安装归属记录"} SHA-256：${value.releaseID}\n清单 ${value.members.size} 项，共 ${value.bytes} 字节。",
         Modifier.testTag("plugin-removal-summary"), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
     if (value.pending) Text("这是保存的原始清单。刷新和打开页面只读取记录；继续时会重新核对剩余内容，不能核对的内容会保留。")
     LazyColumn(Modifier.fillMaxWidth().height(260.dp).testTag("plugin-removal-inventory"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -37,13 +37,13 @@ internal fun PluginVersionRemovalContent(model: PluginVersionRemovalModel) {
     }
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-removal-acknowledge")
         .toggleable(model.acknowledged, enabled = !model.busy, role = Role.Checkbox, onValueChange = model::acknowledge)) {
-        Checkbox(model.acknowledged, onCheckedChange = null); Text(if (value.pending) "我已核对保存的清单，确认本次所选处理" else "我已核对完整文件清单，确认删除此本机版本")
+        Checkbox(model.acknowledged, onCheckedChange = null); Text(if (value.pending) "我已核对保存的清单，确认本次所选处理" else if (value.stage == null) "我已核对完整文件清单，确认删除此本机版本" else "我已核对完整文件清单，确认删除此安装暂存")
     }
     if (value.pending) {
         Button(onClick = model::resume, enabled = model.canContinue, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-removal-resume")) { Text("明确继续此删除意图") }
         OutlinedButton(onClick = model::withdraw, enabled = model.canContinue, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-removal-withdraw")) { Text("撤销尚未开始移除的意图") }
     } else {
-        Button(onClick = model::confirm, enabled = model.canConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-removal-confirm")) { Text("确认删除此本机版本") }
+        Button(onClick = model::confirm, enabled = model.canConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-removal-confirm")) { Text(if (value.stage == null) "确认删除此本机版本" else "确认删除此安装暂存") }
         TextButton(onClick = model::cancel, enabled = !model.committing, modifier = Modifier.testTag("plugin-removal-cancel")) { Text("取消预览并保留文件") }
     }
 }

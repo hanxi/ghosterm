@@ -55,23 +55,24 @@ internal class PluginReleaseRemoval private constructor(
         val bytes get() = if (directory) 0L else stamp.size
         fun json() = JSONObject().put("path", path).put("directory", directory).put("stamp", stamp.json()).put("sha256", sha256 ?: JSONObject.NULL)
     }
-    private data class Header(val operation: String, val releaseID: String, val revision: String?, val root: Stamp, val version: Stamp) {
+    private data class Header(val operation: String, val releaseID: String, val revision: String?, val root: Stamp, val version: Stamp, val stage: PluginInstallJournal.Reference? = null) {
         val tombstone get() = ".removing-$operation"
-        fun json() = JSONObject().put("schema", 1).put("operation", operation).put("releaseID", releaseID)
-            .put("tombstone", tombstone).put("revision", revision ?: JSONObject.NULL).put("root", root.json()).put("version", version.json())
+        val originalName get() = stage?.name ?: releaseID
+        fun json() = JSONObject().put("schema", if (stage == null) 1 else 2).put("operation", operation).put("releaseID", releaseID)
+            .put("tombstone", tombstone).put("revision", revision ?: JSONObject.NULL).put("root", root.json()).put("version", version.json()).apply { stage?.let { put("stage", it.json()) } }
     }
-    data class Preview(val id: String, val releaseID: String, val directory: String, val members: List<Member>, val pending: Boolean) {
+    data class Preview(val id: String, val releaseID: String, val directory: String, val members: List<Member>, val pending: Boolean, val stage: PluginInstallJournal.Reference? = null) {
         val bytes get() = members.sumOf { it.bytes }
     }
     data class Result(val releaseID: String, val removed: Int, val observedAbsent: Int,
         val complete: Boolean, val durabilityConfirmed: Boolean, val issue: String? = null, val memoryIssue: String? = null,
-        val forgottenPackages: List<Pair<String, String>> = emptyList())
+        val forgottenPackages: List<Pair<String, String>> = emptyList(), val stage: PluginInstallJournal.Reference? = null)
     private data class Intent(val header: Header, val members: List<Member>, val raw: ByteArray, val stamp: Stamp)
     private var closed = false
     private var confirmed = false
     private var intent: Intent? = null
     val releaseID get() = header.releaseID
-    fun preview(id: String) = Preview(id, releaseID, Os.readlink("/proc/self/fd/${root.fd}") + "/$releaseID", members, false)
+    fun preview(id: String) = Preview(id, releaseID, Os.readlink("/proc/self/fd/${root.fd}") + "/${header.originalName}", members, false, header.stage)
     private fun rootPath(name: String) = "/proc/self/fd/${root.fd}/$name"
     private fun validate(owner: PluginReleaseCatalog) {
         demand(!closed); owner.validate()
@@ -80,6 +81,11 @@ internal class PluginReleaseRemoval private constructor(
         demand(selected.device == header.root.device && selected.inode == header.root.inode && selected.owner == header.root.owner)
     }
     private fun disabled(owner: PluginReleaseCatalog, revision: Boolean) {
+        header.stage?.let {
+            val absent = named(root.fd, header.originalName) == null && named(root.fd, header.tombstone) == null
+            PluginInstallJournal.verify(root, it, allowMissing = absent)
+            return
+        }
         val selected = owner.selection()
         demand(!revision || selected.revision == header.revision)
         if (selected.choices.values.any { it.enabled && it.releaseID == releaseID }) throw Rejected(Reason.ENABLED)
@@ -91,17 +97,17 @@ internal class PluginReleaseRemoval private constructor(
         confirmationCheckpoint?.let { checkpoint = it }; rootSync?.let { sync = it }
         demand(!confirmed, Reason.PENDING); validate(owner); owner.requireNoRemoval(); disabled(owner, true)
         val selected = checkNotNull(version)
-        demand(named(root.fd, releaseID) == header.version && stamp(selected) == header.version)
-        demand(scan(selected, header.root.device, checkpoint) == members)
+        demand(named(root.fd, header.originalName) == header.version && stamp(selected) == header.version)
+        demand(scan(selected, header.root.device, checkpoint, writableDirectories = header.stage != null, writableFiles = header.stage != null) == members)
         checkpoint("before-intent"); validate(owner); disabled(owner, true)
-        demand(named(root.fd, releaseID) == header.version && scan(selected, header.root.device, checkpoint) == members)
+        demand(named(root.fd, header.originalName) == header.version && scan(selected, header.root.device, checkpoint, writableDirectories = header.stage != null, writableFiles = header.stage != null) == members)
         this.checkpoint("before-publish-intent"); validate(owner); disabled(owner, true)
         intent = writeIntent(root, header, members); confirmed = true
         return finish(owner, detached = false)
     }
     private fun finish(owner: PluginReleaseCatalog, detached: Boolean): Result {
         var removed = 0; var absent = 0
-        fun result(complete: Boolean, durable: Boolean, reason: Reason? = null) = Result(releaseID, removed, absent, complete, durable, reason?.let { Rejected(it).message })
+        fun result(complete: Boolean, durable: Boolean, reason: Reason? = null) = Result(releaseID, removed, absent, complete, durable, reason?.let { Rejected(it).message }, stage = header.stage)
         try {
             validate(owner); verifyIntent(); disabled(owner, !detached && version != null)
             sync(root.fileDescriptor); checkpoint(if (detached) "resume-detached" else "after-intent")
@@ -109,10 +115,10 @@ internal class PluginReleaseRemoval private constructor(
             val selected = version
             if (selected == null) {
                 // Absence is an observation, never a claim that this call unlinked.
-                demand(named(root.fd, releaseID) == null && named(root.fd, header.tombstone) == null)
+                demand(named(root.fd, header.originalName) == null && named(root.fd, header.tombstone) == null)
                 absent = members.size + 1; clearIntent(owner); return result(true, synchronized())
             }
-            val current = scan(selected, header.root.device, checkpoint, writableDirectories = detached)
+            val current = scan(selected, header.root.device, checkpoint, writableDirectories = detached || header.stage != null, writableFiles = header.stage != null)
             val expected = members.associateBy { it.path }
             for (item in current) {
                 val previous = expected[item.path] ?: throw Rejected(Reason.CHANGED)
@@ -120,10 +126,10 @@ internal class PluginReleaseRemoval private constructor(
             }
             absent = members.size - current.size
             if (!detached) {
-                demand(current == members && named(root.fd, releaseID) == header.version)
+                demand(current == members && named(root.fd, header.originalName) == header.version)
                 checkpoint("before-detach"); validate(owner); disabled(owner, true); verifyIntent()
-                demand(scan(selected, header.root.device, checkpoint) == members)
-                val error = PluginInstallFiles.detach(root.fd, selected.fd, releaseID, header.tombstone)
+                demand(scan(selected, header.root.device, checkpoint, writableDirectories = header.stage != null, writableFiles = header.stage != null) == members)
+                val error = PluginInstallFiles.detach(root.fd, selected.fd, header.originalName, header.tombstone)
                 if (error != 0) throw Rejected(if (error in setOf(OsConstants.ENOSYS, OsConstants.EOPNOTSUPP, OsConstants.EXDEV)) Reason.UNSUPPORTED else Reason.CHANGED)
             }
             sync(root.fileDescriptor); checkpoint("after-detach")
@@ -141,7 +147,7 @@ internal class PluginReleaseRemoval private constructor(
                             removed++
                         }
                     } else {
-                        val proof = file(parent.fd, name, FILE_LIMIT)
+                        val proof = file(parent.fd, name, FILE_LIMIT, writable = header.stage != null)
                         demand(proof.first == member.stamp && proof.second == member.sha256)
                         LocalPublicationFile.retainedCandidate(parent.fd, name).use { input ->
                             demand(stamp(input) == member.stamp && named(parent.fd, name) == member.stamp)
@@ -173,6 +179,7 @@ internal class PluginReleaseRemoval private constructor(
     }
     private fun clearIntent(owner: PluginReleaseCatalog) {
         validate(owner); verifyIntent()
+        header.stage?.let { demand(PluginInstallJournal.retire(owner, it, afterRemoval = true, sync = sync), Reason.IO) }
         LocalPublicationFile.retainedCandidate(root.fd, PluginReleaseCatalog.REMOVAL).use {
             demand(stamp(it) == checkNotNull(intent).stamp)
             demand(LocalPublicationFile.remove(root.fd, it.fd, PluginReleaseCatalog.REMOVAL) == 0, Reason.IO)
@@ -185,7 +192,7 @@ internal class PluginReleaseRemoval private constructor(
         private const val RECORD_LIMIT = 8388608
         private fun demand(ok: Boolean, reason: Reason = Reason.CHANGED) { if (!ok) throw Rejected(reason) }
         private fun observed(s: StructStat, identityKind: Int, born: Long, bornNS: Long) = Stamp(s.st_dev, s.st_ino, s.st_uid, s.st_mode, s.st_nlink, s.st_size, s.st_mtim.tv_sec, s.st_mtim.tv_nsec, s.st_ctim.tv_sec, s.st_ctim.tv_nsec, identityKind, born, bornNS)
-        private fun stamp(descriptor: ParcelFileDescriptor): Stamp {
+        internal fun stamp(descriptor: ParcelFileDescriptor): Stamp {
             val before = Os.fstat(descriptor.fileDescriptor)
             val birth = PluginInstallFiles.identity(descriptor.fd)
             demand(birth.size == 4, Reason.IO)
@@ -195,8 +202,8 @@ internal class PluginReleaseRemoval private constructor(
             demand(value == observed(Os.fstat(descriptor.fileDescriptor), birth[1].toInt(), birth[2], birth[3]))
             return value
         }
-        private fun privateDirectory(s: Stamp) = OsConstants.S_ISDIR(s.mode) && s.owner == Process.myUid() && s.mode and 63 == 0
-        private fun named(parent: Int, name: String): Stamp? {
+        internal fun privateDirectory(s: Stamp) = OsConstants.S_ISDIR(s.mode) && s.owner == Process.myUid() && s.mode and 63 == 0
+        internal fun named(parent: Int, name: String): Stamp? {
             val before = try { Os.lstat("/proc/self/fd/$parent/$name") }
                 catch (failure: ErrnoException) { if (failure.errno == OsConstants.ENOENT) return null else throw Rejected(Reason.IO) }
             demand(OsConstants.S_ISDIR(before.st_mode) || OsConstants.S_ISREG(before.st_mode), Reason.INVALID)
@@ -211,10 +218,10 @@ internal class PluginReleaseRemoval private constructor(
         }
         private fun validPath(path: String) = path.toByteArray().size <= 4096 && Normalizer.normalize(path, Normalizer.Form.NFC) == path &&
             path.split('/').all { it.isNotEmpty() && it != "." && it != ".." && it.toByteArray().size <= 255 && it.none { c -> c < ' ' || c == '\u007f' || c == '\\' || c == ':' } }
-        private fun file(parent: Int, name: String, limit: Int, content: ByteArrayOutputStream? = null): Pair<Stamp, String> {
+        internal fun file(parent: Int, name: String, limit: Int, content: ByteArrayOutputStream? = null, writable: Boolean = false): Pair<Stamp, String> {
             LocalPublicationFile.retainedCandidate(parent, name).use { input ->
                 val before = stamp(input)
-                demand(OsConstants.S_ISREG(before.mode) && before.owner == Process.myUid() && before.links == 1L && before.mode and 191 == 0, Reason.INVALID)
+                demand(OsConstants.S_ISREG(before.mode) && before.owner == Process.myUid() && before.links == 1L && before.mode and (if (writable) 63 else 191) == 0, Reason.INVALID)
                 demand(before.size in 0L..limit.toLong(), Reason.LIMIT)
                 val digest = MessageDigest.getInstance("SHA-256"); val buffer = ByteArray(16384); var size = 0L
                 while (true) {
@@ -229,7 +236,7 @@ internal class PluginReleaseRemoval private constructor(
             }
         }
         private fun scan(directory: ParcelFileDescriptor, device: Long, checkpoint: (String) -> Unit,
-            writableDirectories: Boolean = false): List<Member> {
+            writableDirectories: Boolean = false, writableFiles: Boolean = false): List<Member> {
             val found = mutableListOf<Member>(); var bytes = 0L
             fun walk(parent: ParcelFileDescriptor, prefix: String, depth: Int) {
                 val before = stamp(parent)
@@ -249,7 +256,7 @@ internal class PluginReleaseRemoval private constructor(
                             demand(stamp(child) == value); walk(child, path, depth + 1)
                         }
                     } else {
-                        val checked = file(parent.fd, name, FILE_LIMIT); demand(checked.first == value)
+                        val checked = file(parent.fd, name, FILE_LIMIT, writable = writableFiles); demand(checked.first == value)
                         bytes += value.size; demand(bytes <= TOTAL_LIMIT, Reason.LIMIT)
                         found += Member(path, false, value, checked.second)
                     }
@@ -287,9 +294,21 @@ internal class PluginReleaseRemoval private constructor(
                 root = owner.maintenanceRoot()
                 val header = Header(UUID.randomUUID().toString(), releaseID, revision, stamp(root), stamp(version.descriptor))
                 val members = scan(version.descriptor, header.root.device, checkpoint)
-                demand(named(root.fd, releaseID) == header.version); owner.validate()
+                demand(named(root.fd, header.originalName) == header.version); owner.validate()
                 return PluginReleaseRemoval(root, version.descriptor, header, members, checkpoint, sync)
             } catch (failure: Throwable) { root?.close(); version.close(); throw failure }
+        }
+        fun prepareStage(owner: PluginReleaseCatalog, reference: PluginInstallJournal.Reference,
+            checkpoint: (String) -> Unit = {}, sync: (FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseRemoval {
+            owner.requireNoRemoval()
+            val root = owner.maintenanceRoot(); var selected: ParcelFileDescriptor? = null
+            try {
+                selected = PluginInstallJournal.openAbandoned(root, reference)
+                val header = Header(UUID.randomUUID().toString(), reference.digest, null, stamp(root), stamp(selected), reference)
+                val members = scan(selected, header.root.device, checkpoint, writableDirectories = true, writableFiles = true)
+                demand(named(root.fd, reference.name) == header.version); PluginInstallJournal.verify(root, reference); owner.validate()
+                return PluginReleaseRemoval(root, selected, header, members, checkpoint, sync)
+            } catch (failure: Throwable) { selected?.close(); root.close(); throw failure }
         }
         private fun writeIntent(root: ParcelFileDescriptor, header: Header, members: List<Member>): Intent {
             PluginReleaseCatalog.requireNoRemoval(root.fd)
@@ -321,7 +340,7 @@ internal class PluginReleaseRemoval private constructor(
             }
         }
         private fun keys(value: JSONObject) = value.keys().asSequence().toSet()
-        private fun parseStamp(value: JSONObject): Stamp {
+        internal fun parseStamp(value: JSONObject): Stamp {
             demand(keys(value) == setOf("device", "inode", "owner", "mode", "links", "size", "modified", "modifiedNS", "changed", "changedNS", "identityKind", "born", "bornNS"), Reason.INVALID)
             fun number(name: String) = (value.opt(name) as? String)?.let { text -> text.toLongOrNull()?.takeIf { it.toString() == text } } ?: throw Rejected(Reason.INVALID)
             val owner = number("owner"); val mode = number("mode")
@@ -342,14 +361,18 @@ internal class PluginReleaseRemoval private constructor(
                 return try { PluginReleaseSignature.declarationObject(line.toByteArray()) } catch (_: Exception) { throw Rejected(Reason.INVALID) }
             }
             val value = objectLine(lines.first())
-            demand(keys(value) == setOf("schema", "operation", "releaseID", "tombstone", "revision", "root", "version") && value.opt("schema") is Number && value.opt("schema").toString() == "1", Reason.INVALID)
+            val schema = value.opt("schema")
+            demand(schema is Number && schema.toString() in setOf("1", "2"), Reason.INVALID)
+            val stage = if (schema.toString() == "2") PluginInstallJournal.parseReference(value.optJSONObject("stage") ?: throw Rejected(Reason.INVALID)) else null
+            demand(keys(value) == setOf("schema", "operation", "releaseID", "tombstone", "revision", "root", "version") + (if (stage == null) emptySet<String>() else setOf("stage")), Reason.INVALID)
             val operation = value.opt("operation") as? String ?: throw Rejected(Reason.INVALID)
             demand(runCatching { UUID.fromString(operation).toString() == operation }.getOrDefault(false), Reason.INVALID)
             val release = value.opt("releaseID") as? String ?: throw Rejected(Reason.INVALID)
             demand(PluginReleaseCatalog.digest(release) && value.opt("tombstone") == ".removing-$operation", Reason.INVALID)
             val revision = if (value.opt("revision") === JSONObject.NULL) null else value.opt("revision") as? String ?: throw Rejected(Reason.INVALID)
             demand(revision == null || PluginReleaseCatalog.digest(revision), Reason.INVALID)
-            val header = Header(operation, release, revision, parseStamp(value.optJSONObject("root") ?: throw Rejected(Reason.INVALID)), parseStamp(value.optJSONObject("version") ?: throw Rejected(Reason.INVALID)))
+            val header = Header(operation, release, revision, parseStamp(value.optJSONObject("root") ?: throw Rejected(Reason.INVALID)), parseStamp(value.optJSONObject("version") ?: throw Rejected(Reason.INVALID)), stage)
+            demand(stage == null || (stage.digest == release && revision == null), Reason.INVALID)
             demand(privateDirectory(header.root) && privateDirectory(header.version) && header.root.device == header.version.device, Reason.INVALID)
             val members = lines.drop(1).dropLast(1).map { line ->
                 val item = objectLine(line)
@@ -359,7 +382,7 @@ internal class PluginReleaseRemoval private constructor(
                 val stamp = parseStamp(item.optJSONObject("stamp") ?: throw Rejected(Reason.INVALID))
                 val hash = if (item.opt("sha256") === JSONObject.NULL) null else item.opt("sha256") as? String ?: throw Rejected(Reason.INVALID)
                 demand(validPath(path) && stamp.device == header.root.device, Reason.INVALID)
-                demand(if (directory) privateDirectory(stamp) && hash == null else OsConstants.S_ISREG(stamp.mode) && stamp.links == 1L && stamp.mode and 191 == 0 && stamp.size <= FILE_LIMIT && hash != null && PluginReleaseCatalog.digest(hash), Reason.INVALID)
+                demand(if (directory) privateDirectory(stamp) && hash == null else OsConstants.S_ISREG(stamp.mode) && stamp.links == 1L && stamp.mode and (if (stage != null) 63 else 191) == 0 && stamp.size <= FILE_LIMIT && hash != null && PluginReleaseCatalog.digest(hash), Reason.INVALID)
                 Member(path, directory, stamp, hash)
             }
             demand(members.map { it.path }.distinct().size == members.size && members == members.sortedBy { it.path } && members.sumOf { it.bytes } <= TOTAL_LIMIT, Reason.INVALID)
@@ -375,8 +398,8 @@ internal class PluginReleaseRemoval private constructor(
             owner.maintenanceRoot().use { root ->
                 if (named(root.fd, PluginReleaseCatalog.REMOVAL) == null) return null
                 val record = readIntent(root); demand(record.header.root.sameObject(stamp(root)))
-                val name = if (named(root.fd, record.header.tombstone) != null) record.header.tombstone else record.header.releaseID
-                return Preview(record.header.operation, record.header.releaseID, Os.readlink("/proc/self/fd/${root.fd}") + "/$name", record.members, true)
+                val name = if (named(root.fd, record.header.tombstone) != null) record.header.tombstone else record.header.originalName
+                return Preview(record.header.operation, record.header.releaseID, Os.readlink("/proc/self/fd/${root.fd}") + "/$name", record.members, true, record.header.stage)
             }
         }
         fun resume(owner: PluginReleaseCatalog, id: String, checkpoint: (String) -> Unit = {}, sync: (FileDescriptor) -> Unit = { Os.fsync(it) }): Result {
@@ -385,8 +408,8 @@ internal class PluginReleaseRemoval private constructor(
                 val record = readIntent(root); val header = record.header
                 demand(header.operation == id && header.root.sameObject(stamp(root)))
                 val detached = named(root.fd, header.tombstone)
-                val original = named(root.fd, header.releaseID)
-                val name = if (detached != null) header.tombstone else if (original != null) header.releaseID else null
+                val original = named(root.fd, header.originalName)
+                val name = if (detached != null) header.tombstone else if (original != null) header.originalName else null
                 if (name != null) {
                     val before = checkNotNull(if (detached != null) detached else original)
                     demand(header.version.sameObject(before) && privateDirectory(before))
@@ -405,10 +428,11 @@ internal class PluginReleaseRemoval private constructor(
             owner.maintenanceRoot().use { root ->
                 val record = readIntent(root); demand(record.header.operation == id && record.header.root.sameObject(stamp(root)))
                 if (named(root.fd, record.header.tombstone) != null) throw Rejected(Reason.STARTED)
-                owner.openVersion(record.header.releaseID).use { version ->
-                    val error = PluginInstallFiles.lock(version.descriptor.fd)
+                val descriptor = record.header.stage?.let { PluginInstallJournal.openAbandoned(root, it) } ?: owner.openVersion(record.header.releaseID).descriptor
+                descriptor.use { selected ->
+                    val error = PluginInstallFiles.lock(selected.fd)
                     if (error != 0) throw Rejected(if (error == OsConstants.EAGAIN) Reason.OCCUPIED else Reason.IO)
-                    demand(named(root.fd, record.header.releaseID) == record.header.version && scan(version.descriptor, record.header.root.device, {}) == record.members)
+                    demand(named(root.fd, record.header.originalName) == record.header.version && scan(selected, record.header.root.device, {}, writableDirectories = record.header.stage != null, writableFiles = record.header.stage != null) == record.members)
                     val current = readIntent(root); demand(current.stamp == record.stamp && current.raw.contentEquals(record.raw))
                     LocalPublicationFile.retainedCandidate(root.fd, PluginReleaseCatalog.REMOVAL).use { input ->
                         demand(stamp(input) == record.stamp)

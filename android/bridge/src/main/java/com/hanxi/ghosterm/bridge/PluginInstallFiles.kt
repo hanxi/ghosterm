@@ -21,7 +21,7 @@ object PluginInstallFiles {
     private external fun pinDirectory(directory: Int): Int
     /** One no-replace rename of the exact pinned version; no overwrite fallback. */
     fun detach(parent: Int, directory: Int, releaseID: String, tombstone: String): Int {
-        require(releaseID.matches(Regex("[0-9a-f]{64}")) && tombstone.matches(Regex("\\.removing-[0-9a-f-]{36}")))
+        require((releaseID.matches(Regex("[0-9a-f]{64}")) || releaseID.matches(Regex("\\.prepare-[0-9a-f-]{36}"))) && tombstone.matches(Regex("\\.removing-[0-9a-f-]{36}")))
         return detachDirectory(parent, directory, releaseID.toByteArray(Charsets.UTF_8), tombstone.toByteArray(Charsets.UTF_8))
     }
     private external fun detachDirectory(parent: Int, directory: Int, source: ByteArray, destination: ByteArray): Int

@@ -128,7 +128,7 @@ def headless(api, work, environment):
             print('OWNED AVD EXITED ' + str(child.returncode), flush=True)
 
 
-def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False, selection=False, selection_channel=False, removal=False, removal_hardlink=False, apk_directory=None):
+def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False, selection=False, selection_channel=False, removal=False, removal_hardlink=False, apk_directory=None, maintenance=False):
     for path in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
         apk = (ROOT / 'android/app/build/outputs/apk' if apk_directory is None else Path(apk_directory)) / path
         print(path + ' SHA256 ' + hashlib.sha256(apk.read_bytes()).hexdigest(), flush=True)
@@ -156,6 +156,9 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
     if removal:
         classes += ',com.hanxi.ghosterm.PluginRemovalFilesTest,com.hanxi.ghosterm.PluginReleaseRemovalTest,com.hanxi.ghosterm.PluginVersionRemovalControllerTest,com.hanxi.ghosterm.PluginVersionRemovalModelTest,com.hanxi.ghosterm.PluginVersionRemovalUITest'
         count += 33
+    if maintenance:
+        classes += ',com.hanxi.ghosterm.PluginInstallJournalTest,com.hanxi.ghosterm.PluginStageRemovalTest,com.hanxi.ghosterm.PluginInstallMaintenanceModelTest,com.hanxi.ghosterm.PluginInstallMaintenanceControllerTest,com.hanxi.ghosterm.PluginInstallMaintenanceUITest'
+        count += 26
     fixture_arguments = []
     if removal_hardlink:
         # Only --headless-api may request this fixture. su creates two links in
@@ -204,7 +207,8 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
             raise
         if status: raise RuntimeError('Owned install death driver failed')
     if mutate:
-        mutation = ('scripts/mutation-check-android-removal.py' if removal else
+        mutation = ('scripts/mutation-check-android-maintenance.py' if maintenance else
+            'scripts/mutation-check-android-removal.py' if removal else
             'scripts/mutation-check-android-selection.py' if selection else
             'scripts/mutation-check-android-catalog.py' if catalog else
             'scripts/mutation-check-android-install.py' if install else
@@ -240,8 +244,10 @@ def main():
     parser.add_argument('--selection-channel', action='store_true', help='Also prove old signed Session/Runtime and directory leases over two-hop isolated SSH using built core/build/test_ext_rpc; implies --selection')
     parser.add_argument('--removal', action='store_true', help='Include explicit local version removal, intent observation/resume/cancel and actual Settings confirmation; implies --selection')
     parser.add_argument('--removal-hardlink', action='store_true', help='Also create actual app-owned hard-link fixture through su on our headless AVD only; implies --removal')
+    parser.add_argument('--maintenance', action='store_true', help='Include persistent install ownership, explicit stage removal/metadata retirement and Settings UI; implies --removal')
     parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
     args = parser.parse_args()
+    if args.maintenance: args.removal = True
     if args.removal_hardlink:
         if args.android: parser.error('Privileged fixture creation requires an owned headless AVD')
         args.removal = True
@@ -260,11 +266,11 @@ def main():
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
     if args.android:
-        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink)
+        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
-                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink)
+                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 

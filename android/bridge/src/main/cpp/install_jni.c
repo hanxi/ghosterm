@@ -170,17 +170,24 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachD
     JNIEnv *env, jobject self, jint parent, jint descriptor, jbyteArray from, jbyteArray to) {
     (void)self;
     char source[65] = {0}, target[47] = {0};
-    if (!from || !to || (*env)->GetArrayLength(env, from) != 64 ||
-        (*env)->GetArrayLength(env, to) != 46) {
+    int length = from ? (*env)->GetArrayLength(env, from) : 0;
+    int preparing = length == 45;
+    if (!from || !to || (!preparing && length != 64) || (*env)->GetArrayLength(env, to) != 46) {
         return EINVAL;
     }
-    (*env)->GetByteArrayRegion(env, from, 0, 64, (jbyte *)source);
+    (*env)->GetByteArrayRegion(env, from, 0, length, (jbyte *)source);
     (*env)->GetByteArrayRegion(env, to, 0, 46, (jbyte *)target);
     if ((*env)->ExceptionCheck(env) || memcmp(target, ".removing-", 10)) {
         return EINVAL;
     }
-    for (int i = 0; i < 64; i++) {
-        if (!((source[i] >= '0' && source[i] <= '9') || (source[i] >= 'a' && source[i] <= 'f'))) {
+    if (preparing && memcmp(source, ".prepare-", 9)) {
+        return EINVAL;
+    }
+    for (int i = preparing ? 9 : 0; i < length; i++) {
+        int separator = preparing && (i == 17 || i == 22 || i == 27 || i == 32);
+        if (separator ? source[i] != '-'
+                      : !((source[i] >= '0' && source[i] <= '9') ||
+                          (source[i] >= 'a' && source[i] <= 'f'))) {
             return EINVAL;
         }
     }
@@ -197,7 +204,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachD
     if (!error) {
         error = private_directory(descriptor, &selected);
     }
-    if (!error && (selected.st_mode & 0222)) {
+    if (!error && !preparing && (selected.st_mode & 0222)) {
         error = EINVAL;
     }
     if (!error && fstatat(parent, source, &named, AT_SYMLINK_NOFOLLOW) < 0) {
