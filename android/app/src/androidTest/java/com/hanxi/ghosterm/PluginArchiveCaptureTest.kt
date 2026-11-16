@@ -139,7 +139,7 @@ class PluginArchiveCaptureTest {
         } finally { assertTrue(local.delete()); release() }
     }
     @Test fun cancelledDispatchOfCompletedCaptureClosesUndeliveredOwner() = runBlocking {
-        configure()
+        configure(mode = "gated-pipe")
         fun captures() = File("/proc/self/fd").list()!!.count { name ->
             runCatching { Os.readlink("/proc/self/fd/$name").contains("/plugin-archive-capture-") }.getOrDefault(false)
         }
@@ -148,17 +148,29 @@ class PluginArchiveCaptureTest {
             override fun dispatch(context: CoroutineContext, block: Runnable) { queue.add(block) }
         }
         val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        var reading: Deferred<PluginArchiveCapture>? = null
         try {
             val before = captures()
-            val reading = scope.async { read() }
+            val pending = scope.async { read() }; reading = pending
             checkNotNull(queue.poll()).run()
+            // Keep IO incomplete until the initial runnable has returned.
+            // A tiny regular file can otherwise finish inline without ever
+            // enqueueing the result continuation this scenario needs to cancel.
+            withTimeout(3000) { while (!state().getBoolean("opening")) delay(5) }
+            assertFalse(pending.isCompleted)
+            assertTrue(resolver.call(PluginSignatureStreamProvider.URI, "complete", null, null)!!.getBoolean("ok"))
             withTimeout(3000) { while (queue.isEmpty() || captures() <= before) delay(5) }
             // The IO worker has produced an fd but its caller cannot receive
             // the value until we dispatch this queued continuation.
-            reading.cancel()
-            withTimeout(3000) { while (!reading.isCompleted) { queue.poll()?.run(); delay(5) } }
-            assertTrue(reading.isCancelled)
+            pending.cancel()
+            withTimeout(3000) { while (!pending.isCompleted) { queue.poll()?.run(); delay(5) } }
+            assertTrue(pending.isCancelled)
             assertEquals("cancelled result dispatch retained a capture fd", before, captures())
-        } finally { scope.cancel(); while (queue.isNotEmpty()) queue.poll()?.run(); release() }
+        } finally {
+            scope.cancel(); release()
+            withTimeout(3000) { while (reading?.isCompleted == false) { queue.poll()?.run(); delay(5) } }
+            while (queue.isNotEmpty()) queue.poll()?.run()
+            reading?.let { if (it.isCompleted && !it.isCancelled) it.await().close() }
+        }
     }
 }

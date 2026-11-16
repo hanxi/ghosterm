@@ -19,6 +19,8 @@ internal class PluginArchiveReviewModel(
     private val capture: suspend (Uri) -> PluginArchiveCapture,
     private val read: suspend (Uri, PluginSignatureMaterial) -> PluginSignatureDocument,
     private val inspect: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray) -> ExtensionController.SignedArchiveReview,
+    private val install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease =
+        { _, _, _, _, _ -> error("安装服务未接入") },
 ) {
     class Pick internal constructor(val kind: PluginArchiveMaterial)
     private var closed = false
@@ -31,9 +33,16 @@ internal class PluginArchiveReviewModel(
     var busy by mutableStateOf(false); private set
     var receipt: ExtensionController.SignedArchiveReview? by mutableStateOf(null); private set
     var issue: String? by mutableStateOf(null); private set
+    var installAcknowledged by mutableStateOf(false); private set
+    var installing by mutableStateOf(false); private set
+    var installation: ExtensionController.InstalledRelease? by mutableStateOf(null); private set
     val canInspect get() = !closed && !busy && pending == null && archive != null && trustedPolicy && documents.size == 3
     private fun main() { check(Looper.myLooper() == Looper.getMainLooper()) }
-    private fun invalidate() { epoch = Any(); receipt = null; issue = null }
+    val canInstall get() = canInspect && receipt != null && installAcknowledged && installation == null
+    private fun invalidate() {
+        epoch = Any(); receipt = null; issue = null
+        installAcknowledged = false; installation = null
+    }
     fun beginPick(kind: PluginArchiveMaterial): Pick? {
         main()
         if (closed || busy || pending != null) return null
@@ -73,8 +82,37 @@ internal class PluginArchiveReviewModel(
     }
     fun trustPolicy(value: Boolean) {
         main()
+        if (installing) return
         if (closed || value && PluginSignatureMaterial.POLICY !in documents) return
         invalidate(); trustedPolicy = value
+    }
+    fun acknowledgeInstall(value: Boolean) {
+        main()
+        if (closed || busy || receipt == null || !trustedPolicy || installation != null) return
+        installAcknowledged = value
+    }
+    fun installArchive() {
+        main()
+        if (!canInstall) return
+        val generation = epoch
+        val selected = archive!!
+        val expected = receipt!!
+        val descriptor = documents.getValue(PluginSignatureMaterial.DESCRIPTOR).copyBytes()
+        val signature = documents.getValue(PluginSignatureMaterial.SIGNATURE).copyBytes()
+        val policy = documents.getValue(PluginSignatureMaterial.POLICY).copyBytes()
+        busy = true; installing = true; issue = null
+        operation = scope.launch {
+            try {
+                val value = install(selected, descriptor, signature, policy, expected)
+                if (!closed && generation === epoch) installation = value
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Throwable) {
+                if (!closed && generation === epoch) issue = when (failure) {
+                    is PluginReleaseStage.Rejected, is PluginReleaseSignature.Rejected, is PluginReleaseArchive.Rejected -> failure.message
+                    else -> "未取得完整安装回执；请核对是否有版本、暂存或归属记录保留。"
+                }
+            } finally { installAcknowledged = false; busy = false; installing = false }
+        }
     }
     fun checkArchive() {
         main()

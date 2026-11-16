@@ -40,6 +40,12 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
                     try { worker.inspectSignedArchive(fd, descriptor, signature, policy) }
                     finally { withContext(NonCancellable) { worker.close() } }
                 }
+            }, { captured, descriptor, signature, policy, expected ->
+                captured.borrow().use { fd ->
+                    val worker = controller.newReleaseInspector()
+                    try { worker.installSignedArchive(fd, descriptor, signature, policy, expected) }
+                    finally { withContext(NonCancellable) { worker.close() } }
+                }
             })
     }
     DisposableEffect(model) { onDispose { model.close() } }
@@ -62,7 +68,7 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
             }
         }
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-trust")
-            .toggleable(model.trustedPolicy, enabled = PluginSignatureMaterial.POLICY in model.documents,
+            .toggleable(model.trustedPolicy, enabled = !model.installing && PluginSignatureMaterial.POLICY in model.documents,
                 role = Role.Checkbox, onValueChange = model::trustPolicy)) {
             Checkbox(model.trustedPolicy, onCheckedChange = null)
             Text("我已独立核对并信任此渠道策略快照", style = MaterialTheme.typography.bodyMedium)
@@ -88,7 +94,22 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
                 result.review.commands.forEach { Text("命令 ${it.path} · ${it.title}") }
                 Text("Executor 声明\n${result.declarations.executorJSON ?: "无"}\n实际执行环境与依赖需另行核对。", fontFamily = FontFamily.Monospace)
             } }
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-install-confirmation")
+                .toggleable(model.installAcknowledged, enabled = !model.busy && model.installation == null,
+                    role = Role.Checkbox, onValueChange = model::acknowledgeInstall)) {
+                Checkbox(model.installAcknowledged, onCheckedChange = null)
+                Text("我已审阅上述发布者、权限和依赖，确认保存此版本到本机。", style = MaterialTheme.typography.bodyMedium)
+            }
+            Button(onClick = model::installArchive, enabled = model.canInstall,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-install")) {
+                Text(if (model.installing) "正在安装…" else "安装此版本")
+            }
         }
-        Text("安装状态：尚未安装。来源批准和 Session 授权需另行确认。收起或离开页面会释放 ZIP 快照和本次确认。", style = MaterialTheme.typography.bodySmall)
+        model.installation?.let { installed ->
+            Text("本机版本已发布：${installed.snapshot.review.id} ${installed.snapshot.review.version}\n${if (installed.publication.durabilityConfirmed) "目录同步已确认" else "持久性未确认"} · 尚未选择活动版本",
+                Modifier.testTag("plugin-zip-installed"), style = MaterialTheme.typography.bodyMedium)
+            installed.publication.maintenanceIssue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+        Text("来源批准和 Session 授权需另行确认。本页仅安装本机版本；远端部署与活动版本选择另行操作。收起会释放导入快照，已发布的版本保留。", style = MaterialTheme.typography.bodySmall)
     }
 }

@@ -24,7 +24,7 @@ set(GHOSTERM_RELEASE_CRYPTO_TARGET android_crypto CACHE STRING "Android release 
 set(GHOSTERM_BUILD_TESTS OFF CACHE BOOL "No host probes in APK" FORCE)
 add_subdirectory("${GHOSTERM_ROOT}/core" core)
 add_subdirectory("${GHOSTERM_ROOT}/terminal/android/native" terminal)
-add_library(ghosterm_android SHARED core_jni.c config_jni.c known_hosts_jni.c session_jni.c ssh_session.c tmux_session.c files_jni.c staging_jni.c publication_jni.c extension_jni.c release_jni.c)
+add_library(ghosterm_android SHARED core_jni.c config_jni.c known_hosts_jni.c session_jni.c ssh_session.c tmux_session.c files_jni.c staging_jni.c publication_jni.c install_jni.c extension_jni.c release_jni.c)
 target_include_directories(ghosterm_android PRIVATE "${GHOSTERM_ROOT}/core/include")
 target_compile_options(ghosterm_android PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ghosterm_android PRIVATE ghosterm_core ghosterm_vt_android)

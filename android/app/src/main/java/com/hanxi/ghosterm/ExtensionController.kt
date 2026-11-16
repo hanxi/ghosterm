@@ -86,6 +86,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
     )
     internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof,
         val declarations: PluginReleaseDeclarations.Data)
+    internal data class InstalledRelease(val snapshot: SignedArchiveReview, val publication: PluginReleaseStage.Publication)
     data class Resolution(
         val status: ExtensionRegistry.Status,
         val packageID: String? = null,
@@ -524,11 +525,14 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private fun captureCheckedPackage(directory: File): ExtensionPackage {
         require(directory.isAbsolute && directory.path.isNotBlank() && '\u0000' !in directory.path && directory.path.toByteArray().size <= 4096)
         val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
-        val packageBytes = try {
-            ParcelFileDescriptor.dup(fd).use { ExtensionPackage.capture(it.fd) }
+        return try {
+            ParcelFileDescriptor.dup(fd).use { captureCheckedPackage(it.fd) }
         } finally {
             Os.close(fd)
         }
+    }
+    private fun captureCheckedPackage(directoryFD: Int): ExtensionPackage {
+        val packageBytes = ExtensionPackage.capture(directoryFD)
         try {
             var phase = packageBytes.step()
             var steps = 1
@@ -564,13 +568,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
                         java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
                     val stage = java.nio.file.Files.createTempDirectory(appContext.cacheDir.toPath(), "signed-release-review-", attributes).toFile()
                     try {
-                        var manifest: ByteArray? = null
-                        archive.visit { member, content ->
-                            context.ensureActive()
-                            if (member.path == "plugin.json") {
-                                require(content.size <= 65536) { "插件清单超过 64 KiB 上限" }
-                                manifest = content.copyOf()
-                            }
+                        inspectArchiveContents(archive, authenticated, context::ensureActive, { member, content ->
                             val file = File(stage, member.path)
                             java.nio.file.Files.createDirectories(file.parentFile!!.toPath(), attributes)
                             val fd = Os.open(file.path, OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_EXCL or
@@ -584,15 +582,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
                                 }
                                 Os.fchmod(fd, if (member.executable) 320 else 256)
                             } finally { Os.close(fd) }
-                        }
-                        context.ensureActive()
-                        captureCheckedPackage(stage).use { packageBytes ->
-                            val review = packageReview(packageBytes)
-                            if (PluginReleaseSignature.Identity(review.id, review.version, review.publisher, review.digest) != authenticated.identity)
-                                throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
-                            val declarations = PluginReleaseDeclarations.decode(checkNotNull(manifest), packageBytes.metadata())
-                            SignedArchiveReview(review, authenticated.proof, declarations)
-                        }
+                        }, { captureCheckedPackage(stage) })
                     } finally {
                         // This is our just-created private preview tree. No
                         // package links are accepted and no install is published.
@@ -600,6 +590,62 @@ class ExtensionController(profile: HostProfile, context: Context) {
                     }
                 }
             }
+        } finally { owned.close() }
+    }
+
+    private fun inspectArchiveContents(archive: PluginReleaseArchive, authenticated: PluginReleaseSignature.Authenticated,
+        checkpoint: () -> Unit, write: (PluginReleaseArchive.Member, ByteArray) -> Unit,
+        capture: () -> ExtensionPackage): SignedArchiveReview {
+        var manifest: ByteArray? = null
+        archive.visit { member, content ->
+            checkpoint()
+            if (member.path == "plugin.json") {
+                require(content.size <= 65536) { "插件清单超过 64 KiB 上限" }
+                manifest = content.copyOf()
+            }
+            write(member, content)
+        }
+        checkpoint()
+        capture().use { packageBytes ->
+            val review = packageReview(packageBytes)
+            if (PluginReleaseSignature.Identity(review.id, review.version, review.publisher, review.digest) != authenticated.identity)
+                throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
+            val declarations = PluginReleaseDeclarations.decode(checkNotNull(manifest), packageBytes.metadata())
+            return SignedArchiveReview(review, authenticated.proof, declarations)
+        }
+    }
+
+    /** Explicit confirmation of a prior immutable review. Pre-publication work
+     * observes the original caller's cancellation. The atomic publication and
+     * its receipt run to completion; disposal never rolls back a published tree. */
+    internal suspend fun installSignedArchive(borrowed: ParcelFileDescriptor, descriptor: ByteArray, signature: ByteArray,
+        trustedPolicy: ByteArray, expected: SignedArchiveReview, installDirectory: File = File(appContext.filesDir, "plugin-releases"),
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): InstalledRelease {
+        require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
+        val raw = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
+        val caller = currentCoroutineContext()
+        val owned = ParcelFileDescriptor.dup(borrowed.fileDescriptor)
+        try {
+            return withContext(NonCancellable) { onWorker {
+                caller.ensureActive()
+                val authenticated = PluginReleaseSignature.authenticate(raw, signed, policy)
+                check(authenticated.proof == expected.proof) { "安装材料与已确认的发布证明不一致" }
+                PluginReleaseArchive.open(owned, authenticated.proof, caller::ensureActive).use { archive ->
+                    PluginReleaseStage.create(installDirectory, authenticated.proof.descriptorSHA256,
+                        { phase -> caller.ensureActive(); checkpoint(phase) }, parentSync).use { stage ->
+                        val fresh = inspectArchiveContents(archive, authenticated, caller::ensureActive,
+                            { member, content -> stage.write("payload/${member.path}", content, member.executable) },
+                            { stage.payload().use { captureCheckedPackage(it.fd) } })
+                        check(fresh == expected) { "安装包或声明与已确认的完整预检不一致" }
+                        stage.write("release.json", raw)
+                        stage.write("release.sig", signed)
+                        stage.write("policy.json", policy)
+                        caller.ensureActive()
+                        val publication = stage.publish()
+                        InstalledRelease(fresh, publication)
+                    }
+                }
+            } }
         } finally { owned.close() }
     }
 

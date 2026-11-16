@@ -9673,3 +9673,146 @@ clang-format 19.1.7 的 271 份已跟踪 C 文件、Apple 182 引用 / 3 登记�
 安装切片保留，未借本轮闸门称其已验收。仅提交本修复，不推送 / 发布。
 本轮 `tmp/ci-mac-fix` 的 7 份日志 / 215697 逻辑字节验后清理，原 eq 三件摘要不变；
 仍供 Android 在途验收使用的临时工具 / 证据保留，不动无关进程。
+
+
+### P6 实施第十五批：Android 显式确认与本机签名版本原子安装（2026-11-16）
+
+新增 `PluginReleaseStage`、平台私有 `PluginInstallFiles` / `install_jni.c`，
+`ExtensionController.installSignedArchive` 接入实际签名 / ZIP / Core 再核验和
+Settings 的独立安装确认。实现位于 Android 平台，不增公共 Core ABI，也不在
+C Core 引入 JVM / UI 依赖。默认 App 仍 JS-off。
+
+预检成功后先完整展示发布者、权限目的 / 程序、SDK / 协议及执行端 / 依赖，再由
+用户独立勾选确认和点击安装。改变材料 / 策略、重新检查或失败重试都会清除确认；
+安装期间材料与策略冻结。工作使用独立 inspector 和借用的 ZIP fd，三份材料复制
+成当前快照；签名证明不一致须在任何持久预约之前拒绝，实际解包后又比较完整
+SignedArchiveReview，包含全部声明，不仅比较 ID / 摘要。真实 Core 重新捕获目标
+`payload/`，再保存公开 release.json / release.sig / policy.json；保存的策略证据
+不自动成为下次可信输入。不登记来源、不授权 Session、不启动 Runtime / 远端
+部署，也不选择活动版本。重复相同发布槽位明确冲突，保留旧对象及其它版本。
+
+安装根目录 `files/plugin-releases` 持非阻塞排它锁；固定根 fd / 当前路径身份后，
+同步实际父目录，已有根也重做此同步，以覆盖前次创建后同步失败的重试。未完成
+根入口同步时不创建预约。先原子写入并同步 `.install-UUID.json`，再创建同文件
+系统的 `.prepare-UUID` 并更新其 dev / inode / uid 记录；每次记录替换核对原字节
+及状态戳。临时 record writer 在发布前显式关闭，清理仅使用本次持有的 fd。
+
+条目逐级打开目录，不跟链接，创建排它文件；16 KiB 写块检查原调用者取消，
+文件同步并定为 0400 / 0500。最终按已知 namespace / inode / size / mode /
+mtime / ctime / nlink / uid 检查完整树，拒绝未知、丢失或改变对象；目录递归
+冻结 0500 后，在 syscall 前再次核对整棵树和子目录不可写。只有一次
+renameat2(RENAME_NOREPLACE)，没有覆盖 rename / copy / link / 先删回退。
+不支持的系统 / 文件系统显式失败。启动时根已有对象须少于 64 项，未知条目也
+计数，本次意图 / 暂存及记录原子替换最多另占 3 个根条目；文件 / 目录 / 深度另有
+有界上限。这些是安装预算，不是全应用 RSS / 全磁盘预算。
+
+发布前失败或取消只清理当前仍能完整核对的本次目录和意图；对象或记录变化则
+保留，不按前缀收养 / 删除。syscall 成功后立即记作已发布，处置永不回滚；父目录
+同步失败返回已发布且持久性未确认并保留意图，意图清理失败另记维护问题。
+调用方取消亦不撤销已发布的命名空间。同步回执不等于真实断电 / 掉盘证明。
+跨进程重开不自动重放；现有 dev / inode / uid 意图及当前进程 fd 不能证明 inode
+复用后的永久归属，不是恶意同 uid 的 OS 沙箱。残留列表 / 显式维护、版本选择 /
+启停回滚、活跃实例引用、全局撤权与更强持久归属继续后续切片，P6 未完成。
+
+前置失败独立保留：初次编译发现 Android 公共 API 没有 EWOULDBLOCK / Os.unlink，
+改用 Linux 的 EAGAIN 与既有身份核对 remove helper，不计断言红；初轮 144 项中
+一项替换夹具无法跨父目录移动冻结目录，修正夹具权限与前置断言后 144 项通过。
+初轮安装变异在补根入口同步前由驱动 SIGINT 中止，源码恢复且所属 AVD 退出 0，
+不记整轮通过，最终重跑全部组。
+
+后续 146 项中既有 `cancelledDispatchOfCompletedCaptureClosesUndeliveredOwner`
+出现 3000 ms 超时，整轮未计绿。旧夹具的 tiny regular read 可能在首次 Runnable
+返回前完成，导致没有待取消的返回调度；该次未留交付时点日志，不把此分析当作
+对当次超时的唯一归因。夹具改为可靠管道，在首次 Runnable 返回后才显式写 32
+字节 / EOF，并在 finally 处理已交付结果，未放宽预算或修改生产 Capture。最终
+故意移除生产 finally-close 后，实际 fd 断言明确 0→1，Core 对照及恢复均绿。
+
+
+最终设备证据：自有无窗口 API 29 / API 36、arm64-v8a、4 KiB 页各 **146 项**。
+新增 37 项为事务 17、平台 JNI 5、实际 Core 安装 8、确认草稿 6、实际四材料 SAF
+安装页面 1；原签名 / ZIP / 捕获 / 声明与配置组合 109 项保留。最终驱动保存原始
+instrumentation 输出，额外要求 146 个逐项 status 0，不能只凭 OK 总数接受跳过；
+两档实际都是 146 个正常结束、没有负向结束状态，零失败 / 错误 / 跳过。
+
+最终相同 APK（本地 dirty 构建，未签名发行 / 云端 / 真机结论）：
+
+- App `25c201bb6d4a0af975882bba66f71395fdafd240cddfde379fe6194dc2238145`
+- Test `b3c9a63045d6097be8c9a5ffc8b4ef735d218e650ed1b097937022c88a7e0fdc`
+- API29 原始 instrumentation `292b293bac51b0af2274d91898deb02d4ea01c986b94f41de97893de500c90d1`
+- API36 原始 instrumentation `1e7b0414e0524f1fd9ab5f54156b87b3a7cfa2d079012ed145be78f275e2a84c`
+- API29 汇总 `b84ac2b408ee39eaaa2f9a368cdf802ec63e26997dc134250a5a823987f3a10b`
+- API36 汇总 `e714e0dbeaedc05b631c0aa9f3315e0a8ad54c21f449167cd145e92feceb5f1d`
+
+`mutation-check-android-install.py` 最终 **40 组**全部复验：
+
+- 7 个 JNI 组护不覆盖空目录、冻结源、当前命名 inode、不跟源链接、独立 fd 锁、
+  普通文件拒绝、私有目录权限。
+- 15 个事务组护根入口同步、先预约再 mkdir、目录身份落盘、根路径替换、记录完整
+  核对、文件状态戳、缺失成员、目录 / 文件只读、冻结后子目录不可写、容量、普通
+  退出清理、已发布 owner、同步未知结果、成功后意图退役。
+- 6 个 Controller 组护完整已确认发布证明、全部预检声明、原 caller 取消及三份
+  公开签名证据均存在。
+- 8 个确认草稿组护独立安装确认、输入失效、安装期间策略 / 确认冻结、失败新确认、
+  完成状态、固定未知文案及持久性未确认仍为已发布回执。
+- 3 个真实页面组护确认 checkbox、安装按钮及可见发布回执；失败须命中相应可见
+  控件断言或固定缺回执断言，不能拿系统选包失败充当目标红。
+- 1 个既有捕获取消组经新的可靠管道前提重新验明确的 fd 0→1 反例。
+
+每组真实编译后单条正常断言红，同 APK 独立 Native Core 配置对照绿，恢复后重新
+编译目标绿，六份生产源与起跑 SHA 一致；编译、崩溃、sanitizer 或夹具异常不计红。
+最终 accepted-results SHA256
+`661e6bf42a8bd72d2697b4224368112a22951957f9448f5a59083ab2ec800f90`；
+汇总 `3c367bb8d60adb010063db0ee6d8e5b8c03ed751f67aa4c4f4269763ebadc10e`。
+原读取 / 归档变异的完整旧轮次没有重跑，正常基线在 146 组合内保留；只有捕获取消
+这一旧组在本批重跑，不把 40 组泛化为全部旧变异复验。
+
+六个实际进程死亡检查点：after-reservation / after-directory-record /
+after-file-create / before-rename / after-rename / after-publication-sync。
+主机仅在公开 marker、真实 pid 与检查点吻合且同一 owner 仍存活后 force-stop
+自有测试 App；新 instrumentation 实际启动 MainActivity，核对命名空间未自动
+改变。发布前保持意图 / 暂存、发布后核验只读目标和签名，再由夹具清理它自己
+开始时为空的根，每组另跑独立 Core 对照。此为进程死亡专项，不是变异目标红，
+也不等于断电 / 崩溃恢复 / 持久维护已完成。最终六组收据 SHA256
+`d28bc02e8ee7db866fbb9b2efa54b1f91b7bbe53d6975f1265537d767de29857`。
+
+最终 730 份指定 Core / Android / 终端 / packages 文件与三份驱动完整比对一致，
+最终表摘要 `ce9084e2a283b22abaf6339623c5ca6cb0d68903dae061a2a5e655dc41999b66`。
+六份生产源 Stage / JNI / Model / Controller / View / Capture 摘要依次为：
+`021381639ee1fcc0a7a041be260575feb7ed15555b6b3034310feb93b6fc1f51` /
+`a611b401ff5872f57281058cbc2b889468db4515d7833b6fb98ab36591119e82` /
+`e1afbb6ba6c5db2f8ea4afea865b163824f5ced4c1c71d53b1f8f9671bc98402` /
+`ada43394adaf29522a2b7fd511e8dc3f057c57e8e8da302afafc574cc61729a7` /
+`0b297281d95a5aad075cc4a1275f29cf5abb1bbf445c9e62ff7150977f12c55e` /
+`82a100fd23a88a13af830e4f07d8a8fecc5284541bf26e1e4fe45435df3c2b61`。
+
+启用 JS 的未签名 Release / 实际 R8 与 app / bridge / terminal / data 四模块
+lint 通过。首次命令误选纯 JVM domain 的 lintRelease，任务选择失败单列，不计
+构建通过；改用四个 Android 模块后完成验证。新 JNI 类名在 R8 mapping 保持不变，
+两项 native 方法为 keep seeds，规则仍保持 native 成员名，APK ELF 中两项对应
+JNI 符号实际导出；这是构建 / 保留规则 / 包内容核对，不称 Release 设备安装验证。
+启用档 APK SHA256 `f11e60c1ea8295b98e721e6cb02b355021270e49b3899a01201fe95b262369ce`；
+构建日志 `35ff342daab4270c20ed47f0a7ab40de42c4fbe6284fb46ba28be239287ec0cc`；
+保留 / 导出收据 `18b0272f99a29d783093cca4d28536184d42c02927ed2d0eedbb1e71eba2df57`。
+
+
+最终普通 JS-off Debug / 测试 APK、未签名 Release / 实际 R8 及 app / bridge /
+terminal / data 四模块 lint 通过，日志 SHA256
+`f1d9760751a3a832146f8b4f46e2b9c68ce21890ec06b540cc82697aa127816f`。
+根 Core 保持 JS-off / tests-on / SSH-on / release-signature-off，最终离线 gate
+重新执行 589/589 CTest、185 公共 ABI 与未实现入口检查均通过，日志
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+clang-format 19.1.7 的 272 个已跟踪 C 文件、Apple 182 引用 / 3 登记未用、JNI
+148 / 37、三份驱动 Python AST 与 diff 检查通过；730 输入 / 三驱动最终再次逐项
+核对不变。没有新 Apple 源 / ABI 修改，不把绑定对拍当新的 Apple 产品验收；旧
+process-stream 偶发失败的根因未声称修复。不增加 macOS CI 二十份。
+
+本批仍不是正式发行 / 开放市场、真机 / 16 KiB、完整 SAF 提供方 / 字体字号 /
+辅助技术、所有取消 / 磁盘故障 / 恶意并发、永久归属 / 完整维护或 P6 完成证据。
+持久版本列表 / 启用禁用 / 回滚与实例引用及残留核对 / 显式维护继续下一切片；
+P1–P6 保持未完成，仅本地分批提交，不推送 / 发行。
+
+清理：各自有 AVD 正常退出 0，驱动删除镜像；停止本轮 Gradle / Kotlin JVM
+64922 / 65173，旧 JVM 65439 与旧虚拟机 2637 未动。adb 无在线设备，lsof 仅旧
+虚拟机持 tmp 根 fd。最后只清理本轮及闸门的 87 个 tmp 顶层项、8386 份普通文件、
+200066528 逻辑字节（约 190.80 MiB），不当 APFS 实际回收量；原始日志、收据、
+格式工具用后移除，本文保留范围与摘要，原 eq 三件和 tmp 根目录保留。

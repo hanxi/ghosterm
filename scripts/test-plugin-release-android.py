@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
@@ -125,7 +126,7 @@ def headless(api, work, environment):
             print('OWNED AVD EXITED ' + str(child.returncode), flush=True)
 
 
-def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False):
+def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False):
     for path in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
         apk = ROOT / 'android/app/build/outputs/apk' / path
         print(path + ' SHA256 ' + hashlib.sha256(apk.read_bytes()).hexdigest(), flush=True)
@@ -141,13 +142,31 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
     if archive_ui:
         classes += ',com.hanxi.ghosterm.PluginArchiveCaptureTest,com.hanxi.ghosterm.PluginArchiveDraftTest,com.hanxi.ghosterm.PluginReleaseDeclarationsTest,com.hanxi.ghosterm.PluginArchivePreviewTest,com.hanxi.ghosterm.PluginArchiveReviewUITest'
         count += 24
+    if install:
+        classes += ',com.hanxi.ghosterm.PluginReleaseStageTest,com.hanxi.ghosterm.PluginInstallFilesTest,com.hanxi.ghosterm.PluginInstallDraftTest,com.hanxi.ghosterm.PluginInstallControllerTest,com.hanxi.ghosterm.PluginInstallUITest'
+        count += 37
     output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes,
         'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
-    if ('OK (' + str(count) + ' tests)') not in output or 'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output:
+    receipt = ROOT / 'tmp/android-release-conformance' / (str(time.time_ns()) + '.log')
+    receipt.parent.mkdir(parents=True, exist_ok=True); receipt.write_text(output)
+    print('INSTRUMENTATION RECEIPT ' + str(receipt) + ' SHA256 ' + hashlib.sha256(receipt.read_bytes()).hexdigest(), flush=True)
+    completed = len(re.findall(r'^INSTRUMENTATION_STATUS_CODE: 0\s*$', output, re.MULTILINE))
+    if (('OK (' + str(count) + ' tests)') not in output or completed != count or
+            'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output):
         raise RuntimeError('Release conformance did not run the complete enabled combination:\n' + output)
     print('RELEASE AUTHENTICATION ' + str(count) + ' TESTS PASS', flush=True)
+    if death:
+        driver = subprocess.Popen([sys.executable, '-B', ROOT / 'scripts/test-android-install-death.py'],
+            cwd=ROOT, env=dict(environment, ANDROID_SERIAL=str(selected[-1])), start_new_session=True)
+        try: status = driver.wait(timeout=600)
+        except BaseException:
+            if driver.poll() is None:
+                os.killpg(driver.pid, signal.SIGINT); driver.wait()
+            raise
+        if status: raise RuntimeError('Owned install death driver failed')
     if mutate:
-        mutation = ('scripts/mutation-check-android-archive-ui.py' if archive_ui else
+        mutation = ('scripts/mutation-check-android-install.py' if install else
+            'scripts/mutation-check-android-archive-ui.py' if archive_ui else
             'scripts/mutation-check-android-release-archive.py' if archive else
             'scripts/mutation-check-android-signature-ui.py' if signature_ui else 'scripts/mutation-check-android-release-signature.py')
         driver = subprocess.Popen([sys.executable, '-B', ROOT / mutation],
@@ -173,7 +192,13 @@ def main():
     parser.add_argument('--signature-ui', action='store_true', help='Include documents, draft and actual SAF Settings tests')
     parser.add_argument('--archive', action='store_true', help='Include strict ZIP and signed Core preview conformance')
     parser.add_argument('--archive-ui', action='store_true', help='Include ZIP capture/draft/declarations/actual SAF UI; implies --archive --signature-ui')
+    parser.add_argument('--install', action='store_true', help='Include atomic installation/stage/native/confirmation tests; implies --archive-ui')
+    parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
     args = parser.parse_args()
+    if args.death:
+        if args.android: parser.error('Process-death scans require an owned headless AVD')
+        args.install = True
+    if args.install: args.archive_ui = True
     if args.archive_ui: args.archive = True; args.signature_ui = True
     (ROOT / 'tmp').mkdir(exist_ok=True)
     environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
@@ -181,11 +206,11 @@ def main():
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
     if args.android:
-        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui)
+        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
-                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui)
+                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 

@@ -43,6 +43,16 @@ public final class PluginSignatureStreamProvider extends ContentProvider {
                     try (java.io.RandomAccessFile out = new java.io.RandomAccessFile(file(), "rw")) { out.setLength(size); }
                 }
                 if ("shared".equals(mode)) shared = ParcelFileDescriptor.open(file(), ParcelFileDescriptor.MODE_READ_ONLY);
+            } else if ("complete".equals(method)) {
+                if (!"gated-pipe".equals(mode) || writers.isEmpty()) throw new IllegalStateException();
+                byte[] bytes = java.nio.file.Files.readAllBytes(file().toPath());
+                if (bytes.length > 4096) throw new IllegalArgumentException();
+                for (ParcelFileDescriptor writer : writers) {
+                    if (android.system.Os.write(writer.getFileDescriptor(), bytes, 0, bytes.length) != bytes.length)
+                        throw new java.io.IOException("short fixture write");
+                    writer.close();
+                }
+                writers.clear();
             } else if ("release".equals(method)) {
                 blocked.countDown();
                 for (ParcelFileDescriptor writer : writers) writer.close(); writers.clear();
@@ -80,9 +90,10 @@ public final class PluginSignatureStreamProvider extends ContentProvider {
                 return pair[0];
             } catch (Exception failure) { throw new FileNotFoundException("reliable pipe"); }
         }
-        if ("stall".equals(mode)) {
+        if ("stall".equals(mode) || "gated-pipe".equals(mode)) {
             try {
-                ParcelFileDescriptor[] pair = ParcelFileDescriptor.createPipe(); synchronized (this) { writers.add(pair[1]); }
+                ParcelFileDescriptor[] pair = "gated-pipe".equals(mode) ? ParcelFileDescriptor.createReliablePipe() : ParcelFileDescriptor.createPipe();
+                synchronized (this) { writers.add(pair[1]); }
                 opening = true; return pair[0];
             } catch (java.io.IOException failure) { throw new FileNotFoundException("pipe"); }
         }
