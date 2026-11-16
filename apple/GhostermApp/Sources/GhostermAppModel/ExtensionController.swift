@@ -141,6 +141,21 @@ public actor ExtensionController {
         public let catalog: InstalledCatalog
         public let durabilityConfirmed: Bool
     }
+    public struct PolicyReview: Sendable, Equatable {
+        public enum State: String, Sendable { case accepted, rejected, unknown }
+        public struct Entry: Sendable, Equatable, Identifiable {
+            public let pluginID: String, releaseID: String
+            public let state: State
+            public let reason: String
+            public var id: String { pluginID }
+        }
+        public let id: String, revision: String?, channel: String, policySHA256: String
+        public let entries: [Entry]
+    }
+    public struct PolicyDisableResult: Sendable, Equatable {
+        public let disabled: [String]
+        public let selection: VersionSelectionResult
+    }
     public struct RemovalPreview: Sendable, Equatable {
         public struct File: Sendable, Equatable, Identifiable {
             public let path: String
@@ -424,6 +439,13 @@ public actor ExtensionController {
     public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
         try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
     }
+    public func previewInstalledPolicy(trustedPolicy: URL) async throws -> PolicyReview {
+        try await worker.previewInstalledPolicy(trustedPolicy: trustedPolicy)
+    }
+    public func cancelInstalledPolicyReview(id: String) async { await worker.cancelInstalledPolicyReview(id: id) }
+    public func disableReviewedPlugins(id: String, pluginIDs: [String]) async throws -> PolicyDisableResult {
+        try await worker.disableReviewedPlugins(id: id, pluginIDs: pluginIDs)
+    }
     public func disableInstalledPlugin(pluginID: String, expectedRevision: String?) async throws -> VersionSelectionResult {
         try await worker.disableInstalledPlugin(pluginID: pluginID, expectedRevision: expectedRevision)
     }
@@ -625,6 +647,7 @@ public actor ExtensionController {
         private var sessionVersionLease: PluginReleaseCatalog.VersionHandle?
         private var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
         private var removalPreview: PluginReleaseRemoval?
+        private var policyReview: PluginPolicyReview?
         private var runtimePackageKey: String?
         private var runtimeInstanceID: String?
         private var runtimeCommand: String?
@@ -765,6 +788,39 @@ public actor ExtensionController {
                         directory: directory.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
                     return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
                 } catch { try? captured.package.close(); throw error }
+            }
+        }
+        func previewInstalledPolicy(trustedPolicy: URL) async throws -> PolicyReview {
+            try await perform {
+                try self.checkOpen()
+                self.policyReview = nil
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let review = try PluginPolicyReview(owner: owner, policyURL: trustedPolicy) { fd in
+                    let captured = try self.captureOnQueue(directoryFD: fd)
+                    defer { try? captured.package.close() }
+                    let metadata = try captured.package.metadata()
+                    return .init(id: metadata.id, version: metadata.version, publisher: metadata.publisher, packageSHA256: metadata.packageDigest)
+                }
+                self.policyReview = review
+                return review.value
+            }
+        }
+        func cancelInstalledPolicyReview(id: String) async {
+            _ = try? await perform { if self.policyReview?.value.id == id { self.policyReview = nil } }
+        }
+        func disableReviewedPlugins(id: String, pluginIDs: [String]) async throws -> PolicyDisableResult {
+            try await perform {
+                try self.checkOpen()
+                guard let review = self.policyReview, review.value.id == id else { throw PluginReleaseCatalog.Failure.changed }
+                defer { self.policyReview = nil }
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let inventory = try owner.inventory(), pending = try owner.hasPendingRemoval()
+                let (updated, durable) = try review.apply(owner: owner, pluginIDs: pluginIDs)
+                for pluginID in pluginIDs { self.invalidateSourceDecisions(pluginID: pluginID) }
+                var catalog = self.catalogView(inventory, selection: updated); catalog.removalPending = pending
+                return PolicyDisableResult(disabled: pluginIDs.sorted(), selection: .init(release: nil, catalog: catalog, durabilityConfirmed: durable))
             }
         }
         func disableInstalledPlugin(pluginID: String, expectedRevision: String?) async throws -> VersionSelectionResult {
@@ -1640,6 +1696,7 @@ public actor ExtensionController {
             (try? await perform {
                 self.closed = true
                 self.removalPreview = nil
+                self.policyReview = nil
                 if self.closeComplete { return self.closeResult ? 1 : -1 }
                 do {
                     try self.releaseOwners(forceStop: true)

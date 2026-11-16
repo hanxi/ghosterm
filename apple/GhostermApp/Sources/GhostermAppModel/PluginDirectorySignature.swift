@@ -76,28 +76,8 @@ public enum PluginDirectorySignatureVerifier {
         // tied to the same input even when a caller used bridged mutable NSData.
         guard descriptor.count <= 65536, trustedPolicy.count <= 131072, signature.count == 64 else { throw Failure.limit }
         let payload = Data(Array(descriptor)), policyBytes = Data(Array(trustedPolicy)), signatureBytes = Data(Array(signature))
-        let policy = try ReleaseJSON.parse(policyBytes).object()
-        guard exact(policy, ["schemaVersion", "channel", "keys", "revokedKeyIds"]),
-              try policy["schemaVersion"]?.integer(maximum: 1) == 1,
-              let channel = try policy["channel"]?.string(), matches(channel, "^[a-z0-9][a-z0-9.-]{0,63}$"),
-              let entries = try policy["keys"]?.array(), (1...64).contains(entries.count),
-              let revoked = try policy["revokedKeyIds"]?.array(), revoked.count <= 256 else { throw Failure.policy }
-        var keys: [String: Key] = [:]
-        for entry in entries {
-            let object = try entry.object()
-            guard exact(object, ["id", "algorithm", "publicKey", "publisher", "pluginIds"]),
-                  try object["algorithm"]?.string() == "ed25519",
-                  let id = try object["id"]?.string(), digest(id), keys[id] == nil,
-                  let encoded = try object["publicKey"]?.string(), let raw = Data(base64Encoded: encoded),
-                  raw.count == 32, raw.base64EncodedString() == encoded, hash(raw) == id,
-                  let publisher = try object["publisher"]?.string(), text(publisher),
-                  let plugins = try object["pluginIds"]?.array(), (1...64).contains(plugins.count) else { throw Failure.policy }
-            let ids = try plugins.map { try $0.string() }
-            guard Set(ids).count == ids.count, ids.allSatisfy(pluginID) else { throw Failure.policy }
-            keys[id] = Key(raw: raw, publisher: publisher, plugins: Set(ids))
-        }
-        let revokedIDs = try revoked.map { try $0.string() }
-        guard Set(revokedIDs).count == revokedIDs.count, revokedIDs.allSatisfy(digest) else { throw Failure.policy }
+        let selectedPolicy = try policy(policyBytes)
+        let channel = selectedPolicy.channel, keys = selectedPolicy.keys, revokedIDs = selectedPolicy.revokedIDs
 
         let release = try ReleaseJSON.parse(payload).object()
         guard exact(release, ["schemaVersion", "channel", "keyId", "pluginId", "pluginVersion", "publisher", "packageSHA256", "artifact"]),
@@ -126,7 +106,39 @@ public enum PluginDirectorySignatureVerifier {
         return Authenticated(identity: .init(id: id, version: version, publisher: publisher, packageSHA256: package), proof: proof)
     }
 
-    private struct Key { let raw: Data; let publisher: String; let plugins: Set<String> }
+    struct Policy {
+        let channel: String
+        let keys: [String: Key]
+        let revokedIDs: [String]
+    }
+    static func policy(_ policyBytes: Data) throws -> Policy {
+        guard policyBytes.count <= 131072 else { throw Failure.limit }
+        let policy = try ReleaseJSON.parse(policyBytes).object()
+        guard exact(policy, ["schemaVersion", "channel", "keys", "revokedKeyIds"]),
+              try policy["schemaVersion"]?.integer(maximum: 1) == 1,
+              let channel = try policy["channel"]?.string(), matches(channel, "^[a-z0-9][a-z0-9.-]{0,63}$"),
+              let entries = try policy["keys"]?.array(), (1...64).contains(entries.count),
+              let revoked = try policy["revokedKeyIds"]?.array(), revoked.count <= 256 else { throw Failure.policy }
+        var keys: [String: Key] = [:]
+        for entry in entries {
+            let object = try entry.object()
+            guard exact(object, ["id", "algorithm", "publicKey", "publisher", "pluginIds"]),
+                  try object["algorithm"]?.string() == "ed25519",
+                  let id = try object["id"]?.string(), digest(id), keys[id] == nil,
+                  let encoded = try object["publicKey"]?.string(), let raw = Data(base64Encoded: encoded),
+                  raw.count == 32, raw.base64EncodedString() == encoded, hash(raw) == id,
+                  let publisher = try object["publisher"]?.string(), text(publisher),
+                  let plugins = try object["pluginIds"]?.array(), (1...64).contains(plugins.count) else { throw Failure.policy }
+            let ids = try plugins.map { try $0.string() }
+            guard Set(ids).count == ids.count, ids.allSatisfy(pluginID) else { throw Failure.policy }
+            keys[id] = Key(raw: raw, publisher: publisher, plugins: Set(ids))
+        }
+        let revokedIDs = try revoked.map { try $0.string() }
+        guard Set(revokedIDs).count == revokedIDs.count, revokedIDs.allSatisfy(digest) else { throw Failure.policy }
+
+        return Policy(channel: channel, keys: keys, revokedIDs: revokedIDs)
+    }
+    struct Key { let raw: Data; let publisher: String; let plugins: Set<String> }
     private static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
     private static func same(_ a: String, _ b: String) -> Bool { a.utf8.elementsEqual(b.utf8) }
     private static func exact(_ object: [String: ReleaseJSON.Value], _ keys: Set<String>) -> Bool { Set(object.keys) == keys }

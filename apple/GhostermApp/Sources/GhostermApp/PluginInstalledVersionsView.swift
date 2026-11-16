@@ -14,12 +14,45 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var unclassified: [ExtensionController.UnclassifiedEntry] = []
     @Published var acknowledgedUnknown = false
     private var generation = UUID()
-    @Published var policyPath = "" { didSet { trustedPolicy = false } }
-    @Published var trustedPolicy = false
+    @Published private(set) var policyReview: ExtensionController.PolicyReview?
+    @Published var policyDisableIDs: Set<String> = []
+    private var policyGeneration = UUID()
+    @Published var policyPath = "" { didSet { trustedPolicy = false; invalidatePolicy() } }
+    @Published var trustedPolicy = false { didSet { invalidatePolicy() } }
     var canSelect: Bool { !busy && removal == nil && pendingRemoval == nil && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
+    private func invalidatePolicy() {
+        policyGeneration = UUID(); policyReview = nil; policyDisableIDs = []
+    }
+    func cancelPolicy(_ controller: ExtensionController) async {
+        let id = policyReview?.id; invalidatePolicy()
+        if let id { await controller.cancelInstalledPolicyReview(id: id) }
+    }
+    func reviewPolicy(_ controller: ExtensionController) async {
+        guard canSelect else { return }
+        invalidatePolicy(); let request = policyGeneration
+        busy = true; issue = nil; notice = nil; defer { busy = false }
+        do {
+            let value = try await controller.previewInstalledPolicy(trustedPolicy: URL(fileURLWithPath: policyPath))
+            guard request == policyGeneration else { await controller.cancelInstalledPolicyReview(id: value.id); return }
+            policyReview = value
+        } catch { if request == policyGeneration { issue = message(error) } }
+    }
+    func applyPolicy(_ controller: ExtensionController) async -> ExtensionController.PolicyDisableResult? {
+        guard canSelect, let review = policyReview, !policyDisableIDs.isEmpty else { return nil }
+        let ids = policyDisableIDs.sorted()
+        busy = true; issue = nil; notice = nil; defer { busy = false }
+        do {
+            let result = try await controller.disableReviewedPlugins(id: review.id, pluginIDs: ids)
+            invalidatePolicy(); catalog = result.selection.catalog
+            notice = "已禁用所选 \(result.disabled.count) 个插件的新建；现有运行需另行停止。" +
+                (result.selection.durabilityConfirmed ? "" : "选择已写入，但持久性未确认；请刷新核对。")
+            return result
+        } catch { invalidatePolicy(); issue = message(error); return nil }
+    }
     func refresh(_ controller: ExtensionController) async {
         guard !busy, removal == nil else { return }
         busy = true; defer { busy = false }
+        await cancelPolicy(controller)
         do {
             catalog = try await controller.installedVersions()
             if catalog?.removalPending == true { pendingRemoval = try await controller.pendingVersionRemoval() }
@@ -62,6 +95,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func cancel(_ controller: ExtensionController) async {
         generation = UUID()
+        await cancelPolicy(controller)
         guard let removal else { return }
         self.removal = nil
         acknowledgedUnknown = false
@@ -149,6 +183,9 @@ struct PluginInstalledVersionsView: View {
                     Toggle("我已独立核对并信任此策略，用于重新验证所选版本", isOn: $draft.trustedPolicy)
                         .accessibilityIdentifier("plugin-installed-trust")
                 }.disabled(draft.busy)
+                PluginPolicyReviewView(draft: draft, controller: controller) { result in
+                    for id in result.disabled { didChange(id, result.selection) }
+                }
                 if let catalog = draft.catalog {
                     if catalog.versions.isEmpty { Text("未读到完整的已安装版本。") }
                     ForEach(catalog.versions) { version in

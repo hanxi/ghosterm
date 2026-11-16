@@ -121,10 +121,12 @@ def main():
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
+    parser.add_argument('--policy-review', action='store_true', help='include explicit policy review/disable data, UI, actual Core and live Runtime tests')
     parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.policy_review: args.remove = True
     if args.remove: args.versions = True
     if args.versions:
         args.install = True
@@ -237,6 +239,14 @@ def main():
             ('catalog-live-owner', CONTROLLER, 'self.invalidateSourceDecisions(pluginID: metadata.id)',
              'self.runtime?.stop(); self.invalidateSourceDecisions(pluginID: metadata.id)', live),
         ]
+    if args.policy_review:
+        policy_review = 'apple/GhostermApp/Sources/GhostermAppModel/PluginPolicyReview.swift'
+        recipes += [
+            ('policy-core-capture', policy_review, 'let identity = try inspect(payload)', 'let identity = signed.identity',
+             'PluginPolicyReviewSignedTests.testChangedPayloadCannotBeReportedAcceptedFromStoredSignature'),
+            ('policy-disable', policy_review, 'enabled: false, generation: UUID().uuidString', 'enabled: true, generation: UUID().uuidString',
+             'PluginPolicyReviewSignedTests.testExplicitRevocationBlocksOtherControllerAndNeedsFreshApproval'),
+        ]
     if args.case:
         if not args.mutate: parser.error('--case requires --mutate')
         unknown = set(args.case) - {recipe[0] for recipe in recipes}
@@ -288,6 +298,8 @@ def main():
             log = output.decode(errors='replace')
             if lifetime: log += (ROOT / 'tmp/apple-app-test.log').read_text()
             (work / (label + '.log')).write_bytes(output)
+            if child.returncode != 0 and not red:
+                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:', line))[:12000], flush=True)
             if red:
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
                 assert re.search(r': error: .* : (?:XCTAssert\w+ failed|failed -)', log), (label, log[-9000:])
@@ -306,9 +318,13 @@ def main():
         if args.remove:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests|PluginReleaseRemovalTests)'
             baseline_count = 63
+        if args.policy_review:
+            baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
+            baseline_count += 25
         run('baseline', baseline, count=baseline_count)
         if args.versions: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
+        if args.policy_review: run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
             stem = Path(filename).stem
@@ -334,7 +350,7 @@ def main():
              'macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
-        baselineTests=baseline_count, lifetimeTests=2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove,
+        baselineTests=baseline_count, lifetimeTests=3 if args.policy_review else 2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review,
         inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 

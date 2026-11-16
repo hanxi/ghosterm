@@ -47,9 +47,14 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true)
     }
 
+    func testManagedPreviewSurvivesPolicyReviewAndExplicitDisable() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionRemoval: true, versionPolicy: true)
+    }
+
     private enum Format { case markdown, html, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -230,7 +235,19 @@ final class PluginPaneFlowTests: XCTestCase {
             catch { XCTFail("version selection must retain the running Runtime: \(error)"); return }
             XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue, "version selection must retain the running Runtime")
             XCTAssertEqual(retained.packageDigest, original.packageDigest)
-            let disabledChoice = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: revision)
+            let disabledChoice: ExtensionController.VersionSelectionResult
+            if versionPolicy {
+                let policyURL = root.appendingPathComponent("revoked-policy.json")
+                var policy = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: fixture.appendingPathComponent("live/policy.json"))) as? [String: Any])
+                policy["revokedKeyIds"] = [installed.signature.keyID]
+                try JSONSerialization.data(withJSONObject: policy, options: [.sortedKeys]).write(to: policyURL)
+                let review = try await controller.previewInstalledPolicy(trustedPolicy: policyURL)
+                XCTAssertEqual(review.entries.first { $0.pluginID == installed.review.id }?.state, .rejected)
+                let stillActive = try await controller.stepRuntime(); XCTAssertEqual(stillActive.phase, ExtensionRuntime.Phase.active.rawValue)
+                disabledChoice = try await controller.disableReviewedPlugins(id: review.id, pluginIDs: [installed.review.id]).selection
+            } else {
+                disabledChoice = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: revision)
+            }
             if versionRemoval {
                 let observer = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]),
                     resourceDirectory: root, installationDirectory: installed.directory.deletingLastPathComponent().deletingLastPathComponent())
