@@ -609,5 +609,14 @@ Android 发布签名后端（2026-11-16，插件 P6 第十一批）：新增
 JNI 148 / 37。Android 用已有锁定 libcrypto，host 默认关闭；精确原始描述验签、严格
 渠道策略 / 撤销、Core 固定包四字段绑定与独立未知分类已接。Core 589 CTest、开启
 档签名与共享预算专项、C 九组 / 四故障路径和 ASan/UBSan、Android / macOS 构建证据
-及精确设备范围见[插件计划 P6 第十一批](plan-plugin-bridge.md)。仅内部后端，Android
-签名选取 / 策略确认页面、ZIP 安装 / 版本与维护仍待接，P6 / 完整客户端未完成。
+及精确设备范围见[插件计划 P6 第十一批](plan-plugin-bridge.md)。后续原生页面见下一段，
+ZIP 安装 / 版本与维护仍待接，P6 / 完整客户端未完成。
+
+Android 签名材料与策略快照确认（2026-11-16，插件 P6 第十二批）：Settings 接入真实
+系统文件选择、固定字节摘要、显式策略确认与 Controller / Core 验签；撤回 / 重选 /
+离页失效，来源与 Session 授权独立。API29 / 36 arm64、4 KiB 页无窗口模拟器各
+62 项、API36 十八组正常断言红 / 同 APK Core 绿 / 复原 / SHA 通过，706 份输入一致。
+两档 Android Release / R8、普通 Debug / 测试 APK、四模块 lint、格式 271、ABI
+185 / Apple 182/3 / JNI 148/37 通过。Core 最终 589/589；前置进程启动一条失败、
+定向二十次复验与未确认根因分开保留，详见[插件计划第十二批](plan-plugin-bridge.md)。
+不增加 CI 二十份，默认 JS-off，ZIP / 版本 / 维护、真机 / 16 KiB / 全客户端仍待完成。

@@ -9322,3 +9322,104 @@ clang-format 19.1.7 的 271 文件、Apple 182 引用 / 3 登记未用、JNI 148
 实际回收量。只保留原 eq 三件，摘要不变，tmp 根目录保留；raw 收据 / 日志、隔离
 构建与格式工具用完清理，本文保留验证范围和摘要。早轮共享系统 crash settings 的
 更新不能归属为可独占删除对象，未误删其它历史诊断；最终两设备无该路径写入。
+
+### P6 实施第十二批：Android 原生材料选择与策略快照确认（2026-11-16）
+
+在实际 Settings 的每个 Core 已审查包上接入 `PluginSignatureReviewContent`。三份
+公开材料通过系统 OpenDocument 单独选择；按角色捕获固定字节，展示实际大小 /
+SHA256，用户对具体渠道策略快照勾选确认后才开放验签。Controller / Core 仍按已
+检查包四字段绑定；证明只展示本次策略下的签名归属，不改变进程内来源批准或
+Session / Runtime 授权，包头改标「声明发布者」，避免把声明当已认证身份。
+
+`PluginSignatureDocuments` 接受 content URI 的只读普通文件 / 管道，复用已有
+API29 `FileDescriptorFlags`，检查原 slot CLOEXEC、暂设非阻塞 / 短 poll 并恢复标志。
+按实际 EOF 读取至上限 + 1，明确拒绝超额、空文件及非 64 字节签名；不借提供方
+声明大小截断成功。EOF 后检查可靠 PFD 错误及普通文件 dev / inode / size / mtime /
+ctime，不把提供方报告失败前已收到的前缀认作完整材料。合作提供方的取消 / 10 秒
+期限和进程内共用的两个读取名额已接，名额在实际 IO 退出后归还；外部不合作 provider
+的硬期限、死亡 / 恢复、完整 FUSE / 文件系统并发矩阵仍未验。私有快照拥有字节
+副本，错误显示固定消息，不将提供方异常内容转入产品文案。
+
+页面草稿按 package ID / digest 和具体 picker 请求对象隔离；更换材料即清旧证明，
+更换策略另清旧确认。取消选择清槽位。异步读取 / 核验按 epoch 接收，撤回再确认
+也不能接收先前的晚到结果；收起 / 离开页面关闭草稿、取消读取并清材料和证明。
+系统 picker 按请求独立注册，旧 callback 不能填入新草稿。原 URI 的文件后来变化
+不会替换已选字节；重选同 URI 才捕获新快照。所有确认仅在当前页面内存，不持久
+保存 URI 授权，不在启动时自动读取 / 恢复信任。
+
+设备组合由既有 42 项后端 / Controller / 配置、八项真实 provider 读取、七项草稿
+受控异步调度、一项实际 MainActivity + 系统 DocumentsUI 流程及四项既有原生 fd
+适配器组成。纯调度使用受控 verifier 回调，不能代替密码学 / Core 整链；实际页面
+另以原公开 Node 签名向量和真实 Core 固定目录完成验签，确认源仍 UNKNOWN、无
+Session / Runtime。退出再进、材料取消 / 收起、提供方原路径改变仍用旧快照、重选
+策略撤销并再次确认的实际控件链均保留断言。没有降低生产 Core CPU / JSON / IO
+上限，也没有添加后台取策略或自动安装。
+
+前置失败保留：首轮 55 项有合作取消夹具未转发 CancellationSignal、UI 选择器的
+Compose 时钟尚未推进两条失败；夹具通过 typed/asset open 转发，读取层在取消时
+归一化底层异常，测试明确推进重组后进入系统窗口。之后 13 / 56 定向通过不冒充
+最终完整源。Release lint 揭示 `Os.fcntlInt` 只从 API30 公开，迁入已有 API29 适配器，
+没有压低 minSdk 或隐藏 lint。API29 初始组合及若干定向在首次文件选择回包处失败，
+输入注入成功并不代表选择完成；列表模式、显式 SELECT、触点类型及 shell 注入的
+试验未解决该判据，未计绿，公共 SystemDocumentActions 已原样复原。最终选择
+驱动按新鲜系统节点重试只读点击，直到实际目标应用窗口和 Activity result / 材料
+快照出现；保留真实 SAF 授权与 Core 证明断言，不用直调导入 API 代替用户选择。
+
+API36 首轮完整组合在证明核对后遇到系统 BACK 异步返回，尚未退出子页即查询了
+设置分区；测试增加真实 SettingsViewModel.section 变为 null 的等待，未改变生产
+返回逻辑。之后最终 API36 / API29 均从同一 706 份输入完整重跑，每轮 **62 项通过**，
+两轮实际安装的 App APK / 测试 APK SHA256 分别同为
+`933551d8b7a92464fe736d6a6cde5b64dad3b76712ce7abf85369f0b8a41d0ed` /
+`dfcac2d37ed31b862d54e7c5c86c734aa845bcf47af0394066a42f0ecf672ccf`。
+两设备均为显式自建 headless arm64-v8a / 实测 4096 字节页，确认退出 0 后驱动清理
+所属镜像，无用户设备或前台自动测试窗口。输入表 SHA256
+`b879cf18afc025c6421fa1abdf240215b927acbf9602692e925b0649402102d7`，
+API36 / API29 驱动日志分别为
+`6a63a9e9a632f9c7322d3606cfd52490f59d968cef0e4332263e7f333bf22ea8` /
+`6a32a999eb466cdc92887aaffc2e586c453b1430831566488c9076eb58b2e4c3`。
+
+`--signature-ui --mutate` 的最终 API36 **十八组**完整通过：显式确认、证明失效、策略
+重选、晚到结果、picker 令牌、关闭草稿、取消读取、错误可见、无策略不得确认、真实
+字节上限、签名长度、fd 释放、content URI、共享读取名额、可靠管道错误、只读 fd、
+实际页面确认及 Settings 接线。每组均实际编译后单条正常断言红、同 APK 独立 Core
+配置往返绿、复原重编译绿与三份生产源 SHA；中途十六组为增量前证据，不与最终
+十八组相加。生产文件 Documents / ReviewContent / Settings 最终摘要为
+`01d5136166ed3c60e1cd58bd9fde79754312da2084e7808c593884e8a9c7b4ee` /
+`1529d534d1889eadbfaa41c3019c20ce71469b903a4268f03b76f3bae5c3ec6f` /
+`4a8495127dff93fb150eced1a582f66ca6316ac12040fa1e22f68bc77f3257f6`。
+设备启动器 / 新变异驱动摘要分别为
+`c62405b7c1a4fc37354dda18b644b4ef7d4e653323e67fc62f27d21967f0685f` /
+`f504525d9b7ef3a568dc1d548f978ad39a32337a2a4789af518bd3022c5050ca`。
+旧后端十一组及共享 C crypto 变异 / sanitizer 仍为第十一批证据，不称本轮复跑。
+
+本批未改 C、公开 ABI、Swift 或生产 CPU 预算。Core 首次完整闸门 **588/589**，
+`process_stream_boundary_poll-retry` 在故障注入前 `gt__bridge_process_open` 的正常
+打开断言失败；不能算正常变异红或完整绿。工程 tmp 中原样生产进程 owner 加仅失败
+时打印错误的隔离探针四十次未复现，原未改 CTest 的定向二十次连续通过；根因仍
+未确认，未改代码 / 断言以掩盖。最终再次完整闸门在普通 JS-off / tests-on / SSH-on /
+release-signature-off 档 **589/589 CTest、185 ABI、未实现入口检查通过**，不据此
+宣称修复偶发失败。首次 / 定向二十次 / 最终日志 SHA256 分别为
+`2eaaf6cd1d50f56b0b6f3d189525887774de634ea9be84803d17ccf0e341f05d` /
+`45825681d3296c862ebef23771ac351481eea4d9173e54f53cd1efdab88e090d` /
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+
+最终 JS-enabled 与普通默认 JS-off 的 Android 未签名 Release / 实际 R8、app /
+bridge / data / terminal 四模块 lint 均通过，普通 Debug / 测试 APK 也恢复构建通过；
+两档日志摘要为
+`45a126a1ba628752800d4639a4c20e140f6658e6d3c9a3064a46c9b39234d498` /
+`cb54d51a86472863249b25584d5a6caf1026f686017675f2900969e3210a99fc`。
+clang-format 19.1.7 的 271 文件、Apple 182 引用 / 3 登记未用、JNI 148 / 37、Python
+AST 与 diff 检查通过。未改 Apple 源码，不借此前构建称本批新增 Apple 行为验收。
+
+本批仅实现当前页面内存中的目录包签名核对；签名 ZIP 安装、持久版本选择 / 升级
+回滚 / 禁用 / 维护、生产 key 与持久信任根、策略联网新鲜度 / 防回滚、完整磁盘 /
+并发 / 非合作 provider、真实设备 / 16 KiB / 厂商 DocumentsUI / 辅助技术及全客户端
+仍未完成。默认 App JS-off，不增加 macOS CI 二十份，P6 / P1–P6 未完成；只作本地
+分批提交，不推送 / 发行。
+
+
+最终再次比对 706 份输入与原 eq 三件不变；停止本轮创建的两个构建 JVM，旧 JVM /
+虚拟机未动，adb 无在线设备、lsof 仅见旧虚拟机持 tmp 根目录 fd。用后清理本轮及
+闸门残留 **51 个 tmp 顶层项 / 8190 份普通文件 / 191.14 MiB 逻辑大小**；
+所属 AVD 镜像此前已由驱动清理，不把逻辑数当 APFS 实际回收量。日志 / 原始收据 /
+隔离探针 / 格式工具均移除，本文保留验证范围与摘要；只留原 eq 三件及 tmp 根目录。

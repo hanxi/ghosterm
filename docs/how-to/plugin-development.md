@@ -829,8 +829,24 @@ P6 第十一批提供 `PluginReleaseSignature` 和
 渠道公钥策略、原始描述及 64 字节签名；Controller 在自己的 worker 上读取已经
 Core 检查的固定包 metadata，精确绑定插件 ID、版本、发布者和包摘要。证明记录
 策略 / 描述的原始 SHA256，原目录后来被编辑不会改变已捕获的包身份。
-核对不修改来源批准或 Session 权限。目前尚未接 Android 选取签名文件 / 策略确认
-页面、签名 ZIP 检查安装、版本选择或残留维护。
+核对不修改来源批准或 Session 权限。P6 第十二批已接 Android 原生签名材料选择与
+策略确认页面；签名 ZIP 检查安装、版本选择或残留维护仍待接。
+
+在显式启用插件 JS 的构建中，进入设置 → 插件包来源，选择文件夹完成审查后展开
+「核对目录包发布签名…」。分别通过系统文件选择器选择原始 `release.json`、64 字节
+`release.sig` 和独立可信的渠道策略。页面显示每份已捕获材料的实际字节数 / SHA256；
+核对策略快照摘要并勾选确认后，才可请求验签。策略的新鲜度由用户所选快照决定。
+同 URI 的提供方文件后来变化不会偷换已确认的快照；重新选择会读取新字节，策略
+重选须再次确认。取消选择清除此槽位；更换任何材料、撤回确认、收起或离开页面
+都会清除证明，旧异步结果不能恢复它。材料和确认只留在当前展开页面内存中。
+
+读取只接受 `content://` 提供的只读普通文件 / 管道，使用 API29 兼容的已有描述符
+适配器；检查 CLOEXEC，短 poll / 非阻塞读取后恢复状态标志，并关闭自有 fd。
+按真实 EOF 检查上限与 64 字节签名，不用提供方声明的大小代替完整字节；可靠管道
+报告错误时拒收前缀，普通文件读取前后核对 fd 状态戳。10 秒为合作提供方的读取 /
+取消预算；忽略取消的外部 provider 不能保证硬期限。进程内共用的两个读取名额保留至
+实际退出，避免关闭页面后未释放的读取继续累加。平台读取失败只显示固定错误，
+不转发提供方任意异常文本；不持久化 URI 权限，也不在启动时重新读取这些材料。
 
 共享 C ABI `gt_ext_release_verify` 只认证原始字节，输入公钥 32 字节、签名 64 字节、
 描述 1..65536 字节；消息缓冲纳入既有插件共享内存预算，返回前擦除并归还。
@@ -852,14 +868,16 @@ macOS 相同，`1.0` 可表示版本 1，舍入后才等于 1 的小数不接受
 手工复验使用本地已安装 API 29 / 36 arm64 镜像，不下载系统镜像：
 
 ```bash
-python3 -B scripts/test-plugin-release-android.py --headless-api 29
-python3 -B scripts/test-plugin-release-android.py --headless-api 36 --mutate
+python3 -B scripts/test-plugin-release-android.py --headless-api 29 --signature-ui
+python3 -B scripts/test-plugin-release-android.py --headless-api 36 --signature-ui --mutate
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   python3 -B scripts/mutation-check-release-signature.py
 ```
 
-前两条明确构建 JS-enabled 测试 APK；组合包含真实 JNI 验签、严格策略、真实 Core
-包捕获 / Controller 绑定、既有 Controller 和配置。启动器关闭窗口及崩溃报告，显式
+前两条明确构建 JS-enabled 测试 APK；`--signature-ui` 组合在既有 42 项真实 JNI /
+策略 / Core 包 / Controller / 配置上，加入八项真实提供方读取、七项草稿调度、一项
+MainActivity + 系统 DocumentsUI 整链及四项既有描述符适配器。`--mutate` 配合此选项
+运行页面 / 材料读取保护；不带 `--signature-ui` 时仍运行原 42 项和旧后端变异。启动器关闭窗口及崩溃报告，显式
 设置工程内 Android 临时 / AVD / 发现目录，确认日志后才测试，等待所属进程退出再
 删除镜像。已有明确授权的设备可改用 `--android SERIAL`，不自动选择用户设备。
 Core 变异脚本要求显式可用的 `pkg-config libcrypto`，只在工程 tmp 编译隔离生产副本，
