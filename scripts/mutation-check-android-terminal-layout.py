@@ -29,7 +29,7 @@ def execute(root,build,test):
         return {bar:text.replace(anchor,block+'\n'+anchor)}
     cases=[
         ('portrait-row-height',portrait,replacement(bar,'.height(48.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
-        ('portrait-files-route',portrait,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),
+        ('portrait-files-route',portrait,replacement(screen,'menu = false; leaveTerminal(openFiles)','menu = false; leaveTerminal {}')),
         ('portrait-sessions-route',portrait,replacement(bar,'IconButton(onClick = onSessions,','IconButton(onClick = {},')),
         ('keyboard-focus',portrait,replacement(screen,'target.showKeyboard()','Unit')),
         ('legacy-chrome',portrait,replacement(screen,'Column(Modifier.fillMaxSize().then(if (list) Modifier.clearAndSetSemantics { } else Modifier)) {','Column(Modifier.fillMaxSize().then(if (list) Modifier.clearAndSetSemantics { } else Modifier)) { Spacer(Modifier.height(60.dp))')),
@@ -44,8 +44,8 @@ def execute(root,build,test):
         ('ime-insets',default,replacement(screen,'.union(WindowInsets.ime)','')),
         ('bar-height',default,replacement(bar,'.height(48.dp).background(MaterialTheme.colorScheme.surface)','.height(24.dp).background(MaterialTheme.colorScheme.surface)')),
         ('back-route',default,replacement(screen,'BackHandler(onBack = back)','BackHandler(onBack = {})')),
-        ('keyboard-route',default,replacement(screen,'menu = false; keyboardRequested = session.id','menu = false; keyboardRequested = null')),
-        ('files-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),
+        ('keyboard-route',default,replacement(screen,'menu = false; keyboardRequestedVisible = true; keyboardRequested = session.id','menu = false; keyboardRequestedVisible = true; keyboardRequested = null')),
+        ('files-route',routing,replacement(screen,'menu = false; leaveTerminal(openFiles)','menu = false; leaveTerminal {}')),
         ('sessions-route',routing,replacement(bar,'IconButton(onClick = onSessions,','IconButton(onClick = {},')),
         ('menu-fixed',portrait,scroll_menu),
         ('sheet-expanded','manySessionsOpenExpandedWithFixedCreationActions',replacement(panel,'.fillMaxHeight(.92f)','.fillMaxHeight(.4f)')),

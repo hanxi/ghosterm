@@ -1,12 +1,14 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-16 macOS 安装暂存持久归属与显式遗留维护候选。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四至七批已补本机进程 provider、公共绑定、macOS 显式本机启动 / IPC 附着与私有临时目录清理；第八批已接父 owner 死亡时的 POSIX 进程组监护并完成受控对象验收。第九批已接新运行的持久预约与跨重启只读位置核对；自动发现、旧残留删除与实际文件系统预算仍未完成。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
+日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 官方 Preview 的完整交互与端到端验证。真实双跳 SSH 资源现已到达 macOS AppModel 并由生产 `ExtensionsPane` 实际绘制；macOS 后台页面现可用注入目录选择串起导入、摘要批准、启动表单、真实 consent、直连 / ProxyJump 收件与停止释放；Markdown + PNG、独立 PNG、HTML + CSS / PNG 六条链已验证，HTML 直接取页面嵌入 WKWebView 的实际快照并切换附件 / 返回（P2 第五十七批）。系统 `fileImporter` 文件面板、OS 焦点与完整格式 / 生命周期矩阵仍待验，未记完整用户 UI E2E。headless WebKit probe 已用合成夹具及真实 AppModel / SSH 收件快照分别验证 CSS / PNG 绘制、资源刷新，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；它仍不替代 SwiftUI 内嵌 WebKit 的用户点击链。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件、Markdown + PNG 绘制、停止 / 释放已在 API 29 / 36 常规页模拟器及 API 36 / 16 KiB 页模拟器分批通过。用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P3 已验证官方 CLI stable schema、策略决定和 turn/item 通知字段，生产 conversation facade 与真实 CLI 的无模型 thread/start/关闭链已组合；两端已有原生 turn / approval 控件、结构化消息 / 工具活动和有界 diff 预览；官方目录包可构建，仍没有真实模型 turn / approval 往返、安装启动到会话的完整双端 UI E2E 或 Ghosterm 插件闭环。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 分派仍返回显式不支持，当前真实调用使用已接的显式 relay / IPC 入口。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
 **最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十八批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器、双向资源及受控进程服务。第十八批将通用运行档接到公开 runtime 门面与 gterm 显式启动，组合 session.rpc、原生 ResourceBroker 与 ProcessService；第十九至二十四批已接两端实验入口的运行档 / 依赖 / 显式允许、真实直连 / ProxyJump、受控业务进程，以及 Native Host 本机文件发布的双向资源；Client 不获得 file.* 或本机目录。后续完整资源 / 进程预算、tmux / 设备矩阵、官方 Agent 运行档与真实模型继续待验；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末各批。
+
+**最新 P6 进展：** macOS 第一至十批、Android 第十一至二十二批已接签名描述 / ZIP、独立策略快照确认、原子安装、跨重启列表与活动选择、旧实例引用、回收意图、暂存归属 / 未知目录完整核对、当前策略复核与显式批量禁用，以及升级 / 回滚声明差异。Client 必需能力变化单独展示；签名、来源批准、业务能力授权保持分开。未完成的完整故障 / 并发 / 提供方 / 设备矩阵及联网信任策略不因此关闭，未把本地未推送提交当作已发行。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -10889,3 +10891,121 @@ Node syntax / diff 检查通过，不以注释变化重复设备测试。
 镜像此前由 owned context 清理。仅保留原 eq 三件与 tmp 根，三件 SHA256 不变。
 受测生产 / 断言输入均保持原字节；唯一验后生成器注释补正已在计划单列。
 1628 最终输入清理后复算 `50ad56f795a88b4f8e443f9c726607f39ab8c028ba5ea7d224853e3c648f03ad` 一致。
+
+### P2 实施第五十九批：Android 插件页面返回原终端与 IME（2026-11-17）
+
+本批回到 §11 的原始 P2 验收项：手机从插件页面返回终端时恢复焦点 / IME。新增旧实现
+基线在真实 MainActivity / 本地 PTY 中正常断言红：原先打开的 IME 在第一次工具栏返回
+后没有恢复；同轮隐藏 IME 路径与独立 Core 对照绿（3 项中 1 失败）。不把未走到的
+第二次系统返回称为旧实现复现，也不以空插件页的本地用例代替真实 Preview 收件链。
+
+TerminalScreen 在用户显式离开到主机列表 / 文件页前，先读取实际原生根窗口 IME
+insets，再隐藏键盘。可见性保存在对应 TerminalSession 的一次性进程内返回状态中；
+重新显示且可输入时消费，通过原生视图已附着 / 拥有窗口焦点后的帧调度恢复显示或
+隐藏。原会话 UUID、Native owner、PTY / Surface 保留；不把新连接自动键盘偏好当
+返回状态，不持久化到重启，不向另一 UUID 转移。已退出 owner 清除请求并保持禁输入；
+延迟显示 effect 也把 terminal 状态纳入取消键。会话面板继续使用原本保留 AndroidView
+的焦点交接，不为页面返回替换既有面板语义。无 C ABI / SDK / 资源授权变更。
+
+新增六项设备用例使用实际 PTY、系统 IME / 窗口焦点与 OS 按键：打开 / 隐藏各走
+工具栏与系统返回、恢复一次后 Activity 重建、跨另一 live UUID、后台真实 shell
+`exit 7` 后返回，以及文件页的两种键盘状态。输入证明比较 OS 按键生成的 PID 文件
+与原 owner 记录，不仅检查 ViewModel 选中值或直接调用 InputConnection。
+
+真实 Preview 页面另加打开 / 隐藏 IME 两条链，保留原收件用例。每条通过实际系统
+SAF 文件夹选择、来源摘要批准、两次 SSH 主机认证、Session consent、Markdown / PNG
+字节与实际红像素，然后回原 PTY 验焦点 / IME / PID 输入；再次进入插件页，Runtime
+实例 UUID 和资源回执仍相同，再停止 / 释放。RuntimeState 是持续更新的快照，实例
+身份按 instanceID 对拍。启动仍由测试调用生产 ViewModel 的 launch，SSH 认证回答
+来自独占夹具；不称人工填写完整启动表单、真实账户或完整多格式 UI E2E。
+
+Preview runner 改为有界 `adb reverse --no-rebind` 分配显式 guest 端口，只重试绑定
+冲突，仅删除本次成功创建的映射；重新编码首跳端口与 known-host 条目，不覆写其它
+映射，不使用 adb 的 tcp:0 别名。远端关闭仍要求退出码 7、当前完整的 protocol / lost /
+IO / cleanup=0 诊断与 outcome unknown；没有改成成功，不接受额外未知 stderr。
+
+新手工变异脚本 [mutation-check-android-plugin-return.py](../../scripts/mutation-check-android-plugin-return.py)
+默认九组。最终为 API36 的前八组与 API29 的实际已退出视图输入拒绝一组分轮：
+
+| 保护 | 目标证据 |
+|---|---|
+| capture-shown / capture-hidden | 捕获开 / 关错误后，实际 IME 断言红 |
+| home-route / file-route | 绕过生产离开接线后，回原终端不能恢复打开的 IME |
+| return-restore / return-hidden | 忽略返回状态或强制显示后，实际 IME 断言红 |
+| return-once | 不消费状态后，手动隐藏并重建 Activity 会错误唤起 |
+| return-owner | 错误共享不同会话的返回状态后，新 PTY 错误唤起 |
+| return-stopped-input | 停止期间错误启用原生输入视图，返回后实际输入拒绝断言红 |
+
+每组真实编译后单条指定正常断言红、同 APK NativeSmoke Core 对照绿、恢复重编绿与
+生产源 SHA256。原第九组只断言内部请求清空，已撤回、不计最终九组；改用实际禁输入
+断言后在 API29 重新完整取证。原会话面板七组在 API36、平台状态 / pre-IME Back /
+搜索 Back 三组在 API29，布局的文件路由两组 / 显示键盘路由 / 原生显示接线四组在
+API36 通过，共十四个既有保护；不是既有全部会话 / 布局变异重跑，不增加 CI 二十份。
+
+前置 CLI 的 SDK / 经典 linker 不匹配、切编译器后误回 JS-off 配置、辅助测试误把
+Unit 返回值当 Boolean 的编译失败、第二终端测试未先退回主机列表、旧 stderr 判据、
+把 RuntimeState 快照引用误当实例身份的断言失败均单列，不计目标红或通过。最终
+gterm 另以 doctor 验实际 Portable JS 可用，不以默认 unsupported 档替代真实 SSH。
+
+默认 Core JS-off / tests-on / SSH-on 的离线 gate：589/589 CTest、185 公共 ABI、未实现
+入口报错通过；clang-format 19.1.7 的 272 文件、Apple 182/3 与 JNI 148/37 通过。
+Core 日志 SHA256 `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+API36 新变异分轮日志 `a2d825444d3710e0ab50a7a580e7b9e7f9877e3c4cbb0349b8ef5dfe6dcb39e1`
+含上述已撤回内部探针，最终计前八组；API29 新输入保护
+`048d59dee7ec7a1f800b0803c8e7e5e199cf0ea210511765a2996d843005b8cf`。
+旧会话 API36 / API29 分别为
+`81428e5f47ac05e6d4db0c55acb7376a8ee37d20b7957bba1f5fc8df9a48e153` /
+`19ddddf3a7193c3c03936ba11c714626accc7e5b8baeb0d3457bfeb61a46b3ba`；旧布局为
+`a5aef2be28c3c441e402a2ab1c464c661df86b496983bc3a415f5c8d82cb0851`。
+
+最终同一对 APK 在独占无窗口 API29 / API36、arm64-v8a / 4 KiB 页分别通过
+**127 项、零失败 / 错误 / 跳过**：六项新增返回、TerminalScreen 53、面板 8、布局 7、
+控制 9、资源解析 5 / 组件 6、配置 29、会话快照 1、Core / VT smoke 3；执行的每个
+class#method 与源码声明集合逐项对拍，不只读取汇总计数。另各三条真实双跳 Preview
+链均通过，安装后的 App / 测试 APK SHA256、gterm 与最终源摘要仍一致。仅本次指定
+组合，不是完整客户端、真实手机 / OEM 输入法或 Release 设备测试。
+
+API36 / API29 收据 SHA256 分别为
+`4e6beee66c28d66e6f4dc68b5db383fbb2427681296f3f6e26d46ab34e3b2171` /
+`0bc426ce1066ccd8f09636e4f7f48bdc4c6379deae623534746b15dc7c56e177`；
+127 项原始日志为 `a92deb1605cc15f22e425262e93656a44118e2a8d8a5532a97a4a7b169c2b8e6` /
+`8c68e3af670848c11d5d502adad05107e1991621be3551c04dd58fab9479ca46`。
+最终九组变异汇总 `9cb99ac7ecb0f53c4730bc9e61a0e919f8c8ae459b9d734580d8477f8817f4c4`。
+六条真实 Preview 的原始日志按 API36 原收件 / 打开 / 隐藏、API29 同顺序为：
+`5502347b36a59e64eda5795358bd0a300a4225279d719e60cefaa1a4450a7482`、
+`03866d8b947f2a7b6ed63b4992164401f862409e9a7f53b78143ddc4bdeff918`、
+`842486507d30542777230fe62293e57a2ca66d079e26c96fbea7b09ed97ead09`、
+`448efa0981d001071937b1102fba21ad986495fffeaa8b6f44f63925a7440dde`、
+`ac268c0575ff6f640229b1518dd9ab1edcc3b27abe2d2723566243063823d7bf`、
+`2463ef5a387ccc5ebf033e398a46c35abd08c3e6bd9efa89e3ad2d8947c2de83`。
+
+原生构建：JS-enabled 与默认 JS-off 的未签名 Release / 实际 R8 和 app / bridge /
+data / terminal 四模块 release lint 均通过；默认 Debug / 测试 APK 和最终 JS-enabled
+Debug / 测试 APK 均通过。日志 SHA256 依次为
+`12b1baf4da09f040f9727f95051db1ea6a213bc94030e296f5e8340a741a49e1`、
+`adcfdd64b0e4a942b0c210310497e63d16a6392b89cd67510363ec7db90852ce`、
+`bd8a00cd9dfab7e21ecd461db3ec835163fbd8b5c4df81a24bada964f250eadb`。
+本批未改 Swift / C 实现或公开头，不借用旧 macOS 宿主 / 云端验收作为新 UI 证据。
+
+最终 1631 份指定源 manifest SHA256 为
+`e5ba59b355d348c56514c336a5d933e1c071bc7de3a8d79d95b13a62adbc66d3`。
+真实 JS-enabled gterm 为 `d15fcf739de362373a5788918a3837515d437a39d3bdb1ea84a7c3614f722dbe`。
+最终 App / 测试 APK 分别为
+`f91ee6679269d7c8f6392246118264822dfdc83715f9c5bb3b57b43a4f760d88` /
+`8126df57bae5da98dfaa507910277a76be2a9beb3aaa19d50ab7c1d36337fc5b`。
+构件来自本地 `c4bcd853` 加本批 dirty 来源；未声称 clean / 可重现构建或发行。
+
+全量阶段仍未完成：本批不证明返回等待窗口焦点时的全部停止竞态、用户真机 / OEM
+输入法、物理键盘 / TalkBack、16 KiB 页、新进程恢复、Android 完整 HTML / 格式矩阵，
+也不关闭 P1–P6。普通 App 默认 JS-off；仅本地分批提交，不推送或发行。
+
+
+本批收尾：最终恢复默认 JS-off Debug / 测试 APK 构建通过，日志 SHA256
+`2cd0db98e0d35c8d19574c3f3c32580b94f0567c36bdbf6ee84452c291a009c8`。
+全部 owned AVD 退出 0、adb 无在线设备；自有构建 JVM 52313 / 52481 及最后恢复构建
+54133 / 54290 已退出，原 65439 / 2637 未动。核对完收据后清理本轮 / 闸门的
+37 个 tmp 顶层项、661 目录、8459 普通文件、226194941 逻辑字节（约 215.72 MiB），
+另有 4 个符号链接；镜像已在每轮 context 退出时回收，不将逻辑大小当 APFS 实际
+释放量。只保留 tmp 根与原 eq 三件，三件 SHA256 逐项不变；清理后重枚举唯一源集
+仍为 1631 份 / `e5ba59b355d348c56514c336a5d933e1c071bc7de3a8d79d95b13a62adbc66d3`。
+原始日志 / 收据 / 临时工具均已移除，本文摘要作历史记录；重验需重新生成夹具。

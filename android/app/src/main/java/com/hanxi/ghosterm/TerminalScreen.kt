@@ -37,6 +37,7 @@ fun TerminalScreen(model: SessionsViewModel,
     var statusBarVisible by rememberSaveable { mutableStateOf(false) }
     TerminalSystemBars(statusBarVisible)
     var keyboardRequested by remember { mutableStateOf<java.util.UUID?>(null) }
+    var keyboardRequestedVisible by remember { mutableStateOf(true) }
     var keyboardBeforePanel by rememberSaveable { mutableStateOf(false) }
     var recoveryErrorDismissed by remember(session.id, recoveryError) { mutableStateOf(false) }
     var list by remember { mutableStateOf(false) }
@@ -58,7 +59,16 @@ fun TerminalScreen(model: SessionsViewModel,
             if (onRecover != null) onRecover(session) else model.restartLocal(session.id)
         }
     }
-    LaunchedEffect(keyboardRequested, terminal, session.id, list, closeTarget) {
+    val leaveTerminal: (() -> Unit) -> Unit = { leave ->
+        session.keyboardOnReturn = terminal?.let {
+            androidx.core.view.ViewCompat.getRootWindowInsets(it)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
+        } ?: imeVisible
+        keyboardRequested = null
+        terminal?.hideKeyboard()
+        leave()
+    }
+    LaunchedEffect(keyboardRequested, keyboardRequestedVisible, terminal, session.id, session.state.terminal, list, closeTarget) {
         val target = terminal
         if (keyboardRequested == session.id && target != null && !list && closeTarget == null && !session.state.terminal) {
             // Wait for popup dismissal and any pending window focus handoff.
@@ -70,7 +80,7 @@ fun TerminalScreen(model: SessionsViewModel,
                     // A new AndroidView has window focus before API 29 has
                     // handed its input connection to the IME. Let focus settle.
                     withFrameNanos { }
-                    target.showKeyboard()
+                    if (keyboardRequestedVisible) target.showKeyboard() else target.hideKeyboard()
                 }
             }
             keyboardRequested = null
@@ -92,12 +102,15 @@ fun TerminalScreen(model: SessionsViewModel,
             // otherwise Compose's temporary focus parking can dismiss the IME.
             if (restore) terminal?.requestFocus()
             list = false
-            if (restore && keyboardBeforePanel) keyboardRequested = model.active?.takeUnless { it.state.terminal }?.id
+            if (restore && keyboardBeforePanel) {
+                keyboardRequestedVisible = true
+                keyboardRequested = model.active?.takeUnless { it.state.terminal }?.id
+            }
             else if (restore) { terminal?.hideKeyboard(); terminal?.requestFocus() }
             keyboardBeforePanel = false
         }
     }
-    val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
+    val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) leaveTerminal(model::home) }
     BackHandler(onBack = back)
     BackHandler(enabled = menu) { menu = false }
     // API 29's stable edge-to-edge insets still include a hidden status bar.
@@ -154,13 +167,13 @@ fun TerminalScreen(model: SessionsViewModel,
                 onClick = { menu = false; recover() }, modifier = Modifier.testTag("terminal-menu-recover"))
             DropdownMenuItem(text = { Text("显示键盘") }, enabled = !session.state.terminal,
                 leadingIcon = { GhostermIcon(UiIcon.Keyboard) },
-                onClick = { menu = false; keyboardRequested = session.id },
+                onClick = { menu = false; keyboardRequestedVisible = true; keyboardRequested = session.id },
                 modifier = Modifier.testTag("terminal-menu-keyboard"))
-            DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-menu-files"))
+            DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; leaveTerminal(openFiles) }, modifier = Modifier.testTag("terminal-menu-files"))
             DropdownMenuItem(text = { Text(if (statusBarVisible) "隐藏系统状态栏" else "显示系统状态栏") },
                 onClick = { menu = false; statusBarVisible = !statusBarVisible }, modifier = Modifier.testTag("terminal-menu-status-bar"))
             DropdownMenuItem(text = { Text("返回主机列表") },
-                onClick = { menu = false; terminal?.hideKeyboard(); model.home() }, modifier = Modifier.testTag("terminal-menu-home"))
+                onClick = { menu = false; leaveTerminal(model::home) }, modifier = Modifier.testTag("terminal-menu-home"))
             DropdownMenuItem(text = { Text("清除本地显示") }, onClick = { menu = false; confirmClear = true })
             if (stopped.isNotEmpty()) DropdownMenuItem(text = { Text("清理已停止会话（${stopped.size}）") },
                 onClick = { menu = false; cleanupIds = stopped.map { it.id } }, modifier = Modifier.testTag("terminal-clean-stopped"))
@@ -253,10 +266,19 @@ fun TerminalScreen(model: SessionsViewModel,
         }
     LaunchedEffect(session.state.terminal) { if (session.state.terminal) { terminal?.ctrl = 0; terminal?.hideKeyboard() } }
     DisposableEffect(session.id) { onDispose { session.keyboardOffered = true } }
-    LaunchedEffect(session.id, session.state.connected, terminal, controls.autoKeyboard) {
-        if (session.state.connected && terminal != null && !session.keyboardOffered) {
-            session.keyboardOffered = true
-            if (controls.autoKeyboard) terminal?.requestAutomaticKeyboard()
+    LaunchedEffect(session.id, session.state.connected, session.state.terminal, terminal, controls.autoKeyboard) {
+        if (session.state.terminal) session.keyboardOnReturn = null
+        else if (session.state.connected && terminal != null) {
+            val restore = session.keyboardOnReturn
+            session.keyboardOnReturn = null
+            if (restore != null) {
+                session.keyboardOffered = true
+                keyboardRequestedVisible = restore
+                keyboardRequested = session.id
+            } else if (!session.keyboardOffered) {
+                session.keyboardOffered = true
+                if (controls.autoKeyboard) terminal?.requestAutomaticKeyboard()
+            }
         }
     }
     if (list) TerminalSessionPanel(model.sessions.toList(), session.id, model.previousSession, model.creating,

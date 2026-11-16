@@ -96,7 +96,10 @@ class PluginPreviewSettingsE2ETest {
         fail("$label: ${systemNodes().take(35).joinToString { "${it.text}/${it.contentDescription}" }}")
     }
 
-    @Test fun realTwoHopPreviewReceiptAppearsInMainActivitySettings() {
+    @Test fun realTwoHopPreviewReceiptAppearsInMainActivitySettings() = preview(null)
+    @Test fun realTwoHopPreviewReturnsToSamePtyWithOpenIme() = preview(true)
+    @Test fun realTwoHopPreviewReturnsToSamePtyWithoutSummoningHiddenIme() = preview(false)
+    private fun preview(returnKeyboard: Boolean?) {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture
         val ports = payload.getJSONObject("two").getJSONArray("ports")
@@ -131,9 +134,15 @@ class PluginPreviewSettingsE2ETest {
         val extensions = ViewModelProvider(activity)[ExtensionPackagesViewModel::class.java]
         val sessions = ViewModelProvider(activity)[SessionsViewModel::class.java]
         val controller = checkNotNull(extensions.controller)
+        val terminalProbe = PluginTerminalReturnProbe(ui)
         try {
-            ui.onNodeWithContentDescription("设置").performClick()
-            ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
+            val originalTerminal = returnKeyboard?.let {
+                terminalProbe.begin().also { terminalProbe.leaveToPlugins(returnKeyboard) }
+            }
+            if (returnKeyboard == null) {
+                ui.onNodeWithContentDescription("设置").performClick()
+                ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
+            }
             ui.onNodeWithText("选择插件文件夹").performScrollTo().performClick()
             awaitSystem("DocumentsUI did not open") {
                 systemNodes().any { it.packageName?.toString()?.contains("documentsui") == true }
@@ -247,6 +256,22 @@ class PluginPreviewSettingsE2ETest {
             }
             assertTrue("real SSH Markdown attachment should draw red pixels; got $redPixels", redPixels > 0)
 
+            if (originalTerminal != null) {
+                val resourceIds = extensions.receivedResources.map { it.descriptor.resourceId }
+                val runtime = extensions.activeRuntime
+                terminalProbe.returnFromPlugins(originalTerminal, returnKeyboard!!, systemBack = !returnKeyboard)
+                terminalProbe.inputProof(originalTerminal)
+                terminalProbe.leaveToPlugins(returnKeyboard)
+                assertNotNull(runtime)
+                assertEquals("navigation must keep the same plugin Runtime instance", runtime!!.instanceID,
+                    extensions.activeRuntime?.instanceID)
+                assertEquals(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
+                    extensions.activeRuntime?.info?.phase)
+                assertEquals("navigation must retain exact resource receipts", resourceIds,
+                    extensions.receivedResources.map { it.descriptor.resourceId })
+                assertArrayEquals(expectedMarkdown.toByteArray(), received.bytes)
+            }
+
             ui.onNodeWithText("停止插件").performScrollTo().performClick()
             await("Settings stop action did not stop the Client Runtime: ${main { extensions.activeRuntime }}") {
                 extensions.activeRuntime?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STOPPED
@@ -261,6 +286,7 @@ class PluginPreviewSettingsE2ETest {
             assertNull("stopping and releasing the received Preview must not leave an AppModel error",
                 extensions.error)
         } finally {
+            terminalProbe.close()
             var closeFailure: Throwable? = null
             try { runBlocking { controller.close() } } catch (failure: Throwable) { closeFailure = failure }
             if (originalKnownHosts == null) knownHosts.delete() else knownHosts.writeBytes(originalKnownHosts)

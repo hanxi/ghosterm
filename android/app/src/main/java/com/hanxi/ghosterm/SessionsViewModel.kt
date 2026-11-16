@@ -35,6 +35,9 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
     var state by mutableStateOf(SessionState(0, null, 0, null)); internal set
     internal var appliedAppearance: TerminalAppearance? = null
     internal var keyboardOffered = false
+    // One explicit page departure, owned by this live session only. Returning
+    // consumes it; selecting another terminal must not inherit its IME state.
+    internal var keyboardOnReturn: Boolean? = null
     internal var switcherNumber = 1
     internal val switcherTitle: String get() = when {
         remoteAlias == null -> title

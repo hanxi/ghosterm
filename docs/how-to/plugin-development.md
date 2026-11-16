@@ -466,6 +466,37 @@ bash scripts/gate.sh
 
 核对收据后清理本次创建的 `tmp/plugin-pane/`；脚本内部的原生副本在退出时清理。
 
+## Android 插件页面返回终端
+
+从终端菜单离开到主机列表 / 文件页时，保存该会话离开前的实际输入法可见性；从插件
+设置返回后，继续同一终端会恢复原 PTY 和输入焦点。原本打开的键盘恢复，原本隐藏的
+键盘保持隐藏。这是本次页面往返的一次性状态，不是重新启用「新连接自动显示键盘」；
+不持久化到应用重启，不把另一会话的状态套到新会话，已经退出的 PTY 丢弃恢复请求。
+
+设备专项须使用明确指定的测试设备；自动 AVD 需无窗口运行。先构建 JS-enabled App
+和测试 APK，并准备 `doctor` 报告 Portable JS 可用的真实 `gterm`。以下每个 SSH
+命令分别运行一条真实 SAF 选包 / 来源批准 / 双跳 Preview 链：
+
+```sh
+bash scripts/build-android.sh -PghostermPluginJs=true :app:assembleDebug :app:assembleDebugAndroidTest
+python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --test com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopPreviewReturnsToSamePtyWithOpenIme
+python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --test com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopPreviewReturnsToSamePtyWithoutSummoningHiddenIme
+ANDROID_SERIAL="$ANDROID_SERIAL" python3 -B scripts/mutation-check-android-plugin-return.py
+```
+
+两条 Preview 链核对 Markdown / PNG 实际绘制，回到同一个会话 UUID / Surface、实际
+窗口焦点及系统 IME；通过 OS 按键在原 shell 生成 PID 文件，与原 owner 记录对拍。
+再次进入插件页时保留 Runtime 实例 UUID 和资源回执，随后真实停止、释放，并核对
+远端退出和临时资源清理。Runtime 状态快照会持续更新，不把快照对象地址当实例身份。
+Host 关闭长会话后远端结果仍为 unknown / 退出码 7，不能记成远端任务成功。
+
+新增变异脚本默认九组，`--case 名称` 可重复选组；目标是捕获开 / 关状态、主机 / 文件
+离开接线、返回恢复、隐藏状态、一次性消费、UUID 隔离和已退出 owner 的输入拒绝。
+逐组真实重编译、单条指定正常断言红、同 APK Core 绿、恢复重编绿及源码 SHA256。
+编译失败、跳过、崩溃及夹具错误不计目标红；INT / TERM 恢复生产源。该专项不替代
+原会话面板 / 布局保护、原生 Release / lint 或完整手机 / 输入法 / 生命周期验收，也
+不增加 macOS CI 二十份。临时内容均放工程 `tmp/`，核对收据后及时清理本轮内容。
+
 ## 离线签名发布候选
 
 `gterm-plugin release sign / verify` 是 P6 的开发工具首片，生成 / 检查候选发布包，

@@ -123,9 +123,7 @@ def main():
                     "gtermBinary": str(gterm),
                     "previewGtermWrapper": str(remote_wrapper),
                 }
-                payload = json.dumps(fixture, separators=(",", ":")).encode()
-                if len(payload) > 1048576:
-                    raise RuntimeError("Android fixture payload exceeds its explicit one MiB bound")
+                payload = b""  # Published only after the owned guest port mappings exist.
 
                 class Handler(socketserver.StreamRequestHandler):
                     def handle(self):
@@ -138,11 +136,33 @@ def main():
                 server.daemon_threads = True
                 server_thread = threading.Thread(target=server.serve_forever, name="preview-fixture-server")
                 server_thread.start()
-                fixture_port = server.server_address[1]
+                owned_guest_ports = []
+                def reverse_guest(host_port):
+                    # Do not replace an existing mapping or use adb's tcp:0 alias.
+                    # Retry only a reported bind collision, before instrumentation.
+                    for _ in range(16):
+                        guest_port = 20000 + secrets.randbelow(20000)
+                        result = subprocess.run([*device, "reverse", "--no-rebind", f"tcp:{guest_port}", f"tcp:{host_port}"],
+                                                capture_output=True, text=True, timeout=15)
+                        detail = result.stdout + result.stderr
+                        if result.returncode:
+                            if "cannot bind listener: Address already in use" in detail or "cannot rebind existing socket" in detail:
+                                continue
+                            raise RuntimeError("reverse fixture: " + detail)
+                        owned_guest_ports.append(guest_port)
+                        return guest_port
+                    raise RuntimeError("No guest fixture port after 16 bind collisions")
                 try:
-                    for port in (fixture_port, ports[0]):
-                        subprocess.run([*device, "reverse", f"tcp:{port}", f"tcp:{port}"],
-                                       check=True, capture_output=True, timeout=15)
+                    fixture_port = reverse_guest(server.server_address[1])
+                    guest_hop = reverse_guest(ports[0])
+                    old_name = f"[route-hop-0.invalid]:{ports[0]} "
+                    if fixture["two"]["known"].count(old_name) != 1:
+                        raise RuntimeError("Missing unique first-hop known-host port")
+                    fixture["two"]["known"] = fixture["two"]["known"].replace(old_name, f"[route-hop-0.invalid]:{guest_hop} ")
+                    fixture["two"]["ports"] = [guest_hop, *ports[1:]]
+                    payload = json.dumps(fixture, separators=(",", ":")).encode()
+                    if len(payload) > 1048576:
+                        raise RuntimeError("Android fixture payload exceeds its explicit one MiB bound")
                     output = subprocess.run(
                         [*device, "shell", "am", "instrument", "-w", "-r",
                          "-e", "class", args.test,
@@ -164,7 +184,11 @@ def main():
                         raise RuntimeError("remote gterm did not exit after Android closed the Client Runtime")
                     remote_status = remote_exit.read_text()
                     remote_error = remote_stderr.read_text(errors="replace") if remote_stderr.exists() else ""
-                    if remote_status != "7" or remote_error.strip() != "gterm: executor channel outcome unknown":
+                    expected_unknown = (
+                        "gterm: runtime phase=3 error=6 execution-error=0 child-exit=0 "
+                        "child-signal=0 session-end=6 session-error=3 cleanup=0\n"
+                        "gterm: executor channel outcome unknown")
+                    if remote_status != "7" or remote_error.strip() != expected_unknown:
                         raise RuntimeError("remote gterm did not preserve the unknown outcome after Host closed its long-lived Session: " +
                                            remote_status + " " + remote_error)
                     deadline = time.monotonic() + 10
@@ -175,7 +199,7 @@ def main():
                     if leftovers:
                         raise RuntimeError("remote ResourceStore temp files survived process cleanup: " + str(leftovers))
                 finally:
-                    for port in (fixture_port, ports[0]):
+                    for port in owned_guest_ports:
                         subprocess.run([*device, "reverse", "--remove", f"tcp:{port}"],
                                        capture_output=True, timeout=10)
                     server.shutdown()
