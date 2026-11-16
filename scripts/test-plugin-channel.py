@@ -18,7 +18,7 @@ def normal_junit_assertion(output):
            and 'Caused by: java.lang.AssertionError:' in output)
     return bool((primary or array) and re.search(r'Tests run:\s*1,\s*Failures:\s*1',output) and 'INSTRUMENTATION_FAILED' not in output)
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--session',action='store_true');parser.add_argument('--rpc',action='store_true');parser.add_argument('--resources',action='store_true');parser.add_argument('--source-api',action='store_true');parser.add_argument('--android-client-runtime',action='store_true');parser.add_argument('--binary',type=Path);parser.add_argument('--apple',action='store_true');parser.add_argument('--android');parser.add_argument('--case',action='append');parser.add_argument('--expect-assertion',action='store_true');parser.add_argument('--apple-filter');parser.add_argument('--android-test');parser.add_argument('--expect-platform-assertion',choices=['apple','android']);parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args();args.resources=args.resources or args.source_api;args.rpc=args.rpc or args.resources;args.session=args.session or args.rpc;assert not args.android_client_runtime or (args.rpc and args.android and not args.apple and not args.expect_platform_assertion);binary=(args.binary or ROOT/('core/build/test_ext_source' if args.source_api else 'core/build/test_ext_resource' if args.resources else 'core/build/test_ext_rpc' if args.rpc else 'core/build/test_ext_session' if args.session else 'core/build/test_ext_channel')).resolve();assert binary.is_file();args.apple_filter=args.apple_filter or ('ExtensionSourceTests' if args.source_api else 'ExtensionResourceTests' if args.resources else 'ExtensionRPCTests' if args.rpc else 'ExtensionSessionTests' if args.session else 'ExtensionChannelTests');args.android_test=args.android_test or ('com.hanxi.ghosterm.ExtensionChannelTest#controllerRunsClientRuntimeOverTwoHopSSH' if args.android_client_runtime else 'com.hanxi.ghosterm.ExtensionSourceTest' if args.source_api else 'com.hanxi.ghosterm.ExtensionResourceTest' if args.resources else 'com.hanxi.ghosterm.ExtensionRPCTest' if args.rpc else 'com.hanxi.ghosterm.ExtensionSessionTest' if args.session else 'com.hanxi.ghosterm.ExtensionChannelTest')
+    parser=argparse.ArgumentParser();parser.add_argument('--session',action='store_true');parser.add_argument('--rpc',action='store_true');parser.add_argument('--resources',action='store_true');parser.add_argument('--source-api',action='store_true');parser.add_argument('--android-client-runtime',action='store_true');parser.add_argument('--binary',type=Path);parser.add_argument('--apple',action='store_true');parser.add_argument('--android');parser.add_argument('--case',action='append');parser.add_argument('--expect-assertion',action='store_true');parser.add_argument('--apple-filter');parser.add_argument('--android-test');parser.add_argument('--expect-platform-assertion',choices=['apple','android']);parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args();args.resources=args.resources or args.source_api;args.rpc=args.rpc or args.resources;args.session=args.session or args.rpc;assert not args.android_client_runtime or (args.rpc and args.android and not args.apple);binary=(args.binary or ROOT/('core/build/test_ext_source' if args.source_api else 'core/build/test_ext_resource' if args.resources else 'core/build/test_ext_rpc' if args.rpc else 'core/build/test_ext_session' if args.session else 'core/build/test_ext_channel')).resolve();assert binary.is_file();args.apple_filter=args.apple_filter or ('ExtensionSourceTests' if args.source_api else 'ExtensionResourceTests' if args.resources else 'ExtensionRPCTests' if args.rpc else 'ExtensionSessionTests' if args.session else 'ExtensionChannelTests');args.android_test=args.android_test or ('com.hanxi.ghosterm.ExtensionChannelTest#controllerRunsClientRuntimeOverTwoHopSSH' if args.android_client_runtime else 'com.hanxi.ghosterm.ExtensionSourceTest' if args.source_api else 'com.hanxi.ghosterm.ExtensionResourceTest' if args.resources else 'com.hanxi.ghosterm.ExtensionRPCTest' if args.rpc else 'com.hanxi.ghosterm.ExtensionSessionTest' if args.session else 'com.hanxi.ghosterm.ExtensionChannelTest')
     if args.expect_assertion:assert args.case and len(args.case)==1 and not args.apple and not args.android
     if args.expect_platform_assertion:assert (args.apple and not args.android) if args.expect_platform_assertion=='apple' else (args.android and not args.apple)
     source_root=args.source_root.resolve();inputs=[p for folder in ['core/src','core/include'] for p in (source_root/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')]
@@ -26,6 +26,8 @@ def main():
     if args.apple:inputs += [source_root/p for p in ['apple/GhostermCore/Sources/GhostermCore/ExtensionChannel.swift','apple/GhostermCore/Tests/GhostermCoreTests/ExtensionChannelTests.swift']]
     if args.android:inputs += [source_root/p for p in ['android/bridge/src/main/cpp/extension_jni.c','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionChannel.kt','android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionChannelTest.kt']]
     if args.android_client_runtime:inputs += [source_root/p for p in ['android/app/src/main/java/com/hanxi/ghosterm/ExtensionController.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionRuntime.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionSession.kt']]
+    if args.android and args.android_test.startswith('com.hanxi.ghosterm.PluginVersionSelectionChannelTest#'):
+        inputs += [source_root/p for p in ['android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionChannelTest.kt','android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionFixture.kt','android/app/src/androidTest/assets/plugin-release/versions.json','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseCatalog.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseSignature.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseDeclarations.kt','android/bridge/src/main/cpp/install_jni.c']]
     if args.session:
         inputs += [source_root/'core/tests/test_ext_session.c']
         if args.apple:inputs += [source_root/p for p in ['apple/GhostermCore/Sources/GhostermCore/ExtensionSession.swift','apple/GhostermCore/Tests/GhostermCoreTests/ExtensionSessionTests.swift']]
@@ -81,8 +83,15 @@ def main():
                 class Handler(socketserver.StreamRequestHandler):
                     def handle(self):
                         self.request.settimeout(5)
-                        if self.rfile.readline(128).rstrip(b'\n')!=token.encode():return
-                        self.wfile.write(struct.pack('>I',len(payload))+payload)
+                        request=self.rfile.readline(128).rstrip(b'\n')
+                        response=payload
+                        if args.android_client_runtime and request==token.encode()+b' proof':
+                            reports=list(android_proofs.glob('rpc-proof-*'))
+                            try:complete=len(reports)==1 and reports[0].stat().st_size<=128 and json.loads(reports[0].read_text())==dict(completed=1,handled=3,done=True)
+                            except (OSError,ValueError):complete=False
+                            response=json.dumps(dict(complete=complete)).encode()
+                        elif request!=token.encode():return
+                        self.wfile.write(struct.pack('>I',len(response))+response)
                 server=socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler);server.daemon_threads=True;thread=threading.Thread(target=server.serve_forever);thread.start()
                 def close_server():server.shutdown();server.server_close();thread.join(5);assert not thread.is_alive()
                 stack.callback(close_server);port=server.server_address[1]
@@ -102,7 +111,7 @@ def main():
     if args.rpc and not args.expect_assertion and not args.expect_platform_assertion:
         reports=list(proofs.glob('rpc-proof-*'));assert len(reports)>=sum(case.startswith('allow') for case in cases),'missing actual executor completion proof'
         for proof in reports:assert json.loads(proof.read_text())==dict(completed=80,handled=80,done=True),proof
-    if args.android_client_runtime:
+    if args.android_client_runtime and not args.expect_platform_assertion:
         reports=list((proofs/'android-client-runtime').glob('rpc-proof-*'))
         assert len(reports)==1,'Android controller did not produce its own remote RPC completion proof'
         assert json.loads(reports[0].read_text())==dict(completed=1,handled=3,done=True),reports[0]

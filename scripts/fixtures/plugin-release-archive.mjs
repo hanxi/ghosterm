@@ -18,7 +18,7 @@ function walk(path, relative = '') {
   }
 }
 walk(root + 'package/');
-if (process.argv.includes('--declarations')) {
+if (process.argv.includes('--declarations') || process.argv.includes('--versions')) {
   const manifest = JSON.parse(members.find(([name]) => name === 'plugin.json')[1]);
   manifest.executor = { variants: [{ id: 'portable', runtime: 'portable-js', entry: 'client/index.js', requires: ['process.spawn'],
     dependencies: [{ program: 'fixture-worker', versionPolicy: 'range', versionRange: '^1.2.0' }] }] };
@@ -64,12 +64,47 @@ const publicBytes = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64ur
 const keyID = hash(publicBytes);
 const policy = JSON.stringify({ schemaVersion: 1, channel: 'fixture', keys: [{ id: keyID, algorithm: 'ed25519',
   publicKey: publicBytes.toString('base64'), publisher: 'fixture', pluginIds: [base.pluginId] }], revokedKeyIds: [] });
-const vectors = [
+let inputs;
+if (process.argv.includes('--versions')) {
+  // Two actual Core package digests, one disposable public policy. Keep the
+  // original ZIP vectors unchanged; write this output to versions.json only.
+  if (process.argv.includes('--declarations')) throw new Error('Choose one fixture family');
+  inputs = [];
+  for (const version of ['1.0.0', '2.0.0']) {
+    const manifest = JSON.parse(members.find(([name]) => name === 'plugin.json')[1]);
+    manifest.pluginVersion = version;
+    manifest.permissions[0].purpose = `Allow fixture RPC for version ${version}.`;
+    manifest.permissions[1].programs = [version === '1.0.0' ? 'fixture-worker' : 'fixture-worker-v2'];
+    const entry = `import {object,text,integer} from '@ghosterm/plugin-sdk';
+export function activate(ctx){
+  const codec=object({text:text(40),count:integer(0,100)});
+  const echo={name:'fixture.echo',input:codec,output:codec};
+  const done={name:'fixture.done',input:codec,output:codec};
+  ctx.session.request(echo,{text:'bridge',count:17},10000).outcome.then(result=>{
+    if(result.kind==='success'&&result.value.text==='bridge'&&result.value.count===17)
+      ctx.session.request(done,result.value,10000);
+  });
+  return {dispose(){}};
+}// version ${version}\n`;
+    members.find(([name]) => name === 'plugin.json')[1] = Buffer.from(JSON.stringify(manifest));
+    members.find(([name]) => name === 'client/index.js')[1] = Buffer.from(entry);
+    const integrity = JSON.parse(members.find(([name]) => name === 'integrity.json')[1]);
+    for (const member of integrity.members) {
+      const bytes = members.find(([name]) => name === member.path)[1];
+      member.bytes = bytes.length; member.sha256 = hash(bytes);
+    }
+    const integrityBytes = Buffer.from(JSON.stringify(integrity));
+    members.find(([name]) => name === 'integrity.json')[1] = integrityBytes;
+    inputs.push([version, archive(8), { ...base, pluginVersion: version, packageSHA256: hash(integrityBytes) }]);
+  }
+  inputs.push(['identity', inputs[0][1], { ...inputs[0][2], pluginVersion: '9.0.0' }]);
+} else inputs = [
   ['stored', archive(0)], ['deflated', archive(8)], ['identity', archive(0)],
   ['integrity', archive(8, true)], ['crc', archive(8, false, true)],
-].map(([name, zip]) => {
-  const descriptor = JSON.stringify({ ...base, keyId: keyID,
-    packageSHA256: name === 'identity' ? '0'.repeat(64) : base.packageSHA256,
+];
+const vectors = inputs.map(([name, zip, version = base]) => {
+  const descriptor = JSON.stringify({ ...version, keyId: keyID,
+    packageSHA256: name === 'identity' && !process.argv.includes('--versions') ? '0'.repeat(64) : version.packageSHA256,
     artifact: { format: 'zip-v1', bytes: zip.length, sha256: hash(zip) } });
   const signature = sign(null, Buffer.concat([Buffer.from('GHOSTERM-PLUGIN-RELEASE-V1\0'), Buffer.from(descriptor)]), privateKey);
   return { name, archive: zip.toString('base64'), descriptor, signature: signature.toString('base64') };

@@ -126,7 +126,7 @@ def headless(api, work, environment):
             print('OWNED AVD EXITED ' + str(child.returncode), flush=True)
 
 
-def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False):
+def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False, selection=False, selection_channel=False):
     for path in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
         apk = ROOT / 'android/app/build/outputs/apk' / path
         print(path + ' SHA256 ' + hashlib.sha256(apk.read_bytes()).hexdigest(), flush=True)
@@ -148,6 +148,9 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
     if catalog:
         classes += ',com.hanxi.ghosterm.PluginReleaseCatalogTest,com.hanxi.ghosterm.PluginVersionLeaseTest,com.hanxi.ghosterm.PluginInstalledVersionsModelTest,com.hanxi.ghosterm.PluginCatalogControllerTest,com.hanxi.ghosterm.PluginCatalogUITest'
         count += 31
+    if selection:
+        classes += ',com.hanxi.ghosterm.PluginVersionSelectionControllerTest,com.hanxi.ghosterm.PluginVersionSelectionModelTest,com.hanxi.ghosterm.PluginVersionSelectionUITest'
+        count += 24
     output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes,
         'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
     receipt = ROOT / 'tmp/android-release-conformance' / (str(time.time_ns()) + '.log')
@@ -158,6 +161,14 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
             'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output):
         raise RuntimeError('Release conformance did not run the complete enabled combination:\n' + output)
     print('RELEASE AUTHENTICATION ' + str(count) + ' TESTS PASS', flush=True)
+    if selection_channel:
+        for method in ['anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease', 'sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease']:
+            output = run([sys.executable, '-B', ROOT / 'scripts/test-plugin-channel.py', '--rpc',
+                '--android-client-runtime', '--android', selected[-1], '--case', 'allow2', '--android-test',
+                'com.hanxi.ghosterm.PluginVersionSelectionChannelTest#' + method], environment, 300)
+            proof = receipt.with_name(str(time.time_ns()) + '-' + method + '.log')
+            proof.write_text(output)
+            print('VERSION SESSION/RUNTIME SSH ' + method + ' PASS; RECEIPT ' + str(proof) + ' SHA256 ' + hashlib.sha256(proof.read_bytes()).hexdigest(), flush=True)
     if death:
         driver = subprocess.Popen([sys.executable, '-B', ROOT / 'scripts/test-android-install-death.py'],
             cwd=ROOT, env=dict(environment, ANDROID_SERIAL=str(selected[-1])), start_new_session=True)
@@ -168,7 +179,8 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
             raise
         if status: raise RuntimeError('Owned install death driver failed')
     if mutate:
-        mutation = ('scripts/mutation-check-android-catalog.py' if catalog else
+        mutation = ('scripts/mutation-check-android-selection.py' if selection else
+            'scripts/mutation-check-android-catalog.py' if catalog else
             'scripts/mutation-check-android-install.py' if install else
             'scripts/mutation-check-android-archive-ui.py' if archive_ui else
             'scripts/mutation-check-android-release-archive.py' if archive else
@@ -198,8 +210,12 @@ def main():
     parser.add_argument('--archive-ui', action='store_true', help='Include ZIP capture/draft/declarations/actual SAF UI; implies --archive --signature-ui')
     parser.add_argument('--install', action='store_true', help='Include atomic installation/stage/native/confirmation tests; implies --archive-ui')
     parser.add_argument('--catalog', action='store_true', help='Include read-only saved versions, selection storage and shared version leases; implies --install')
+    parser.add_argument('--selection', action='store_true', help='Include actual version selection/disable/rollback, fresh policy/Core, admission and confirmation races; implies --catalog')
+    parser.add_argument('--selection-channel', action='store_true', help='Also prove old signed Session/Runtime and directory leases over two-hop isolated SSH using built core/build/test_ext_rpc; implies --selection')
     parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
     args = parser.parse_args()
+    if args.selection_channel: args.selection = True
+    if args.selection: args.catalog = True
     if args.catalog: args.install = True
     if args.death:
         if args.android: parser.error('Process-death scans require an owned headless AVD')
@@ -212,11 +228,11 @@ def main():
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
     if args.android:
-        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog)
+        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
-                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog)
+                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 

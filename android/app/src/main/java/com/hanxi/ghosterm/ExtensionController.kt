@@ -39,7 +39,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** App-side Client package owner. Native package and registry calls stay on one
  * non-UI worker. Reviewing never grants source trust or activates JavaScript. */
-class ExtensionController(profile: HostProfile, context: Context) {
+class ExtensionController(profile: HostProfile, context: Context,
+    private val versionDirectory: File = File(context.applicationContext.filesDir, "plugin-releases")) {
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(
@@ -87,6 +88,15 @@ class ExtensionController(profile: HostProfile, context: Context) {
     internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof,
         val declarations: PluginReleaseDeclarations.Data)
     internal data class InstalledRelease(val snapshot: SignedArchiveReview, val publication: PluginReleaseStage.Publication)
+    internal enum class PreviousVersionState { NONE, VERIFIED, UNKNOWN }
+    internal data class VersionPreview(val id: String, val revision: String?, val releaseID: String,
+        val candidate: SignedArchiveReview, val previous: SignedArchiveReview?, val previousState: PreviousVersionState,
+        val previousReleaseID: String?, val previousEnabled: Boolean?) {
+        val addedPermissions get() = if (previousState == PreviousVersionState.UNKNOWN) null else candidate.declarations.permissions.filter { it !in previous?.declarations?.permissions.orEmpty() }
+        val removedPermissions get() = if (previousState == PreviousVersionState.UNKNOWN) null else previous?.declarations?.permissions.orEmpty().filter { it !in candidate.declarations.permissions }
+    }
+    internal data class VersionSelectionResult(val pluginID: String, val review: Review?, val observation: PluginReleaseCatalog.Observation,
+        val durabilityConfirmed: Boolean)
     data class Resolution(
         val status: ExtensionRegistry.Status,
         val packageID: String? = null,
@@ -118,7 +128,15 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val views: ByteArray? = null, val viewSessionInstance: String? = null, val viewSessionEpoch: String? = null, val viewIssue: String? = null)
 
     private data class Key(val id: String, val digest: String)
-    private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
+    private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source,
+        var managedReleaseID: String? = null, var selectionGeneration: String? = null, var approvalGeneration: String? = null,
+        var rootIdentity: PluginReleaseCatalog.Identity? = null, var versionIdentity: PluginReleaseCatalog.Identity? = null,
+        var payloadIdentity: PluginReleaseCatalog.Identity? = null)
+    private data class PendingVersion(val value: VersionPreview, val policy: ByteArray, val root: PluginReleaseCatalog.Identity,
+        val version: PluginReleaseCatalog.Version, val payload: PluginReleaseCatalog.Identity) : AutoCloseable {
+        override fun close() = version.close()
+    }
+    private data class CheckedVersion(val packageBytes: ExtensionPackage, val value: SignedArchiveReview, val payload: PluginReleaseCatalog.Identity)
 
     private val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
     private val dispatcher: CoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
@@ -127,11 +145,11 @@ class ExtensionController(profile: HostProfile, context: Context) {
     /** An independent worker keeps archive IO away from an active Client pump. */
     internal fun newReleaseInspector(): ExtensionController {
         check(!closed.get()) { "插件控制器已关闭" }
-        return ExtensionController(releaseProfile, appContext)
+        return ExtensionController(releaseProfile, appContext, versionDirectory)
     }
     /** Explicit read-only observation. Absence and unreadable state are separate;
      * never captures a package, registers a source or loads a saved selection. */
-    internal suspend fun installedVersions(directory: File = File(appContext.filesDir, "plugin-releases")): PluginReleaseCatalog.Observation = onWorker {
+    internal suspend fun installedVersions(directory: File = versionDirectory): PluginReleaseCatalog.Observation = onWorker {
         PluginReleaseCatalog.open(directory)?.use { it.observe() }
             ?: PluginReleaseCatalog.Observation(emptyList(), emptyList(), 0, PluginReleaseCatalog.Selection(null, emptyMap()), null)
     }
@@ -143,12 +161,18 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val closed = AtomicBoolean(false)
     private val cleanupComplete = AtomicBoolean(false)
     private val records = linkedMapOf<Key, Record>() // worker-confined
+    private val managedIDs = mutableSetOf<String>()
+    private val registeredDigests = mutableMapOf<String, String>()
+    private var pendingVersion: PendingVersion? = null
     private var registry: ExtensionRegistry? = null // worker-confined
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
     @Volatile private var session: ExtensionSession? = null
     private var sessionPackageKey: Key? = null
+    private var sessionApprovedSnapshot = false
+    private var sessionVersionLease: ParcelFileDescriptor? = null
     @Volatile private var runtime: ExtensionRuntime? = null
     private var runtimePackageKey: Key? = null
+    private var runtimeVersionLease: ParcelFileDescriptor? = null
     private var runtimeInstanceID: String? = null
     private var runtimeCommand: String? = null
     private var runtimeViewScope: Pair<String, String>? = null
@@ -233,10 +257,13 @@ class ExtensionController(profile: HostProfile, context: Context) {
     suspend fun adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
         hostVersion: String, peerIdentity: String, methods: List<ExtensionSession.Method>,
         additionalRequiredCapabilities: List<String> = emptyList()): SessionState = onWorker {
+        managedAccess { owner, choices ->
         check(session == null && runtime == null) { "此 controller 已有活动插件 Session" }
         val key = Key(pluginID, packageDigest)
         val record = records[key] ?: error("插件包摘要已失效")
         check(record.source == Source.ALLOWED) { "插件来源尚未获本进程批准" }
+        val admission = managedStatus(record, owner, choices, approval = true)
+        if (admission != ExtensionRegistry.Status.OK) throw ExtensionRegistry.RegistryException(admission)
         require(executorDigest.matches(Regex("[a-f0-9]{64}"))) { "Executor 摘要无效" }
         require(hostVersion.isNotBlank() && hostVersion.toByteArray().size <= 64 && '\u0000' !in hostVersion)
         require(peerIdentity.isNotBlank() && peerIdentity.toByteArray().size <= 255 && '\u0000' !in peerIdentity)
@@ -260,6 +287,10 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val sessionAvailable = hostCapabilities + remoteProcessCapabilities.filter {
             requestedRemoteProcess && it !in hostCapabilities
         }
+        var reference = if (record.review.id in managedIDs) checkNotNull(owner).openVersion(checkNotNull(record.managedReleaseID)).use {
+            it.pin(); it.borrow()
+        } else null
+        try {
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
             ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
                 hostVersion, metadata.sdkVersion, metadata.requires + additionalRequiredCapabilities, sessionAvailable,
@@ -267,7 +298,10 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 peerKind = ExtensionSession.PeerKind.SSH, peerIdentity = peerIdentity, methods = methods.toList()), resourceStore = receiveStore,
             resourceScopeBytes = RESOURCE_SESSION_BYTES)
         channel = null; session = owned; sessionPackageKey = key
+        sessionApprovedSnapshot = true; sessionVersionLease = reference; reference = null
         SessionState(pluginID, packageDigest, owned.info())
+        } finally { reference?.close() }
+        }
     }
 
     suspend fun stepSession(milliseconds: Int = 0): SessionState = onWorker {
@@ -297,27 +331,29 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(current.info().phase == ExtensionSession.Phase.ACTIVE) { "插件 Session 尚未获得授权" }
         check(sessionPackageKey == Key(pluginID, packageDigest)) { "插件 Session 与所选包不匹配" }
         val record = records[Key(pluginID, packageDigest)] ?: error("插件包摘要已失效")
-        check(record.source == Source.ALLOWED && record.review.commands.any { it.path == command }) {
+        check(sessionApprovedSnapshot && record.review.commands.any { it.path == command }) {
             "命令不属于已批准的固定插件包"
         }
         val registryViews = "ui.views" in record.review.requiredCapabilities
         var viewKinds = 0
-        val selected = registryOnWorker().resolve(command, executor = false, selectedId = pluginID,
-            selectedDigest = packageDigest)
-        val exact = selected.packageBytes ?: error("命令解析失败：${selected.status}")
+        val sameRegistration = registeredDigests[pluginID] == packageDigest
+        val selected = if (sameRegistration) registryOnWorker().resolve(command, executor = false, selectedId = pluginID,
+            selectedDigest = packageDigest) else null
+        val exact = if (sameRegistration) selected?.packageBytes ?: error("命令解析失败：${selected?.status}") else null
         try {
-            check(selected.command?.path == command && exact.metadata().packageDigest == packageDigest) {
+            val contribution = if (sameRegistration) selected?.command else record.packageBytes.commands().singleOrNull { it.path == command }
+            check(contribution?.path == command && (exact ?: record.packageBytes).metadata().packageDigest == packageDigest) {
                 "命令解析没有返回精确插件包"
             }
             if (registryViews) {
-                selected.command?.views.orEmpty().forEach { kind ->
+                contribution?.views.orEmpty().forEach { kind ->
                     val bit = when (kind) { "table" -> 1; "diff" -> 2; "task" -> 4; else -> 0 }
                     check(bit != 0 && "ui.$kind" in record.review.requiredCapabilities) { "所选命令没有声明标准视图能力" }
                     viewKinds = viewKinds or bit
                 }
                 check(viewKinds != 0 && "session.rpc" in record.review.requiredCapabilities) { "视图注册需要标准视图与 RPC" }
             }
-        } finally { exact.close() }
+        } finally { exact?.close() }
         val sessionInfo = current.info()
         clientWorkspace?.validate(record.review.requiredCapabilities)
         var rootFD = clientWorkspace?.let {
@@ -332,6 +368,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
             }
         } finally { rootFD?.let(Os::close) }
         session = null; sessionPackageKey = null; runtime = active
+        runtimeVersionLease = sessionVersionLease; sessionVersionLease = null; sessionApprovedSnapshot = false
         runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command; runtimeInstanceID = UUID.randomUUID().toString()
         runtimeViewScope = if (registryViews) sessionInfo.instance to sessionInfo.epoch.toULong().toString() else null
         runtimeViewIssue = null
@@ -445,6 +482,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
             if (current.closeStep()) { released = true; break }
         }
         check(released && clientSource == null) { "运行时与发布资源仍在释放，保留 owner" }
+        runtimeVersionLease?.close(); runtimeVersionLease = null
         clientPublication = null
         runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null
         clientRootFD?.let { fd -> clientRootFD = null; Os.close(fd) }
@@ -501,6 +539,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
             }
             current.close()
             session = null; sessionPackageKey = null
+            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
         }
     }
 
@@ -625,7 +664,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
      * observes the original caller's cancellation. The atomic publication and
      * its receipt run to completion; disposal never rolls back a published tree. */
     internal suspend fun installSignedArchive(borrowed: ParcelFileDescriptor, descriptor: ByteArray, signature: ByteArray,
-        trustedPolicy: ByteArray, expected: SignedArchiveReview, installDirectory: File = File(appContext.filesDir, "plugin-releases"),
+        trustedPolicy: ByteArray, expected: SignedArchiveReview, installDirectory: File = versionDirectory,
         checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): InstalledRelease {
         require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
         val raw = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
@@ -653,6 +692,157 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 }
             } }
         } finally { owned.close() }
+    }
+
+    private fun fsIdentity(fd: java.io.FileDescriptor): PluginReleaseCatalog.Identity = Os.fstat(fd).let {
+        PluginReleaseCatalog.Identity(it.st_dev, it.st_ino, it.st_uid)
+    }
+    private fun checkedVersion(owner: PluginReleaseCatalog, version: PluginReleaseCatalog.Version, policy: ByteArray): CheckedVersion {
+        val raw = version.read("release.json", 65536)
+        check(PluginReleaseCatalog.sha(raw) == version.releaseID) { "版本发布描述已变化" }
+        val authenticated = PluginReleaseSignature.authenticate(raw, version.read("release.sig", 64), policy)
+        version.payload().use { payload ->
+            val bytes = captureCheckedPackage(payload.fd)
+            try {
+                val metadata = bytes.metadata()
+                val identity = PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest)
+                if (identity != authenticated.identity) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
+                val declarations = PluginReleaseDeclarations.decode(version.readPayload("plugin.json", 65536), metadata)
+                owner.validateVersion(version, payload)
+                return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations), fsIdentity(payload.fileDescriptor))
+            } catch (failure: Throwable) { bytes.close(); throw failure }
+        }
+    }
+    /** Caller-generated id is known before dispatch, so leaving the page can
+     * cancel a preview whose fd result has not yet been delivered. */
+    internal suspend fun previewInstalledVersion(id: String, releaseID: String, expectedRevision: String?, policy: ByteArray): VersionPreview {
+        require(UUID.fromString(id).toString() == id && policy.size <= 131072)
+        val caller = currentCoroutineContext(); val trusted = policy.copyOf()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive(); check(pendingVersion == null) { "请先取消上一次版本预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
+            owner.use {
+                val selection = owner.selection()
+                if (selection.revision != expectedRevision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
+                val candidate = owner.openVersion(releaseID)
+                try {
+                    candidate.pin()
+                    val checked = checkedVersion(owner, candidate, trusted)
+                    val value = try { checked.value } finally { checked.packageBytes.close() }
+                    val choice = selection.choices[value.review.id]
+                    var previous: SignedArchiveReview? = null
+                    var state = if (choice == null) PreviousVersionState.NONE else PreviousVersionState.UNKNOWN
+                    if (choice != null) {
+                        if (choice.releaseID == releaseID) { previous = value; state = PreviousVersionState.VERIFIED }
+                        else try {
+                            owner.openVersion(choice.releaseID).use { old ->
+                                val earlier = checkedVersion(owner, old, trusted)
+                                try {
+                                    check(earlier.value.review.id == value.review.id)
+                                    previous = earlier.value; state = PreviousVersionState.VERIFIED
+                                } finally { earlier.packageBytes.close() }
+                            }
+                        } catch (_: Exception) { previous = null; state = PreviousVersionState.UNKNOWN }
+                    }
+                    caller.ensureActive(); checkOpen()
+                    if (owner.selection().revision != expectedRevision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
+                    val view = VersionPreview(id, selection.revision, releaseID, value, previous, state, choice?.releaseID, choice?.enabled)
+                    pendingVersion = PendingVersion(view, trusted, owner.rootIdentity, candidate, checked.payload)
+                    view
+                } catch (failure: Throwable) { candidate.close(); throw failure }
+            }
+        } }
+    }
+    internal fun cancelVersionPreview(id: String) {
+        Handler(thread.looper).post {
+            if (pendingVersion?.value?.id == id) { pendingVersion?.close(); pendingVersion = null }
+        }
+    }
+    internal suspend fun confirmInstalledVersion(id: String, acknowledged: Boolean,
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): VersionSelectionResult {
+        check(acknowledged) { "请先审阅完整声明并确认本次切换" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            val pending = pendingVersion?.takeIf { it.value.id == id } ?: error("版本预览已失效")
+            pendingVersion = null
+            pending.use {
+                val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("本机版本目录已变化")
+                owner.use {
+                    check(owner.rootIdentity == pending.root) { "安装根目录已被替换" }
+                    if (owner.selection().revision != pending.value.revision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
+                    owner.openVersion(pending.value.releaseID).use { named -> check(named.identity == pending.version.identity) { "候选版本已被替换" } }
+                    val fresh = checkedVersion(owner, pending.version, pending.policy)
+                    try {
+                        check(fresh.value == pending.value.candidate && fresh.payload == pending.payload) { "候选包或完整声明已变化" }
+                        val before = owner.observe()
+                        val result = owner.change(fresh.value.review.id, pending.value.releaseID, true, pending.value.revision,
+                            checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync = parentSync)
+                        invalidateVersionSources(fresh.value.review.id)
+                        val key = Key(fresh.value.review.id, fresh.value.review.digest)
+                        val record = records[key] ?: Record(fresh.packageBytes, fresh.value.review, Source.UNKNOWN).also { records[key] = it }
+                        record.managedReleaseID = pending.value.releaseID
+                        record.selectionGeneration = result.selection.choices.getValue(fresh.value.review.id).generation
+                        record.rootIdentity = pending.root; record.versionIdentity = pending.version.identity; record.payloadIdentity = fresh.payload
+                        VersionSelectionResult(fresh.value.review.id, fresh.value.review,
+                            before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
+                    } finally {
+                        if (records[Key(fresh.value.review.id, fresh.value.review.digest)]?.packageBytes !== fresh.packageBytes) fresh.packageBytes.close()
+                    }
+                }
+            }
+        } }
+    }
+    internal suspend fun disableInstalledVersion(pluginID: String, expectedRevision: String?, acknowledged: Boolean,
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): VersionSelectionResult {
+        check(acknowledged) { "请确认禁用后续新实例" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有活动选择目录")
+            owner.use {
+                val selected = owner.selection()
+                if (selected.revision != expectedRevision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
+                val choice = selected.choices[pluginID] ?: error("此插件没有活动选择")
+                val before = owner.observe()
+                val result = owner.change(pluginID, choice.releaseID, false, expectedRevision,
+                    checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync = parentSync)
+                invalidateVersionSources(pluginID)
+                VersionSelectionResult(pluginID, null, before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
+            }
+        } }
+    }
+    private fun invalidateVersionSources(id: String) {
+        managedIDs += id
+        records.filterKeys { it.id == id }.values.forEach { it.source = Source.UNKNOWN; it.approvalGeneration = null }
+    }
+    private inline fun <T> managedAccess(body: (PluginReleaseCatalog?, Map<String, PluginReleaseCatalog.Choice>) -> T): T {
+        val owner = PluginReleaseCatalog.open(versionDirectory)
+        try {
+            val observed = owner?.observe()
+            if (observed != null) {
+                if (observed.selection == null || observed.issues.isNotEmpty()) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.INVALID)
+                managedIDs += observed.versions.map { it.pluginID }; managedIDs += observed.selection.choices.keys
+                for ((id, choice) in observed.selection.choices) if (choice.enabled) {
+                    if (observed.versions.none { it.pluginID == id && it.releaseID == choice.releaseID }) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.INVALID)
+                }
+            }
+            return body(owner, observed?.selection?.choices.orEmpty())
+        } finally { owner?.close() }
+    }
+    private fun managedStatus(record: Record, owner: PluginReleaseCatalog?, choices: Map<String, PluginReleaseCatalog.Choice>, approval: Boolean): ExtensionRegistry.Status {
+        if (record.review.id !in managedIDs) return ExtensionRegistry.Status.OK
+        if (owner == null) return ExtensionRegistry.Status.STALE
+        val choice = choices[record.review.id] ?: return ExtensionRegistry.Status.DENIED
+        if (!choice.enabled) return ExtensionRegistry.Status.DENIED
+        if (record.managedReleaseID != choice.releaseID || record.selectionGeneration != choice.generation || owner.rootIdentity != record.rootIdentity)
+            return ExtensionRegistry.Status.STALE
+        owner.openVersion(choice.releaseID).use { version ->
+            if (version.identity != record.versionIdentity) return ExtensionRegistry.Status.STALE
+            version.payload().use { if (fsIdentity(it.fileDescriptor) != record.payloadIdentity) return ExtensionRegistry.Status.STALE }
+        }
+        if (approval && record.approvalGeneration != choice.generation) return ExtensionRegistry.Status.STALE
+        return ExtensionRegistry.Status.OK
     }
 
     /** Explicit public policy snapshot; no source approval or Session grant. */
@@ -690,13 +880,18 @@ class ExtensionController(profile: HostProfile, context: Context) {
         if (!validCommand(command) || (selectedID == null) != (selectedDigest == null)) {
             return@onWorker Resolution(ExtensionRegistry.Status.INVALID)
         }
+        if (records.isEmpty()) return@onWorker Resolution(if (selectedID == null) ExtensionRegistry.Status.NOT_FOUND else ExtensionRegistry.Status.STALE)
+        managedAccess { owner, choices ->
         val candidates = records.values.filter { record ->
-            record.source != Source.DENIED && record.review.commands.any { overlaps(command, it.path) }
+            record.source != Source.DENIED && managedStatus(record, owner, choices, approval = false) == ExtensionRegistry.Status.OK && record.review.commands.any { overlaps(command, it.path) }
         }
         if (selectedID == null && candidates.size > 1) return@onWorker Resolution(ExtensionRegistry.Status.CONFLICT)
         val chosen = if (selectedID != null) records[Key(selectedID, selectedDigest!!)]
             ?: return@onWorker Resolution(ExtensionRegistry.Status.STALE)
         else candidates.firstOrNull()
+        if (chosen == null) return@managedAccess Resolution(ExtensionRegistry.Status.NOT_FOUND)
+        val admission = managedStatus(chosen, owner, choices, approval = chosen.source == Source.ALLOWED)
+        if (admission != ExtensionRegistry.Status.OK) return@managedAccess Resolution(admission, chosen.review.id, chosen.review.digest)
         when (chosen?.source) {
             Source.UNKNOWN -> return@onWorker Resolution(ExtensionRegistry.Status.UNKNOWN, chosen.review.id, chosen.review.digest)
             Source.DENIED -> return@onWorker Resolution(ExtensionRegistry.Status.DENIED, chosen.review.id, chosen.review.digest)
@@ -713,12 +908,17 @@ class ExtensionController(profile: HostProfile, context: Context) {
         } finally {
             selectedPackage.close()
         }
+        }
     }
 
     suspend fun decodeClientArguments(pluginID: String, packageDigest: String,
         command: String, arguments: List<String>): String? = onWorker {
         checkOpen()
         val record = records[Key(pluginID, packageDigest)] ?: error("插件包摘要已失效")
+        managedAccess { owner, choices ->
+            val admission = managedStatus(record, owner, choices, approval = true)
+            if (admission != ExtensionRegistry.Status.OK) throw ExtensionRegistry.RegistryException(admission)
+        }
         check(record.source == Source.ALLOWED && record.review.commands.any { it.path == command }) {
             "命令不属于已批准的固定插件包"
         }
@@ -732,9 +932,13 @@ class ExtensionController(profile: HostProfile, context: Context) {
             withContext(NonCancellable + dispatcher) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
+                pendingVersion?.close(); pendingVersion = null
                 // Close consumers before the transport/package owners they borrow.
                 runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null }
-                session?.let { current -> current.close(); session = null; sessionPackageKey = null }
+                session?.let { current ->
+                    current.close(); session = null; sessionPackageKey = null
+                    sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
+                }
                 // Channel close can retain its native owner while it drains.
                 // Do not release packages or stop this worker until a retry
                 // actually reports that the channel owner is gone.
@@ -787,16 +991,23 @@ class ExtensionController(profile: HostProfile, context: Context) {
         checkOpen()
         val record = records[Key(id, digest)] ?: return@onWorker ExtensionRegistry.Status.STALE
         if (source == Source.ALLOWED) {
+            managedAccess { owner, choices ->
+            val admission = managedStatus(record, owner, choices, approval = false)
+            if (admission != ExtensionRegistry.Status.OK) return@managedAccess admission
             val status = registryOnWorker().put(record.packageBytes, ExtensionRegistry.Source.ALLOWED,
-                if (record.source == Source.ALLOWED) digest else null)
-            if (status == ExtensionRegistry.Status.OK) record.source = Source.ALLOWED
+                if (record.managedReleaseID != null) registeredDigests[id] else if (record.source == Source.ALLOWED) digest else null)
+            if (status == ExtensionRegistry.Status.OK) {
+                record.source = Source.ALLOWED; record.approvalGeneration = choices[id]?.generation; registeredDigests[id] = digest
+            }
             status
+            }
         } else {
-            if (record.source == Source.ALLOWED) {
+            if (registeredDigests[id] == digest) {
                 val status = registryOnWorker().remove(id, executor = false, expectedDigest = digest)
                 if (status != ExtensionRegistry.Status.OK) return@onWorker status
+                registeredDigests.remove(id)
             }
-            record.source = Source.DENIED
+            record.source = Source.DENIED; record.approvalGeneration = null
             ExtensionRegistry.Status.DENIED
         }
     }

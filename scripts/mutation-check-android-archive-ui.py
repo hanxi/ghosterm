@@ -106,7 +106,7 @@ def main():
         ('declaration-strict', decl + 'duplicateAndMalformedJsonCannotOverrideDisplayedDeclarations', signature,
          'parse(bytes).obj()', 'Unit'),
         ('independent-worker', 'com.hanxi.ghosterm.PluginArchivePreviewTest#independentInspectorBindsFullDeclarationsAndKeepsParentUsable', controller,
-         'return ExtensionController(releaseProfile, appContext)', 'return this'),
+         'return ExtensionController(releaseProfile, appContext, versionDirectory)', 'return this'),
         ('page-trust', page, view, 'onValueChange = model::trustPolicy', 'onValueChange = {}'),
         ('page-permissions', page, view, 'result.declarations.permissions.forEach', 'result.declarations.permissions.take(0).forEach'),
         ('settings-entry', page, settings, 'PluginArchiveReviewContent(extensions.controller)', 'Unit'),

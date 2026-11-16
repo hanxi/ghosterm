@@ -766,6 +766,13 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             }
         }
     }
+    /** A version switch never carries an old source decision into new admission. */
+    internal fun versionSelectionChanged(result: ExtensionController.VersionSelectionResult) {
+        entries = entries.map { if (it.review.id == result.pluginID) it.copy(decision = "尚未批准") else it }
+        result.review?.let { reviewed ->
+            if (entries.none { it.review.id == reviewed.id && it.review.digest == reviewed.digest }) entries = entries + Entry(reviewed)
+        }
+    }
 
     fun decide(entry: Entry, approve: Boolean) {
         val owner = controller ?: return

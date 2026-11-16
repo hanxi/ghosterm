@@ -9937,3 +9937,129 @@ Apple 源或公共 ABI 改动，不把绑定对拍说成新的 Apple 产品验�
 虚拟机持 tmp 根 fd。最后清理本轮与闸门的 33 个 tmp 顶层项、7425 份普通文件、
 199179381 逻辑字节（约 189.95 MiB，不当 APFS 实际回收量）；原日志 / 收据 / 格式
 工具用后移除，本文保留范围与摘要，原 eq 三件及 tmp 根目录保留。
+
+### P6 实施第十七批：Android 活动版本切换、禁用回滚与旧实例引用（2026-11-16）
+
+本批把第十六批的存储组件接到实际产品动作。列表仍只读观察，不自动采纳选择；
+选择 / 重新载入 / 回滚须提供本次独立可信策略，重新认证实际 release.json / sig，
+通过真实 Core capture / check 核对实际 payload，绑定 ID / 版本 / 发布者 / 目录包
+摘要并读取完整声明。安装时 policy.json 仅是证据，不是新的信任锚。
+
+预览保留有界策略字节、原始修订号、根 / 版本 / payload 身份和候选共享目录 fd，
+不登记来源、不持久写入或执行。当前旧版能用本次策略核验才展示已知权限差异，
+缺失 / 不可信 / 不兼容归 UNKNOWN，不折叠为空权限。候选和旧版完整权限用途 /
+scope / programs、必需与缺失可选能力、SDK / 协议、命令 / 参数 / 视图、Executor /
+依赖及原始摘要均可核对。调用者预先生成 UUID，取消 / 离页即使先于预览结果交付，
+也能在同 worker 队列中释放相应预览；一个 Controller 只保留一个预览。
+
+确认需独立 acknowledgement，消费精确预览后重新认证和 capture / check，比较
+完整 DTO 和实际对象身份，再调用原子选择事务；旧 CAS / 被替换对象不得继承批准。
+取消检查在每个事务回调前后执行；阻塞在 before-rename 后收到取消，不得继续发布。
+发布后的同步失败返回已发布 / 持久性未知，不回滚。禁用有独立确认 / 当前 CAS，
+无需运行或重新认证损坏的旧包；禁用仅阻止后续新实例。
+
+管理关联和 choice generation 绑定本进程来源批准。选择 / 回滚 / 禁用撤销该 ID
+的本地来源决定；同包重选也有新代次。解析、argv、来源批准和 Session adoption
+读取当前根 / 选择及版本 / payload 身份，短期持根锁到该次准入完成。未选择 / 禁用
+明确拒绝，根缺失 / 代次陈旧为 STALE，损坏不可读为未知错误；已关联 ID 不回退到
+同名开发目录。原生注册表在明确批准新包时才用准确旧 digest 替换，不把选择当授权。
+
+已有 Session 保存创建时 source-approved 快照与精确包；切换后仍需其原 Session
+consent，按原包创建 Runtime。注册表已换成新摘要时直接核对该 Session 的固定包
+命令；不重新借用新注册。Session 到 Runtime 转交同一共享版本 fd，实际释放原生
+owner 后才关闭引用；同步切换 / 禁用不杀旧实例，也不重放 hook 或远端部署。
+
+新增 versions.json 为两种不同 Core 目录摘要 / 声明 / 代码的公开签名夹具，另有
+真实签名身份与 Core 不一致的反例。再生用 `plugin-release-archive.mjs --versions`，
+临时 Ed25519 KeyObject 仅在内存，不导出 / 写盘私钥，不改既有 vectors。只在测试
+Executor 的 `--android-executor` 末尾增加可选明确版本参数，旧调用保留原默认；
+Core ABI / 产品实现无改动。新 SSH 测试还经带随机 token 的本轮夹具通道只读观察
+实际远端完成文件，继续 pump 到独立 Executor 真正消费响应后才停止，最终脚本
+再独立核验文件。不能把本机 respond() 入队成功当作对端完成。
+
+前置失败分别保留：首组合显式未加载摘要被错误折为 NOT_FOUND，已恢复 STALE；
+新增测试的非 void 推断 / 重复审查旧包，属于测试构造失败，不计验收。旧 ZIP UI
+曾有 Compose measure/layout 异常，未冒称定位修复。新页面的回执处理经专用公共
+夹具诊断，实际在 Controller worker 触发观察模型的 main 检查：Compose 测试的
+continuation interceptor 叠加 NonCancellable 返回，不能靠 scope 的表面来源保证
+Looper。新选择模型明确 `launch(Dispatchers.Main.immediate)`；真实设置页随后
+完整通过。临时诊断日志源已按原件复原，再施正式修复，不进入提交。
+SAF 夹具的文件点击 / 等待读取收据与 SSH CLI case、版本握手、过早停止造成完成
+文件未生成分别修正；这些前置失败均未算正常目标红 / 通过，不放宽生产预算。
+
+最终 API29 / API36 自有 no-window arm64、4 KiB 页各 **201 项**正常结束，零失败 /
+错误 / 跳过；各另有两个控制器 / 同控制器替换的真实 SSH 专项，取得独立实际远端
+完成证明，旧版本共享引用从 Session 到 Runtime 保留，结束后才可取得排它锁。
+最终两设备严格使用同一组已保存 APK，期间不重新编译；App / 测试 SHA256：
+`6be724162b9e9dec8d2721cdc8c79acbfbe3b449aa9d25a9799fa232c2af201c` /
+`2e296a83aa60196b9435fee16e0b576a30b9938adc4bc369e10f147c1bcc40e2`。
+201 回执分别 `ecb4d0ef1b998db549289ee81460c121bcf0b23321d14c17313fe5655f6c1db9` /
+`7a575e0f287331a9a47b5103fb24fb553ee60b412ce75279b479a2c1ac493c87`；
+API29 两 SSH 汇总 `d19a90df57a4b91d0818924bcec3c19c6d8d14f1b439ac44f021ce95b29d4cfc` /
+`553cdf24d34d395fceeec13304282290941d349d3a8bb0e4e281b555f391e631`；
+API36 两 SSH `b8450201f8abf90726b2f8268e0e1d7d32121e9daaf8408a7cfff56c5c6c6e49` /
+`8a904cd8f73ad1d6c5a40eee4fa583d8b060f08668afc6da4a9c0edc5780399a`。
+
+前述初始 API36 201 项收据为 `827157cf0385d0017b8784d910bd1405a6d5657aefcb3be2a192953a139f374f`，
+后续增补实际来源批准后禁用 / 回滚的 UI 状态复位、禁用前取消和测试夹具校准。
+API29 首组合 201 项有两项系统选择器失败，不能记绿：旧签名页根导航未完成，新页
+误要求旧版系统行的 clickable 位。测试助手明确 finger / pressure / size，旧根
+导航等实际 drawer 关闭和目标标题；新页 API29 用既有有界稳定触控助手，API36
+对稳定可点击卡片仅发送一次完整触控，再观察结果，避免对正在关闭的旧窗口反复
+点击。两项专项及最终两设备全组合通过；不删除或放宽原产品断言。
+
+`mutation-check-android-selection.py` 的 **36 个不同保护组分轮 19＋17**，每组均有
+真实编译、目标单条正常断言红、同 APK 独立 Core 绿、复原编译 / 恢复绿和生产源
+SHA。覆盖当前策略 / Core 身份、ACK、管理关联 / 禁用 / 缺根三态、批准代次 / argv /
+Session 准入、准确注册替换、旧 Session / Runtime / 共享引用及释放、旧版未知、
+选择及禁用的 before-rename 取消、策略确认 / 撤回 / 晚到结果 / 关闭 / 提交冻结 /
+错误隐私与真实页面完整候选 / 旧版状态 / Main dispatcher / 来源决定复位。
+前轮改变初始 UNKNOWN 的冗余探针被后续错误分支纠正、没有杀死，未计通过；改为
+故意把实际异常分支 UNKNOWN 置为 NONE 后目标断言红。早期 Main 组虽红 / Core
+绿，恢复时停在系统选择器，亦未计完整通过，校准后完整取证。首十九组之后只增补
+测试断言 / 夹具与驱动，生产源码完全相同；不能把两轮说成同一测试源码的一次全跑。
+两轮 accepted-results SHA256：
+`456794943b73791a2ad6e892c37e878f6c72342012e4262030917d5fe4d56dba` /
+`62ef18294babb619608c5de060a9f4ebda4f361f28b8ece471d9bded8b117d0a`。
+
+受影响旧 archive `independent-worker` 一组与 catalog `observer-worker / page-entry /
+page-refresh` 三组另完整复验，accepted-results：
+`95d72eb158453a6274851ce40b85f89a933eb5588a7ff0fb209940b39cd7860a` /
+`1c2b3b6a3fd2a18fcccdf6ec11d97d4fcbf9dfb984d35e6f0459b2eb14ebeb1d`。
+四轮 40 组汇总 SHA256 `dbdfe31725ce338ddd0378d68dd46657b46ede1be67a82ff5d4838f2a42751ec`；
+不冒称旧 45 / 40 / 33 等全部变异或六个死亡点重跑。最终 **753 份指定 Core /
+Android / 终端 / packages 与六驱动输入**逐项不变，表 SHA256
+`db082f08222b1ae18dcc4e13169ea5b7d413aadfbddd0e06cf8885837d2a7b6f`。
+本批复原编译的 App 字节亦曾变化，原因未单独定位，不宣称可复现构建；最终同一
+保存 APK 对的两设备结果为准。均为本地 dirty 来源，不称云端 clean 包或发行验收。
+
+默认 Core 保持 JS-off / tests-on / SSH-on / release-signature-off，最终离线 gate
+**589/589 CTest、185 ABI**、未实现入口检查通过；日志 SHA256
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+clang-format 19.1.7 **272 文件**、Apple **182/3**、JNI **148/37** 对拍通过。没有新
+Apple 产品源码或 ABI，不把绑定对拍冒充 Apple 产品行为验收；不增加 CI 二十份。
+
+启用档未签名 Release / 实际 R8 与 app / bridge / terminal / data 四模块 lint 通过；
+包 SHA256 `28bb1b8b21c3f40b5bd08d99ed78a05a894f5a8f100a852ec964417e9317ee0d`。
+实际 mapping 保留 PluginInstallFiles 类名，keep seeds 现包含消费中的 lock / publish /
+pin 三个 JNI 入口；实际 ELF 三导出亦核对，包内容收据
+`b40bf3a9e6e90088c9763822448ebabf40dc6d0f7b6fd47906b30d9f74765346`。
+这是构建 / 收缩与符号证据，不称 Release 设备执行或全客户端。启用档构建日志
+`42d974bb257b04c190706dd9e74d9b4f35d9cd7e575ba89327b497cda5f7eae4`。
+默认关闭档 Debug / 测试 APK、未签名 Release / 实际 R8、四模块 lint 全部通过，
+日志 `b017557c6c8fdcfb2419bba94cea7f9282cc5632b5f96f4132522416e7fd6c7f`；
+默认 Release SHA256 `e31cf106116e0bb0ce5d58d64006b6aa47a34606cbc39fcbf7b84291791eeb82`。
+两档 Gradle 的重复 lintVital 子任务被调度为 SKIPPED，不冒称 Gradle 零跳过；实际
+Release / R8 与四个显式 lintRelease 均成功。设备零跳过仅指上述 201 项组合。
+
+版本回收 / 持久残留维护、Android 当前策略批量复核与更强归属继续；非跨进程
+死亡 / 真实断电 / 完整磁盘故障 / 恶意同 uid / 真机 / 16 KiB / 完整 provider /
+辅助技术或全客户端 / 发行验收。P6 与 P1–P6 仍未完成；仅本地分批提交，不推送。
+
+收尾：所有自有 AVD 正常退出 0，镜像由各持有 context 删除，adb 无在线设备；
+停止本轮 Gradle / Kotlin JVM 59897 / 60096，旧 JVM 65439 与旧虚拟机 2637 未动。
+验后 lsof 仅旧虚拟机持工程 tmp 根目录 fd；清理 **63 个 tmp 顶层项、775 目录、
+8738 份普通文件、267225851 逻辑字节（254.85 MiB）**，不当 APFS 实际回收量。
+之前各轮模拟器镜像已随 context 移除，不将其重复计入最后的逻辑统计。原始日志 /
+收据 / 格式工具 / APK 副本验后移除；只保留 eq 三件及 tmp 根目录，原摘要逐一不变。
+清理后重新计算 753 输入表仍为上述最终 SHA256；无新平台证据或未提交生产源漂移。

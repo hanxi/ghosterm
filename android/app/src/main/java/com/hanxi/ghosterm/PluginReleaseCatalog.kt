@@ -44,6 +44,7 @@ internal class PluginReleaseCatalog private constructor(
     private var root: ParcelFileDescriptor? = null
     private lateinit var identity: Identity
     private val fd get() = checkNotNull(root)
+    val rootIdentity: Identity get() { validate(); return identity }
     private fun path(name: String = "") = "/proc/self/fd/${fd.fd}" + if (name.isEmpty()) "" else "/$name"
     private fun demand(value: Boolean, reason: Reason = Reason.INVALID) { if (!value) throw Rejected(reason) }
 
@@ -66,6 +67,7 @@ internal class PluginReleaseCatalog private constructor(
     class Version internal constructor(val descriptor: ParcelFileDescriptor, val releaseID: String) : AutoCloseable {
         val identity = objectIdentity(Os.fstat(descriptor.fileDescriptor))
         fun read(name: String, limit: Int): ByteArray = readFile(descriptor.fd, name, limit)
+        fun readPayload(name: String, limit: Int): ByteArray = payload().use { readFile(it.fd, name, limit) }
         fun payload(): ParcelFileDescriptor = LocalPublicationFile.childDirectory(descriptor.fd, "payload").also {
             if (!frozenDirectory(Os.fstat(it.fileDescriptor))) { it.close(); throw Rejected(Reason.INVALID) }
         }

@@ -76,7 +76,13 @@ class PluginSignatureReviewUITest {
     private fun root() {
         awaitSystem("DocumentsUI did not open", ::pickerVisible)
         awaitSystem("roots drawer") { click("Show roots", "Open navigation drawer", "显示根目录", "显示位置") }
+        instrumentation.uiAutomation.waitForIdle(200, 3000)
         awaitSystem("fixture root") { click("Ghosterm Official Preview Package Fixture") }
+        awaitSystem("fixture root opened") {
+            val tree = nodes()
+            tree.none { it.isVisibleToUser && it.viewIdResourceName?.endsWith(":id/roots_list") == true } &&
+                tree.any { it.isVisibleToUser && it.text?.toString() == "Ghosterm Official Preview Package Fixture" }
+        }
     }
     private fun choose(kind: PluginSignatureMaterial, name: String) {
         ui.onNodeWithTag("plugin-signature-pick-${kind.name}").performScrollTo().performClick()

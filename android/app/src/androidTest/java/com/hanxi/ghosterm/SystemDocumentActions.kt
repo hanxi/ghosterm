@@ -45,9 +45,11 @@ internal fun tapLegacyDocumentRow(instrumentation: Instrumentation, node: Access
     val minimum=(16*instrumentation.targetContext.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     if(bounds.isEmpty || bounds.height()<minOf(original.height(),minimum) || bounds.width()<minOf(original.width(),minimum)) return false
     val start=SystemClock.uptimeMillis()
+    val properties=arrayOf(MotionEvent.PointerProperties().apply { id=0;toolType=MotionEvent.TOOL_TYPE_FINGER })
+    val coordinates=arrayOf(MotionEvent.PointerCoords().apply { x=bounds.exactCenterX();y=bounds.exactCenterY();pressure=1f;size=1f })
     fun inject(action:Int):Boolean {
-        val event=MotionEvent.obtain(start,SystemClock.uptimeMillis(),action,bounds.exactCenterX(),bounds.exactCenterY(),0)
-        event.source=InputDevice.SOURCE_TOUCHSCREEN
+        val event=MotionEvent.obtain(start,SystemClock.uptimeMillis(),action,1,properties,coordinates,
+            0,0,1f,1f,0,0,InputDevice.SOURCE_TOUCHSCREEN,0)
         return try { instrumentation.uiAutomation.injectInputEvent(event,true) } finally { event.recycle() }
     }
     if(!inject(MotionEvent.ACTION_DOWN)) return false

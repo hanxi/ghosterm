@@ -398,7 +398,8 @@ static void rpc_executor_mode(const char *proof_root,
                               const char *client_digest,
                               const char *executor_digest,
                               const char *host_version,
-                              const char *peer_identity) {
+                              const char *peer_identity,
+                              const char *plugin_version) {
     CHECK(!isatty(0) && !isatty(1));
     gt_ext_channel_t *c = NULL;
     CHECK(gt_ext_channel_open_fd(0, 1, &c) == GT_OK);
@@ -413,6 +414,10 @@ static void rpc_executor_mode(const char *proof_root,
         strcpy(cfg.client_digest, client_digest);
         strcpy(cfg.executor_digest, executor_digest);
         strcpy(cfg.host_version, host_version);
+        if (plugin_version) {
+            CHECK(strlen(plugin_version) < sizeof(cfg.plugin_version));
+            strcpy(cfg.plugin_version, plugin_version);
+        }
         /* The Android endpoint owns SSH; this stdio Executor's local
          * transport is the peer from its process perspective. */
         cfg.peer.kind = GT_EXT_PEER_LOCAL;
@@ -538,7 +543,7 @@ static void rpc_executor_mode(const char *proof_root,
 }
 
 static void rpc_executor(const char *proof_root) {
-    rpc_executor_mode(proof_root, NULL, NULL, NULL, NULL, NULL);
+    rpc_executor_mode(proof_root, NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 #ifdef GT_HAVE_LIBSSH2
@@ -814,8 +819,9 @@ int EXT_RPC_MAIN(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "--android-executor")) {
-        CHECK(argc == 8);
-        rpc_executor_mode(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+        CHECK(argc == 8 || argc == 9);
+        rpc_executor_mode(
+            argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argc == 9 ? argv[8] : NULL);
         return 0;
     }
 #ifdef GT_HAVE_LIBSSH2
