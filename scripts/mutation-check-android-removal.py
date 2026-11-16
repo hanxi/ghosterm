@@ -59,7 +59,7 @@ def main():
         ('cancel-releases-reference', api + 'cancellationCloseAndOverlappingSelectionCannotLeakOrReplacePreviewReferences', controller,
          'if (pendingRemoval?.first == id) { pendingRemoval?.second?.close(); pendingRemoval = null }', 'if (pendingRemoval?.first == id) { pendingRemoval = null }'),
         ('forget-exact-cached-package', api + 'disabledVersionRemovalForgetsOnlyItsOwnDigestAndNeverRestoresDevelopmentFallback', controller,
-         'if (!result.complete || result.stage != null) return result', 'if (true) return result'),
+         'if (!result.complete || result.stage != null || result.unclassified != null) return result', 'if (true) return result'),
         ('resume-ack', api + 'pendingRecordIsReadOnlyAcrossControllerRestartAndRequiresSeparateResumeAcknowledgement', controller,
          'check(acknowledged) { "请核对保留的删除意图并确认继续" }', 'check(true) { "请核对保留的删除意图并确认继续" }'),
         ('withdraw-ack', api + 'cancellationBeforeIntentWritesNothingAndAfterIntentPreservesActualOutcome', controller,

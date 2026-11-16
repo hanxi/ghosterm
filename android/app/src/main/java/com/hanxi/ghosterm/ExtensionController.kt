@@ -841,6 +841,24 @@ class ExtensionController(profile: HostProfile, context: Context,
             }
         } }
     }
+    internal suspend fun unclassifiedDirectories(): List<PluginUnclassifiedDirectories.Entry> = onWorker {
+        PluginReleaseCatalog.open(versionDirectory)?.use { PluginUnclassifiedDirectories.listing(it) } ?: emptyList()
+    }
+    internal suspend fun previewUnclassifiedRemoval(id: String, reference: PluginUnclassifiedDirectories.Reference): PluginReleaseRemoval.Preview {
+        require(UUID.fromString(id).toString() == id)
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
+            owner.use {
+                val removal = PluginReleaseRemoval.prepareUnclassified(owner, reference)
+                try {
+                    caller.ensureActive(); checkOpen()
+                    val view = removal.preview(id); pendingRemoval = id to removal; view
+                } catch (failure: Throwable) { removal.close(); throw failure }
+            }
+        } }
+    }
     internal suspend fun installationMaintenance(): PluginInstallJournal.Observation = onWorker {
         PluginInstallJournal.observe(versionDirectory)
     }
@@ -874,7 +892,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         }
     }
     internal suspend fun confirmVersionRemoval(id: String, acknowledged: Boolean,
-        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseRemoval.Result {
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }, acknowledgedUnclassified: Boolean = false): PluginReleaseRemoval.Result {
         check(acknowledged) { "请核对完整文件清单并单独确认删除" }
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
@@ -885,14 +903,14 @@ class ExtensionController(profile: HostProfile, context: Context,
                 val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("本机版本目录已变化")
                 owner.use {
                     val result = removal.confirm(owner,
-                        confirmationCheckpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, rootSync = parentSync)
+                        confirmationCheckpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, rootSync = parentSync, acknowledgedUnclassified = acknowledgedUnclassified)
                     forgetRemovedVersion(result)
                 }
             }
         } }
     }
     internal suspend fun resumeVersionRemoval(id: String, acknowledged: Boolean,
-        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseRemoval.Result {
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }, acknowledgedUnclassified: Boolean = false): PluginReleaseRemoval.Result {
         check(acknowledged) { "请核对保留的删除意图并确认继续" }
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
@@ -901,7 +919,7 @@ class ExtensionController(profile: HostProfile, context: Context,
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 forgetRemovedVersion(PluginReleaseRemoval.resume(owner, id,
-                    checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, sync = parentSync))
+                    checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, sync = parentSync, acknowledgedUnclassified = acknowledgedUnclassified))
             }
         } }
     }
@@ -917,7 +935,7 @@ class ExtensionController(profile: HostProfile, context: Context,
     /** Disk effects are final even if registry cleanup fails. Existing instances
      * retain their original immutable package until their actual release. */
     private fun forgetRemovedVersion(result: PluginReleaseRemoval.Result): PluginReleaseRemoval.Result {
-        if (!result.complete || result.stage != null) return result
+        if (!result.complete || result.stage != null || result.unclassified != null) return result
         var issue: String? = null
         val forgotten = mutableListOf<Pair<String, String>>()
         val iterator = records.iterator()

@@ -19,6 +19,9 @@ internal class PluginVersionRemovalModel(
     private val withdraw: suspend (String) -> Boolean,
     private val changed: (PluginReleaseRemoval.Result?) -> Unit,
     private val inspectStageRequest: (suspend (String, PluginInstallJournal.Reference) -> PluginReleaseRemoval.Preview)? = null,
+    private val inspectUnclassifiedRequest: (suspend (String, PluginUnclassifiedDirectories.Reference) -> PluginReleaseRemoval.Preview)? = null,
+    private val commitUnclassified: (suspend (String, Boolean) -> PluginReleaseRemoval.Result)? = null,
+    private val resumeUnclassified: (suspend (String, Boolean) -> PluginReleaseRemoval.Result)? = null,
 ) {
     private var closed = false
     private var epoch = Any()
@@ -30,16 +33,17 @@ internal class PluginVersionRemovalModel(
     var preview: PluginReleaseRemoval.Preview? by mutableStateOf(null); private set
     var saved: PluginReleaseRemoval.Preview? by mutableStateOf(null); private set
     var acknowledged by mutableStateOf(false); private set
+    var acknowledgedUnclassified by mutableStateOf(false); private set
     var issue: String? by mutableStateOf(null); private set
     var result: PluginReleaseRemoval.Result? by mutableStateOf(null); private set
     var withdrawalDurability: Boolean? by mutableStateOf(null); private set
     val canPreview get() = !closed && !busy && loaded && saved == null && issue == null
-    val canConfirm get() = !closed && !busy && preview != null && acknowledged
-    val canContinue get() = !closed && !busy && saved != null && acknowledged
+    val canConfirm get() = !closed && !busy && preview != null && acknowledged && (preview?.unclassified == null || acknowledgedUnclassified)
+    val canContinue get() = !closed && !busy && saved != null && acknowledged && (saved?.unclassified == null || acknowledgedUnclassified)
     private fun main() { check(Looper.myLooper() == Looper.getMainLooper()) }
     private fun invalidate() {
         epoch = Any(); operation?.cancel(); operation = null
-        requestID?.let(cancelPreview); requestID = null; preview = null; acknowledged = false
+        requestID?.let(cancelPreview); requestID = null; preview = null; acknowledged = false; acknowledgedUnclassified = false
         issue = null; result = null; withdrawalDurability = null; busy = false
     }
     fun refresh() {
@@ -61,6 +65,13 @@ internal class PluginVersionRemovalModel(
         main(); if (!canPreview || inspectStageRequest == null) return
         beginInspect { id -> inspectStageRequest.invoke(id, reference) }
     }
+    fun inspectUnclassified(reference: PluginUnclassifiedDirectories.Reference) {
+        main(); if (!canPreview || inspectUnclassifiedRequest == null) return
+        beginInspect { id -> inspectUnclassifiedRequest.invoke(id, reference) }
+    }
+    fun acknowledgeUnclassified(value: Boolean) {
+        main(); if (!closed && !busy && (preview?.unclassified != null || saved?.unclassified != null)) acknowledgedUnclassified = value
+    }
     private fun beginInspect(action: suspend (String) -> PluginReleaseRemoval.Preview) {
         invalidate(); val id = UUID.randomUUID().toString(); requestID = id
         val generation = epoch; busy = true
@@ -78,10 +89,14 @@ internal class PluginVersionRemovalModel(
     fun resume() { main(); if (canContinue) mutate(saved!!.id, 1) }
     fun withdraw() { main(); if (canContinue) mutate(saved!!.id, 2) }
     private fun mutate(id: String, action: Int) {
-        val generation = epoch; busy = true; committing = true; issue = null
+        val generation = epoch; val unknown = (preview ?: saved)?.unclassified != null; val unknownAck = acknowledgedUnclassified; busy = true; committing = true; issue = null
         operation = scope.launch(Dispatchers.Main.immediate) {
             try {
-                val value = when (action) { 0 -> commit(id); 1 -> resume(id); else -> null }
+                val value = when (action) {
+                    0 -> if (unknown) checkNotNull(commitUnclassified).invoke(id, unknownAck) else commit(id)
+                    1 -> if (unknown) checkNotNull(resumeUnclassified).invoke(id, unknownAck) else resume(id)
+                    else -> null
+                }
                 val durable = if (action == 2) withdraw(id) else null
                 if (!closed && generation === epoch) {
                     result = value; withdrawalDurability = durable; preview = null; requestID = null
@@ -96,7 +111,7 @@ internal class PluginVersionRemovalModel(
                     // only; never replay or infer absence from an IO error.
                     try { saved = observe(); loaded = true }
                     catch (_: Exception) { saved = null; loaded = false; issue = issue ?: "待处理删除意图查不出来；请刷新核对。" }
-                    acknowledged = false; busy = false; committing = false
+                    acknowledged = false; acknowledgedUnclassified = false; busy = false; committing = false
                 }
             }
         }

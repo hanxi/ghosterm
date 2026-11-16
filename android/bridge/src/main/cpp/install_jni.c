@@ -220,3 +220,58 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachD
     }
     return error;
 }
+
+/* A separate entry prevents unknown-tree cleanup from relaxing the ordinary
+ * frozen-version/source-name contract. Kotlin owns the reviewed intent. */
+JNIEXPORT jint JNICALL
+Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachUnclassifiedDirectory(
+    JNIEnv *env, jobject self, jint parent, jint descriptor, jbyteArray from, jbyteArray to) {
+    (void)self;
+    char source_name[256] = {0}, target_name[47] = {0};
+    int length = from ? (*env)->GetArrayLength(env, from) : 0;
+    if (!to || length < 1 || length > 255 || (*env)->GetArrayLength(env, to) != 46) {
+        return EINVAL;
+    }
+    (*env)->GetByteArrayRegion(env, from, 0, length, (jbyte *)source_name);
+    (*env)->GetByteArrayRegion(env, to, 0, 46, (jbyte *)target_name);
+    if ((*env)->ExceptionCheck(env) || !strcmp(source_name, ".") || !strcmp(source_name, "..") ||
+        !strcmp(source_name, "selection-v1.json") || !strcmp(source_name, "removal-v1.jsonl") ||
+        !strncmp(source_name, ".install-", 9) || !strncmp(source_name, ".intent-", 8) ||
+        !strncmp(source_name, ".selection-", 11) || !strncmp(source_name, ".removal-record-", 16) ||
+        memcmp(target_name, ".removing-", 10)) {
+        return EINVAL;
+    }
+    for (int i = 0; i < length; i++) {
+        unsigned char c = (unsigned char)source_name[i];
+        if (c < 32 || c == 127 || c == '/' || c == '\\' || c == ':') {
+            return EINVAL;
+        }
+    }
+    for (int i = 10; i < 46; i++) {
+        int dash = i == 18 || i == 23 || i == 28 || i == 33;
+        if (dash ? target_name[i] != '-'
+                 : !((target_name[i] >= '0' && target_name[i] <= '9') ||
+                     (target_name[i] >= 'a' && target_name[i] <= 'f'))) {
+            return EINVAL;
+        }
+    }
+    struct stat root_value, candidate, original;
+    int error = private_directory(parent, &root_value);
+    if (!error) {
+        error = private_directory(descriptor, &candidate);
+    }
+    if (!error && fstatat(parent, source_name, &original, AT_SYMLINK_NOFOLLOW) < 0) {
+        error = errno;
+    }
+    if (!error &&
+        (!S_ISDIR(original.st_mode) || candidate.st_dev != original.st_dev ||
+         candidate.st_ino != original.st_ino || candidate.st_uid != original.st_uid ||
+         candidate.st_mode != original.st_mode || candidate.st_dev != root_value.st_dev)) {
+        error = EINVAL;
+    }
+    if (!error &&
+        syscall(__NR_renameat2, parent, source_name, parent, target_name, RENAME_NOREPLACE) < 0) {
+        error = errno;
+    }
+    return error;
+}

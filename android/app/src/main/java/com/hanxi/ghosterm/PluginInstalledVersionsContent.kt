@@ -46,6 +46,12 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
             val inspector = controller.newReleaseInspector()
             try { inspector.installationMaintenance() } finally { withContext(NonCancellable) { inspector.close() } }
         } }, { controller.retireInstallationRecord(it, true) }, { model.refresh() }) }
+    val unclassifiedModel = remember(controller) { PluginUnclassifiedModel(scope) {
+        observationLock.withLock {
+            val inspector = controller.newReleaseInspector()
+            try { inspector.unclassifiedDirectories() } finally { withContext(NonCancellable) { inspector.close() } }
+        }
+    } }
     val removalModel = remember(controller) { PluginVersionRemovalModel(scope,
         { observationLock.withLock {
             val inspector = controller.newReleaseInspector()
@@ -53,14 +59,18 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
         } },
         controller::previewVersionRemoval, { controller.confirmVersionRemoval(it, true) }, controller::cancelRemovalPreview,
         { controller.resumeVersionRemoval(it, true) }, { controller.cancelPendingVersionRemoval(it, true) },
-        { result -> result?.let { removed.value(it) }; model.refresh(); maintenanceModel.refresh() }, controller::previewStageRemoval) }
+        { result -> result?.let { removed.value(it) }; model.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh() }, controller::previewStageRemoval,
+        controller::previewUnclassifiedRemoval,
+        { id, ack -> controller.confirmVersionRemoval(id, true, acknowledgedUnclassified = ack) },
+        { id, ack -> controller.resumeVersionRemoval(id, true, acknowledgedUnclassified = ack) }) }
+    DisposableEffect(unclassifiedModel) { onDispose { unclassifiedModel.close() } }
     DisposableEffect(maintenanceModel) { onDispose { maintenanceModel.close() } }
     DisposableEffect(removalModel) { onDispose { removalModel.close() } }
     DisposableEffect(model) { onDispose { model.close() } }
     DisposableEffect(selectionModel) { onDispose { selectionModel.close() } }
-    LaunchedEffect(model) { model.refresh(); removalModel.refresh(); maintenanceModel.refresh() }
+    LaunchedEffect(model) { model.refresh(); removalModel.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); model.refresh() }, enabled = !model.busy && !selectionModel.committing && !removalModel.committing && !maintenanceModel.committing,
+        OutlinedButton(onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh(); model.refresh() }, enabled = !model.busy && !selectionModel.committing && !removalModel.committing && !maintenanceModel.committing,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-versions-refresh")) { Text("刷新版本列表") }
         if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (removalModel.preview == null && !removalModel.busy) PluginVersionPolicyContent(selectionModel)
@@ -102,6 +112,9 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
         PluginInstallMaintenanceContent(maintenanceModel, removalModel,
             canAct = !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
             inspect = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectStage(it) })
+        PluginUnclassifiedContent(unclassifiedModel,
+            canAct = removalModel.canPreview && !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !maintenanceModel.busy && maintenanceModel.target == null,
+            inspect = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectUnclassified(it) })
         PluginVersionPreviewContent(selectionModel)
         PluginVersionRemovalContent(removalModel)
     }

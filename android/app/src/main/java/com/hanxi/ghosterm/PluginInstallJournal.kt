@@ -106,6 +106,24 @@ internal object PluginInstallJournal {
             return Observation(rows)
         }
     }
+    /** A damaged ownership record is visible failure, never evidence that a
+     * directory is unowned. Called while the catalog owns the root lock. */
+    fun classifiedNames(root: ParcelFileDescriptor): Set<String> {
+        val names = File("/proc/self/fd/${root.fd}").list() ?: error("cannot enumerate ownership")
+        demand(names.size <= 128)
+        val records = names.filter { it.startsWith(".install-") }; demand(records.size <= 64)
+        return buildSet {
+            for (name in records) {
+                val record = read(root, name)
+                when (classify(root, record, rootBusy = true)) {
+                    State.ACTIVE, State.ABANDONED -> add(record.reference.name)
+                    State.PUBLISHED -> add(record.reference.target)
+                    else -> Unit
+                }
+                sameRecord(root, record)
+            }
+        }
+    }
     fun verify(root: ParcelFileDescriptor, reference: Reference, allowMissing: Boolean = false) {
         if (allowMissing && PluginReleaseRemoval.named(root.fd, reference.recordName) == null) return
         demand(read(root, reference.recordName).reference == reference)
