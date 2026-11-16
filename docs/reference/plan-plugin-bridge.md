@@ -11098,3 +11098,91 @@ JNI **148 / 37**，clang-format **19.1.7 / 272 文件**通过。JS-enabled 与�
 仍为 `32f7085ca7d27a45a4e769aa7b39bdbb7f77e4349b7c6dc839dae7c289a0be79`。
 本批原始日志、收据、截图及临时工具均已清理，本文摘要为历史记录；默认 JS-off，
 仅本地提交，不推送 / 发行。
+
+
+### P2 实施第六十一批：Android HTML 路径原始码点与严格 UTF-8（2026-11-17）
+
+修复两个实际路径缺陷：`URI.toASCIIString()` 对非 ASCII 做 NFC 规范化，导致分解
+重音目录的主文档位置与附件快照键不同；`URI.path` 对非法 UTF-8 百分号序列使用
+替换字符，`%FF.css` 可被误映射到合法的 `�.css`。来源参考为 AOSP
+[URI 实现](https://android.googlesource.com/platform/libcore/+/refs/heads/main/ojluni/src/main/java/java/net/URI.java)，
+本轮抓取文件 SHA256 `de1a76ddad8fa7585886d97d28a02adc571da49ef366899f913bf946d5401203`；
+参考源码不代替以下设备行为证据。
+
+先在原生产实现上构建三条回归，API36 / arm64 / 4 KiB 页自有无窗口模拟器逐条
+正常断言红、同 APK 独立 Core 配置绿：主 URL 码点比较失败、非法 `%FF` 返回 200、
+实际 WebView 的 CSS / PNG 像素为零。编译 / runner / 崩溃没有计入目标红。
+
+主 URL 改由 Android Uri.Builder 编码，保留原始 UTF-8 路径码点与 `#?%` 等字面
+字符；请求读取 rawPath，有限额地解码百分号一次、严格 UTF-8 REPORT，再校验规范
+相对路径。合法 U+FFFD 和字面 `%FF` 文件名仍可分别访问，非法 / 过长请求拒绝，
+不将 NFC / NFD 合并，不放宽附件、来源、方法、CSP 或网络限制。
+
+HTML 变异驱动原二十一组及新增原始码点 / 非法 UTF-8 / 二次百分号解码三组，
+共 **24 组**在同一自有 API36 设备完整通过。每组真实重编译、指定单条正常断言红、
+同 APK Core 绿、恢复重编绿及生产三文件 SHA256 一致。新生产文档模块为
+`fa9e27666bff3511cef7df32d77fcf436eb11de16292c67144b2f4e1b2b6e676`，
+视图模块为 `2cba9c5f9d1a817674a7f745f5688ca7dac68ae2fa58eaa1bdafb94d7c8dd28b`；
+234 份变异材料的有序摘要清单 SHA256 为
+`4779c7e86ca59ba527c9ffd8af1d4fb68b9f0a5aebf6fa337712e0a925825243`。
+
+验证脚本同步按 Markdown / HTML / Unicode HTML 选择默认的生产设置页测试，只生成
+所选文档，Unicode 档经真实双跳 SSH 传递分解重音目录、`页面 #?%.html`、带空格 /
+百分号的 CSS 与中文 / emoji PNG。源码核对发现旧默认控制器测试读取 `fixture.txt`，
+与本脚本 Markdown 夹具不符；现默认改为实际 Markdown 设置页测试。显式 `--test`
+仍保留选择能力，不将未跑过的格式记为通过。
+
+本批不改 C / Swift / 公共 ABI，未增加 macOS CI 二十份。P1–P6 仍按完整退出条件
+推进；普通业务命令分派还缺持久目录发现 / 信任 / 接收端接线，本批没有用 relay
+别名冒充完成。完整格式 / 生命周期 / 物理设备 / 性能 / 辅助技术 / 发行矩阵继续。
+
+最终同源验证：API29 / API36 arm64 / 4 KiB 页自有无窗口模拟器各 **36 项**组合及
+各 **七条**真实双跳 SSH 链全部通过、无失败 / 跳过。组合包括 HTML 十、真实 WebView
+五、旧预览五、预览 UI 七、Core 三与终端返回六；SSH 为 Markdown 三、HTML 三、
+Unicode HTML 一。三种格式省略 `--test` 的默认测试名均从实际 JUnit 输出核对。
+两端实际 WebView 为 **91.0.4472.114** / **133.0.6943.137**，实际安装两 APK 与构件
+逐项相同；1636 份指定输入前后一致，SHA256 为 `08e4bb20454a46e81ea335f28c3ac5489c324d135b7b0de12cd8216f40f8d703`。
+
+JS-enabled App / 测试 APK 依次为
+`f886b3832da61f5c3f8e74909cf0a38dc16791a7f8dbf8faa325a82d53fa5195` /
+`2dc826217ea4fd3ecf4a30650425f541c0472529957468ecba5b83b384b0caf5`；
+真实 gterm 为 `1779a3c6ec2ce8de5f7e38c157b4afccab2e7f01a3123d4c0aa9478eb6c49b7f`。
+来源为本地 `70cd876e` 加本批 dirty，不声称 clean / 云端或发行证据。
+
+默认 Core **589/589 CTest / 185 公共 ABI**、Apple **182 引用 / 3 登记未用**、JNI
+**148 / 37**、clang-format **19.1.7 / 272 文件**通过。JS-enabled 与默认 JS-off 的
+未签名 Release / 实际 R8 及 app / bridge / data / terminal 四模块 Release lint 均
+通过；最后恢复默认 JS-off Debug / 测试 APK，该新包不代替上面的设备用包。
+
+下列为本轮历史收据 SHA256；核对后清理原始临时材料，重验需重新生成。
+
+| 材料 | SHA256 |
+|---|---|
+| baseline-inputs.json | `275cd1d6363b8e05975bb78d15133aa963da90cf0cc3361db22458cc8c9a2397` |
+| baseline-device.log | `f25d1b41554f15827d89556a1202a0c2077e4eb513892019b2d220439bf44c9f` |
+| mutations.log | `4f70080242d8993f1ce0267c5311062b44ede604cb30e276985a90937ff70ba6` |
+| api29-receipt.json | `589ce1c77c67a396dde2608c599a9d0919edf64b9e4b9069df849367cdfa06a8` |
+| api36-receipt.json | `20b7fe1b9b3d4a1e599fbf343cb838b007ede7d395676c894a991a9b138fabbb` |
+| core-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| release-js-on.log | `a80fdd854a7980e2dce15d0c23dea558907cc8999e1d5df8e6b51c7be914848a` |
+| release-js-off.log | `a2a94d84482419ebc53b4e71951043f9cb16f1f1243bfbce5d98c4aa243db916` |
+
+补充原件 SHA256：
+
+- baseline-unicode.log：`013c8300272a03946781dc8c6e1997523e3d493f1771ac80b123a38c04b4a4a0`。
+- baseline-utf8.log：`be78f8d99ea8dabf5c6c829b74e66868e7efde9ec15cb3780565da9a1ae09139`。
+- baseline-native.log：`fecfd0ac15419c2c3ea7a41446a23cbb215455c4b3dde1fd0af28008af639e36`。
+- c-format.log：`6e72b64e4d86057a2401b1d07a516ee12b12de75a7b4cc9aaf8a7a4f359e3c66`。
+- apple-abi.log：`70de1d6a7424602d805712d3bac38e769c494de31d03bc097be5c350f446263a`。
+- android-abi.log：`ea046ca560c228f5af6a182cc0cc3f3c66aeec3e8571211805e9566c991fd8e8`。
+- final-default-debug.log：`ef055ba43200c23afe328be69115e9ce16111b5f9553b9f1e584fac62e748022`。
+
+
+本批收尾：自有 API36 / API29 AVD 正常退出 0，adb 无在线设备；核对 PID / 启动
+时间后只结束自有 Gradle / Kotlin JVM 80564 / 80755，原 65439 / 2637 未动。清理本批
+及闸门的 32 个 tmp 顶层项、623 目录、8341 普通文件、220,048,695 逻辑字节与四个
+符号链接，无特殊文件；AVD 镜像已随 context 回收，不将逻辑字节视为 APFS 实际释放量。
+只保留 tmp 根与原 eq 三件，SHA256 逐项不变。清理后重枚举 1636 份指定源仍为
+`08e4bb20454a46e81ea335f28c3ac5489c324d135b7b0de12cd8216f40f8d703`。
+原始日志、收据、上游参考源码和临时工具均已清理，本文摘要为历史记录；默认 JS-off，
+仅本地分批提交，不推送 / 发行。

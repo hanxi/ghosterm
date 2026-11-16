@@ -515,13 +515,20 @@ JS 桥，不取终端焦点 / IME。切换源码 / 资源、附件变化和移�
 会话批准，检查生产设置页的 HTML / CSS / PNG 屏幕像素、资源切换及停止 / 释放：
 
 ```sh
-python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --preview-format html --test com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopHtmlAppearsInMainActivitySettings
+python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --preview-format html
+python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --preview-format html-unicode
 ANDROID_SERIAL="$ANDROID_SERIAL" python3 -B scripts/mutation-check-android-html.py
 ```
 
 同类另有 `realTwoHopHtmlReturnsToSamePtyWithOpenIme` 和
 `realTwoHopHtmlReturnsToSamePtyWithoutSummoningHiddenIme`，增加原 PTY / 实际 IME 往返。
-HTML 变异脚本默认 21 组，`--case` 可重复选组；每组要求真实编译后单条正常断言红、
+`--test` 不指定时按 Markdown / HTML / Unicode HTML 选择相应生产设置页测试；
+夹具只生成所选格式，默认 Markdown 不再指向使用 `fixture.txt` 的旧控制器测试。
+Unicode 档使用分解重音目录、包含 `#?%` 的主文档及中文 / emoji 附件。URL 编码保留
+原始路径码点；请求路径严格校验 UTF-8，百分号只解码一次，不把非法序列替换成
+合法的 U+FFFD 文件名，也不把 NFC / NFD 当作另一条已授权路径。
+
+HTML 变异脚本默认 24 组，`--case` 可重复选组；每组要求真实编译后单条正常断言红、
 同 APK 独立 Core 绿、恢复重编绿与 SHA256。启动 / 编译 / 崩溃 / 日志传输异常不计红。
 记录实际系统与 WebView 版本，专项不替代完整格式 / 生命周期 / 设备矩阵，不增加
 macOS CI 二十份；核对收据后清理本轮 `tmp/`。

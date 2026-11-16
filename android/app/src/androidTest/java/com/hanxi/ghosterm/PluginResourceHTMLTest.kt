@@ -114,6 +114,48 @@ class PluginResourceHTMLTest {
         assertEquals(403, owner.intercept(address, "GET", false).statusCode)
     }
 
+    @Test fun decomposedDirectoryAndDistinctAccentNamesKeepTheirExactUtf8Paths() {
+        val directory = "docs/cafe\u0301"
+        val d = htmlFixture("$directory/页面 #?%.html", "text/html", "<p>path</p>".toByteArray())
+        val decomposed = htmlFixture("$directory/re\u0301sume\u0301.css", "text/css", "decomposed".toByteArray())
+        val composed = htmlFixture("$directory/résumé.css", "text/css", "composed".toByteArray())
+        val owner = PluginResourceHTMLCoordinator(PluginResourceHTMLDocument.capture(d, listOf(d, decomposed, composed))!!)
+        val base = URI(owner.documentURL)
+        assertEquals("main URL must preserve exact filename code points", "/${d.descriptor.displayName}", base.path)
+        assertNull(base.fragment); assertNull(base.query)
+        for (asset in listOf(decomposed, composed)) {
+            val address = android.net.Uri.Builder().scheme("https").authority(base.host)
+                .path("/${asset.descriptor.displayName}").build().toString()
+            val response = owner.intercept(address, "GET", false)
+            assertEquals(200, response.statusCode)
+            assertEquals(asset.bytes.toString(Charsets.UTF_8), response.data.use { it.readBytes().toString(Charsets.UTF_8) })
+        }
+        val alias = android.net.Uri.Builder().scheme("https").authority(base.host)
+            .path("/docs/café/résumé.css").build().toString()
+        assertEquals("canonical equivalence does not authorize another path", 403, owner.intercept(alias, "GET", false).statusCode)
+        owner.close()
+    }
+
+    @Test fun malformedUtf8RequestsCannotAliasValidReplacementCharacterNames() {
+        val d = doc()
+        val replacement = htmlFixture("docs/\uFFFD.css", "text/css", "valid replacement character".toByteArray())
+        val literal = htmlFixture("docs/%FF.css", "text/css", "literal percent".toByteArray())
+        val owner = PluginResourceHTMLCoordinator(PluginResourceHTMLDocument.capture(d, listOf(d, replacement, literal))!!)
+        val host = URI(owner.documentURL).host
+        assertEquals("valid UTF-8 U+FFFD remains a distinct allowed filename", 200,
+            owner.intercept("https://$host/docs/%EF%BF%BD.css", "GET", false).statusCode)
+        owner.intercept("https://$host/docs/%25FF.css", "GET", false).let {
+            assertEquals(200, it.statusCode)
+            assertEquals("literal percent must not be decoded twice", "literal percent",
+                it.data.use { stream -> stream.readBytes().toString(Charsets.UTF_8) })
+        }
+        assertEquals("malformed UTF-8 must not be replaced into an allowed filename", 403,
+            owner.intercept("https://$host/docs/%FF.css", "GET", false).statusCode)
+        for (path in listOf("%C0%AF.css", "%E0%80%AF.css", "%ED%A0%80.css", "%F4%90%80%80.css", "%00.css"))
+            assertEquals(403, owner.intercept("https://$host/docs/$path", "GET", false).statusCode)
+        owner.close()
+    }
+
     @Test fun syntheticOriginServesOnlyMappedGetSubresourcesAndCloseRevokesIt() {
         val d = doc(); val css = htmlFixture("docs/theme.css", "text/css", "body{color:blue}".toByteArray())
         val owner = PluginResourceHTMLCoordinator(PluginResourceHTMLDocument.capture(d, listOf(d, css))!!)

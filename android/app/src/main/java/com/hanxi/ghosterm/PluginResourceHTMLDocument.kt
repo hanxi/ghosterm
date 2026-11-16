@@ -35,6 +35,25 @@ internal object PluginResourceHTMLDocument {
             .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
     } catch (_: java.nio.charset.CharacterCodingException) { null }
 
+    /** Decode escaped bytes exactly once. URI.path replaces malformed UTF-8;
+     * that would alias an invalid URL to a valid U+FFFD snapshot filename. */
+    fun requestPath(raw: String?): String? {
+        if (raw == null || !raw.startsWith('/') || raw.length > 3073 ||
+            !Charsets.UTF_8.newEncoder().canEncode(raw)) return null
+        val input = raw.toByteArray(Charsets.UTF_8)
+        val output = ByteArray(input.size)
+        var at = 0; var count = 0
+        while (at < input.size) {
+            if (input[at] == '%'.code.toByte()) {
+                if (at + 2 >= input.size) return null
+                val high = (input[at + 1].toInt() and 255).toChar().digitToIntOrNull(16) ?: return null
+                val low = (input[at + 2].toInt() and 255).toChar().digitToIntOrNull(16) ?: return null
+                output[count++] = (high * 16 + low).toByte(); at += 3
+            } else output[count++] = input[at++]
+        }
+        return utf8(output.copyOf(count))?.removePrefix("/")?.takeIf(::canonical)
+    }
+
     private fun sha(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 255) }
 

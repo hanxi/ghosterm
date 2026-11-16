@@ -36,10 +36,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--android", required=True, help="explicit test device or headless emulator serial")
     parser.add_argument("--gterm", type=Path, required=True, help="JS-enabled gterm executable")
-    parser.add_argument("--preview-format", choices=["markdown", "html"], default="markdown")
-    parser.add_argument("--test", default="com.hanxi.ghosterm.ExtensionChannelTest#controllerReceivesOfficialPreviewOverTwoHopSSH",
-                        help="single instrumentation class#method (defaults to the isolated Controller E2E)")
+    parser.add_argument("--preview-format", choices=["markdown", "html", "html-unicode"], default="markdown")
+    parser.add_argument("--test", help="single instrumentation class#method; default matches the fixture format")
     args = parser.parse_args()
+    if args.test is None:
+        args.test = {
+            "markdown": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopPreviewReceiptAppearsInMainActivitySettings",
+            "html": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopHtmlAppearsInMainActivitySettings",
+            "html-unicode": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopUnicodeHtmlAppearsInMainActivitySettings",
+        }[args.preview_format]
     gterm = args.gterm.resolve()
     package_source = ROOT / "plugins/official/preview"
     if not gterm.is_file():
@@ -69,14 +74,20 @@ def main():
     digest = hashlib.sha256(integrity).hexdigest()
     fixture_markdown = b"# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
     workspace = work / "workspace"
-    markdown_dir = workspace / "docs"
+    unicode_html = args.preview_format == "html-unicode"
+    markdown_dir = workspace / ("docs/cafe\u0301" if unicode_html else "docs")
     markdown_dir.mkdir(parents=True)
-    (markdown_dir / "preview.md").write_bytes(fixture_markdown)
-    if args.preview_format == "html":
-        (markdown_dir / "index.html").write_bytes(
-            b"<!doctype html><link rel='stylesheet' href='theme.css'><img src='marker.png'>"
-            b"<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>")
-        (markdown_dir / "theme.css").write_bytes(b"body{background:#0000ff!important;min-height:200px}")
+    if args.preview_format == "markdown":
+        (markdown_dir / "preview.md").write_bytes(fixture_markdown)
+    else:
+        main_name = "页面 #?%.html" if unicode_html else "index.html"
+        css_name = "主 题%.css" if unicode_html else "theme.css"
+        css_link = "%E4%B8%BB%20%E9%A2%98%25.css" if unicode_html else "theme.css"
+        image_link = "%E5%9B%BE%F0%9F%98%80.png" if unicode_html else "marker.png"
+        (markdown_dir / main_name).write_text(
+            f"<!doctype html><link rel='stylesheet' href='{css_link}'><img src='{image_link}'>"
+            "<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>", encoding="utf-8")
+        (markdown_dir / css_name).write_bytes(b"body{background:#0000ff!important;min-height:200px}")
     # Small deterministic RGBA PNG, generated in the isolated fixture.
     width = height = 32
     scanline = b"\x00" + bytes((255, 0, 0, 255)) * width
@@ -87,7 +98,7 @@ def main():
     image_bytes = (b"\x89PNG\r\n\x1a\n" +
                    png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) +
                    png_chunk(b"IDAT", zlib.compress(raw)) + png_chunk(b"IEND", b""))
-    (markdown_dir / "marker.png").write_bytes(image_bytes)
+    (markdown_dir / ("图😀.png" if unicode_html else "marker.png")).write_bytes(image_bytes)
     remote_tmp = work / "remote-tmp"
     remote_tmp.mkdir()
     remote_stderr = work / "remote-gterm.stderr"

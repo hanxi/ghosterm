@@ -138,6 +138,17 @@ class PluginResourceHTMLViewTest {
         assertEquals(403, client.shouldInterceptRequest(first, HTMLRequest(address))!!.statusCode)
     }
 
+    @Test fun decomposedDirectoryAndEncodedUnicodeAttachmentsReallyRender() {
+        val directory = "docs/cafe\u0301"
+        val d = htmlFixture("$directory/页面 #?%.html", "text/html",
+            "<link rel='stylesheet' href='%E4%B8%BB%20%E9%A2%98%25.css'><img src='%E5%9B%BE%F0%9F%98%80.png'>".toByteArray())
+        val style = htmlFixture("$directory/主 题%.css", "text/css", "body{background:#0000ff!important;min-height:200px}".toByteArray())
+        val image = htmlFixture("$directory/图😀.png", "image/png", htmlFixturePNG(32, 32))
+        ui.setContent { PluginResourcesPanel(listOf(d, style, image)) }
+        val view = awaitRender()
+        assertEquals("native URL must not normalize the document path", "/${d.descriptor.displayName}", ui.runOnIdle { URI(view.url!!).path })
+    }
+
     @Test fun documentLinksNeverNavigateOrLaunchAnotherActivity() {
         val d = htmlFixture("docs/index.html", "text/html",
             "<link rel='stylesheet' href='theme.css'><a class='go' href='https://outside.invalid/'>Blocked</a><img src='marker.png'>".toByteArray())

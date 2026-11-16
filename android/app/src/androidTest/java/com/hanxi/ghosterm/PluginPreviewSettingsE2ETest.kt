@@ -102,13 +102,19 @@ class PluginPreviewSettingsE2ETest {
     @Test fun realTwoHopHtmlAppearsInMainActivitySettings() = preview(null, html = true)
     @Test fun realTwoHopHtmlReturnsToSamePtyWithOpenIme() = preview(true, html = true)
     @Test fun realTwoHopHtmlReturnsToSamePtyWithoutSummoningHiddenIme() = preview(false, html = true)
-    private fun preview(returnKeyboard: Boolean?, html: Boolean = false) {
+    @Test fun realTwoHopUnicodeHtmlAppearsInMainActivitySettings() = preview(null, html = true, unicode = true)
+    private fun preview(returnKeyboard: Boolean?, html: Boolean = false, unicode: Boolean = false) {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture
-        assertEquals("fixture format must match the requested scenario", if (html) "html" else "markdown", payload.getString("previewFormat"))
-        val documentPath = if (html) "docs/index.html" else "docs/preview.md"
-        val assetPaths = if (html) "docs/theme.css,docs/marker.png" else "docs/marker.png"
-        val expectedDocument = if (html) "<!doctype html><link rel='stylesheet' href='theme.css'><img src='marker.png'>" +
+        assertEquals("fixture format must match the requested scenario", if (unicode) "html-unicode" else if (html) "html" else "markdown", payload.getString("previewFormat"))
+        val directory = if (unicode) "docs/cafe\u0301" else "docs"
+        val documentPath = if (unicode) "$directory/页面 #?%.html" else if (html) "docs/index.html" else "docs/preview.md"
+        val cssPath = if (unicode) "$directory/主 题%.css" else "docs/theme.css"
+        val imagePath = if (unicode) "$directory/图😀.png" else "docs/marker.png"
+        val assetPaths = if (html) "$cssPath,$imagePath" else imagePath
+        val cssLink = if (unicode) "%E4%B8%BB%20%E9%A2%98%25.css" else "theme.css"
+        val imageLink = if (unicode) "%E5%9B%BE%F0%9F%98%80.png" else "marker.png"
+        val expectedDocument = if (html) "<!doctype html><link rel='stylesheet' href='$cssLink'><img src='$imageLink'>" +
             "<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>"
             else "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
         var retainedView: android.webkit.WebView? = null
@@ -124,8 +130,10 @@ class PluginPreviewSettingsE2ETest {
             }
             assertTrue("real SSH HTML must draw fixed CSS blue and PNG red: $pixels", pixels.first > 10 && pixels.second > 10)
             retainedView = main { findPluginHTMLView(ui.activity.window.decorView) }
+            assertEquals("received document URL must preserve exact path code points", "/$documentPath",
+                main { java.net.URI(retainedView!!.url!!).path })
             retainedClient = main { retainedView!!.webViewClient }
-            retainedRequest = HTMLRequest(main { java.net.URI(retainedView!!.url!!).resolve("theme.css").toString() })
+            retainedRequest = HTMLRequest(main { java.net.URI(retainedView!!.url!!).resolve(android.net.Uri.encode(cssPath.substringAfterLast('/'))).toString() })
         }
         val ports = payload.getJSONObject("two").getJSONArray("ports")
         val packageFiles = payload.getJSONObject("previewPackageFiles")
@@ -256,18 +264,18 @@ class PluginPreviewSettingsE2ETest {
                 extensions.receivedResources.any { it.descriptor.displayName == documentPath })
             await("Settings did not receive the exact document and explicit attachments") {
                 extensions.receivedResources.map { it.descriptor.displayName }.toSet() ==
-                    (setOf(documentPath, "docs/marker.png") + if (html) setOf("docs/theme.css") else emptySet())
+                    (setOf(documentPath, imagePath) + if (html) setOf(cssPath) else emptySet())
             }
             val received = extensions.receivedResources.single { it.descriptor.displayName == documentPath }
             assertArrayEquals(expectedDocument.toByteArray(), received.bytes)
             assertEquals(if (html) "text/html" else "text/markdown", received.descriptor.mime)
-            val image = extensions.receivedResources.single { it.descriptor.displayName == "docs/marker.png" }
+            val image = extensions.receivedResources.single { it.descriptor.displayName == imagePath }
             assertEquals("image/png", image.descriptor.mime)
             ui.onNodeWithTag("plugin-runtime-state").assertExists()
             ui.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").performScrollTo().assertExists()
             if (html) {
                 assertArrayEquals("body{background:#0000ff!important;min-height:200px}".toByteArray(),
-                    extensions.receivedResources.single { it.descriptor.displayName == "docs/theme.css" }.bytes)
+                    extensions.receivedResources.single { it.descriptor.displayName == cssPath }.bytes)
                 captureHTML()
                 val firstView = retainedView!!; val firstClient = retainedClient!!; val firstRequest = retainedRequest!!
                 ui.onNodeWithTag("plugin-resource-select-${image.descriptor.resourceId}").performScrollTo().performClick()

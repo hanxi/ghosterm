@@ -74,6 +74,15 @@ def main():
         ('navigation', native + 'documentLinksNeverNavigateOrLaunchAnotherActivity', view,
          'override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true\n        @Suppress',
          'override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = false\n        @Suppress'),
+        ('exact-path-codepoints', model + 'decomposedDirectoryAndDistinctAccentNamesKeepTheirExactUtf8Paths', view,
+         'Uri.Builder().scheme("https").authority(host).path("/${snapshot.path}").build().toString()',
+         'URI("https", null, host, -1, "/${snapshot.path}", null, null).toASCIIString()'),
+        ('request-utf8', model + 'malformedUtf8RequestsCannotAliasValidReplacementCharacterNames', view,
+         'PluginResourceHTMLDocument.requestPath(uri!!.rawPath)',
+         'uri!!.path?.removePrefix("/")?.takeIf(PluginResourceHTMLDocument::canonical)'),
+        ('single-percent-decode', model + 'malformedUtf8RequestsCannotAliasValidReplacementCharacterNames', document,
+         'utf8(output.copyOf(count))?.removePrefix("/")',
+         'utf8(output.copyOf(count))?.let { java.net.URLDecoder.decode(it, "UTF-8") }?.removePrefix("/")'),
     ]
     selected = args.selected or [case[0] for case in cases]
     if len(selected) != len(set(selected)) or set(selected) - {c[0] for c in cases}: raise RuntimeError('Unknown or duplicate case')

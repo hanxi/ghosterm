@@ -36,7 +36,7 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
     private var visible = false
     private var deadline: Runnable? = null
     private val host = "p${UUID.randomUUID().toString().replace("-", "")}.ghosterm-preview.invalid"
-    val documentURL = URI("https", null, host, -1, "/${snapshot.path}", null, null).toASCIIString()
+    val documentURL = Uri.Builder().scheme("https").authority(host).path("/${snapshot.path}").build().toString()
     private val stylesheetURL = "https://$host/" + generateSequence(0) { it + 1 }
         .map { ".ghosterm-native-$it/style.css" }.first { it != snapshot.path && it !in snapshot.assets }
     private var stylesheet = byteArrayOf()
@@ -52,7 +52,7 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
 
     fun intercept(url: String, method: String, mainFrame: Boolean): WebResourceResponse = synchronized(lock) {
         val snapshot = content
-        val uri = try { URI(url) } catch (_: Exception) { null }
+        val uri = try { if (url.length <= 4096) URI(url) else null } catch (_: Exception) { null }
         val allowed = snapshot != null && method == "GET" && uri != null &&
             uri.scheme == "https" && uri.rawAuthority == host && uri.rawQuery == null && uri.rawFragment == null
         if (!allowed) return@synchronized response("text/plain", byteArrayOf(), 403)
@@ -60,8 +60,8 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
             response("text/html", PluginResourceHTMLDocument.page(snapshot!!, stylesheetURL).toByteArray(), 200)
             else response("text/plain", byteArrayOf(), 403)
         if (url == stylesheetURL) return@synchronized response("text/css", stylesheet, 200)
-        val path = uri!!.path?.removePrefix("/")
-        val asset = path?.takeIf(PluginResourceHTMLDocument::canonical)?.let { snapshot!!.assets[it] }
+        val path = PluginResourceHTMLDocument.requestPath(uri!!.rawPath)
+        val asset = path?.let { snapshot!!.assets[it] }
         if (asset == null) response("text/plain", byteArrayOf(), 403) else response(asset.mime, asset.bytes, 200)
     }
 
