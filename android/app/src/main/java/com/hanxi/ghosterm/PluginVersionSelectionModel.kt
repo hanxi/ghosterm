@@ -17,6 +17,7 @@ internal class PluginVersionSelectionModel(
     private val cancelRequest: (String) -> Unit,
     private val disable: suspend (String, String?) -> ExtensionController.VersionSelectionResult,
     private val changed: (ExtensionController.VersionSelectionResult) -> Unit,
+    private val policyChanged: (PluginSignatureDocument?, Boolean) -> Unit = { _, _ -> },
 ) {
     class Pick internal constructor()
     data class Disable(val pluginID: String, val revision: String?)
@@ -44,7 +45,7 @@ internal class PluginVersionSelectionModel(
     }
     fun beginPick(): Pick? {
         main(); if (closed || busy || pending != null) return null
-        invalidate(); policy = null; trusted = false
+        invalidate(); policy = null; trusted = false; policyChanged(null, false)
         return Pick().also { pending = it }
     }
     fun failedPick(pick: Pick) {
@@ -55,7 +56,7 @@ internal class PluginVersionSelectionModel(
         pending = null; if (uri == null) return
         val generation = epoch; busy = true
         operation = scope.launch(Dispatchers.Main.immediate) {
-            try { val value = read(uri); if (!closed && generation === epoch) policy = value }
+            try { val value = read(uri); if (!closed && generation === epoch) { policy = value; policyChanged(value, trusted) } }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { if (!closed && generation === epoch) issue = message(failure, false) }
             finally { if (generation === epoch) busy = false }
@@ -63,7 +64,7 @@ internal class PluginVersionSelectionModel(
     }
     fun trust(value: Boolean) {
         main(); if (closed || committing || value && policy == null) return
-        invalidate(); trusted = value
+        invalidate(); trusted = value; policyChanged(policy, value)
     }
     fun inspect(releaseID: String, revision: String?) {
         main(); if (!canPreview) return
@@ -114,7 +115,7 @@ internal class PluginVersionSelectionModel(
         }
     }
     fun cancel() { main(); if (!closed && !committing) invalidate() }
-    fun close() { main(); closed = true; invalidate(); pending = null; policy = null; trusted = false; committing = false }
+    fun close() { main(); closed = true; invalidate(); pending = null; policy = null; trusted = false; committing = false; policyChanged(null, false) }
     private fun message(failure: Throwable, writing: Boolean): String = when (failure) {
         is PluginReleaseCatalog.Rejected, is PluginReleaseSignature.Rejected, is PluginReleaseDeclarations.Rejected,
         is PluginSignatureReadFailure -> failure.message ?: "材料或版本记录无效，请重新核对。"

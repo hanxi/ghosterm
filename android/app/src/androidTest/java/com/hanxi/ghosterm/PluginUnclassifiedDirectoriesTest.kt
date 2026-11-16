@@ -74,7 +74,12 @@ class PluginUnclassifiedDirectoriesTest {
         val renamed = File(root, "renamed"); check(folder.renameTo(renamed))
         f.reject { f.prepare(root, ref.copy(name = renamed.name)).close() }
         check(renamed.renameTo(folder)); val fresh = f.reference(root, folder.name)
+        val observed = Os.stat(folder.path)
         File(folder, "new").writeText("new")
+        // A create can share the filesystem timestamp tick and directory size.
+        // Establish a real stat change without relying on a wall-clock sleep.
+        assertTrue("fixture could not change directory mtime", folder.setLastModified((observed.st_mtim.tv_sec - 2) * 1000))
+        assertNotEquals("fixture directory stamp did not change", observed.st_mtim.tv_sec, Os.stat(folder.path).st_mtim.tv_sec)
         f.reject("changed directory stamp accepted") { f.prepare(root, fresh).close() }
     }
     @Test fun replacementObjectAndRootCannotReuseAnOldObservation() = root { root ->

@@ -1170,3 +1170,32 @@ python3 -B scripts/test-plugin-release-android.py --headless-api 36 --unclassifi
 
 具体设备、构件和断言 / 实际进程死亡证据见插件计划第二十批；不以本机专项代替
 正式发行、真机或完整客户端验收。
+
+### Android 用当前策略复核与批量禁用
+
+在实验插件的已保存版本区域独立选择渠道策略，核对材料摘要并明确确认信任，再点
+「按此策略复核全部已启用选择」。复核使用本次从文档提供方读取并保留的字节快照；
+确认时重核同一快照摘要，不重新读取 URI，不从版本内 `policy.json` 自动继承信任。
+无启用选择时也校验完整策略。单个策略不代表所有渠道，接受也不授予来源或运行权限。
+
+结果分别显示此策略接受、此策略拒绝和查不出来。每个版本临时持有引用，重新验签并
+交真实 Core 核对包内容和身份；无法完整读取 / 核验不记作已撤销。检查在独立 worker
+执行，活动 Runtime 的 worker 继续处理原会话。复核不注册包、不自动运行或修改选择。
+
+默认全部不勾选，只有拒绝 / 未知行可显式选择。确认只禁用本次勾选的后续新建，
+一次原子替换活动选择记录，并为这些选择生成新代次；接受、未勾选和原已禁用项保持。
+确认前重核安装根身份、策略原始摘要和整个选择修订；其它 Controller 的变更也使
+旧决定失效。更换材料、撤回信任、取消、关闭或晚到结果不能保留旧勾选和确认票据。
+
+已有 Session / Runtime 继续使用已批准快照并持有版本引用，需另行停止后才能回收。
+未取得完整回执或同步未确认时请刷新核对，不盲目重复提交。此入口没有联网新鲜度、
+生产信任根分发、防回滚或运行中全局撤权保证。
+
+```bash
+# 自有 no-window AVD，启用 JS 的测试 APK；复核不触及用户远端主机
+python3 -B scripts/test-plugin-release-android.py --headless-api 29 --policy-review --removal-hardlink --selection-channel
+python3 -B scripts/test-plugin-release-android.py --headless-api 36 --policy-review --removal-hardlink --selection-channel --mutate
+```
+
+本批具体验证范围和原始收据摘要见插件计划第二十一批；不代替发行、真机、16 KiB 页
+或完整客户端验收。

@@ -127,6 +127,8 @@ class ExtensionController(profile: HostProfile, context: Context,
         val publication: ResourcePublication? = null, val instanceID: String = "",
         val views: ByteArray? = null, val viewSessionInstance: String? = null, val viewSessionEpoch: String? = null, val viewIssue: String? = null)
 
+    internal data class PolicyDisableResult(val pluginIDs: List<String>, val observation: PluginReleaseCatalog.Observation,
+        val durabilityConfirmed: Boolean)
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source,
         var managedReleaseID: String? = null, var selectionGeneration: String? = null, var approvalGeneration: String? = null,
@@ -163,6 +165,8 @@ class ExtensionController(profile: HostProfile, context: Context,
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private val managedIDs = mutableSetOf<String>()
     private val registeredDigests = mutableMapOf<String, String>()
+    private var policyRequest: String? = null
+    private var pendingPolicyReview: PluginPolicyReview? = null
     private var pendingVersion: PendingVersion? = null
     private var pendingRemoval: Pair<String, PluginReleaseRemoval>? = null
     private var registry: ExtensionRegistry? = null // worker-confined
@@ -720,7 +724,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         require(UUID.fromString(id).toString() == id && policy.size <= 131072)
         val caller = currentCoroutineContext(); val trusted = policy.copyOf()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消上一次版本预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 val selection = owner.selection()
@@ -820,6 +824,63 @@ class ExtensionController(profile: HostProfile, context: Context,
             }
         } }
     }
+    /** Capture Core packages on an independent worker, leaving an active pump
+     * free. Only the in-memory ticket is installed on this Controller. */
+    internal suspend fun previewPolicyReview(id: String, policy: ByteArray, checkpoint: (String) -> Unit = {}): PluginPolicyReview.Value {
+        require(UUID.fromString(id).toString() == id && policy.size <= 131072)
+        val trusted = policy.copyOf(); val caller = currentCoroutineContext()
+        return withContext(NonCancellable) {
+            onWorker {
+                caller.ensureActive()
+                check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消上一次预览或复核" }
+                policyRequest = id
+            }
+            try {
+                val inspector = newReleaseInspector()
+                val review = try { inspector.onWorker {
+                    caller.ensureActive()
+                    PluginReleaseCatalog.open(versionDirectory).use { owner ->
+                        PluginPolicyReview.observe(owner, id, trusted, { fd ->
+                            inspector.captureCheckedPackage(fd).use { bytes ->
+                                val metadata = bytes.metadata()
+                                PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest)
+                            }
+                        }, { caller.ensureActive(); checkpoint("policy-member"); caller.ensureActive() })
+                    }
+                } } finally { inspector.close() }
+                onWorker {
+                    caller.ensureActive(); check(policyRequest == id) { "策略复核已取消或过期" }
+                    pendingPolicyReview = review; review.value
+                }
+            } catch (failure: Throwable) {
+                if (!closed.get()) runCatching { onWorker { if (policyRequest == id) { policyRequest = null; pendingPolicyReview = null } } }
+                throw failure
+            }
+        }
+    }
+    internal fun cancelPolicyReview(id: String) {
+        Handler(thread.looper).post {
+            if (policyRequest == id) { policyRequest = null; pendingPolicyReview = null }
+        }
+    }
+    internal suspend fun applyPolicyReview(id: String, pluginIDs: List<String>, policy: ByteArray, acknowledged: Boolean,
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): PolicyDisableResult {
+        check(acknowledged) { "请确认仅禁用已勾选的活动选择" }; require(policy.size <= 131072)
+        val selectedIDs = pluginIDs.toList(); val trusted = policy.copyOf(); val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            val pending = pendingPolicyReview?.takeIf { it.value.id == id && policyRequest == id } ?: error("策略复核已失效")
+            pendingPolicyReview = null; policyRequest = null
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("活动选择目录已变化")
+            owner.use {
+                val before = owner.observe()
+                val result = pending.apply(owner, selectedIDs, trusted,
+                    { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync)
+                selectedIDs.forEach(::invalidateVersionSources)
+                PolicyDisableResult(selectedIDs, before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
+            }
+        } }
+    }
     /** Observation never resumes or cancels a saved deletion intent. */
     internal suspend fun pendingVersionRemoval(): PluginReleaseRemoval.Preview? = onWorker {
         PluginReleaseCatalog.open(versionDirectory)?.use { PluginReleaseRemoval.pending(it) }
@@ -828,7 +889,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         require(UUID.fromString(id).toString() == id)
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消上一次版本预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 val removal = PluginReleaseRemoval.prepare(owner, releaseID, expectedRevision)
@@ -848,7 +909,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         require(UUID.fromString(id).toString() == id)
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消上一次版本预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 val removal = PluginReleaseRemoval.prepareUnclassified(owner, reference)
@@ -875,7 +936,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         require(UUID.fromString(id).toString() == id)
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消上一次版本预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有安装归属目录")
             owner.use {
                 val removal = PluginReleaseRemoval.prepareStage(owner, reference)
@@ -915,7 +976,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
             caller.ensureActive()
-            check(pendingVersion == null && pendingRemoval == null) { "请先取消当前预览" }
+            check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消当前预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 forgetRemovedVersion(PluginReleaseRemoval.resume(owner, id,
@@ -927,7 +988,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         check(acknowledged) { "请确认撤销尚未开始移除的删除意图" }
         val caller = currentCoroutineContext()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消当前预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null && policyRequest == null) { "请先取消当前预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use { PluginReleaseRemoval.cancelPending(owner, id) }
         } }
@@ -1074,6 +1135,7 @@ class ExtensionController(profile: HostProfile, context: Context,
             withContext(NonCancellable + dispatcher) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
+                policyRequest = null; pendingPolicyReview = null
                 pendingVersion?.close(); pendingVersion = null
                 pendingRemoval?.second?.close(); pendingRemoval = null
                 // Close consumers before the transport/package owners they borrow.

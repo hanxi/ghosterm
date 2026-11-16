@@ -14,17 +14,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun PluginVersionPolicyContent(model: PluginVersionSelectionModel) {
+internal fun PluginVersionPolicyContent(model: PluginVersionSelectionModel, enabled: Boolean = true) {
     model.pending?.let { request -> key(request) {
         val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { model.completePick(request, it) }
         LaunchedEffect(request) { try { picker.launch(arrayOf("*/*")) } catch (_: Exception) { model.failedPick(request) } }
     } }
-    OutlinedButton(onClick = { model.beginPick() }, enabled = !model.busy && model.pending == null,
+    OutlinedButton(onClick = { model.beginPick() }, enabled = enabled && !model.busy && model.pending == null,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-policy-pick")) { Text("选择本次可信渠道策略") }
     model.policy?.let { SelectionContainer { Text("本次策略 ${it.size} 字节\nSHA-256：${it.sha256}",
         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) } }
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-policy-trust")
-        .toggleable(model.trusted, enabled = model.policy != null && !model.committing, role = Role.Checkbox, onValueChange = model::trust)) {
+        .toggleable(model.trusted, enabled = enabled && model.policy != null && !model.committing, role = Role.Checkbox, onValueChange = model::trust)) {
         Checkbox(model.trusted, onCheckedChange = null); Text("我已独立核对并信任此策略快照")
     }
     model.issue?.let { Text(it, Modifier.testTag("plugin-version-selection-issue"), color = MaterialTheme.colorScheme.error) }

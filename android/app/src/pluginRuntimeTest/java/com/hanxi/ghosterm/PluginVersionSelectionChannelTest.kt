@@ -11,7 +11,9 @@ import com.hanxi.ghosterm.bridge.LocalPublicationFile
 import com.hanxi.ghosterm.bridge.PluginInstallFiles
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -58,7 +60,9 @@ class PluginVersionSelectionChannelTest {
     @Test fun sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease() = scenario(true)
     @Test fun developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval() = scenario(true, true)
     @Test fun developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval() = scenario(true, true, true)
-    private fun scenario(sameController: Boolean, developmentFirst: Boolean = false, manageAfterActivation: Boolean = false) = runBlocking {
+    @Test fun sameControllerPolicyReviewDisablePreservesRuntimeAndLease() = scenario(true, policyDisable = true)
+    @Test fun anotherControllerPolicyReviewDisablePreservesRuntimeAndLease() = scenario(false, policyDisable = true)
+    private fun scenario(sameController: Boolean, developmentFirst: Boolean = false, manageAfterActivation: Boolean = false, policyDisable: Boolean = false) = runBlocking {
         require(!manageAfterActivation || developmentFirst)
 
         val payload = fixture; val ports = payload.getJSONObject("two").getJSONArray("ports")
@@ -138,7 +142,7 @@ class PluginVersionSelectionChannelTest {
                 assertEquals(ExtensionRegistry.Status.OK, changer.approve(upgraded.id, upgraded.digest))
                 assertEquals(ExtensionRegistry.Status.STALE, controller.resolve("fixture", reviewed.id, reviewed.digest).status)
             }
-            if (!manageAfterActivation) switchManagedVersion()
+            if (!manageAfterActivation && !policyDisable) switchManagedVersion()
             // This is an already adopted Session, before its explicit consent.
             // The global choice must not mutate its package or grant consent.
             val handshakeDeadline = SystemClock.elapsedRealtime() + 15000
@@ -165,6 +169,7 @@ class PluginVersionSelectionChannelTest {
             }
             assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
             if (manageAfterActivation) switchManagedVersion()
+            if (policyDisable) { installedSlot = checkNotNull(installed).publication.releaseID; nextSlot = checkNotNull(next).publication.releaseID }
             assertEquals(reviewed.digest, runtime.packageDigest)
             assertEquals(OsConstants.EAGAIN, lock(packageDir, installedSlot))
             assertEquals(0, lock(packageDir, nextSlot))
@@ -173,9 +178,37 @@ class PluginVersionSelectionChannelTest {
                 val rejected = runCatching { controller.previewVersionRemoval(UUID.randomUUID().toString(), installedSlot, revision) }.exceptionOrNull()
                 assertTrue("live Runtime did not prevent removal", rejected is PluginReleaseRemoval.Rejected && rejected.reason == PluginReleaseRemoval.Reason.OCCUPIED)
             }
-            val choice = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection() }
-            changer.disableInstalledVersion(upgraded.id, choice.revision, true)
-            assertEquals(ExtensionRegistry.Status.DENIED, changer.approve(upgraded.id, upgraded.digest))
+            if (policyDisable) {
+                val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                val entered = CountDownLatch(1); val release = CountDownLatch(1)
+                val ticket = auditScope.async { changer.previewPolicyReview(UUID.randomUUID().toString(), PluginVersionSelectionFixture.policy) {
+                    if (entered.count > 0) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+                } }
+                try {
+                    assertTrue("owned policy inspector did not reach barrier", entered.await(5, TimeUnit.SECONDS))
+                    runtime = withTimeout(2000) { controller.stepRuntime() }
+                    assertEquals("policy inspection blocked or stopped active pump", ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+                    release.countDown()
+                    val accepted = withTimeout(5000) { ticket.await() }
+                    assertEquals(PluginPolicyReview.State.ACCEPTED, accepted.entries.single().state)
+                    changer.cancelPolicyReview(accepted.id); changer.installedVersions()
+                } finally { release.countDown(); ticket.cancel(); auditScope.cancel() }
+                val policy = JSONObject(String(PluginVersionSelectionFixture.policy)).also {
+                    it.getJSONArray("revokedKeyIds").put(it.getJSONArray("keys").getJSONObject(0).getString("id"))
+                }.toString().toByteArray()
+                val rejected = changer.previewPolicyReview(UUID.randomUUID().toString(), policy)
+                assertEquals(PluginPolicyReview.State.REJECTED, rejected.entries.single().state)
+                changer.applyPolicyReview(rejected.id, listOf(reviewed.id), policy, true)
+                assertEquals("policy disable did not prevent new source admission", ExtensionRegistry.Status.DENIED, controller.approve(reviewed.id, reviewed.digest))
+                assertEquals(ExtensionRegistry.Status.DENIED, controller.resolve("fixture", reviewed.id, reviewed.digest).status)
+                val revision = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection().revision }
+                val blocked = runCatching { controller.previewVersionRemoval(UUID.randomUUID().toString(), installedSlot, revision) }.exceptionOrNull()
+                assertTrue("policy disable released live Runtime lease", blocked is PluginReleaseRemoval.Rejected && blocked.reason == PluginReleaseRemoval.Reason.OCCUPIED)
+            } else {
+                val choice = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection() }
+                changer.disableInstalledVersion(upgraded.id, choice.revision, true)
+                assertEquals(ExtensionRegistry.Status.DENIED, changer.approve(upgraded.id, upgraded.digest))
+            }
             val outgoing = controller.requestRuntimeExecutor("fixture.echo",
                 "{\"text\":\"native\",\"count\":23}".toByteArray())
             assertEquals(ExtensionSession.RPCStatus.OK, outgoing.status)
@@ -227,7 +260,7 @@ class PluginVersionSelectionChannelTest {
             }
             controller.releaseFinished()
             assertEquals("completed Runtime retained its version lease", 0, lock(packageDir, installedSlot))
-            if (developmentFirst) {
+            if (developmentFirst || policyDisable) {
                 val revision = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection().revision }
                 val view = controller.previewVersionRemoval(UUID.randomUUID().toString(), installedSlot, revision)
                 assertTrue(controller.confirmVersionRemoval(view.id, true).complete)

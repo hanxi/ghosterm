@@ -157,14 +157,31 @@ internal class PluginReleaseCatalog private constructor(
         validate()
         if (enabled) requireNoRemoval()
         val previous = selection()
-        demand(previous.revision == expected, Reason.CONFLICT)
+        val proposed = previous.choices + (plugin to Choice(releaseID, enabled, UUID.randomUUID().toString()))
+        return writeSelection(proposed, previous, expected, checkpoint, parentSync)
+    }
+    /** One disable-only record replacement; no intermediate subset is published. */
+    fun disable(pluginIDs: List<String>, expected: String?, checkpoint: (String) -> Unit = {},
+        parentSync: (FileDescriptor) -> Unit = { Os.fsync(it) }): Publication {
+        demand(pluginIDs.isNotEmpty() && pluginIDs.distinct().size == pluginIDs.size && pluginIDs.all(::pluginID))
+        val previous = selection()
+        val proposed = previous.choices.toMutableMap()
+        for (id in pluginIDs) {
+            val choice = previous.choices[id] ?: throw Rejected(Reason.INVALID)
+            demand(choice.enabled)
+            proposed[id] = choice.copy(enabled = false, generation = UUID.randomUUID().toString())
+        }
+        return writeSelection(proposed, previous, expected, checkpoint, parentSync)
+    }
+    private fun writeSelection(proposed: Map<String, Choice>, previous: Selection, expected: String?,
+        checkpoint: (String) -> Unit, parentSync: (FileDescriptor) -> Unit): Publication {
+        validate(); demand(previous.revision == expected, Reason.CONFLICT)
         LocalPublicationFile.directory(location.parentFile ?: throw Rejected(Reason.ROOT), "").use { ancestor ->
             LocalPublicationFile.childDirectory(ancestor.fd, location.name).use { named ->
                 demand(objectIdentity(Os.fstat(named.fileDescriptor)) == identity, Reason.CHANGED)
             }
             rootSync(ancestor.fileDescriptor)
         }
-        val proposed = previous.choices + (plugin to Choice(releaseID, enabled, UUID.randomUUID().toString()))
         demand(proposed.size <= 64, Reason.LIMIT)
         val choices = JSONObject()
         proposed.toSortedMap().forEach { (id, value) -> choices.put(id, JSONObject().put("releaseID", value.releaseID).put("enabled", value.enabled).put("generation", value.generation)) }

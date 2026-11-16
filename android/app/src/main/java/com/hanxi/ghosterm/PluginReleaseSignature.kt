@@ -47,26 +47,8 @@ internal object PluginReleaseSignature {
     fun authenticate(descriptor: ByteArray, signature: ByteArray, trustedPolicy: ByteArray): Authenticated {
         ensure(descriptor.size <= 65536 && trustedPolicy.size <= 131072 && signature.size == 64, Failure.LIMIT)
         val payload = descriptor.copyOf(); val policyBytes = trustedPolicy.copyOf(); val signed = signature.copyOf()
-        val policy = parse(policyBytes).obj()
-        ensure(policy.keys == setOf("schemaVersion", "channel", "keys", "revokedKeyIds") && policy["schemaVersion"]?.integer(1) == 1L, Failure.POLICY)
-        val channel = policy.getValue("channel").str(); ensure(channel.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}")), Failure.POLICY)
-        val entries = policy.getValue("keys").array(); ensure(entries.size in 1..64, Failure.POLICY)
-        data class Key(val bytes: ByteArray, val publisher: String, val plugins: Set<String>)
-        val keys = mutableMapOf<String, Key>()
-        for (value in entries) {
-            val entry = value.obj()
-            ensure(entry.keys == setOf("id", "algorithm", "publicKey", "publisher", "pluginIds") && entry.getValue("algorithm").str() == "ed25519", Failure.POLICY)
-            val id = entry.getValue("id").str(); ensure(digest(id) && id !in keys, Failure.POLICY)
-            val encoded = entry.getValue("publicKey").str()
-            val raw = try { Base64.getDecoder().decode(encoded) } catch (_: IllegalArgumentException) { reject(Failure.POLICY) }
-            ensure(raw.size == 32 && Base64.getEncoder().encodeToString(raw) == encoded && hash(raw) == id, Failure.POLICY)
-            val publisher = entry.getValue("publisher").str(); ensure(text(publisher), Failure.POLICY)
-            val ids = entry.getValue("pluginIds").array().map { it.str() }
-            ensure(ids.size in 1..64 && ids.toSet().size == ids.size && ids.all(::pluginID), Failure.POLICY)
-            keys[id] = Key(raw, publisher, ids.toSet())
-        }
-        val revoked = policy.getValue("revokedKeyIds").array().map { it.str() }
-        ensure(revoked.size <= 256 && revoked.toSet().size == revoked.size && revoked.all(::digest), Failure.POLICY)
+        val policy = parsePolicy(policyBytes)
+        val channel = policy.channel; val keys = policy.keys; val revoked = policy.revoked
         val release = parse(payload).obj()
         ensure(release.keys == setOf("schemaVersion", "channel", "keyId", "pluginId", "pluginVersion", "publisher", "packageSHA256", "artifact") && release["schemaVersion"]?.integer(1) == 1L, Failure.DESCRIPTOR)
         val requestedChannel = release.getValue("channel").str(); ensure(requestedChannel.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}")), Failure.DESCRIPTOR)
@@ -89,6 +71,32 @@ internal object PluginReleaseSignature {
         }
         return Authenticated(Identity(id, version, publisher, packageHash),
             Proof(id, packageHash, channel, keyID, publisher, hash(policyBytes), hash(payload), artifactHash, count))
+    }
+    private data class Key(val bytes: ByteArray, val publisher: String, val plugins: Set<String>)
+    private data class Policy(val channel: String, val keys: Map<String, Key>, val revoked: List<String>)
+    /** Uses the identical bounded policy parser even when no choices are enabled. */
+    fun policyChannel(bytes: ByteArray): String = parsePolicy(bytes.copyOf()).channel
+    private fun parsePolicy(bytes: ByteArray): Policy {
+        val policy = parse(bytes).obj()
+        ensure(policy.keys == setOf("schemaVersion", "channel", "keys", "revokedKeyIds") && policy["schemaVersion"]?.integer(1) == 1L, Failure.POLICY)
+        val channel = policy.getValue("channel").str(); ensure(channel.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}")), Failure.POLICY)
+        val entries = policy.getValue("keys").array(); ensure(entries.size in 1..64, Failure.POLICY)
+        val keys = mutableMapOf<String, Key>()
+        for (value in entries) {
+            val entry = value.obj()
+            ensure(entry.keys == setOf("id", "algorithm", "publicKey", "publisher", "pluginIds") && entry.getValue("algorithm").str() == "ed25519", Failure.POLICY)
+            val id = entry.getValue("id").str(); ensure(digest(id) && id !in keys, Failure.POLICY)
+            val encoded = entry.getValue("publicKey").str()
+            val raw = try { Base64.getDecoder().decode(encoded) } catch (_: IllegalArgumentException) { reject(Failure.POLICY) }
+            ensure(raw.size == 32 && Base64.getEncoder().encodeToString(raw) == encoded && hash(raw) == id, Failure.POLICY)
+            val publisher = entry.getValue("publisher").str(); ensure(text(publisher), Failure.POLICY)
+            val ids = entry.getValue("pluginIds").array().map { it.str() }
+            ensure(ids.size in 1..64 && ids.toSet().size == ids.size && ids.all(::pluginID), Failure.POLICY)
+            keys[id] = Key(raw, publisher, ids.toSet())
+        }
+        val revoked = policy.getValue("revokedKeyIds").array().map { it.str() }
+        ensure(revoked.size <= 256 && revoked.toSet().size == revoked.size && revoked.all(::digest), Failure.POLICY)
+        return Policy(channel, keys, revoked)
     }
     private fun digest(value: String) = value.matches(Regex("[0-9a-f]{64}"))
     private fun pluginID(value: String) = value.toByteArray(Charsets.UTF_8).size <= 128 && value.matches(Regex("[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+"))

@@ -46,7 +46,7 @@ def main():
         ('signature', prefix + 'signatureAndRawBytesAreNotCanonicalized', policy,
          'when (ReleaseSignature.verify(key.bytes, signed, payload))', 'when (0)'),
         ('identity', prefix + 'signatureBindsEveryReviewedPackageIdentityField', policy,
-         'ensure(id == identity.id && version == identity.version && publisher == identity.publisher && packageHash == identity.packageSHA256, Failure.IDENTITY)',
+         'ensure(authenticated.identity == identity, Failure.IDENTITY)',
          'ensure(true, Failure.IDENTITY)'),
         ('duplicate', prefix + 'duplicateEscapedNormalizedAndPrototypeKeysAreRejected', policy,
          'normalized.add(Normalizer.normalize(key, Normalizer.Form.NFC))', 'true'),

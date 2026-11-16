@@ -27,7 +27,7 @@ def main():
     if args.android:inputs += [source_root/p for p in ['android/bridge/src/main/cpp/extension_jni.c','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionChannel.kt','android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionChannelTest.kt']]
     if args.android_client_runtime:inputs += [source_root/p for p in ['android/app/src/main/java/com/hanxi/ghosterm/ExtensionController.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionRuntime.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionSession.kt']]
     if args.android and args.android_test.startswith('com.hanxi.ghosterm.PluginVersionSelectionChannelTest#'):
-        inputs += [source_root/p for p in ['android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionChannelTest.kt','android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionFixture.kt','android/app/src/androidTest/assets/plugin-release/versions.json','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseCatalog.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseRemoval.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/PluginInstallFiles.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseSignature.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseDeclarations.kt','android/bridge/src/main/cpp/install_jni.c']]
+        inputs += [source_root/p for p in ['android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionChannelTest.kt','android/app/src/pluginRuntimeTest/java/com/hanxi/ghosterm/PluginVersionSelectionFixture.kt','android/app/src/androidTest/assets/plugin-release/versions.json','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseCatalog.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseRemoval.kt','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/PluginInstallFiles.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseSignature.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginPolicyReview.kt','android/app/src/main/java/com/hanxi/ghosterm/PluginReleaseDeclarations.kt','android/bridge/src/main/cpp/install_jni.c']]
     if args.session:
         inputs += [source_root/'core/tests/test_ext_session.c']
         if args.apple:inputs += [source_root/p for p in ['apple/GhostermCore/Sources/GhostermCore/ExtensionSession.swift','apple/GhostermCore/Tests/GhostermCoreTests/ExtensionSessionTests.swift']]
@@ -70,9 +70,9 @@ def main():
             print(('ASSERTION RED public channel ' if args.expect_assertion else 'PASS public channel ')+case,flush=True)
         if args.apple or args.android:
             with ExitStack() as stack:
-                fixture={};first_ports=[]
+                fixture={}
                 for label,count,mode in [('two',2,'echo'),('three',3,'echo'),('denied',2,'forward-deny')]:
-                    folder=work/('native-'+label);folder.mkdir();ports,known,_=stack.enter_context(route.chain(folder,count,public,keys,agent,'echo' if args.session else mode));first_ports.append(ports[0]);fixture[label]=dict(ports=ports,known=known.read_text())
+                    folder=work/('native-'+label);folder.mkdir();ports,known,_=stack.enter_context(route.chain(folder,count,public,keys,agent,'echo' if args.session else mode));fixture[label]=dict(ports=ports,known=known.read_text())
                 fixture.update(user=pwd.getpwuid(os.getuid()).pw_name,pem=private.decode(),wrongPem=wrong_private.decode(),bootstrap=shlex.join([str(binary),'--executor',*([str(proofs)] if args.rpc else [])]))
                 if args.rpc:
                     android_proofs=proofs/'android-client-runtime';android_proofs.mkdir()
@@ -102,10 +102,33 @@ def main():
                     print('PASS public channel Swift native + two/three SSH',flush=True)
                 if args.android:
                     adb=ROOT/'build/android-toolchain/sdk/platform-tools/adb';device=[str(adb),'-s',args.android]
-                    for p in [port,*first_ports]:
-                        run('reverse-'+str(p),[*device,'reverse','tcp:'+str(p),'tcp:'+str(p)],budget=15)
-                        stack.callback(lambda p=p:subprocess.run([*device,'reverse','--remove','tcp:'+str(p)],capture_output=True,timeout=10))
-                    output=run('android',[*device,'shell','am','instrument','-w','-r','-e','class',args.android_test,'-e','fixturePort',str(port),'-e','fixtureToken',token,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],budget=240,red='android' if args.expect_platform_assertion=='android' else None)
+                    # Explicit guest ports avoid host-port collisions and the adb
+                    # tcp:0 allow-list alias (all dynamic requests share that key).
+                    # Retry only a reported bind collision, before any test starts.
+                    android_fixture=json.loads(json.dumps(fixture))
+                    def reverse_guest(host_port):
+                        for attempt in range(16):
+                            allocated=str(20000+secrets.randbelow(20000))
+                            mapping=subprocess.run([*device,'reverse','--no-rebind','tcp:'+allocated,'tcp:'+str(host_port)],env=env,capture_output=True,text=True,timeout=15)
+                            detail=mapping.stdout+mapping.stderr
+                            (work/('reverse-'+str(host_port)+'-'+str(attempt)+'.log')).write_text(detail)
+                            if mapping.returncode:
+                                if 'cannot bind listener: Address already in use' in detail or 'cannot rebind existing socket' in detail:continue
+                                raise RuntimeError('reverse fixture: '+detail)
+                            stack.callback(lambda p=allocated:subprocess.run([*device,'reverse','--remove','tcp:'+p],capture_output=True,timeout=10))
+                            results.append('reverse-'+str(host_port));return int(allocated)
+                        raise RuntimeError('No guest fixture port after 16 bind collisions')
+                    fixture_port=reverse_guest(port)
+                    for label in ['two','three','denied']:
+                        route_fixture=android_fixture[label];host_port=route_fixture['ports'][0]
+                        guest_port=reverse_guest(host_port)
+                        old_name='[route-hop-0.invalid]:'+str(host_port)+' '
+                        assert route_fixture['known'].count(old_name)==1
+                        route_fixture['known']=route_fixture['known'].replace(old_name,'[route-hop-0.invalid]:'+str(guest_port)+' ')
+                        route_fixture['ports'][0]=guest_port
+                    run('reverse-map', [*device,'reverse','--list'],budget=15)
+                    payload=json.dumps(android_fixture).encode()
+                    output=run('android',[*device,'shell','am','instrument','-w','-r','-e','class',args.android_test,'-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],budget=240,red='android' if args.expect_platform_assertion=='android' else None)
                     if not args.expect_platform_assertion:assert re.search(r'OK \([1-9][0-9]* tests?\)',output) and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output,output
                     print('PASS public channel JNI native + two/three SSH (only first ports reversed)',flush=True)
     if args.rpc and not args.expect_assertion and not args.expect_platform_assertion:

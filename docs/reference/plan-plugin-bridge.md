@@ -10587,3 +10587,175 @@ ELF 导出核对通过，不据此称 Release APK 已执行设备测试、签名
 由 owned context 清理，不把逻辑数当 APFS 实际回收量。仅保留原 eq 三件和 tmp 根，
 三件 SHA256 均不变；1615 指定输入清理后复算
 `2289f7ccde0cb16caabad9ec3b1ad2f865073a507a87f8ea8a301a2365b3b2dd` 一致。
+
+### P6 实施第二十一批：Android 当前策略复核与显式批量禁用（2026-11-17）
+
+本批把 macOS 第九批的用户决定接到 Android 已保存版本页面。独立选择并明确确认
+信任的策略原始字节快照用于整批复核；复用原严格有界 policy parser，即使根目录
+或启用列表为空也必须校验完整策略。每个启用选择绑定当前整个选择修订、强根身份、
+releaseID、签名与真实 Core 包身份；三态分别是策略接受、策略拒绝和查不出来。
+未知、内容无法读取或 Core 捕获失败不当作正常签名接受，也不宣称已全局撤销。
+
+复核先在原 Controller worker 预留已知请求 ID，再在独立 inspector worker 捕获
+Core 包，结果返回原 worker 前重核调用者取消与请求 ID。独立 owner / 包 / 版本
+引用在所有返回路径释放；主 Runtime pump 无需等待重捕获。复核不注册来源、不借
+已安装 `policy.json` 继承信任，也不加载、批准或运行包。原始策略字节由 Controller
+与观察对象各自复制，不受调用方或 consumer 修改。
+
+页面复用已有文档材料选择和信任控件；该选择模型同步通知复核模型，让新选择、
+撤回信任和晚到读取立即隔离。默认全部不勾选，接受行不提供勾选框；只能显式选择
+本次拒绝 / 未知行的非空准确子集。取消、关闭、材料 / 信任变化清掉旧勾选与票据，
+确认期间冻结材料和子集。丢失写回执后要求刷新核对，不保留旧票据盲重试。
+
+确认前重核策略原始摘要、父根持久身份和整个选择修订。共用原 Catalog 写事务：
+一次临时记录 / 最终 CAS / rename / 目录同步，勾选项仅改成 disabled 并换新代次，
+接受 / 未勾选 / 原禁用项逐项保持；旧单项选择仍走同一 writer。只失效这些 ID 的
+后续来源准入，不删除包或改变已批准的 Session / Runtime 快照。已有引用继续阻止
+回收，停止并实际释放后才能另行删除。同步未确认的可见效果与完全未发生写入分开。
+
+本批还修正真实 Android SSH 验证夹具的设备端口分配。主机临时端口在设备上未必空闲，
+不能假定两端同号；首次同号映射在第二条用例遇到 bind 冲突。尝试 `tcp:0` 后虽然
+多条设备 listener 都存在，第二条连接却使 ADB 37.0.1 SIGABRT，系统日志显示
+`disallowed connect`，Android 读取夹具得到 EOF，并非产品断言失败或正常目标红。
+上游 [transport.cpp](https://android.googlesource.com/platform/packages/modules/adb/+/HEAD/transport.cpp)
+按请求的 remote 名称维护 allow-list；结合本机单映射通过 / 多映射第二条失败证据，
+定位为多个 `tcp:0` 请求共用键造成的限制。最终使用明确设备端口、`--no-rebind`，
+仅明确 bind 冲突才在测试开始前有界换端口，最多十六次，不覆盖已有 listener；
+只移除本夹具成功创建的映射。仅改 Android 第一跳及对应 known-host 名称，内部
+跳板仍用主机端口；私钥仍只在内存，通过原有结束泄漏守卫。
+
+四条独立回包证明及真实 Runtime 两跳场景通过后才进入组合。原诊断 stdin EOF
+使 nc 提前结束、首次 DocumentsUI 命中同名背景标题及 ADB 自身崩溃均单列，不计
+正常断言红或整轮通过。新的 SAF 测试 helper 仅在真实 roots_list 子项内点击实际
+可点击行，保留实际触摸 / 文件选择回包证据；没有放宽产品断言。
+
+普通 metadata 十二项使用明确注入的 contract consumer，不据此称真实 Core；另七
+Controller 项才捕获真实包，六模型项与一实际页面项分别验 UI 状态和操作链。两条
+新增真实 SSH 场景分别由同 / 另一 Controller 复核并禁用，复核暂挂期间原 worker
+继续 pump；真实双向 RPC 和独立 Native Executor 完成收据沿原判据核验。
+
+默认 JS-off，当前策略是用户本次选定的离线快照，不重新读取 URI，不提供联网
+新鲜度、生产信任根分发、防回滚或已有实例全局撤权。完整 P6 / P1–P6 仍未完成；
+损坏私有元数据、旧弱归属、顶层非目录与发行 / 真机 / 16 KiB 页 / 提供方 / 无障碍 /
+断电及全文件系统矩阵继续。本批没有新增进程死亡专项，不把上一批死亡收据当新证明。
+
+新增 `mutation-check-android-policy.py` 二十七个不同保护完整同轮通过，每组均真实编译
+后单条正常断言红、同 APK 独立 Core 配置绿、复原编译 / 场景绿及七份生产源码 SHA。
+范围包括策略自有副本、空列表完整验证、未知不接受、当前策略而非包内旧策略、
+活动 ID / 真实 Core 内容和身份、强根 / 原始策略摘要、拒绝 / 未知显式子集、仅所选
+新代次、实际 Runtime 禁用准入和最终 CAS；以及独立确认 / ID / 取消交接、模型信任 /
+空子集 / 接受项 / 重置 / 晚到 / 材料同步 / 确认冻结 / 丢回执、实际页面入口 / 非空 /
+接受行保护。`actual-disable` 使用真实两跳 SSH / Client QuickJS Runtime 与独立
+Executor；不以模拟模型值冒充运行期证据。
+
+共享 writer 调整后的原 Catalog 四十五组完整复验通过，仍逐组要求正常单条断言红、
+同 APK Core 绿、复原编译 / 目标绿和源码 SHA。旧 `page-refresh` 锚点同步加入新的
+复核取消调用，只变异原列表刷新；签名驱动原有过期身份比较锚点同步为当前相等式，
+不降低签名或身份断言。没有删旧保护换绿。
+
+策略解析提取后的旧发布签名十一组，以及原选择模型信任 / 撤回 / 取消交接 / 确认
+冻结四组定向复验亦完整通过；判据仍为正常单条断言红 / 同 APK Core 绿 / 恢复绿 /
+SHA。四驱动 accepted-results.json 原件摘要如下，不把本次手工脚本加入 CI 二十份：
+
+| 保护 | 本轮组数 | 收据 SHA256 |
+|---|---:|---|
+| 新策略复核 | 27 | `4246192b80eb75d2b670b7038f0d84927ee060bd37986a176714ec390325a071` |
+| 原 Catalog | 45 | `427705d197d10a6e145997af37e3d6b431af9d5b4d57905a50ef1505e2ab77bc` |
+| 原发布签名 | 11 | `adee4a5ce47e6aa82518fed961a362c3b8ae9839cf1e1f2bb9227ba8c536e295` |
+| 原选择模型定向 | 4 | `f9e13f0d1035b797b398dce6b71da02ffe4f0ec194a08a6ab61708934cd8ecbb` |
+
+API29 首轮 311 项组合有一条旧 `observationTokenBindsParentNameAndFullDirectoryStamp`
+断言失败（310 过 / 1 败，96.762 秒），不记整轮绿。生产令牌确实包含完整 stat，
+失败说明原夹具的新增文件没有建立可观察 stat 已变化的前置条件；文件系统一次
+create 可能共享时间 tick，目录大小 / link 数也未必变化。本轮只改测试：显式设置
+不同秒的目录 mtime，并先断言实际 stat 已改变，然后继续要求旧令牌被拒绝；不加
+任意 sleep、不改产品判据。新增 `directory-stamp` 变异专门去掉 token 的目录 stat，
+与旧 `observation-token` 在 API29 另行复验。未将首次失败当正常变异红。
+
+这个补正仅改变该旧用例和未知目录变异驱动；四份前述变异驱动的目标测试与生产
+源码均保持原字节。保留原 87 保护收据，另用新固定 APK 对重新执行两个设备的
+完整组合 / 六条 SSH，不将补正前 API36 的通过冒充补正后的两设备证据。
+
+API29 的新增 stat 保护与旧 token 两组均真实编译后单条正常断言红、同 APK Core
+绿、复原绿及九生产源 SHA；新目标红明确为 `changed directory stamp accepted`，
+不是夹具 mtime 前置断言失败。两组 accepted-results.json 摘要
+`10bd3cf2f7279dda4d1e7066ec4cea6caae67e19fd61231ea14e5e7b45c6d655`。
+
+最终自有 no-window API29 / API36、arm64 / 4 KiB 页同一固定 APK 对分别完整
+311 项及各六条真实两跳 SSH 通过，零跳过；其中十二份独立 Android Native Executor
+收据均实际 `completed=1 / handled=3 / done=true`，并保留每条主机对照完成证明。
+这是 Client QuickJS Runtime / 原生 Executor / 进程内产品组件与原生材料选择的专项，
+不是完整远端 gterm QuickJS、用户真机或全客户端矩阵。最终 1623 份指定输入的
+JSON 清单 SHA256 为 `23f748be0dc8a2ebb11ac413e13ea8581cdd1c93701d850cd56ba81ca55b5fe3`，
+两设备和变异后均复算一致。固定 APK：
+
+- Debug：`7517100aea4fa301aa2e3763fc1f2bf515175ea621844447d797b202d5b95a12`。
+
+- 测试：`48a8796795b3cc11428706ef3b1e774ba0b5638a9c7f45beb91b8cf02f014c71`。
+
+| API | 最终范围 | 原始收据 SHA256 |
+|---|---|---|
+| 29 | 311 项 JUnit / 88.403 秒 | `a16443c9fd3e610e11ced7c15e6a31a0152eaf44257f6daa003f96620b147799` |
+| 29 | anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease | `c2441c4d24ee685a7df16e94eed1b0c95e46b463e817f5f974c5543ca2c1af88` |
+| 29 | sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease | `711815ff120207acc835ba8704dcacf334c18f11a73086e3ab16ada54b4f3c8b` |
+| 29 | developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval | `7b814a446de1e3a80ef8572fa79ec4ef762ee8f8196b5dea8537ee24ec1f7003` |
+| 29 | developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval | `be2eddba2d6dc78c3b8bd3bcfdf3cf7d2a14063396020bce7685074b6b7d87f3` |
+| 29 | sameControllerPolicyReviewDisablePreservesRuntimeAndLease | `27aaf9e7d83e9f7f1e54a00376901c22c411b89b64a09486193a527cbc5eb5d5` |
+| 29 | anotherControllerPolicyReviewDisablePreservesRuntimeAndLease | `3d9ae799ee85889f59c3177779b8503938cc3aa8a8c0aa4bd9a1934cdede1ca4` |
+| 36 | 311 项 JUnit / 138.3 秒 | `4da657f5183bf7d467082797fa5611947ebdfdc345fa2c130118e2af9394047e` |
+| 36 | anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease | `cd82787984c61288765e0b00321e45da7e7315aa539bdae59cc5a6ecabefd882` |
+| 36 | sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease | `9c9f6bed5694e696cea19adaacb3c754b7b9e15d00d7e562022b365a5266e741` |
+| 36 | developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval | `b2964e0a7a41c0df824e1cde0c3ef3eefc9af96820708a0f605afe3cf1938a39` |
+| 36 | developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval | `3613f10fb7c1c432101be0543deea0f27c1f97676de7b66a9c0a2b713af07b98` |
+| 36 | sameControllerPolicyReviewDisablePreservesRuntimeAndLease | `20356ab58a5348023997bb608c2e9bae3c79eae79ab40d72417a347d0b3290f6` |
+| 36 | anotherControllerPolicyReviewDisablePreservesRuntimeAndLease | `61bde5469e0506fa2e30a5b93e78c284cb6af065389fed7b9cf4baee7704f487` |
+
+十二份独立 Executor 证明汇总 SHA256 `b10c65ba7357d23710aa235c75f80615bc8bb4a769354cd94c021fdbfe19888a`。
+
+默认 Core JS-off / tests-on / SSH-on 的离线 gate：589/589 CTest、185 公共
+ABI 与未实现入口检查通过；clang-format 19.1.7 的 272 份 C、Apple 182 / 3 与
+JNI 148 / 37 通过。本批未改 Core 或公开 / 私有 JNI，Python 六驱动 AST / diff
+检查通过。JS-enabled 与默认 JS-off 的未签名 Release / 实际 R8、app / bridge /
+terminal / data 四模块 lintRelease，以及最终普通 Debug / 测试 APK 构建均通过。
+
+启用档六个 PluginInstallFiles 方法的原类名、keep seeds、实际 APK DEX native
+方法名 / 签名及 arm64 ELF 导出逐一核对通过；最初临时核验脚本误要求全部 native
+方法出现在 mapping，单独记为脚本假设错误。实际 DEX 保留原名 / 签名且 seeds
+完整，修正核验后通过；没有改 keep 规则或放宽产品校验。未执行 Release 设备 /
+签名发行 / 云端 / 干净检出构建，不以两档构建替代这些验收。日志原件摘要：
+
+| 原件 | SHA256 |
+|---|---|
+| core-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| apple-abi.log | `70de1d6a7424602d805712d3bac38e769c494de31d03bc097be5c350f446263a` |
+| android-abi.log | `ea046ca560c228f5af6a182cc0cc3f3c66aeec3e8571211805e9566c991fd8e8` |
+| format-check.log | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| enabled-release-lint.log | `8cc3b779e1b18858a67d481adcdc3ae1fd4ab1ad387d2781f27eb9e57a7a4cbf` |
+| enabled-jni-proof.log | `3325d470d9807e4c248c078874320be07ecf32fd5fdde134c2447d2e07b9d6ae` |
+| install-files-dex.log | `a3728682f306809b73d2cf0b43bfaf945045ff911bf3fc0022a16b58c940b7cc` |
+| default-release-lint.log | `c5c77c16244b74499cc32cd20e9ed3fa5b87d527eae80e74ce9c0d0794880e6b` |
+| final-device-restored.log | `4860eb31b653f18eb3232e4bc624857f3da170575ab69a63d7d6528e9a355e8d` |
+| final-rpc-proofs.json | `b10c65ba7357d23710aa235c75f80615bc8bb4a769354cd94c021fdbfe19888a` |
+| diagnose-explicit.log | `2f132adb0a04c87e8d0faf5c946a9a2ec8d380936ded68768ab2dca3d21ac092` |
+| stamp-fixture-build.log | `f03cee3b2d39f05e31d3ee2dfce3caf128d0ce96ab6f1071bcf520b293c747b9` |
+
+仅本地分批提交，不推送 / 发行；所有自动设备窗口保持 no-window。原始日志、
+固定 APK、副本 / 提取 ELF / DEX 和格式工具在记录摘要后清理。
+
+前置失败 / 核验误判的原件摘要（不计正常变异红）：
+
+| 原件 | SHA256 |
+|---|---|
+| preliminary-device.log | `e04669e19d8fad5f5857b9b78169911f5482346c4ba3280152b86d1116e15289` |
+| preliminary-device-restored.log | `3b2c68eeb9ea569d1026e31eb7591d1ebc420d8cd702cab4195c4f56de2664f5` |
+| diagnose-final.log | `fe3c706c6b04acde0b549bc609ab262ec2e83676c570c5af0ac92a27706e0985` |
+| diagnose-multiple.log | `a1829e6636f523e565c2c7a2c86177c4ee9ad4b86a3d0db2d2f3c00317fa1156` |
+| final-device.log | `e58b43ffdf7965fa9d63c05346ae9e30b1afe3c3b9445da2a25ae3ac1064b848` |
+| final-build.log | `d910f0b5cff9499acefce39bf2f549137905ef7301d45e253c35ae128340ad7f` |
+| adb.501.log | `32e8e8ffeb1e1bae6d257d9ed54791925e28c87d16d72a449bc12b6fa71b4358` |
+
+本批收尾：所有 owned AVD 已退出 0，adb 无在线设备；构建 JVM 34058 / 34236 已
+结束，旧 65439 / 2637 未动。验后清理 tmp 65 个顶层项 / 782 目录 /
+9195 普通文件 / 284020250 逻辑字节（270.86 MiB），不把逻辑大小
+当 APFS 实际回收量；镜像此前已由 owned context 清理。仅保留原 eq 三件和 tmp 根，
+三件 SHA256 均不变；1623 指定输入清理后复算 `23f748be0dc8a2ebb11ac413e13ea8581cdd1c93701d850cd56ba81ca55b5fe3` 一致。

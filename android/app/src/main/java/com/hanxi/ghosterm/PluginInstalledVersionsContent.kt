@@ -36,11 +36,14 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
             try { worker.installedVersions() } finally { withContext(NonCancellable) { worker.close() } }
         }
     } }
+    val policyModel = remember(controller) { PluginPolicyReviewModel(scope, { id, policy -> controller.previewPolicyReview(id, policy) },
+        { id, ids, policy -> controller.applyPolicyReview(id, ids, policy, true) }, controller::cancelPolicyReview,
+        { result -> result.pluginIDs.forEach { id -> changed.value(ExtensionController.VersionSelectionResult(id, null, result.observation, result.durabilityConfirmed)) }; model.refresh() }) }
     val selectionModel = remember(controller) { PluginVersionSelectionModel(scope,
         { PluginSignatureDocuments.read(context.contentResolver, it, PluginSignatureMaterial.POLICY) },
         controller::previewInstalledVersion, { controller.confirmInstalledVersion(it, true) }, controller::cancelVersionPreview,
         { id, revision -> controller.disableInstalledVersion(id, revision, true) },
-        { result -> changed.value(result); model.refresh() }) }
+        { result -> changed.value(result); model.refresh() }, policyModel::setPolicy) }
     val maintenanceModel = remember(controller) { PluginInstallMaintenanceModel(scope,
         { observationLock.withLock {
             val inspector = controller.newReleaseInspector()
@@ -67,13 +70,16 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
     DisposableEffect(maintenanceModel) { onDispose { maintenanceModel.close() } }
     DisposableEffect(removalModel) { onDispose { removalModel.close() } }
     DisposableEffect(model) { onDispose { model.close() } }
+    DisposableEffect(policyModel) { onDispose { policyModel.close() } }
     DisposableEffect(selectionModel) { onDispose { selectionModel.close() } }
     LaunchedEffect(model) { model.refresh(); removalModel.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh(); model.refresh() }, enabled = !model.busy && !selectionModel.committing && !removalModel.committing && !maintenanceModel.committing,
+        OutlinedButton(onClick = { policyModel.cancel(); selectionModel.cancel(); removalModel.refresh(); maintenanceModel.refresh(); unclassifiedModel.refresh(); model.refresh() }, enabled = !policyModel.committing && !model.busy && !selectionModel.committing && !removalModel.committing && !maintenanceModel.committing,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-versions-refresh")) { Text("刷新版本列表") }
         if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (removalModel.preview == null && !removalModel.busy) PluginVersionPolicyContent(selectionModel)
+        if (removalModel.preview == null && !removalModel.busy) PluginVersionPolicyContent(selectionModel, enabled = !policyModel.committing)
+        PluginPolicyReviewContent(policyModel, canAct = !selectionModel.busy && selectionModel.pending == null && !removalModel.busy && removalModel.preview == null && !maintenanceModel.committing,
+            begin = { selectionModel.cancel(); removalModel.cancel(); maintenanceModel.cancel(); policyModel.inspect() })
         model.issue?.let { Text(it, Modifier.testTag("plugin-versions-issue"), color = MaterialTheme.colorScheme.error) }
         model.observation?.let { value ->
             Text("已保存版本 ${value.versions.size} 项", Modifier.testTag("plugin-versions-count"), style = MaterialTheme.typography.titleMedium)
@@ -84,7 +90,7 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
             selected?.choices?.toSortedMap()?.forEach { (id, choice) ->
                 Text("$id\n活动选择 ${choice.releaseID}\n${if (choice.enabled) "记录为启用" else "记录为禁用"}",
                     Modifier.testTag("plugin-versions-choice-$id"), style = MaterialTheme.typography.bodySmall)
-                if (choice.enabled) OutlinedButton(onClick = { selectionModel.beginDisable(id, selected.revision) }, enabled = !selectionModel.busy && !removalModel.busy && removalModel.preview == null,
+                if (choice.enabled) OutlinedButton(onClick = { policyModel.cancel(); selectionModel.beginDisable(id, selected.revision) }, enabled = !policyModel.busy && policyModel.review == null && !selectionModel.busy && !removalModel.busy && removalModel.preview == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-disable-$id")) { Text("禁用此插件的后续新实例…") }
             }
             value.versions.forEach { version ->
@@ -99,22 +105,22 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
                         else -> "活动记录选择此版本（禁用）"
                     })
                 } }
-                OutlinedButton(onClick = { removalModel.cancel(); selectionModel.inspect(version.releaseID, selected?.revision) },
-                    enabled = selectionModel.canPreview && selected != null && !model.busy && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
+                OutlinedButton(onClick = { policyModel.cancel(); removalModel.cancel(); selectionModel.inspect(version.releaseID, selected?.revision) },
+                    enabled = !policyModel.busy && policyModel.review == null && selectionModel.canPreview && selected != null && !model.busy && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-select-${version.releaseID}")) { Text("核验并选择此版本…") }
-                OutlinedButton(onClick = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspect(version.releaseID, selected?.revision) },
-                    enabled = removalModel.canPreview && !selectionModel.busy && !model.busy && selected != null && selected.choices.values.none { it.enabled && it.releaseID == version.releaseID },
+                OutlinedButton(onClick = { policyModel.cancel(); selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspect(version.releaseID, selected?.revision) },
+                    enabled = !policyModel.busy && policyModel.review == null && removalModel.canPreview && !selectionModel.busy && !model.busy && selected != null && selected.choices.values.none { it.enabled && it.releaseID == version.releaseID },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-remove-${version.releaseID}")) { Text("核对并删除此本机版本…") }
             }
             value.issues.forEach { Text(it, Modifier.testTag("plugin-versions-entry-issue"), color = MaterialTheme.colorScheme.error) }
             if (value.maintenanceCount > 0) Text("安装暂存和未识别对象 ${value.maintenanceCount} 项。", Modifier.testTag("plugin-versions-maintenance"))
         }
         PluginInstallMaintenanceContent(maintenanceModel, removalModel,
-            canAct = !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
-            inspect = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectStage(it) })
+            canAct = !policyModel.busy && policyModel.review == null && !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
+            inspect = { policyModel.cancel(); selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectStage(it) })
         PluginUnclassifiedContent(unclassifiedModel,
-            canAct = removalModel.canPreview && !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !maintenanceModel.busy && maintenanceModel.target == null,
-            inspect = { selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectUnclassified(it) })
+            canAct = !policyModel.busy && policyModel.review == null && removalModel.canPreview && !selectionModel.busy && selectionModel.preview == null && selectionModel.disableTarget == null && !maintenanceModel.busy && maintenanceModel.target == null,
+            inspect = { policyModel.cancel(); selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspectUnclassified(it) })
         PluginVersionPreviewContent(selectionModel)
         PluginVersionRemovalContent(removalModel)
     }

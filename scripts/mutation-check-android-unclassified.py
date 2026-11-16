@@ -52,6 +52,8 @@ def main():
          'listOf(".install-", ".intent-", ".selection-", ".removal-record-").none(name::startsWith)', 'true'),
         ('observation-token', store+'observationTokenBindsParentNameAndFullDirectoryStamp', unknown,
          'return PluginReleaseCatalog.sha((parent + name + "\\u0000" + value.json().toString()).toByteArray(Charsets.UTF_8))', 'return "a".repeat(64)'),
+        ('directory-stamp', store+'observationTokenBindsParentNameAndFullDirectoryStamp', unknown,
+         ' + value.json().toString()', ' + ""'),
         ('extra-native-ack', store+'fullMutableTreeRequiresExtraNativeAcknowledgementAndDoesNotGrantOrigin', disk,
          'demand(header.unclassified == null || acknowledgedUnclassified, Reason.INVALID)\n        confirmationCheckpoint?',
          'demand(true)\n        confirmationCheckpoint?'),
