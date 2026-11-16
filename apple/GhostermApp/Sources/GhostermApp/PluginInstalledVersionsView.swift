@@ -11,6 +11,8 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var removal: ExtensionController.RemovalPreview?
     @Published private(set) var pendingRemoval: ExtensionController.RemovalPreview?
     @Published private(set) var residues: ExtensionController.InstallationResidues?
+    @Published private(set) var unclassified: [ExtensionController.UnclassifiedEntry] = []
+    @Published var acknowledgedUnknown = false
     private var generation = UUID()
     @Published var policyPath = "" { didSet { trustedPolicy = false } }
     @Published var trustedPolicy = false
@@ -23,6 +25,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             if catalog?.removalPending == true { pendingRemoval = try await controller.pendingVersionRemoval() }
             else { pendingRemoval = nil }
             residues = try await controller.installationResidues(); issue = nil
+            unclassified = try await controller.unclassifiedEntries()
         }
         catch { catalog = nil; issue = message(error) }
     }
@@ -61,6 +64,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         generation = UUID()
         guard let removal else { return }
         self.removal = nil
+        acknowledgedUnknown = false
         await controller.cancelVersionRemoval(id: removal.id)
     }
     func remove(_ controller: ExtensionController, resume: Bool) async -> ExtensionController.RemovalResult? {
@@ -69,7 +73,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         removal = nil
         var result: ExtensionController.RemovalResult?
         do {
-            let value = try await (resume ? controller.resumeVersionRemoval(id: value.id) : controller.confirmVersionRemoval(id: value.id))
+            let value = try await (resume ? controller.resumeVersionRemoval(id: value.id) : controller.confirmVersionRemoval(id: value.id, acknowledgedUnknown: acknowledgedUnknown))
             result = value
             notice = "本次删除 \(value.removed) 个条目；观察到已不存在 \(value.observedAbsent) 个。" +
                 (value.complete ? "回收已完成。" : "删除记录已保留，请显式继续处理。") +
@@ -79,9 +83,20 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         do {
             catalog = try await controller.installedVersions(); pendingRemoval = try await controller.pendingVersionRemoval()
             residues = try await controller.installationResidues()
+            unclassified = try await controller.unclassifiedEntries()
         }
         catch { issue = [issue, "刷新失败：" + message(error)].compactMap { $0 }.joined(separator: "\n") }
         return result
+    }
+    func previewUnknown(_ entry: ExtensionController.UnclassifiedEntry, controller: ExtensionController) async {
+        guard !busy, removal == nil, pendingRemoval == nil, entry.canPreview else { return }
+        let request = generation
+        busy = true; issue = nil; notice = nil; acknowledgedUnknown = false; defer { busy = false }
+        do {
+            let value = try await controller.previewUnclassifiedDirectory(name: entry.name, expectedIdentity: entry.identity)
+            guard request == generation else { await controller.cancelVersionRemoval(id: value.id); return }
+            removal = value
+        } catch { if request == generation { issue = message(error) } }
     }
     func previewResidue(_ value: ExtensionController.InstallationResidue, controller: ExtensionController) async {
         guard !busy, removal == nil, pendingRemoval == nil else { return }
@@ -180,6 +195,19 @@ struct PluginInstalledVersionsView: View {
                     ForEach(residues.entries) { entry in residueRow(entry) }
                     ForEach(Array(residues.issues.enumerated()), id: \.offset) { _, issue in Text(issue).foregroundStyle(.red) }
                 }
+                ForEach(draft.unclassified) { entry in
+                    VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                        Text("归属未知：" + String(reflecting: entry.name)).accessibilityIdentifier("plugin-unknown-row-" + entry.id)
+                        Text("不认定为安装残留，不按名称授权删除。").font(DS.Font.caption)
+                        if let issue = entry.issue { Text(issue).foregroundStyle(.red) }
+                        if entry.canPreview {
+                            Button("逐项核对此目录的完整内容") {
+                                if let controller { Task { await draft.previewUnknown(entry, controller: controller) } }
+                            }.disabled(draft.busy || draft.removal != nil || draft.pendingRemoval != nil)
+                                .accessibilityIdentifier("plugin-unknown-preview-" + entry.id)
+                        }
+                    }
+                }
                 if let issue = draft.issue { Text(issue).foregroundStyle(.red).accessibilityIdentifier("plugin-installed-error") }
                 if let notice = draft.notice { Text(notice).accessibilityIdentifier("plugin-installed-notice") }
                 Text("列表只读本机记录，不认证包自报身份。选择旧版本即显式回滚，也须重新验签和读取内容；不会迁移来源批准、Session 授权或重放操作。禁用仅阻止新建，已运行实例仍持有原快照。")
@@ -224,6 +252,13 @@ struct PluginInstalledVersionsView: View {
         VStack(alignment: .leading, spacing: DS.Padding.xs) {
             Text(confirmed ? "此前已确认的目录回收尚待核对" : "确认回收此私有目录及以下全部内容")
             Text(preview.directory.path).textSelection(.enabled)
+            if preview.unknownOrigin {
+                Text("此目录归属未知。删除只依据本次核对和确认，不证明它来自安装，也不会移除旧归属记录。")
+                if !confirmed {
+                    Toggle("我已核对完整清单，并选择删除这个归属未知的目录", isOn: $draft.acknowledgedUnknown)
+                        .accessibilityIdentifier("plugin-unknown-acknowledge")
+                }
+            }
             Text("\(preview.files.count) 个成员，\(preview.bytes) 字节；运行引用和内容会在执行前再核对。")
             ScrollView {
                 LazyVStack(alignment: .leading) {
@@ -238,7 +273,7 @@ struct PluginInstalledVersionsView: View {
                     if let controller { Task {
                         if let result = await draft.remove(controller, resume: confirmed), result.complete { didRemove(result.releaseID) }
                     } }
-                }.disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-confirm")
+                }.disabled(draft.busy || (!confirmed && preview.unknownOrigin && !draft.acknowledgedUnknown)).accessibilityIdentifier("plugin-installed-remove-confirm")
                 if !confirmed {
                     Button("保留并取消") { if let controller { Task { await draft.cancel(controller) } } }
                         .disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-cancel")
@@ -247,7 +282,7 @@ struct PluginInstalledVersionsView: View {
                         .disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-pending-cancel")
                 }
             }
-            Text("回收只处理这份本机版本，不触碰远端执行端、工作区或业务文件；禁用记录仍保留。")
+            Text(preview.unknownOrigin ? "只删除这份清单内的本机目录与文件；旧归属和选择记录保留。" : "回收只处理这份本机版本，不触碰远端执行端、工作区或业务文件；禁用记录仍保留。")
                 .font(DS.Font.caption)
         }
     }

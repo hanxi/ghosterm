@@ -23,6 +23,7 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
         let descriptor: String?
         let residueState: String?
         let removalID: String?
+        let unknownName: String?
     }
     private enum ProbeError: Error { case request, io, continuation }
     private func emit(_ kind: String, _ value: [String: Any]) throws {
@@ -72,7 +73,10 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
         XCTAssertEqual(catalog.selections.first?.enabled, false)
         let pending = try await controller.pendingVersionRemoval()
         XCTAssertEqual(pending != nil, request.pending)
-        if request.pending { XCTAssertEqual(pending?.releaseID, request.removalID ?? request.releaseID) }
+        if request.pending {
+            XCTAssertEqual(pending?.releaseID, request.removalID ?? request.releaseID)
+            XCTAssertEqual(pending?.unknownOrigin, request.unknownName != nil)
+        }
         if let expected = request.journalSHA {
             XCTAssertEqual(sha(root.appendingPathComponent(PluginReleaseCatalog.removalName)), expected, "inspection must not replay or rewrite deletion")
         }
@@ -103,7 +107,16 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
               String(info.st_dev) == request.device, String(info.st_ino) == request.inode else { throw ProbeError.request }
         let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: [], capabilities: []),
             installationDirectory: root)
-        if request.action == "stage-gc-begin" {
+        if request.action == "unknown-begin" {
+            guard let name = request.unknownName, let point = request.point,
+                  ["before-intent", "after-intent", "after-detach", "after-unlink", "before-clear"].contains(point) else { throw ProbeError.request }
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: root, exclusive: true))
+            let entry = try XCTUnwrap(PluginUnclassifiedDirectories.listing(owner: owner).first { $0.name == name })
+            let removal = try PluginReleaseRemoval(owner: owner, releaseID: PluginReleaseCatalog.sha(Data(name.utf8)), expectedRevision: request.revision,
+                checkpoint: { if $0 == point { try self.pause(point, request: request) } }, unknownName: name, expectedIdentity: entry.identity)
+            _ = try removal.confirm(owner: owner, acknowledgedUnknown: true)
+            XCTFail("the driver must kill this explicit manual removal owner")
+        } else if request.action == "stage-gc-begin" {
             var stage: PluginReleaseStage? = try PluginReleaseStage(directory: root)
             try stage!.write(Data("retained".utf8), path: "payload/file")
             stage = nil
@@ -170,6 +183,16 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
                         XCTAssertEqual(value.removed, request.removed); XCTAssertEqual(value.observedAbsent, request.absent)
                         result["removed"] = value.removed
                     }
+                case "unknown-clean":
+                    guard let name = request.unknownName else { throw ProbeError.request }
+                    let entries = try await controller.unclassifiedEntries()
+                    let entry = try XCTUnwrap(entries.first { $0.name == name })
+                    let preview = try await controller.previewUnclassifiedDirectory(name: name, expectedIdentity: entry.identity)
+                    XCTAssertTrue(preview.unknownOrigin)
+                    let value = try await controller.confirmVersionRemoval(id: preview.id, acknowledgedUnknown: true)
+                    XCTAssertTrue(value.complete && value.durabilityConfirmed); XCTAssertNil(value.cleanupIssue)
+                    XCTAssertEqual(value.removed, request.removed); XCTAssertEqual(value.observedAbsent, request.absent)
+                    result["removed"] = value.removed
                 case "preview-cancel":
                     let value = try await controller.previewVersionRemoval(releaseID: request.releaseID, expectedRevision: request.revision)
                     await controller.cancelVersionRemoval(id: value.id)

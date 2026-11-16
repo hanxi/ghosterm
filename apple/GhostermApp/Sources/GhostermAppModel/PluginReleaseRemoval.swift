@@ -6,7 +6,7 @@ import Foundation
 /// startup replay, recursive FileManager deletion, or permission restoration.
 final class PluginReleaseRemoval {
     enum Failure: String, Error, LocalizedError {
-        case enabled, occupied, pending, started, changed, invalid, io
+        case enabled, occupied, pending, started, changed, invalid, confirmation, io
         var errorDescription: String? {
             switch self {
             case .enabled: return "请先禁用此版本的新建，再预览回收。"
@@ -15,6 +15,7 @@ final class PluginReleaseRemoval {
             case .started: return "此删除已进入移除阶段，不能撤销；请核对记录后继续处理。"
             case .changed: return "目录或清单内容已变化，已保留文件；请重新核对。"
             case .invalid: return "回收记录或目录类型无效，不能据名称删除。"
+            case .confirmation: return "此目录归属未知；须核对完整内容并明确选择删除。"
             case .io: return "回收未完成；请刷新并核对保留的删除记录。"
             }
         }
@@ -46,7 +47,8 @@ final class PluginReleaseRemoval {
         let revision: String?
         let root, version: Stamp
         var stage: PluginInstallJournal.Reference? = nil
-        var originalName: String { stage?.name ?? releaseID }
+        var unknownName: String? = nil
+        var originalName: String { unknownName ?? stage?.name ?? releaseID }
     }
     struct Result: Sendable, Equatable {
         let releaseID: String
@@ -55,6 +57,7 @@ final class PluginReleaseRemoval {
         let complete: Bool
         let durabilityConfirmed: Bool
         var stage: PluginInstallJournal.Reference? = nil
+        var unknownName: String? = nil
     }
     let id = UUID().uuidString
     let directory: URL
@@ -66,15 +69,16 @@ final class PluginReleaseRemoval {
     private let synchronize: (Int32) -> Int32
     private let checkpoint: (String) throws -> Void
     var releaseID: String { header.releaseID }
+    var unknownOrigin: Bool { header.unknownName != nil }
     var bytes: Int64 { members.reduce(0) { $0 + $1.bytes } }
     deinit { Darwin.close(root) }
-    static func pendingPreview(owner: PluginReleaseCatalog) throws -> (String, String, URL, [Member])? {
+    static func pendingPreview(owner: PluginReleaseCatalog) throws -> (String, String, URL, [Member], Bool)? {
         guard try owner.hasPendingRemoval() else { return nil }
         let root = try owner.removalRoot(); defer { Darwin.close(root) }
         let (header, members, _) = try readIntent(root)
         guard header.root.sameObject(try statFD(root)) else { throw Failure.changed }
         let name = try namedStamp(root, header.tombstone) == nil ? header.originalName : header.tombstone
-        return (header.operation, header.releaseID, owner.url.appendingPathComponent(name), members)
+        return (header.operation, header.releaseID, owner.url.appendingPathComponent(name), members, header.unknownName != nil)
     }
     static func cancelPending(owner: PluginReleaseCatalog, id: String) throws -> Bool {
         let root = try owner.removalRoot(); defer { Darwin.close(root) }
@@ -93,13 +97,21 @@ final class PluginReleaseRemoval {
 
     init(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?,
          synchronize: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in },
-         stage: PluginInstallJournal.Reference? = nil) throws {
+         stage: PluginInstallJournal.Reference? = nil, unknownName: String? = nil, expectedIdentity: String? = nil) throws {
         guard try !owner.hasPendingRemoval() else { throw Failure.pending }
         let selection = try owner.selection()
         guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
-        guard stage != nil || !selection.choices.values.contains(where: { $0.releaseID == releaseID && $0.enabled }) else { throw Failure.enabled }
+        guard stage == nil || unknownName == nil else { throw Failure.invalid }
+        guard stage != nil || unknownName != nil || !selection.choices.values.contains(where: { $0.releaseID == releaseID && $0.enabled }) else { throw Failure.enabled }
+        if let unknownName {
+            guard PluginUnclassifiedDirectories.allowedName(unknownName), releaseID == PluginReleaseCatalog.sha(Data(unknownName.utf8)) else { throw Failure.invalid }
+            guard !selection.choices.values.contains(where: { $0.releaseID == unknownName && $0.enabled }) else { throw Failure.enabled }
+        }
         let handle: PluginReleaseCatalog.VersionHandle
-        if let stage {
+        if let unknownName {
+            guard let expectedIdentity else { throw Failure.invalid }
+            handle = try PluginUnclassifiedDirectories.open(owner: owner, name: unknownName, expected: expectedIdentity)
+        } else if let stage {
             guard stage.digest == releaseID else { throw Failure.invalid }
             let root = try owner.removalRoot(); defer { Darwin.close(root) }
             guard let journal = try PluginInstallJournal(parent: root) else { throw Failure.invalid }
@@ -113,13 +125,14 @@ final class PluginReleaseRemoval {
             guard rootStamp.device == versionStamp.device else { throw Failure.invalid }
             members = try Self.scan(handle.fd, device: rootStamp.device)
             let operation = UUID().uuidString.lowercased()
-            header = Header(schema: stage == nil ? 1 : 2, operation: operation, releaseID: releaseID,
-                tombstone: ".removing-" + operation, revision: selection.revision, root: rootStamp, version: versionStamp, stage: stage)
-            self.root = root; version = handle; directory = owner.url.appendingPathComponent(stage?.name ?? releaseID)
+            header = Header(schema: unknownName != nil ? 3 : stage == nil ? 1 : 2, operation: operation, releaseID: releaseID,
+                tombstone: ".removing-" + operation, revision: selection.revision, root: rootStamp, version: versionStamp, stage: stage, unknownName: unknownName)
+            self.root = root; version = handle; directory = owner.url.appendingPathComponent(unknownName ?? stage?.name ?? releaseID)
             self.synchronize = synchronize; self.checkpoint = checkpoint
         } catch { Darwin.close(root); throw error }
     }
-    func confirm(owner: PluginReleaseCatalog) throws -> Result {
+    func confirm(owner: PluginReleaseCatalog, acknowledgedUnknown: Bool = false) throws -> Result {
+        guard header.unknownName == nil || acknowledgedUnknown else { throw Failure.confirmation }
         guard !confirmed else { throw Failure.pending }
         let currentRoot = try owner.removalRoot(); defer { Darwin.close(currentRoot) }
         guard header.root.sameObject(try Self.statFD(currentRoot)), try !owner.hasPendingRemoval() else { throw Failure.changed }
@@ -163,9 +176,9 @@ final class PluginReleaseRemoval {
             name = header.originalName
         } else {
             // Observation after an interruption is not proof that we deleted it.
-            guard synchronize(root) == 0 else { return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: false, durabilityConfirmed: false, stage: header.stage) }
+            guard synchronize(root) == 0 else { return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: false, durabilityConfirmed: false, stage: header.stage, unknownName: header.unknownName) }
             try clearIntent(root, expected: header, members: members)
-            return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: true, durabilityConfirmed: synchronize(root) == 0, stage: header.stage)
+            return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: true, durabilityConfirmed: synchronize(root) == 0, stage: header.stage, unknownName: header.unknownName)
         }
         let fd = openat(root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw Failure.changed }
@@ -221,12 +234,15 @@ final class PluginReleaseRemoval {
         return result(removed, absent, true, synchronize(root) == 0)
     }
     private func result(_ removed: Int, _ absent: Int, _ complete: Bool, _ durable: Bool) -> Result {
-        Result(releaseID: header.releaseID, removed: removed, observedAbsent: absent, complete: complete, durabilityConfirmed: durable, stage: header.stage)
+        Result(releaseID: header.releaseID, removed: removed, observedAbsent: absent, complete: complete, durabilityConfirmed: durable, stage: header.stage, unknownName: header.unknownName)
     }
     private static func requireDisabled(_ owner: PluginReleaseCatalog, header: Header, checkRevision: Bool) throws {
         let choice = try owner.selection()
         guard !checkRevision || choice.revision == header.revision else { throw PluginReleaseCatalog.Failure.conflict }
-        guard header.stage != nil || !choice.choices.values.contains(where: { $0.releaseID == header.releaseID && $0.enabled }) else { throw Failure.enabled }
+        guard header.stage != nil || header.unknownName != nil || !choice.choices.values.contains(where: { $0.releaseID == header.releaseID && $0.enabled }) else { throw Failure.enabled }
+        if let name = header.unknownName {
+            guard !choice.choices.values.contains(where: { $0.releaseID == name && $0.enabled }) else { throw Failure.enabled }
+        }
     }
     private static func verifyStage(_ root: Int32, header: Header) throws {
         guard let stage = header.stage else { return }
@@ -234,6 +250,16 @@ final class PluginReleaseRemoval {
         try journal.verify(stage)
     }
     private static func source(owner: PluginReleaseCatalog, header: Header) throws -> PluginReleaseCatalog.VersionHandle {
+        if let name = header.unknownName {
+            let root = try owner.removalRoot(); defer { Darwin.close(root) }
+            guard let value = try namedStamp(root, name) else { throw Failure.changed }
+            let file = openat(root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard file >= 0 else { throw Failure.changed }
+            let handle = PluginReleaseCatalog.VersionHandle(file, id: header.releaseID)
+            guard try statFD(file) == value, value.sameObject(header.version) else { throw Failure.changed }
+            guard try handle.exclusiveUse() else { throw Failure.occupied }
+            return handle
+        }
         guard let stage = header.stage else { return try owner.openVersion(header.releaseID) }
         let root = try owner.removalRoot(); defer { Darwin.close(root) }
         guard let journal = try PluginInstallJournal(parent: root) else { throw Failure.invalid }
@@ -355,12 +381,17 @@ final class PluginReleaseRemoval {
             if let stage = object["stage"] { guard Set(try stage.object().keys) == ["id", "name", "digest"] else { throw Failure.invalid } }
             return try decoder.decode(type, from: Data(line))
         }
-        let header = try decode(Header.self, lines[0], keys: ["schema", "operation", "releaseID", "tombstone", "root", "version"], optional: ["revision", "stage"])
-        guard (header.schema == 1 && header.stage == nil) || (header.schema == 2 && header.stage != nil), UUID(uuidString: header.operation) != nil,
+        let header = try decode(Header.self, lines[0], keys: ["schema", "operation", "releaseID", "tombstone", "root", "version"], optional: ["revision", "stage", "unknownName"])
+        guard (header.schema == 1 && header.stage == nil && header.unknownName == nil) ||
+              (header.schema == 2 && header.stage != nil && header.unknownName == nil) ||
+              (header.schema == 3 && header.stage == nil && header.unknownName != nil), UUID(uuidString: header.operation) != nil,
               PluginReleaseCatalog.digest(header.releaseID), header.tombstone == ".removing-" + header.operation,
               header.revision == nil || PluginReleaseCatalog.digest(header.revision!) else { throw Failure.invalid }
         if let stage = header.stage {
             guard UUID(uuidString: stage.id) != nil, stage.name == ".prepare-" + stage.id.lowercased(), stage.digest == header.releaseID else { throw Failure.invalid }
+        }
+        if let name = header.unknownName {
+            guard PluginUnclassifiedDirectories.allowedName(name), header.releaseID == PluginReleaseCatalog.sha(Data(name.utf8)) else { throw Failure.invalid }
         }
         var members: [Member] = [], paths = Set<String>(), bytes: Int64 = 0
         for line in lines.dropFirst().dropLast() {

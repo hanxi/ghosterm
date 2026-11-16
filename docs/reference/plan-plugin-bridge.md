@@ -8899,3 +8899,93 @@ APFS 实际回收量；隔离编译 / 子进程夹具已自动回收，raw 日�
 随后移除。原 eq 三件 SHA256 不变，tmp 目录本身保留。自有 SSH、signer、native /
 driver / helper 都已退出；仅旧虚拟机持 tmp 根目录 fd，未停止无关虚拟机 / Java
 或用户服务。所有自动测试在后台执行。
+
+### P6 实施第八批：归属未知目录的完整核对与显式删除（2026-11-16）
+
+私有安装根新增未知条目列表；有效已安装版本、身份匹配的 active / abandoned 暂存
+保持原流程，selection / removal / install-journal 三类私有元数据名称不提供新入口。
+旧 `.prepare-*`、无记录目录和缺身份的同名对象始终标为归属未知，不凭前缀、存在或
+本次内容观察补写安装来源。顶层链接、文件、其它设备 / 所有者条目仅显示原因并保留；
+损坏 ledger 仍显式报错，不忽略错误来获取删除权限。根身份与子目录完整 stat 的
+排序 JSON 摘要构成观察令牌，预览前重核同一对象；最多 128 个非保留名称观察。
+
+原生新接口 `unclassifiedEntries` / `previewUnclassifiedDirectory` 在同一非 UI worker
+工作，沿用全局根锁、目录独占引用、有界完整扫描与现有逐项删除。预览显示所有成员、
+字节与摘要；不跟链接、不跨设备、不接纳特殊文件 / 多重硬链接或超限树。用户必须
+额外勾选未知归属确认；取消后再次预览重置，Native removal 本身也要求显式确认位。
+已启用但声明已坏的目录仍须先明确禁用，不能从未知入口绕过；恢复时再次检查启用
+选择。根 / 目录替换、增删 / 改写成员与活跃引用拒绝旧预览，不自动扩大清单。
+
+确认建立当前对象的新删除决定，使用格式 3 意图，绑定原名称及名称摘要；不创建或
+退役旧安装归属记录，不发布 / 运行目录内容。格式 1 已安装版本与格式 2 已登记暂存
+继续读取；无启动重放，改名前原树完整可显式撤销，部分移除后只按同一意图显式继续。
+观察到已不存在与本次删除分别计数，父目录同步未知仍独立报告。旧未确认记录在手动
+删除后只观察 absent，摘要不变；之后的元数据退役仍是独立选择。
+
+默认 JS-off Core / Swift 6.4 / macOS arm64 的新增专项：
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" \
+GHOSTERM_AUTOMATION_OFFSCREEN=1 python3 -B scripts/test-plugin-unclassified.py \
+  --mutate --out tmp/p6-unknown/receipt.json
+```
+
+**60 项原生基线**包含新增 18 项数据保护、实际后台控件一项、既有 Journal 17 /
+Residue UI 1 / Removal 22 / 独立配置 1；零失败 / 跳过。**五个实际 SIGKILL 点**为
+before-intent / after-intent / after-detach / after-unlink / before-clear；nonce / PID /
+dev / inode 就绪且 owner 仍存活后精确终止，新 Controller 的观察 / close 不重放，
+显式继续或重新预览。**八组变异**护底层额外确认、列表身份、启用目录预览、恢复时
+启用选择、意图名称绑定、私有保留名称及页面预览 / 勾选控件。生产对象实际重编、
+正常断言红（零 unexpected）、同构件独立配置绿、复原重编 / 新夹具绿和 SHA256
+通过。五次刻意死亡与 26 条正常绿 / 八条正常红共 39 条子进程事件分别记账；驱动
+INT / TERM 在真实持有引用后注入，退出 130 / 143、子进程退出 / 私有树清理另验。
+收据 `e8be6da75c94ebdc861d6ad2d588e4e7a7bd2c53a4b5b844e6eda589a13d4b9e`，
+1043 份指定源 / 四份实际工具与 archive 起跑及收尾一致。
+
+前置 UI / 数据 18 项通过后新增恢复启用保护，最终全部 60 项复验。最初一条不存在的
+重置配方未到编译，未计变异通过；首轮启用预览变异已触发目标断言，但测试未取消意外
+成功预览，随后报 pending / 一条 unexpected，整轮不计正常红或通过。只修正测试
+收尾，保留启用预览应拒绝断言，最终八组完整重跑通过；未降低正常红分类要求。
+
+既有格式 2 的 `test-plugin-install-journal.py --mutate` 完整复验 **41 项基线 / 九个
+实际死亡点 / 八组变异**通过，收据
+`07852626dd4eb7117608f493c5553f0086c0e1baf40cfb799cea561b86325c1e`。
+格式 1 的 `test-plugin-removal-crash.py --mutate` 完整复验 **十三场景 / 六组变异**
+通过，收据 `113ca73987857a6c6866019d77f9522f996bed6713e9c5e3ace920da19cf21bd`；
+25 次刻意死亡 / 58 条正常绿 / 六条正常红分列。两套驱动 INT / TERM 的实际退出和
+私有夹具清理均通过。与新增专项共三份收据的 1043 份指定源 / 四份工具及默认归档
+已在切换 Core 构建档前再次全部对拍一致，不以旧格式的通过代替格式 3 专项。
+
+JS-enabled 档另跑 `test-plugin-native-signature.py --remove --mutate` 的全部 **63 项
+签名 / 安装 / 版本 / 回收基线及两项真实自有 SSH Runtime**，并用 `--case` 选择
+**十五组既有 removal-* 变异**：disabled / lease / cas / snapshot / recovery-content /
+record-before-rename / durability / absence / member-limit / ui / live-reference /
+runtime-transfer / cancel-pending-ui / pending-status / foreign-marker。均实际生产对象
+重编、正常断言红 / 独立配置绿 / 复原绿 / SHA256 通过；未将未重跑的其余签名变异
+计入本轮。收据 `e08d2a717f486a22024ccc04da8a50b8201c5fac841883b24e12ed5339111aac`，
+1061 源 / 849 实际工具与 archive 已在切回默认档前再次全表对拍一致。真实 Runtime
+引用沿用单跳 SSH 隔离夹具，未据此新增其它拓扑、终端用户业务或 GUI 重启结论。
+
+最终 JS-enabled / 默认 Release 构建均通过，日志 SHA256 分别为
+`fee4328d69c2cf99e2e49a8ed945b76db3d81433ca48c23f9a223da883c05ba6` /
+`44750450eab451d9023a1655e50f5ef972062d2edd22f0d4da756c73dac2a036`；默认构件已在
+收尾恢复。默认 Core **JS-off / tests-on / SSH-on：588/588 CTest、184 ABI** 与
+未实现入口闸门通过，日志 `55a8032ff2e32d9a13650f84605433c2a5df73a78f67140d560f0ff96da4b0e8`。
+默认宿主定向 **125 项 / 26 明确跳过 / 零失败**，跳过不计通过；实际签名 / Runtime
+结论取上述 enabled 专项。独立 WebKit CSS / PNG 初次及刷新绘制通过，宿主日志
+`359dd02ed87f2d1d9c922f90710ad1843299457962a9c59130b191154e686795`。C 格式
+19.1.7 / 267、Apple 181 引用 / 3 登记未用、JNI 147 / 37、Python AST / diff 检查
+通过。四份收据的 1043 / 1061 指定源最终全部一致；构建档切换是明确记录的归档变化。
+
+不改 C ABI / SDK 身份 / Runtime 预算，不增加 macOS CI 二十份；默认 JS-off。
+无本批云端 Swift 6.1.2、其它端 / 真机、GUI 重启、断电 / 掉盘、完整磁盘故障 /
+恶意同 uid 并发或用户真实数据迁移证据。旧无记录目录不再只有无入口的保留状态，
+但顶层非目录 / 私有元数据、损坏 ledger 与完整孤儿 / 文件系统矩阵仍待维护，不能
+记全部资源清理完成。P6 / P1–P6 未完成，仅本地分批提交，不推送 / 发行。
+
+收尾移除 **600 个 tmp 顶层项 / 2964 份普通文件 / 47.52 MiB 逻辑大小**，不当作
+APFS 实际回收量。隔离原生构建副本 / 子进程夹具此前已自动回收；raw 收据、日志和
+临时工具验收后删除，只保留本文摘要与范围，不引用已删除路径作为在线证据。
+原 eq 三件 SHA256 不变，tmp 目录本身保留。lsof 只剩旧虚拟机持 tmp 根目录 fd；
+本轮 SSH / signer / native / helper 全部退出，未停止无关虚拟机或用户服务，所有
+自动测试保持后台。

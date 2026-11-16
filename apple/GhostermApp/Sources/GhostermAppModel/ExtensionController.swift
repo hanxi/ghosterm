@@ -153,6 +153,7 @@ public actor ExtensionController {
         public let directory: URL
         public let files: [File]
         public let bytes: Int64
+        public var unknownOrigin = false
     }
     public struct RemovalResult: Sendable, Equatable {
         public let releaseID: String
@@ -170,6 +171,13 @@ public actor ExtensionController {
     public struct InstallationResidues: Sendable, Equatable {
         public let entries: [InstallationResidue]
         public let issues: [String]
+    }
+    public struct UnclassifiedEntry: Sendable, Equatable, Identifiable {
+        public let name: String, identity: String
+        public let directory: URL
+        public let canPreview: Bool
+        public let issue: String?
+        public var id: String { identity }
     }
 
     public struct Resolution: Sendable, Equatable {
@@ -398,10 +406,14 @@ public actor ExtensionController {
         try await worker.previewVersionRemoval(releaseID: releaseID, expectedRevision: expectedRevision)
     }
     public func cancelVersionRemoval(id: String) async { await worker.cancelVersionRemoval(id: id) }
-    public func confirmVersionRemoval(id: String) async throws -> RemovalResult { try await worker.confirmVersionRemoval(id: id) }
+    public func confirmVersionRemoval(id: String, acknowledgedUnknown: Bool = false) async throws -> RemovalResult { try await worker.confirmVersionRemoval(id: id, acknowledgedUnknown: acknowledgedUnknown) }
     public func resumeVersionRemoval(id: String) async throws -> RemovalResult { try await worker.resumeVersionRemoval(id: id) }
     public func pendingVersionRemoval() async throws -> RemovalPreview? { try await worker.pendingVersionRemoval() }
     public func installationResidues() async throws -> InstallationResidues { try await worker.installationResidues() }
+    public func unclassifiedEntries() async throws -> [UnclassifiedEntry] { try await worker.unclassifiedEntries() }
+    public func previewUnclassifiedDirectory(name: String, expectedIdentity: String) async throws -> RemovalPreview {
+        try await worker.previewUnclassifiedDirectory(name: name, expectedIdentity: expectedIdentity)
+    }
     public func previewInstallationResidue(id: String, expectedDigest: String) async throws -> RemovalPreview {
         try await worker.previewInstallationResidue(id: id, expectedDigest: expectedDigest)
     }
@@ -800,6 +812,29 @@ public actor ExtensionController {
                 }, issues: listing.issues)
             }
         }
+        func unclassifiedEntries() async throws -> [UnclassifiedEntry] {
+            try await perform {
+                try self.checkOpen()
+                guard let owner = try self.catalogOwner(exclusive: false) else { return [] }
+                return try PluginUnclassifiedDirectories.listing(owner: owner).map { entry in
+                    UnclassifiedEntry(name: entry.name, identity: entry.identity, directory: owner.url.appendingPathComponent(entry.name),
+                        canPreview: entry.canPreview, issue: entry.issue)
+                }
+            }
+        }
+        func previewUnclassifiedDirectory(name: String, expectedIdentity: String) async throws -> RemovalPreview {
+            try await perform {
+                try self.checkOpen()
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let preview = try PluginReleaseRemoval(owner: owner, releaseID: PluginReleaseCatalog.sha(Data(name.utf8)),
+                    expectedRevision: owner.selection().revision, unknownName: name, expectedIdentity: expectedIdentity)
+                self.removalPreview = preview
+                return RemovalPreview(id: preview.id, releaseID: preview.releaseID, directory: preview.directory,
+                    files: preview.members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) },
+                    bytes: preview.bytes, unknownOrigin: true)
+            }
+        }
         func previewInstallationResidue(id: String, expectedDigest: String) async throws -> RemovalPreview {
             try await perform {
                 try self.checkOpen()
@@ -831,10 +866,10 @@ public actor ExtensionController {
             try await perform {
                 try self.checkOpen()
                 guard let owner = try self.catalogOwner(exclusive: true),
-                      let (id, releaseID, directory, members) = try PluginReleaseRemoval.pendingPreview(owner: owner) else { return nil }
+                      let (id, releaseID, directory, members, unknown) = try PluginReleaseRemoval.pendingPreview(owner: owner) else { return nil }
                 return RemovalPreview(id: id, releaseID: releaseID, directory: directory,
                     files: members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) },
-                    bytes: members.reduce(0) { $0 + $1.bytes })
+                    bytes: members.reduce(0) { $0 + $1.bytes }, unknownOrigin: unknown)
             }
         }
         func cancelPendingVersionRemoval(id: String) async throws -> Bool {
@@ -857,7 +892,7 @@ public actor ExtensionController {
                     try journal.retire(reference)
                 } catch { cleanupIssue = "目录操作已完成，安装归属记录保留待核对：\(error)" }
             }
-            for key in Array(packages.keys) where result.stage == nil && packages[key]?.managedReleaseID == result.releaseID {
+            for key in Array(packages.keys) where result.stage == nil && result.unknownName == nil && packages[key]?.managedReleaseID == result.releaseID {
                 guard var record = packages[key] else { continue }
                 record.source = .unknown; record.approvalGeneration = nil; packages[key] = record
                 if result.complete, key != runtimePackageKey, key != sessionPackageKey {
@@ -874,13 +909,14 @@ public actor ExtensionController {
             return RemovalResult(releaseID: result.releaseID, removed: result.removed, observedAbsent: result.observedAbsent,
                 complete: result.complete, durabilityConfirmed: result.durabilityConfirmed, cleanupIssue: cleanupIssue)
         }
-        func confirmVersionRemoval(id: String) async throws -> RemovalResult {
+        func confirmVersionRemoval(id: String, acknowledgedUnknown: Bool) async throws -> RemovalResult {
             try await perform {
                 try self.checkOpen()
                 guard let preview = self.removalPreview, preview.id == id else { throw PluginReleaseRemoval.Failure.changed }
+                guard !preview.unknownOrigin || acknowledgedUnknown else { throw PluginReleaseRemoval.Failure.confirmation }
                 defer { self.removalPreview = nil }
                 guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
-                return try self.removalResult(preview.confirm(owner: owner), owner: owner)
+                return try self.removalResult(preview.confirm(owner: owner, acknowledgedUnknown: acknowledgedUnknown), owner: owner)
             }
         }
         func resumeVersionRemoval(id: String) async throws -> RemovalResult {
