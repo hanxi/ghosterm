@@ -9642,3 +9642,34 @@ release-signature-off；这些构建不代替签名发行或真实设备矩阵�
 720 输入均复验不变。清理 **32 个 tmp 顶层项 / 7630 份普通文件 / 190.03 MiB
 逻辑大小**；镜像此前已清理，不把逻辑数当 APFS 实际回收量。原始日志 / 收据 /
 格式工具用后移除，本文保留范围与摘要；只留 eq 三件与 tmp 根目录。
+
+### macOS 编译复核：活动版本预览的声明文本（2026-11-16）
+
+用户再次提供旧失败 run `43346407706`，本轮通过 GitHub CLI 复核：失败提交为
+`27c4010f`，C Core 481 项已通过，Swift release 失败；旧 job 只留下警告尾部，
+完整 artifact 已不可取。后续同工具链定位的两处类型检查超时已由 `3f26c79f` /
+`79a87049` 修复。再次读取云端状态，`43411785149` 的 macOS 打包与 dev 发布均为
+success，后续 `43582885954` 亦 success；不将旧失败 run 说成已被重跑转绿。
+
+本轮另在当前 HEAD 的本地 Swift 6.3.3 release 构建真实复现
+`PluginSelectionReviewView.swift:28` 的 “unable to type-check this expression in
+reasonable time”。五条权限 / 命令描述的长串 `+` 改为字符串插值，并显式使用
+`Text(verbatim:)` 保留原动态 String 的逐字显示语义；字段、顺序、分隔符与程序列表均
+保留，不调高编译器超时，不改确认 / 安装 / 活动选择行为。
+
+最终同一 Swift 6.3.3 的 arm64 Release 编译链接通过；Xcode Swift 6.4 下既有
+PluginSelectionReviewTests / PluginReleaseDeclarationsTests 与独立主机配置读取对照
+共 19 项通过、零跳过。此回归为声明 / 选择数据层，未执行 JS-enabled 签名 UI 专项，
+不据此声明新云端 Swift 6.1.2 通过。未启用测试前台窗口。
+初始失败日志 SHA256 `bc4dc6cb04b79ba46c6b9f3f8914180176424028986fbd0c0d95db5915466008`；
+最终 Release `63117bcc8dbd5910b04145471b4d7d852fb6b927b1e5f8420898d2365ee86c38`；
+19 项回归 `25402a91829028f625afdf6ed9b0d2c5d887a993243fb948e30792d4cbf9417b`。
+
+默认 Core JS-off / tests-on / SSH-on 离线 gate：589/589 CTest、185 公共 ABI 与
+未实现入口检查通过；gate 日志 SHA256
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+clang-format 19.1.7 的 271 份已跟踪 C 文件、Apple 182 引用 / 3 登记未用、JNI
+148 / 37 与 diff 检查通过。本修复不改 C / Android / ABI；此前未提交的 Android
+安装切片保留，未借本轮闸门称其已验收。仅提交本修复，不推送 / 发布。
+本轮 `tmp/ci-mac-fix` 的 7 份日志 / 215697 逻辑字节验后清理，原 eq 三件摘要不变；
+仍供 Android 在途验收使用的临时工具 / 证据保留，不动无关进程。

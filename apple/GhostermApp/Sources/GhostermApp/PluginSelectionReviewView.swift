@@ -25,21 +25,21 @@ struct PluginSelectionReviewView: View {
                 if let added = value.addedPermissions, let removed = value.removedPermissions {
                     Text("新增或修改的权限声明 \(added.count) 项；移除或修改的旧声明 \(removed.count) 项。")
                     ForEach(Array(added.enumerated()), id: \.offset) { _, permission in
-                        Text("＋ " + permission.side + " · " + permission.capability + " · " + permission.scope + " · " + permission.purpose + " · " + permission.programs.joined(separator: ", "))
+                        Text(verbatim: "＋ \(permission.side) · \(permission.capability) · \(permission.scope) · \(permission.purpose) · \(permission.programs.joined(separator: ", "))")
                     }
                     ForEach(Array(removed.enumerated()), id: \.offset) { _, permission in
-                        Text("－ " + permission.side + " · " + permission.capability + " · " + permission.scope + " · " + permission.purpose + " · " + permission.programs.joined(separator: ", "))
+                        Text(verbatim: "－ \(permission.side) · \(permission.capability) · \(permission.scope) · \(permission.purpose) · \(permission.programs.joined(separator: ", "))")
                     }
                 } else { Text("权限差异查不出来；请核对以下完整候选声明。").foregroundStyle(.orange) }
                 DisclosureGroup("完整候选权限声明") {
                     ForEach(Array(value.candidate.permissions.enumerated()), id: \.offset) { _, permission in
-                        Text(permission.side + " · " + permission.capability + " · " + permission.scope + " · " + permission.purpose)
+                        Text(verbatim: "\(permission.side) · \(permission.capability) · \(permission.scope) · \(permission.purpose)")
                         if !permission.programs.isEmpty { Text("声明的程序：" + permission.programs.joined(separator: ", ")) }
                     }
                 }
                 DisclosureGroup("候选命令描述") {
                     ForEach(value.candidate.review.commands, id: \.path) { command in
-                        Text(command.path + " · " + command.title + " · " + command.argsSchema + " · " + command.views.joined(separator: ", "))
+                        Text(verbatim: "\(command.path) · \(command.title) · \(command.argsSchema) · \(command.views.joined(separator: ", "))")
                     }
                 }
                 if let executor = value.candidate.executorDeclarations {
@@ -52,7 +52,7 @@ struct PluginSelectionReviewView: View {
                         Text("SDK：" + previous.sdkVersion + " · 协议：" + previous.protocols.map(String.init).joined(separator: ", "))
                         Text("所需能力：" + previous.review.requiredCapabilities.joined(separator: ", "))
                         ForEach(Array(previous.permissions.enumerated()), id: \.offset) { _, permission in
-                            Text(permission.side + " · " + permission.capability + " · " + permission.scope + " · " + permission.purpose + " · " + permission.programs.joined(separator: ", "))
+                            Text(verbatim: "\(permission.side) · \(permission.capability) · \(permission.scope) · \(permission.purpose) · \(permission.programs.joined(separator: ", "))")
                         }
                         if let executor = previous.executorDeclarations { Text(executor).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
                     }
