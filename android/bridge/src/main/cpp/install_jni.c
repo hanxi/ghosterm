@@ -38,6 +38,18 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_lockDir
     return error;
 }
 
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_pinDirectory(
+    JNIEnv *env, jobject self, jint descriptor) {
+    (void)env;
+    (void)self;
+    struct stat value;
+    int error = private_directory(descriptor, &value);
+    if (!error && ((value.st_mode & 0222) || flock(descriptor, LOCK_SH | LOCK_NB) < 0)) {
+        error = (value.st_mode & 0222) ? EINVAL : errno;
+    }
+    return error;
+}
+
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_publishDirectory(
     JNIEnv *env, jobject self, jint parent, jint descriptor, jbyteArray from, jbyteArray to) {
     (void)self;

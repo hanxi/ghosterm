@@ -9816,3 +9816,124 @@ P1–P6 保持未完成，仅本地分批提交，不推送 / 发行。
 虚拟机持 tmp 根 fd。最后只清理本轮及闸门的 87 个 tmp 顶层项、8386 份普通文件、
 200066528 逻辑字节（约 190.80 MiB），不当 APFS 实际回收量；原始日志、收据、
 格式工具用后移除，本文保留范围与摘要，原 eq 三件和 tmp 根目录保留。
+
+
+### P6 实施第十六批：Android 已保存版本观察与选择记录事务（2026-11-16）
+
+已提交的本机签名版本现在有跨 Controller / Activity 重开的只读设置页。
+`PluginReleaseCatalog` 只观察已有私有根：唯有 lstat ENOENT 为已知无根，不创建
+目录。它与安装共用短时非阻塞根排它锁；读观察 / 选择存储 / 安装当前串行，不承诺
+根的并行只读吞吐。固定根 fd 与当前路径 identity，精确有界读取常规只读 / 私有 /
+单链接 metadata，检查前后 dev / inode / uid / size / mode / nlink / mtime / ctime。
+目录名须为原始 release.json SHA，签名证据长度 64，策略证据存在；这不是当前
+签名 / Core 核验，零签名 / 注入声明存储夹具亦只能显示为未核验声明。
+
+根最多观察 128 项；非摘要条目只计维护数量，坏版本单列固定问题，不按任何前缀
+删除或收养。保存的 policy.json 不进入认证器。选择记录与版本声明分开，严格
+有界 JSON 拒绝重复键、未知键、非精确格式号、布尔强制转换、非规范 UUID 和超额
+选择；文件不可读 / 链接 / 可写都给未知状态，不改写、不降成空选择。引用缺失版本
+的选择仍在页面显示，不借无版本行伪造不存在。页面明确写「记录为启用 / 禁用」
+和「尚未用当前可信策略核验」，不宣称包已可运行。
+
+`selection-v1.json` 的 change 为内部存储事务：期望修订绑定原始文件 SHA，先比较
+再创建候选，提交前复查；合并其它 ID，始终轮换本次插件 generation 与根 nonce，
+含合法 A→B→A。根入口同步后写排它临时文件，分块 / 同步 / 0400 / 关闭 writer，
+以只读 fd 固定候选，精确核对身份及状态戳。首写用不覆盖 publish，其后仅在锁下
+替换已核对的旧选择文件；发布后同步失败返回已发布 / 持久性未确认，不回滚。
+预提交仅清理仍可核对的本次候选，外部变化的对象保留。它尚不认证包或实施准入；
+没有为 UI 暴露 change 按钮。实际活动选择 / 禁用 / 回滚将与新运行的来源批准代次、
+Session 身份及旧实例引用消费者一并接通，而非只写 enabled 就假装禁用生效。
+
+私有平台 JNI 增加共享版本目录 pin：只接收私有 / 冻结 / 只读借用目录 fd，不关闭
+调用方的 fd。独立共享读者共存，借用 dup 保持同一 flock，只有最后一个引用关闭
+才放开排它操作。Version wrapper 的 pin / borrow / close 也真实执行；这是将来
+实例 / 回收接缝的组件证据，当前尚未替实际 Runtime 或回收持有引用。不改 Core
+公共 ABI，C 核心没有 JVM / UI 依赖。
+
+Settings 的观察由独立 inspector 执行，父 Controller 的既有固定包仍可解析；
+只在用户展开 / 刷新时读取，不启动加载 / 运行，不登记来源 / 授予 Session。
+刷新先清旧快照，禁止重叠；离页取消请求并拒绝忽略取消后返回的结果，错误固定且
+不暴露私有异常细节。实际 Activity 重建后再次展开仍读原版本 / 记录，损坏记录
+显示未知、未知暂存字节保持原样。默认 App 仍 JS-off。
+
+
+验收：首轮 API36 正常组合 176 项通过；随后补充 wrapper pin / borrow 生命周期，
+加强有效声明被改字节、超限 metadata、提交前无 IO、规范 nonce / generation /
+多余字段 / 超额记录等独立前提，最终 **API29 / API36 各 177 项正常结束，零失败 /
+错误 / 跳过**，每项实际 status 0，负向结束状态为空。新增 31 项分别为存储 / 观察
+21、JNI 共享引用 3、观察草稿 4、真实签名 Core 安装重开 2、实际设置页 1；旧 146
+保留。Activity 重建不当作进程死亡，新的共享引用未做跨进程死亡 / 回收消费者验收。
+
+最终同源同 APK（本地 dirty 开发构建，不冒充发行）：
+
+- App `940e60392fe74c498e471d3e342a9d427dded68d617a7dcac3e10ec7a6f9b1dc`
+- Test `b7eda9550fdbb16d995a7db8d516544ac05ae56080d40624a99624eaf59a3a82`
+- API29 原始 instrumentation `d4f3305cd691d10787de6a4896aaf9eed1b3626cdcac7a8b3d2e16219edb7903`
+- API36 原始 instrumentation `da3552c49b7e114a841c2971e751a82b65aa49c80e20dcb1d227a4bee9459dca`
+- API29 汇总 `3a7c7c3861edc59d5f9b1812eb4ac1fe80aaccfd8805bb76e174b39d712462d4`
+- API36 汇总 `bb3ec27407f1d4b3f2baa0b855bd33474bc342d3cfd2cb41a9515a15bb8acff7`
+
+变异前 API36 的 App 为 `93a11307596936d83bf8b5f7ff3e98128ae9976f70009d80281eb5f6403eb944`；
+恢复重新编译后变为上述 940e…，739 源 / 两驱动逐项不变，测试 APK 未变。没有
+定位这次构建字节变化的原因，不猜作源码回归；以最终同一 APK 的两设备正常组合
+为准，不声称位对位可复现构建。
+
+`mutation-check-android-catalog.py` **45 组**全部真实编译后单条正常断言红、同 APK
+独立 Native Core 配置绿、恢复重编译绿及六份生产源 SHA 一致：
+
+- Native 3：真实 pin、共享而非排它、冻结目录；Version wrapper 2：实际 pin 与
+  独立 borrow 生命周期。
+- 根 / 版本 / payload 5：根命名身份、根入口同步、版本 / payload 替换、冻结状态。
+- metadata / 枚举 6：描述摘要、签名长度、策略证据、私有只读、读取上限及枚举上限。
+- 选择写事务 9：初始 / 提交 CAS、写入容量、新 generation、候选提交状态戳、
+  变化候选不删除、普通退出清理、发布回执和同步未知结果。
+- 选择读取 9：未知不折空、严格 JSON、根字段 / 格式 / nonce、choice 字段 /
+  generation / 容量 / 真布尔类型。
+- 草稿 5、独立观察器 2、真实页面 4：重叠 / 旧快照 / 晚到 / 取消 / 固定错误，
+  锁冲突不冒空列表、父 owner 不被关闭，页面入口 / 未核验文案 / 未知选择 / 刷新。
+
+红仅接受编译后正常断言；崩溃、sanitizer、框架错误或夹具前提失败不计红，UI 另
+匹配预期缺节点 / 文案。六生产源 Catalog / JNI / Model / Controller / Content /
+Settings 最终摘要为：
+`3d4101c16a2dc9a73b7ba12f8feeaf05ed94b1a81ade531edd334acfeaa067e6` /
+`8abb4c2f4e7143580dde660a22b75bd5e7b117c69b26379afee77b0b23c9d8ec` /
+`1de83234b2fa0ea8090b8fc2bf7ae816334647d636137fc6db35bcdce2c5e04c` /
+`84d45321d8f426896a215195a04d69943816e9cd9c6d0998caf5de7a749ffac9` /
+`67945e7eab449e4a34f8eea927a7cf1d8235c9655049bddc9d25eb987d397042` /
+`a518977f554a093be335d54d21e8f36a52fc7210c6adeebdf54f6c1001150cd1`。
+accepted-results SHA256 `427705d197d10a6e145997af37e3d6b431af9d5b4d57905a50ef1505e2ab77bc`；
+汇总 `46b3cfdb15ff0774b47a96bd747beb9bc63c576ecc3c4152a5ef28095a81161a`。
+旧归档 / 签名 / 安装变异与六个旧死亡检查点未重跑，正常基线随 177 组合保留，不
+把旧专项算作本批新证据。739 指定 Core / Android / 终端 / packages 文件及两驱动
+最终完整比对不变，表摘要
+`7dee164fbc8a7fe5c44439bae28f428ece7f6da2c0ed73919553c4d8c56ffec2`。
+
+启用档未签名 Release / 实际 R8、app / bridge / terminal / data 四模块 lint 通过，
+APK SHA256 `cae1660cf40f081f1488c9de91dea4dae432fb6ad5ef1838268019b1ec677288`；
+日志 `1a8448fb52a45cfef88ae1d0fbaafdce1bacfb83386032f5a085938317f00384`；
+包内容收据 `6bc61c0c69e0a82fa08405940f5bb07600e32f8ca751d72746b160fa727b794b`。
+JNI 类名在 mapping 保持不变，ELF 中 lock / publish / pin 三入口实际导出；R8
+keep seeds 只列出当前消费的 lock / publish，没有 pin。pin 仍无生产消费者，
+不据 seeds 缺席推断最终 dex 成员命运，也不称 Release 设备 / 引用验收。
+最终普通 JS-off Debug / 测试 APK、未签名 Release / R8 与四模块 lint 亦通过，日志
+`6655dd3b82a8ccd37a2b86a418a4d10d233d6a38f0910133e20c900ebb3349c9`。
+
+
+根 Core 最终仍为 JS-off / tests-on / SSH-on / release-signature-off，离线 gate
+复跑 589/589 CTest、185 公共 ABI 与未实现入口检查全绿，日志 SHA256
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+clang-format 19.1.7 的 272 个 C 文件、Apple 182 引用 / 3 登记未用、JNI 148 / 37、
+两驱动 Python AST 与 diff 检查通过；最终 739 输入 / 两驱动再次逐项不变。没有新
+Apple 源或公共 ABI 改动，不把绑定对拍说成新的 Apple 产品验收；不改 CI 二十份。
+本批无失败重试混入正常红 / 绿，旧 process-stream 偶发问题仍未宣称已定位修复。
+
+完整活动选择 / 启用禁用 / 回滚的新策略与 Core 再核验、来源批准代次 / Session
+准入、旧实例及跨进程引用 / 回收消费者、持久残留维护仍待接；无新进程死亡 /
+真实断电 / 全磁盘故障 / 恶意同 uid / 真机 / 16 KiB / 完整 provider / 辅助技术或
+完整客户端 / 发行结论。P6 / P1–P6 未完成，仅本地分批提交，不推送 / 发布。
+
+清理：所属 AVD 均正常退出 0，驱动移除镜像；停止本轮 Gradle / Kotlin JVM
+67464 / 67604，旧 JVM 65439 与旧虚拟机 2637 未动。adb 无在线设备，lsof 仅旧
+虚拟机持 tmp 根 fd。最后清理本轮与闸门的 33 个 tmp 顶层项、7425 份普通文件、
+199179381 逻辑字节（约 189.95 MiB，不当 APFS 实际回收量）；原日志 / 收据 / 格式
+工具用后移除，本文保留范围与摘要，原 eq 三件及 tmp 根目录保留。

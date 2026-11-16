@@ -129,6 +129,12 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(!closed.get()) { "插件控制器已关闭" }
         return ExtensionController(releaseProfile, appContext)
     }
+    /** Explicit read-only observation. Absence and unreadable state are separate;
+     * never captures a package, registers a source or loads a saved selection. */
+    internal suspend fun installedVersions(directory: File = File(appContext.filesDir, "plugin-releases")): PluginReleaseCatalog.Observation = onWorker {
+        PluginReleaseCatalog.open(directory)?.use { it.observe() }
+            ?: PluginReleaseCatalog.Observation(emptyList(), emptyList(), 0, PluginReleaseCatalog.Selection(null, emptyMap()), null)
+    }
     private val resolver: ContentResolver = appContext.contentResolver
     private val resourceDirectory = File(appContext.cacheDir, "plugin-resources-${UUID.randomUUID()}")
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
