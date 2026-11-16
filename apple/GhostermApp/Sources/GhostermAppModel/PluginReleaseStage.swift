@@ -53,6 +53,9 @@ final class PluginReleaseStage {
               parentIdentity.st_mode & 0o077 == 0 else { Darwin.close(parent); parent = -1; throw Failure.root }
         guard flock(parent, LOCK_EX | LOCK_NB) == 0 else { Darwin.close(parent); parent = -1; throw Failure.busy }
         do {
+            var pending = stat()
+            if fstatat(parent, PluginReleaseCatalog.removalName, &pending, AT_SYMLINK_NOFOLLOW) == 0 { throw Failure.busy }
+            guard errno == ENOENT else { throw Failure.io }
             let copy = fcntl(parent, F_DUPFD_CLOEXEC, 3)
             guard copy >= 0 else { throw Failure.io }
             guard let stream = fdopendir(copy) else { Darwin.close(copy); throw Failure.io }
@@ -64,7 +67,7 @@ final class PluginReleaseStage {
                 let dot = withUnsafePointer(to: &entry.pointee.d_name) {
                     $0.withMemoryRebound(to: CChar.self, capacity: 1024) { String(cString: $0) }
                 }
-                if dot != "." && dot != ".." && dot != PluginReleaseCatalog.selectionName { count += 1 }
+                if dot != "." && dot != ".." && dot != PluginReleaseCatalog.selectionName && dot != PluginReleaseCatalog.removalName { count += 1 }
                 guard count < 64 else { throw Failure.limit }
             }
         } catch { Darwin.close(parent); parent = -1; throw error }

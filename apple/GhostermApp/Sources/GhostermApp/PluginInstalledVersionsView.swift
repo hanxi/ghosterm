@@ -8,13 +8,19 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var issue: String?
     @Published private(set) var notice: String?
+    @Published private(set) var removal: ExtensionController.RemovalPreview?
+    @Published private(set) var pendingRemoval: ExtensionController.RemovalPreview?
+    private var generation = UUID()
     @Published var policyPath = "" { didSet { trustedPolicy = false } }
     @Published var trustedPolicy = false
-    var canSelect: Bool { !busy && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
+    var canSelect: Bool { !busy && removal == nil && pendingRemoval == nil && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
     func refresh(_ controller: ExtensionController) async {
-        guard !busy else { return }
+        guard !busy, removal == nil else { return }
         busy = true; defer { busy = false }
-        do { catalog = try await controller.installedVersions(); issue = nil }
+        do {
+            catalog = try await controller.installedVersions()
+            pendingRemoval = try await controller.pendingVersionRemoval(); issue = nil
+        }
         catch { catalog = nil; issue = message(error) }
     }
     func select(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
@@ -29,7 +35,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         } catch { issue = message(error); return nil }
     }
     func disable(_ pluginID: String, controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
-        guard !busy, let catalog else { return nil }
+        guard !busy, removal == nil, let catalog else { return nil }
         busy = true; issue = nil; notice = nil; defer { busy = false }
         do {
             let result = try await controller.disableInstalledPlugin(pluginID: pluginID, expectedRevision: catalog.revision)
@@ -38,11 +44,55 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             return result
         } catch { issue = message(error); return nil }
     }
+    func preview(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async {
+        guard !busy, removal == nil, pendingRemoval == nil, let catalog else { return }
+        let request = generation
+        busy = true; issue = nil; notice = nil; defer { busy = false }
+        do {
+            let value = try await controller.previewVersionRemoval(releaseID: version.releaseID, expectedRevision: catalog.revision)
+            guard generation == request else { await controller.cancelVersionRemoval(id: value.id); return }
+            removal = value
+        } catch { if generation == request { issue = message(error) } }
+    }
+    func cancel(_ controller: ExtensionController) async {
+        generation = UUID()
+        guard let removal else { return }
+        self.removal = nil
+        await controller.cancelVersionRemoval(id: removal.id)
+    }
+    func remove(_ controller: ExtensionController, resume: Bool) async -> ExtensionController.RemovalResult? {
+        guard !busy, let value = resume ? pendingRemoval : removal else { return nil }
+        busy = true; issue = nil; notice = nil; defer { busy = false }
+        removal = nil
+        var result: ExtensionController.RemovalResult?
+        do {
+            let value = try await (resume ? controller.resumeVersionRemoval(id: value.id) : controller.confirmVersionRemoval(id: value.id))
+            result = value
+            notice = "本次删除 \(value.removed) 个条目；观察到已不存在 \(value.observedAbsent) 个。" +
+                (value.complete ? "回收已完成。" : "删除记录已保留，请显式继续处理。") +
+                (value.durabilityConfirmed ? "" : "持久性未确认，请刷新核对。")
+            if let cleanup = value.cleanupIssue { issue = "磁盘操作已返回；内存登记释放未完成：" + cleanup }
+        } catch { issue = message(error) }
+        do { catalog = try await controller.installedVersions(); pendingRemoval = try await controller.pendingVersionRemoval() }
+        catch { issue = [issue, "刷新失败：" + message(error)].compactMap { $0 }.joined(separator: "\n") }
+        return result
+    }
+    func cancelPending(_ controller: ExtensionController) async {
+        guard !busy, let pendingRemoval else { return }
+        busy = true; issue = nil; defer { busy = false }
+        do {
+            let durable = try await controller.cancelPendingVersionRemoval(id: pendingRemoval.id)
+            self.pendingRemoval = nil
+            notice = "已撤销尚未开始的删除，版本与禁用记录保留。" + (durable ? "" : "持久性未确认，请刷新核对。")
+            catalog = try await controller.installedVersions()
+        } catch { issue = message(error) }
+    }
     private func message(_ error: Error) -> String { (error as? LocalizedError)?.errorDescription ?? String(describing: error) }
 }
 
 struct PluginInstalledVersionsView: View {
     let controller: ExtensionController?
+    var didRemove: (String) -> Void = { _ in }
     let didChange: (String, ExtensionController.VersionSelectionResult) -> Void
     @StateObject private var draft = PluginInstalledVersionsDraft()
     @State private var expanded = false
@@ -53,7 +103,7 @@ struct PluginInstalledVersionsView: View {
             if expanded {
                 Button(draft.busy ? "正在读取…" : "刷新已安装列表") {
                     if let controller { Task { await draft.refresh(controller) } }
-                }.disabled(draft.busy).accessibilityIdentifier("plugin-installed-refresh")
+                }.disabled(draft.busy || draft.removal != nil).accessibilityIdentifier("plugin-installed-refresh")
                 Group {
                     TextField("当前独立可信渠道策略绝对路径", text: $draft.policyPath).accessibilityIdentifier("plugin-installed-policy")
                     Toggle("我已独立核对并信任此策略，用于重新验证所选版本", isOn: $draft.trustedPolicy)
@@ -68,6 +118,8 @@ struct PluginInstalledVersionsView: View {
                             Text("包内声明发布者：\(version.publisher)（当前策略待核对）")
                                 .font(DS.Font.caption)
                             Text(version.packageSHA256).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                            Text(version.inUse.map { $0 ? "有运行引用或回收预览；先停止或取消后回收。" : "未观察到运行引用。" } ?? "运行引用状态查不出来；回收时必须重新核对。")
+                                .font(DS.Font.caption)
                             HStack {
                                 Button(version.selected && version.enabled ? "重新核对并载入" : "核对并设为活动版本") {
                                     if let controller { Task { if let result = await draft.select(version, controller: controller) { didChange(version.pluginID, result) } } }
@@ -75,8 +127,12 @@ struct PluginInstalledVersionsView: View {
                                 if version.selected && version.enabled {
                                     Button("禁用新建") {
                                         if let controller { Task { if let result = await draft.disable(version.pluginID, controller: controller) { didChange(version.pluginID, result) } } }
-                                    }.disabled(draft.busy).accessibilityIdentifier("plugin-installed-disable-\(version.releaseID)")
+                                    }.disabled(draft.busy || draft.removal != nil).accessibilityIdentifier("plugin-installed-disable-\(version.releaseID)")
                                 }
+                                Button("预览回收此版本") {
+                                    if let controller { Task { await draft.preview(version, controller: controller) } }
+                                }.disabled(draft.busy || draft.removal != nil || draft.pendingRemoval != nil || (version.selected && version.enabled))
+                                    .accessibilityIdentifier("plugin-installed-remove-preview-\(version.releaseID)")
                             }
                         }
                     }
@@ -93,11 +149,49 @@ struct PluginInstalledVersionsView: View {
                     ForEach(Array(catalog.issues.enumerated()), id: \.offset) { _, issue in Text(issue).foregroundStyle(.red).textSelection(.enabled) }
                     if catalog.maintenanceCount > 0 { Text("另有 \(catalog.maintenanceCount) 个待核对条目；不会按名称自动删除。") }
                 }
+                if let preview = draft.removal { removalReview(preview, confirmed: false) }
+                if let pending = draft.pendingRemoval { removalReview(pending, confirmed: true) }
                 if let issue = draft.issue { Text(issue).foregroundStyle(.red).accessibilityIdentifier("plugin-installed-error") }
                 if let notice = draft.notice { Text(notice).accessibilityIdentifier("plugin-installed-notice") }
                 Text("列表只读本机记录，不认证包自报身份。选择旧版本即显式回滚，也须重新验签和读取内容；不会迁移来源批准、Session 授权或重放操作。禁用仅阻止新建，已运行实例仍持有原快照。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
             }
-        }.task(id: expanded) { if expanded, let controller { await draft.refresh(controller) } }
+        }.task(id: expanded) {
+            if let controller {
+                if expanded { await draft.refresh(controller) }
+                else { await draft.cancel(controller) }
+            }
+        }.onDisappear { if let controller { Task { await draft.cancel(controller) } } }
+    }
+    private func removalReview(_ preview: ExtensionController.RemovalPreview, confirmed: Bool) -> some View {
+        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+            Text(confirmed ? "此前已确认的版本回收尚待核对" : "确认回收此私有版本目录及以下全部内容")
+            Text(preview.directory.path).textSelection(.enabled)
+            Text("\(preview.files.count) 个成员，\(preview.bytes) 字节；运行引用和内容会在执行前再核对。")
+            ScrollView {
+                LazyVStack(alignment: .leading) {
+                    ForEach(preview.files) { file in
+                        Text(file.path + (file.directory ? "/" : " · \(file.bytes) 字节 · " + (file.sha256 ?? "摘要查不出来")))
+                            .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
+            }.frame(maxHeight: 180)
+            HStack {
+                Button(confirmed ? "继续处理此已确认删除" : "确认删除以上目录与文件", role: .destructive) {
+                    if let controller { Task {
+                        if let result = await draft.remove(controller, resume: confirmed), result.complete { didRemove(result.releaseID) }
+                    } }
+                }.disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-confirm")
+                if !confirmed {
+                    Button("保留并取消") { if let controller { Task { await draft.cancel(controller) } } }
+                        .disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-cancel")
+                } else {
+                    Button("撤销尚未开始的删除") { if let controller { Task { await draft.cancelPending(controller) } } }
+                        .disabled(draft.busy).accessibilityIdentifier("plugin-installed-remove-pending-cancel")
+                }
+            }
+            Text("回收只处理这份本机版本，不触碰远端执行端、工作区或业务文件；禁用记录仍保留。")
+                .font(DS.Font.caption)
+        }
     }
 }

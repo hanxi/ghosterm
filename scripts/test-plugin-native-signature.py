@@ -49,9 +49,9 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
             input=helper.DOMAIN + raw, capture_output=True, check=True)
         (destination / 'r/release.json').write_bytes(raw)
         (destination / 'r/release.sig').write_bytes(signed.stdout)
-    for name in ['v2', 'compressed']:
+    for name in ['v2', 'compressed', 'live']:
         target = fixture / name
-        shutil.copytree(fixture / 'p', target / 'p')
+        shutil.copytree(ROOT / 'plugins/official/preview' if name == 'live' else fixture / 'p', target / 'p')
         (target / 'policy.json').write_bytes(policy)
         if name == 'v2':
             manifest = target / 'p/plugin.json'
@@ -118,11 +118,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
+    parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.remove: args.versions = True
     if args.versions:
         args.install = True
         if not args.gterm: parser.error('--versions requires --gterm')
@@ -178,6 +181,39 @@ def main():
             ('install-snapshot', stage, 'guard files[path] == FileStamp(value) else', 'guard files[path] != nil else', selected + 'testChangedPreparedFilesMustNotPublish'),
             ('install-member-set', stage, 'guard verifiedFiles == files.count else', 'guard verifiedFiles <= files.count else', selected + 'testAddedOrMissingPreparedMembersMustNotPublish'),
         ]
+    if args.remove:
+        removal = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseRemoval.swift'
+        selected = 'PluginReleaseRemovalTests.'
+        recipes += [
+            ('removal-disabled', removal, '!selection.choices.values.contains(where: { $0.releaseID == releaseID && $0.enabled })',
+             'selection.choices.count <= 64', selected + 'testEnabledChoiceRequiresExplicitDisable'),
+            ('removal-lease', removal, 'guard try handle.exclusiveUse() else { throw Failure.occupied }\n        let root = try owner.removalRoot()',
+             'guard handle.fd >= 0 else { throw Failure.occupied }\n        let root = try owner.removalRoot()', selected + 'testSharedRunLeaseBlocksRemovalAcrossOwners'),
+            ('removal-cas', removal, '!checkRevision || choice.revision == header.revision',
+             'choice.choices.count <= 64', selected + 'testChangedChoiceRejectsStaleConfirmation'),
+            ('removal-snapshot', removal, 'try Self.scan(version.fd, device: header.root.device) == members',
+             'try Self.scan(version.fd, device: header.root.device).count == members.count', selected + 'testChangedFileRejectsConfirmation'),
+            ('removal-recovery-content', removal, 'item.directory ? item.stamp.sameObject(old.stamp) : item == old',
+             'item.stamp.sameObject(old.stamp)', selected + 'testRecoveryRejectsReplacedRemainingFile'),
+            ('removal-record-before-rename', removal, 'try checkpoint("after-intent")',
+             'try checkpoint("before-intent")', selected + 'testDurableIntentBeforeRenameCanResumeExplicitly'),
+            ('removal-durability', removal, 'guard synchronize(root) == 0 else { return result(0, 0, false, false) }',
+             'guard root >= 0 else { return result(0, 0, false, false) }', selected + 'testUnsyncedIntentRetainsVersionAndRecord'),
+            ('removal-absence', removal, 'let absent = members.count - current.count', 'let absent = 0', selected + 'testPartialUnlinkRecoverySeparatesObservedAbsence'),
+            ('removal-member-limit', removal, 'result.count < 4096', 'result.count < 4097', selected + 'testMemberAndFileByteLimitsRejectBeforeConfirmation'),
+            ('removal-ui', 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift', 'await draft.remove(controller, resume: confirmed)',
+             'Optional<ExtensionController.RemovalResult>.none', 'PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls'),
+            ('removal-live-reference', CONTROLLER, 'try handle.pin()\n            return handle',
+             '// removed shared version pin\n            return handle', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped'),
+            ('removal-runtime-transfer', CONTROLLER, 'self.runtimeVersionLease = self.sessionVersionLease; self.sessionVersionLease = nil',
+             'self.runtimeVersionLease = nil; self.sessionVersionLease = nil', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped'),
+            ('removal-cancel-pending-ui', 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift', 'await draft.cancelPending(controller)',
+             '_ = controller', 'PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls'),
+            ('removal-pending-status', CONTROLLER, 'catalog.removalPending = pendingRemoval',
+             'catalog.removalPending = false', 'PluginReleaseCatalogTests.testPendingRemovalCanBeReviewedAndCancelledWithoutReplay'),
+            ('removal-foreign-marker', removal, 'if let detached = try namedStamp(root, header.tombstone) {\n            guard detached.sameObject(header.version) else { throw Failure.changed }',
+             'if let detached = try namedStamp(root, header.tombstone) {\n            guard !header.tombstone.isEmpty else { throw Failure.changed }', selected + 'testUnrelatedTombstoneDoesNotProveDeletionStarted'),
+        ]
     if args.versions:
         catalog = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseCatalog.swift'
         view = 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift'
@@ -200,6 +236,11 @@ def main():
             ('catalog-live-owner', CONTROLLER, 'self.invalidateSourceDecisions(pluginID: metadata.id)',
              'self.runtime?.stop(); self.invalidateSourceDecisions(pluginID: metadata.id)', live),
         ]
+    if args.case:
+        if not args.mutate: parser.error('--case requires --mutate')
+        unknown = set(args.case) - {recipe[0] for recipe in recipes}
+        if unknown: parser.error('unknown mutation group(s): ' + ', '.join(sorted(unknown)))
+        recipes = [recipe for recipe in recipes if recipe[0] in set(args.case)]
     originals = {name: (ROOT / name).read_bytes() for name in {recipe[1] for recipe in recipes}}
     for label, filename, old, _, _ in recipes:
         assert originals[filename].count(old.encode()) == 1, label
@@ -225,7 +266,7 @@ def main():
         package = source / 'apple/GhostermApp'
 
         def run(label, selected, count=1, red=False):
-            lifetime = selected.startswith('PluginPaneFlowTests.testRunningPreviewSurvives')
+            lifetime = selected.startswith('PluginPaneFlowTests.')
             child_env = dict(env)
             if lifetime:
                 child_env.update(GHOSTERM_TEST_GTERM=str(args.gterm), GHOSTERM_APP_TEST_PACKAGE=str(package), GHOSTERM_APP_TEST_FILTER=selected)
@@ -260,9 +301,13 @@ def main():
         baseline_count = 28 if args.install else 11
         if args.versions:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests)'
-            baseline_count = 39
+            baseline_count = 41
+        if args.remove:
+            baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests|PluginReleaseRemovalTests)'
+            baseline_count = 63
         run('baseline', baseline, count=baseline_count)
         if args.versions: run('live-version-baseline', live)
+        if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
             stem = Path(filename).stem
@@ -283,11 +328,12 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed'
     assert all(sha(Path(name)) == digest for name, digest in binaries.items()), 'tool/archive changed'
     out.parent.mkdir(parents=True, exist_ok=True)
-    scope = ('macOS version inventory, explicit policy revalidation, atomic select/disable/rollback, and active owned SSH Runtime; no permission persistence' if args.versions else
+    scope = ('macOS explicit native removal preview/confirmation, bounded intent and explicit recovery; actual managed SSH Runtime lease, no automatic replay or remote cleanup' if args.remove else
+             'macOS version inventory, explicit policy revalidation, atomic select/disable/rollback, and active owned SSH Runtime; no permission persistence' if args.versions else
              'macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
-        baselineTests=baseline_count, lifetimeTests=1 if args.versions else 0, installation=args.install, versions=args.versions,
+        baselineTests=baseline_count, lifetimeTests=2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove,
         inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 

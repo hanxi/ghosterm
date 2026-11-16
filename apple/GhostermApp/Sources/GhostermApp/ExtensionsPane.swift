@@ -87,7 +87,9 @@ struct ExtensionsPane: View {
                     var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry)
                 }
             }
-            PluginInstalledVersionsView(controller: model.extensionController) { pluginID, result in
+            PluginInstalledVersionsView(controller: model.extensionController, didRemove: { releaseID in
+                entries.removeAll { $0.installation?.signature.descriptorSHA256 == releaseID }
+            }) { pluginID, result in
                 for index in entries.indices where entries[index].review.id == pluginID { entries[index].decision = "尚未批准" }
                 if let installed = result.release {
                     let entryID = installed.review.id + ":" + installed.review.digest

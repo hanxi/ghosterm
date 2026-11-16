@@ -119,6 +119,7 @@ public actor ExtensionController {
     public struct InstalledVersion: Sendable, Equatable, Identifiable {
         public let releaseID: String, pluginID: String, version: String, publisher: String, packageSHA256: String
         public let selected: Bool, enabled: Bool
+        public let inUse: Bool?
         public var id: String { releaseID }
     }
     public struct InstalledCatalog: Sendable, Equatable {
@@ -127,6 +128,7 @@ public actor ExtensionController {
         public let issues: [String]
         public let maintenanceCount: Int
         public let selections: [InstalledSelection]
+        public var removalPending = false
     }
     public struct InstalledSelection: Sendable, Equatable, Identifiable {
         public let pluginID: String, releaseID: String
@@ -137,6 +139,25 @@ public actor ExtensionController {
         public let release: InstalledRelease?
         public let catalog: InstalledCatalog
         public let durabilityConfirmed: Bool
+    }
+    public struct RemovalPreview: Sendable, Equatable {
+        public struct File: Sendable, Equatable, Identifiable {
+            public let path: String
+            public let directory: Bool
+            public let bytes: Int64
+            public let sha256: String?
+            public var id: String { path }
+        }
+        public let id: String, releaseID: String
+        public let directory: URL
+        public let files: [File]
+        public let bytes: Int64
+    }
+    public struct RemovalResult: Sendable, Equatable {
+        public let releaseID: String
+        public let removed: Int, observedAbsent: Int
+        public let complete: Bool, durabilityConfirmed: Bool
+        public let cleanupIssue: String?
     }
 
     public struct Resolution: Sendable, Equatable {
@@ -361,6 +382,14 @@ public actor ExtensionController {
     public func discardPreparedRelease(id: String) async throws { try await worker.discardPreparedRelease(id: id) }
     public func retryFailedInstallCleanup() async throws { try await worker.retryFailedInstallCleanup() }
     public func installedVersions() async throws -> InstalledCatalog { try await worker.installedVersions() }
+    public func previewVersionRemoval(releaseID: String, expectedRevision: String?) async throws -> RemovalPreview {
+        try await worker.previewVersionRemoval(releaseID: releaseID, expectedRevision: expectedRevision)
+    }
+    public func cancelVersionRemoval(id: String) async { await worker.cancelVersionRemoval(id: id) }
+    public func confirmVersionRemoval(id: String) async throws -> RemovalResult { try await worker.confirmVersionRemoval(id: id) }
+    public func resumeVersionRemoval(id: String) async throws -> RemovalResult { try await worker.resumeVersionRemoval(id: id) }
+    public func pendingVersionRemoval() async throws -> RemovalPreview? { try await worker.pendingVersionRemoval() }
+    public func cancelPendingVersionRemoval(id: String) async throws -> Bool { try await worker.cancelPendingVersionRemoval(id: id) }
     public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
         try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
     }
@@ -562,6 +591,9 @@ public actor ExtensionController {
         private var session: ExtensionSession?
         private var sessionPackageKey: String?
         private var runtime: ExtensionRuntime?
+        private var sessionVersionLease: PluginReleaseCatalog.VersionHandle?
+        private var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
+        private var removalPreview: PluginReleaseRemoval?
         private var runtimePackageKey: String?
         private var runtimeInstanceID: String?
         private var runtimeCommand: String?
@@ -624,16 +656,25 @@ public actor ExtensionController {
                   record.managedReleaseID == choice.releaseID else { return false }
             return !requireApproval || record.approvalGeneration == choice.generation
         }
+        private func versionLease(_ record: Record, access: ManagedAccess) throws -> PluginReleaseCatalog.VersionHandle? {
+            guard let id = record.managedReleaseID else { return nil }
+            guard let owner = access.owner else { throw PluginReleaseCatalog.Failure.inactive }
+            let handle = try owner.openVersion(id)
+            try handle.pin()
+            return handle
+        }
         private func catalogView(_ owner: PluginReleaseCatalog, selection: PluginReleaseCatalog.Selection? = nil) throws -> InstalledCatalog {
             let inventory = try owner.inventory(), current = try selection ?? owner.selection()
-            return catalogView(inventory, selection: current)
+            var result = catalogView(inventory, selection: current)
+            result.removalPending = try owner.hasPendingRemoval()
+            return result
         }
         private func catalogView(_ inventory: PluginReleaseCatalog.Inventory, selection current: PluginReleaseCatalog.Selection) -> InstalledCatalog {
             return InstalledCatalog(revision: current.revision, versions: inventory.versions.map { version in
                 let choice = current.choices[version.pluginID]
                 return InstalledVersion(releaseID: version.releaseID, pluginID: version.pluginID, version: version.version,
                     publisher: version.publisher, packageSHA256: version.packageSHA256,
-                    selected: choice?.releaseID == version.releaseID, enabled: choice?.enabled ?? false)
+                    selected: choice?.releaseID == version.releaseID, enabled: choice?.enabled ?? false, inUse: version.inUse)
             }, issues: inventory.issues, maintenanceCount: inventory.maintenanceCount,
                 selections: current.choices.keys.sorted().compactMap { id in
                     current.choices[id].map { InstalledSelection(pluginID: id, releaseID: $0.releaseID, enabled: $0.enabled) }
@@ -660,6 +701,7 @@ public actor ExtensionController {
                 try self.checkOpen()
                 guard let directory = self.installationDirectory,
                       let owner = try PluginReleaseCatalog(directory: directory, exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                guard try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
                 var selection = try owner.selection()
                 let inventory = try owner.inventory()
                 guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
@@ -676,13 +718,18 @@ public actor ExtensionController {
                     let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,
                         publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
                     try owner.validateVersion(releaseID, handle: handle, payload: payload)
+                    let key = self.key(metadata.id, metadata.packageDigest)
+                    let pinRuntime = self.runtimePackageKey == key && self.runtimeVersionLease == nil
+                    let pinSession = self.sessionPackageKey == key && self.sessionVersionLease == nil
+                    if pinRuntime || pinSession { try handle.pin() }
                     selection.choices[metadata.id] = PluginReleaseCatalog.Choice(releaseID: releaseID, enabled: true, generation: UUID().uuidString)
                     let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
                     self.invalidateSourceDecisions(pluginID: metadata.id)
-                    let key = self.key(metadata.id, metadata.packageDigest)
                     if self.packages[key] == nil { self.packages[key] = captured }
                     else { try? captured.package.close() }
                     self.packages[key]?.managedReleaseID = releaseID
+                    if pinRuntime { self.runtimeVersionLease = handle }
+                    if pinSession { self.sessionVersionLease = handle }
                     let installed = InstalledRelease(review: captured.review, signature: proof,
                         directory: directory.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
                     return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
@@ -696,12 +743,85 @@ public actor ExtensionController {
                       let owner = try PluginReleaseCatalog(directory: directory, exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
                 var selection = try owner.selection()
                 let inventory = try owner.inventory()
+                let pendingRemoval = try owner.hasPendingRemoval()
                 guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
                 guard let current = selection.choices[pluginID] else { throw PluginReleaseCatalog.Failure.inactive }
                 selection.choices[pluginID] = PluginReleaseCatalog.Choice(releaseID: current.releaseID, enabled: false, generation: UUID().uuidString)
                 let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
                 self.invalidateSourceDecisions(pluginID: pluginID)
-                return VersionSelectionResult(release: nil, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
+                var catalog = self.catalogView(inventory, selection: updated)
+                catalog.removalPending = pendingRemoval
+                return VersionSelectionResult(release: nil, catalog: catalog, durabilityConfirmed: durable)
+            }
+        }
+
+        func previewVersionRemoval(releaseID: String, expectedRevision: String?) async throws -> RemovalPreview {
+            try await perform {
+                try self.checkOpen()
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let preview = try PluginReleaseRemoval(owner: owner, releaseID: releaseID, expectedRevision: expectedRevision)
+                self.removalPreview = preview
+                return RemovalPreview(id: preview.id, releaseID: releaseID, directory: preview.directory,
+                    files: preview.members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) }, bytes: preview.bytes)
+            }
+        }
+        func pendingVersionRemoval() async throws -> RemovalPreview? {
+            try await perform {
+                try self.checkOpen()
+                guard let owner = try self.catalogOwner(exclusive: true),
+                      let (id, releaseID, directory, members) = try PluginReleaseRemoval.pendingPreview(owner: owner) else { return nil }
+                return RemovalPreview(id: id, releaseID: releaseID, directory: directory,
+                    files: members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) },
+                    bytes: members.reduce(0) { $0 + $1.bytes })
+            }
+        }
+        func cancelPendingVersionRemoval(id: String) async throws -> Bool {
+            try await perform {
+                try self.checkOpen()
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                return try PluginReleaseRemoval.cancelPending(owner: owner, id: id)
+            }
+        }
+        func cancelVersionRemoval(id: String) async {
+            _ = try? await perform { if self.removalPreview?.id == id { self.removalPreview = nil } }
+        }
+        private func removalResult(_ result: PluginReleaseRemoval.Result) -> RemovalResult {
+            var cleanupIssue: String?
+            for key in Array(packages.keys) where packages[key]?.managedReleaseID == result.releaseID {
+                guard var record = packages[key] else { continue }
+                record.source = .unknown; record.approvalGeneration = nil; packages[key] = record
+                if result.complete, key != runtimePackageKey, key != sessionPackageKey {
+                    do {
+                        if registeredDigests[record.review.id] == record.review.digest, let registry {
+                            let status = try registry.remove(id: record.review.id, executor: false, expectedDigest: record.review.digest)
+                            guard status == .ok else { throw ControllerError.registry(status.rawValue) }
+                            registeredDigests.removeValue(forKey: record.review.id)
+                        }
+                        try record.package.close(); packages.removeValue(forKey: key)
+                    } catch { cleanupIssue = (error as? LocalizedError)?.errorDescription ?? String(describing: error) }
+                }
+            }
+            return RemovalResult(releaseID: result.releaseID, removed: result.removed, observedAbsent: result.observedAbsent,
+                complete: result.complete, durabilityConfirmed: result.durabilityConfirmed, cleanupIssue: cleanupIssue)
+        }
+        func confirmVersionRemoval(id: String) async throws -> RemovalResult {
+            try await perform {
+                try self.checkOpen()
+                guard let preview = self.removalPreview, preview.id == id else { throw PluginReleaseRemoval.Failure.changed }
+                defer { self.removalPreview = nil }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                return try self.removalResult(preview.confirm(owner: owner))
+            }
+        }
+        func resumeVersionRemoval(id: String) async throws -> RemovalResult {
+            try await perform {
+                try self.checkOpen()
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                guard try PluginReleaseRemoval.pendingPreview(owner: owner)?.0 == id else { throw PluginReleaseRemoval.Failure.changed }
+                return try self.removalResult(PluginReleaseRemoval.resume(owner: owner))
             }
         }
 
@@ -1014,6 +1134,7 @@ public actor ExtensionController {
                       !peerIdentity.isEmpty, peerIdentity.utf8.count <= 255,
                       !hostVersion.utf8.contains(0), !peerIdentity.utf8.contains(0),
                       (try channel.info()).phase == .ready else { throw ControllerError.channelUnavailable }
+                let versionLease = try self.versionLease(record, access: access)
                 let metadata = try record.package.metadata()
                 let remoteProcessCapabilityList = ["process.spawn", "process.pipes"]
                 let remoteProcessCapabilities = Set(remoteProcessCapabilityList)
@@ -1058,6 +1179,7 @@ public actor ExtensionController {
                 self.channel = nil
                 self.session = session
                 self.sessionPackageKey = packageKey
+                self.sessionVersionLease = versionLease
                 return try self.sessionState(session, packageKey: packageKey)
             }
         }
@@ -1147,6 +1269,7 @@ public actor ExtensionController {
                 self.clientRootFD = rootFD; rootFD = -1
                 self.session = nil; self.sessionPackageKey = nil
                 self.runtime = runtime; self.runtimePackageKey = sessionKey
+                self.runtimeVersionLease = self.sessionVersionLease; self.sessionVersionLease = nil
                 self.runtimeCommand = command; self.runtimeInstanceID = UUID().uuidString
                 self.runtimeViewScope = registry ? (sessionInfo.instance, String(sessionInfo.epoch)) : nil
                 self.runtimeViewIssue = nil
@@ -1412,6 +1535,7 @@ public actor ExtensionController {
         private func closeOnce() async -> Int {
             (try? await perform {
                 self.closed = true
+                self.removalPreview = nil
                 if self.closeComplete { return self.closeResult ? 1 : -1 }
                 do {
                     try self.releaseOwners(forceStop: true)
@@ -1493,6 +1617,7 @@ public actor ExtensionController {
                 }
                 guard released, clientSource == nil else { throw local ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
                 self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
+                runtimeVersionLease = nil
                 runtimeViewScope = nil; runtimeViewIssue = nil
                 clientPublication = nil
                 if clientRootFD >= 0 {
@@ -1512,7 +1637,7 @@ public actor ExtensionController {
                     if done { released = true; break }
                 }
                 guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.sessionUnavailable }
-                self.session = nil; sessionPackageKey = nil
+                self.session = nil; sessionPackageKey = nil; sessionVersionLease = nil
             }
             try closeResourceStore()
             if let channel {

@@ -6,6 +6,7 @@ import Foundation
 /// Cooperates with install transactions using the same directory flock.
 final class PluginReleaseCatalog {
     static let selectionName = "selection-v1.json"
+    static let removalName = "removal-v1.jsonl"
     enum Failure: String, Error, LocalizedError {
         case root, busy, changed, invalid, conflict, inactive, io
         var errorDescription: String? {
@@ -31,6 +32,7 @@ final class PluginReleaseCatalog {
     }
     struct Version: Sendable, Equatable {
         let releaseID: String, pluginID: String, version: String, publisher: String, packageSHA256: String
+        let inUse: Bool?
     }
     struct Inventory {
         let versions: [Version]
@@ -39,9 +41,23 @@ final class PluginReleaseCatalog {
     }
     final class VersionHandle {
         let fd: Int32
-        init(_ fd: Int32) { self.fd = fd }
+        let id: String
+        init(_ fd: Int32, id: String) { self.fd = fd; self.id = id }
         deinit { Darwin.close(fd) }
         func read(_ name: String, limit: Int) throws -> Data { try PluginReleaseCatalog.read(fd, name: name, limit: limit) }
+        func pin() throws {
+            guard flock(fd, LOCK_SH | LOCK_NB) == 0 else { throw Failure.busy }
+        }
+        func exclusiveUse() throws -> Bool {
+            if flock(fd, LOCK_EX | LOCK_NB) == 0 { return true }
+            guard errno == EWOULDBLOCK else { throw Failure.io }; return false
+        }
+        func useObservation() -> Bool? {
+            do {
+                guard try exclusiveUse() else { return true }
+                _ = flock(fd, LOCK_UN); return false
+            } catch { return nil }
+        }
         func payload() throws -> Int32 {
             let result = openat(fd, "payload", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             guard result >= 0 else { throw Failure.invalid }
@@ -123,7 +139,7 @@ final class PluginReleaseCatalog {
         guard fstat(child, &value) == 0, value.st_uid == geteuid(), value.st_mode & 0o222 == 0 else {
             Darwin.close(child); throw Failure.invalid
         }
-        return VersionHandle(child)
+        return VersionHandle(child, id: id)
     }
     func inventory() throws -> Inventory {
         try validate()
@@ -137,7 +153,7 @@ final class PluginReleaseCatalog {
             errno = 0
             guard let item = readdir(stream) else { guard errno == 0 else { throw Failure.io }; break }
             let name = withUnsafePointer(to: &item.pointee.d_name) { $0.withMemoryRebound(to: CChar.self, capacity: 1024) { String(cString: $0) } }
-            if name == "." || name == ".." || name == Self.selectionName { continue }
+            if name == "." || name == ".." || name == Self.selectionName || name == Self.removalName { continue }
             count += 1; guard count <= 128 else { throw Failure.invalid }
             guard Self.digest(name) else { maintenance += 1; continue }
             do {
@@ -145,7 +161,7 @@ final class PluginReleaseCatalog {
                 guard Self.sha(descriptor) == name, try handle.read("release.sig", limit: 64).count == 64 else { throw Failure.invalid }
                 let identity = try PluginDirectorySignatureVerifier.declaration(descriptor)
                 versions.append(Version(releaseID: name, pluginID: identity.id, version: identity.version,
-                    publisher: identity.publisher, packageSHA256: identity.packageSHA256))
+                    publisher: identity.publisher, packageSHA256: identity.packageSHA256, inUse: handle.useObservation()))
             } catch { issues.append("\(name)：\(error)") }
         }
         try validate()
@@ -218,5 +234,22 @@ final class PluginReleaseCatalog {
         guard renameat(fd, name, fd, Self.selectionName) == 0 else { throw Failure.io }
         published = true
         return (Selection(revision: Self.sha(raw), choices: proposed.choices), parentSync(fd) == 0)
+    }
+    func removalRoot() throws -> Int32 {
+        guard exclusive else { throw Failure.io }
+        try validate()
+        let root = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard root >= 0 else { throw Failure.root }
+        var value = stat()
+        guard fstat(root, &value) == 0, value.st_dev == identity.st_dev, value.st_ino == identity.st_ino else {
+            Darwin.close(root); throw Failure.changed
+        }
+        return root
+    }
+    func hasPendingRemoval() throws -> Bool {
+        try validate()
+        var value = stat()
+        if fstatat(fd, Self.removalName, &value, AT_SYMLINK_NOFOLLOW) == 0 { return true }
+        guard errno == ENOENT else { throw Failure.io }; return false
     }
 }

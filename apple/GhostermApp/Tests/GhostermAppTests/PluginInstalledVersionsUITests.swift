@@ -69,5 +69,38 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         XCTAssertEqual(catalog.versions.first(where: { $0.selected })?.releaseID, versions[0].signature.descriptorSHA256)
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"))
         XCTAssertNil(model.extensionRun)
+        let retired = versions[1].signature.descriptorSHA256
+        try press("plugin-installed-remove-preview-" + retired)
+        guard try await until({ node("plugin-installed-remove-cancel") != nil }) else { XCTFail("removal preview missing"); return }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: versions[1].directory.path), "preview must not delete")
+        try press("plugin-installed-remove-cancel")
+        guard try await until({ node("plugin-installed-remove-cancel") == nil }) else { XCTFail("cancel did not release preview"); return }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: versions[1].directory.path))
+        try press("plugin-installed-remove-preview-" + retired)
+        guard try await until({ node("plugin-installed-remove-confirm") != nil }) else { XCTFail("second preview missing"); return }
+        try press("plugin-installed-remove-confirm")
+        try await waitNotice("回收已完成")
+        guard try await until({ node("plugin-installed-row-" + retired) == nil }) else { XCTFail("deleted version row retained"); return }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: versions[1].directory.path))
+        let remaining = try await controller.installedVersions()
+        XCTAssertEqual(remaining.versions.map(\.releaseID), [versions[0].signature.descriptorSHA256])
+        XCTAssertTrue(remaining.versions[0].selected && remaining.versions[0].enabled)
+        try press("plugin-installed-disable-" + versions[0].signature.descriptorSHA256)
+        try await waitNotice("已禁用新建")
+        let disabled = try await controller.installedVersions()
+        enum Stop: Error { case intentional }
+        do {
+            let root = versions[0].directory.deletingLastPathComponent().deletingLastPathComponent()
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: root, exclusive: true))
+            let preview = try PluginReleaseRemoval(owner: owner, releaseID: versions[0].signature.descriptorSHA256,
+                expectedRevision: disabled.revision, checkpoint: { if $0 == "after-intent" { throw Stop.intentional } })
+            XCTAssertThrowsError(try preview.confirm(owner: owner))
+        }
+        try press("plugin-installed-refresh")
+        guard try await until({ node("plugin-installed-remove-pending-cancel") != nil }) else { XCTFail("pending recovery controls missing"); return }
+        try press("plugin-installed-remove-pending-cancel")
+        try await waitNotice("已撤销尚未开始的删除")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: versions[0].directory.path))
+        let final = try await controller.installedVersions(); XCTAssertFalse(final.removalPending)
     }
 }

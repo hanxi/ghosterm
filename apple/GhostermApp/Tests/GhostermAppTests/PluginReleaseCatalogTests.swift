@@ -56,6 +56,56 @@ final class PluginReleaseCatalogTests: XCTestCase {
         let notApproved = try await resolve(next, version); XCTAssertNotEqual(notApproved, 0, "restart must not restore source approval")
         let nextClosed = await next.close(); XCTAssertTrue(nextClosed)
     }
+    func testControllerPreviewCancelRemoveAndDisabledRestart() async throws {
+        let input = try fixture(), root = try root(), controller = try controller(root)
+        let installed = try await install(controller, input)
+        let selected = try await select(controller, installed, input)
+        let disabled = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: selected.catalog.revision)
+        let first = try await controller.previewVersionRemoval(releaseID: installed.signature.descriptorSHA256, expectedRevision: disabled.catalog.revision)
+        XCTAssertFalse(first.files.isEmpty); XCTAssertGreaterThan(first.bytes, 0)
+        await controller.cancelVersionRemoval(id: first.id)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.directory.path))
+        let second = try await controller.previewVersionRemoval(releaseID: installed.signature.descriptorSHA256, expectedRevision: disabled.catalog.revision)
+        let result = try await controller.confirmVersionRemoval(id: second.id)
+        XCTAssertTrue(result.complete && result.durabilityConfirmed); XCTAssertNil(result.cleanupIssue)
+        let after = try await controller.installedVersions()
+        XCTAssertTrue(after.versions.isEmpty); XCTAssertFalse(after.removalPending)
+        XCTAssertEqual(after.selections.first?.enabled, false)
+        let closed = await controller.close(); XCTAssertTrue(closed)
+        let next = try self.controller(root)
+        _ = try await next.review(directory: input.appendingPathComponent("p"))
+        let allowed = try await next.approve(id: installed.review.id, digest: installed.review.digest)
+        XCTAssertNotEqual(allowed, 0, "disabled deleted version must not become a development-folder fallback")
+        let done = await next.close(); XCTAssertTrue(done)
+    }
+    func testPendingRemovalCanBeReviewedAndCancelledWithoutReplay() async throws {
+        let input = try fixture(), root = try root(), controller = try controller(root)
+        let installed = try await install(controller, input)
+        let selected = try await select(controller, installed, input)
+        let disabled = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: selected.catalog.revision)
+        enum Stop: Error { case intentional }
+        let directory = installed.directory.deletingLastPathComponent().deletingLastPathComponent()
+        do {
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true))
+            let preview = try PluginReleaseRemoval(owner: owner, releaseID: installed.signature.descriptorSHA256,
+                expectedRevision: disabled.catalog.revision, checkpoint: { if $0 == "after-intent" { throw Stop.intentional } })
+            XCTAssertThrowsError(try preview.confirm(owner: owner))
+        }
+        let closed = await controller.close(); XCTAssertTrue(closed)
+        let next = try self.controller(root)
+        let list = try await next.installedVersions(); XCTAssertTrue(list.removalPending)
+        let disabledAgain = try await next.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: list.revision)
+        XCTAssertTrue(disabledAgain.catalog.removalPending, "disable must preserve a pending deletion observation")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.directory.path), "restart/list must not replay deletion")
+        let value = try await next.pendingVersionRemoval(), pending = try XCTUnwrap(value)
+        XCTAssertEqual(pending.releaseID, installed.signature.descriptorSHA256)
+        do { _ = try await next.cancelPendingVersionRemoval(id: UUID().uuidString); XCTFail("foreign operation cancelled") } catch {}
+        let durable = try await next.cancelPendingVersionRemoval(id: pending.id); XCTAssertTrue(durable)
+        let after = try await next.installedVersions(); XCTAssertFalse(after.removalPending)
+        XCTAssertEqual(after.versions.count, 1)
+        XCTAssertEqual(after.selections.first?.enabled, false)
+        let done = await next.close(); XCTAssertTrue(done)
+    }
 
     func testUpgradeRollbackAndDisableNeedFreshSourceApproval() async throws {
         let input = try fixture(), root = try root(), controller = try controller(root)

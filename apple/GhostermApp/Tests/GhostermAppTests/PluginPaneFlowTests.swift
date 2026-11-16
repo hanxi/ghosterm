@@ -42,10 +42,14 @@ final class PluginPaneFlowTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
         try await runPreview(.markdown, jump: false, versionChanges: true)
     }
+    func testManagedPreviewRetainsVersionUntilStopped() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionRemoval: true)
+    }
 
     private enum Format { case markdown, html, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -152,6 +156,17 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertTrue(hasText("未认证"))
         XCTAssertNil(model.extensionRun, "review must not activate the plugin")
         XCTAssertNil(node("plugin-launch-" + id), "source decision must precede the launch form")
+        var managed: ExtensionController.InstalledRelease?
+        if versionRemoval {
+            let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!).appendingPathComponent("live")
+            let prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
+                descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            let installed = try await controller.installPreparedRelease(id: prepared.id)
+            XCTAssertEqual(installed.review.digest, digest, "real managed Session must use exactly the reviewed live bytes")
+            _ = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256, expectedRevision: nil,
+                trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            managed = installed
+        }
         try press("plugin-approve-" + id)
         guard try await until({ node("plugin-launch-" + id) != nil }) else { XCTFail("approval did not reveal launch form"); return }
         for (name, value) in [
@@ -162,7 +177,7 @@ final class PluginPaneFlowTests: XCTestCase {
             try set("plugin-" + name + "-" + id, value)
             try await Task.sleep(for: .milliseconds(25))
         }
-        if versionChanges {
+        if versionChanges || versionRemoval {
             try set("plugin-client-workspace", workspace.path)
             try await Task.sleep(for: .milliseconds(25))
             try press("plugin-client-workspace-allow")
@@ -195,20 +210,37 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
         }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
-        if versionChanges {
+        if versionChanges || versionRemoval {
             let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!)
             let original = try await controller.stepRuntime()
-            let prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
-                descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
-            let installed = try await controller.installPreparedRelease(id: prepared.id)
-            let selected = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256,
-                expectedRevision: nil, trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            let installed: ExtensionController.InstalledRelease
+            let revision: String?
+            if let managed {
+                installed = managed; revision = try await controller.installedVersions().revision
+            } else {
+                let prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
+                    descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
+                installed = try await controller.installPreparedRelease(id: prepared.id)
+                let selected = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256,
+                    expectedRevision: nil, trustedPolicy: fixture.appendingPathComponent("policy.json"))
+                revision = selected.catalog.revision
+            }
             let retained: ExtensionController.RuntimeState
             do { retained = try await controller.stepRuntime() }
             catch { XCTFail("version selection must retain the running Runtime: \(error)"); return }
             XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue, "version selection must retain the running Runtime")
             XCTAssertEqual(retained.packageDigest, original.packageDigest)
-            _ = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: selected.catalog.revision)
+            let disabledChoice = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: revision)
+            if versionRemoval {
+                let observer = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]),
+                    resourceDirectory: root, installationDirectory: installed.directory.deletingLastPathComponent().deletingLastPathComponent())
+                do {
+                    let unexpected = try await observer.previewVersionRemoval(releaseID: installed.signature.descriptorSHA256, expectedRevision: disabledChoice.catalog.revision)
+                    await observer.cancelVersionRemoval(id: unexpected.id)
+                    XCTFail("actual managed Runtime reference must block another Controller's deletion")
+                } catch { XCTAssertEqual(error as? PluginReleaseRemoval.Failure, .occupied) }
+                let closed = await observer.close(); XCTAssertTrue(closed)
+            }
             let disabled: ExtensionController.RuntimeState
             do { disabled = try await controller.stepRuntime() }
             catch { XCTFail("disable must retain the running Runtime: \(error)"); return }
@@ -292,6 +324,13 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue)
         for item in resources { XCTAssertNil(node("plugin-resource-select-" + item.resourceID)) }
         XCTAssertNil(node("plugin-consent-allow"))
+        if let managed {
+            let revision = try await controller.installedVersions().revision
+            let preview = try await controller.previewVersionRemoval(releaseID: managed.signature.descriptorSHA256, expectedRevision: revision)
+            let removed = try await controller.confirmVersionRemoval(id: preview.id)
+            XCTAssertTrue(removed.complete && removed.durabilityConfirmed); XCTAssertNil(removed.cleanupIssue)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: managed.directory.path), "normal stop must release the real Session/Runtime version lease")
+        }
     }
 
     private func redPNG() throws -> Data {
