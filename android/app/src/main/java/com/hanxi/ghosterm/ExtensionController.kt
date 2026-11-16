@@ -84,6 +84,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val publisherAuthenticated: Boolean,
         val commands: List<Command>, val sourceApproved: Boolean = false,
     )
+    internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof)
     data class Resolution(
         val status: ExtensionRegistry.Status,
         val packageID: String? = null,
@@ -491,6 +492,29 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     suspend fun review(directory: File): Review = onWorker {
         checkOpen()
+        val packageBytes = captureCheckedPackage(directory)
+        try {
+            val metadata = packageBytes.metadata()
+            val key = Key(metadata.id, metadata.packageDigest)
+            check(key !in records) { "相同 ID 与摘要的包已审查" }
+            val value = packageReview(packageBytes)
+            records[key] = Record(packageBytes, value, Source.UNKNOWN)
+            value
+        } catch (error: Throwable) {
+            runCatching { packageBytes.close() }
+            throw error
+        }
+    }
+
+    private fun packageReview(packageBytes: ExtensionPackage): Review {
+        val metadata = packageBytes.metadata()
+        return Review(metadata.id, metadata.version, metadata.publisher, metadata.license,
+            metadata.packageDigest, metadata.runtime, metadata.requires.toList(), metadata.optionalMissing.toList(),
+            metadata.authorizationGranted, metadata.publisherAuthenticated,
+            packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views) })
+    }
+
+    private fun captureCheckedPackage(directory: File): ExtensionPackage {
         require(directory.isAbsolute && directory.path.isNotBlank() && '\u0000' !in directory.path && directory.path.toByteArray().size <= 4096)
         val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
         val packageBytes = try {
@@ -508,19 +532,62 @@ class ExtensionController(profile: HostProfile, context: Context) {
             check(packageBytes.check(hostJSON) == ExtensionPackage.Phase.CHECKED) {
                 "插件包与 Android Client 能力不兼容：${packageBytes.info().code}"
             }
-            val metadata = packageBytes.metadata()
-            val key = Key(metadata.id, metadata.packageDigest)
-            check(key !in records) { "相同 ID 与摘要的包已审查" }
-            val value = Review(metadata.id, metadata.version, metadata.publisher, metadata.license,
-                metadata.packageDigest, metadata.runtime, metadata.requires.toList(), metadata.optionalMissing.toList(),
-                metadata.authorizationGranted, metadata.publisherAuthenticated,
-                packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views) })
-            records[key] = Record(packageBytes, value, Source.UNKNOWN)
-            value
+            return packageBytes
         } catch (error: Throwable) {
             runCatching { packageBytes.close() }
             throw error
         }
+    }
+
+    /** Preview a signed archive without registering a source or keeping an install.
+     * The caller supplies a seekable read-only capture, not a provider stream.
+     * Own the duplicate across queueing/cancellation and keep all writes private. */
+    internal suspend fun inspectSignedArchive(borrowed: ParcelFileDescriptor, descriptor: ByteArray,
+        signature: ByteArray, trustedPolicy: ByteArray): SignedArchiveReview {
+        require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
+        val bytes = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
+        val context = currentCoroutineContext()
+        val owned = ParcelFileDescriptor.dup(borrowed.fileDescriptor)
+        try {
+            return onWorker {
+                checkOpen()
+                val authenticated = PluginReleaseSignature.authenticate(bytes, signed, policy)
+                PluginReleaseArchive.open(owned, authenticated.proof, context::ensureActive).use { archive ->
+                    val attributes = java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                        java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+                    val stage = java.nio.file.Files.createTempDirectory(appContext.cacheDir.toPath(), "signed-release-review-", attributes).toFile()
+                    try {
+                        archive.visit { member, content ->
+                            context.ensureActive()
+                            val file = File(stage, member.path)
+                            java.nio.file.Files.createDirectories(file.parentFile!!.toPath(), attributes)
+                            val fd = Os.open(file.path, OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_EXCL or
+                                OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 384)
+                            try {
+                                var at = 0
+                                while (at < content.size) {
+                                    context.ensureActive()
+                                    val count = Os.write(fd, content, at, minOf(content.size - at, 16384))
+                                    check(count > 0) { "无法写入签名包检查暂存文件" }; at += count
+                                }
+                                Os.fchmod(fd, if (member.executable) 320 else 256)
+                            } finally { Os.close(fd) }
+                        }
+                        context.ensureActive()
+                        captureCheckedPackage(stage).use { packageBytes ->
+                            val review = packageReview(packageBytes)
+                            if (PluginReleaseSignature.Identity(review.id, review.version, review.publisher, review.digest) != authenticated.identity)
+                                throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
+                            SignedArchiveReview(review, authenticated.proof)
+                        }
+                    } finally {
+                        // This is our just-created private preview tree. No
+                        // package links are accepted and no install is published.
+                        check(stage.deleteRecursively() || !stage.exists()) { "签名包检查暂存目录清理失败：${stage.path}" }
+                    }
+                }
+            }
+        } finally { owned.close() }
     }
 
     /** Explicit public policy snapshot; no source approval or Session grant. */

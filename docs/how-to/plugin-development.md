@@ -882,3 +882,32 @@ MainActivity + 系统 DocumentsUI 整链及四项既有描述符适配器。`--m
 删除镜像。已有明确授权的设备可改用 `--android SERIAL`，不自动选择用户设备。
 Core 变异脚本要求显式可用的 `pkg-config libcrypto`，只在工程 tmp 编译隔离生产副本，
 不改变 host 默认开关。测试资产只有公开描述、公钥、签名及合成目录包，无私钥。
+
+### Android 签名 ZIP 预检后端
+
+P6 第十三批提供内部 `ExtensionController.inspectSignedArchive`。输入为调用方已捕获的
+可定位只读普通文件句柄及三份明确选定的签名材料；本入口不读取 URI / 网络。
+Controller 拥有 fd 副本，先认证描述 / 策略，再检查签名描述所绑定的归档长度和
+SHA256。原始 `verifyDirectorySignature` 仍在 Core 已检查目录身份上核对。
+
+`zip-v1` 与 macOS 使用同一有界档：仅单磁盘 ZIP32、stored / raw DEFLATE、普通
+文件成员；拒绝目录 / 链接 / 设备、加密 / data descriptor、ZIP64、extra / 注释、
+未声明范围及中央 / 本地头不一致。归档至多 72 MiB、1024 文件、单文件 16 MiB /
+总解压 64 MiB，路径为 NFC UTF-8、4096 字节 / 32 层；拒绝越界、重复、大小写或
+文件 / 父目录冲突。用 `pread` 分块访问，保持借用 fd 的位置，每次只解压一个成员，
+核对 CRC、流终点与准确输入 / 输出字节，检查期间变动即拒绝。取消检查位于读块 /
+解压 / 写入循环，复制和解压完成不代表 Core 身份已接受。
+
+完整内容仅写入本次新建的应用私有缓存目录，Core 捕获 / 检查后，再比较描述中的
+插件 ID、版本、发布者及包摘要。成功返回审查数据与证明；临时树、Core owner 和
+自有 fd 在退出时释放，失败清理会明确报错。本入口不写来源注册表，不保留安装，
+不创建 Session 或执行包 / 安装 hook。该缓存处理以本应用私有目录内的单次 owner
+为边界，不能替代未来持久安装的身份 / 原子发布 / 归属日志或同 uid 恶意并发防护。
+
+手工复验在上面的设备命令增加 `--archive`；它增加十八项 ZIP / 生命周期与五项
+真实 Controller / Core 用例，可与 `--signature-ui` 同时运行。`--archive --mutate`
+执行归档 / 身份 / 生命周期变异；旧页面与旧签名后端变异仍分别用原选项调用。
+`scripts/fixtures/plugin-release-archive.mjs` 从已有合成目录生成公开的 stored /
+DEFLATE、身份不符、完整性不符及 CRC 错误向量；一次性 Node Ed25519 私钥只留在
+生成进程的 KeyObject，输出仅有归档、公钥策略、描述和签名。重新生成须显式运行并
+审查资产差异；生成器不参与产品构建或运行。

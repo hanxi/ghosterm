@@ -29,8 +29,16 @@ internal object PluginReleaseSignature {
     data class Proof(val pluginID: String, val packageSHA256: String, val channel: String, val keyID: String,
         val publisher: String, val policySHA256: String, val descriptorSHA256: String,
         val artifactSHA256: String, val artifactBytes: Long)
+    data class Authenticated(val identity: Identity, val proof: Proof)
 
     fun verify(descriptor: ByteArray, signature: ByteArray, trustedPolicy: ByteArray, identity: Identity): Proof {
+        val authenticated = authenticate(descriptor, signature, trustedPolicy)
+        ensure(authenticated.identity == identity, Failure.IDENTITY)
+        return authenticated.proof
+    }
+
+    /** Authenticate before opening an archive; Core identity is bound after capture. */
+    fun authenticate(descriptor: ByteArray, signature: ByteArray, trustedPolicy: ByteArray): Authenticated {
         ensure(descriptor.size <= 65536 && trustedPolicy.size <= 131072 && signature.size == 64, Failure.LIMIT)
         val payload = descriptor.copyOf(); val policyBytes = trustedPolicy.copyOf(); val signed = signature.copyOf()
         val policy = parse(policyBytes).obj()
@@ -73,8 +81,8 @@ internal object PluginReleaseSignature {
             7 -> reject(Failure.UNSUPPORTED)
             else -> reject(Failure.CRYPTO_UNKNOWN)
         }
-        ensure(id == identity.id && version == identity.version && publisher == identity.publisher && packageHash == identity.packageSHA256, Failure.IDENTITY)
-        return Proof(id, packageHash, channel, keyID, publisher, hash(policyBytes), hash(payload), artifactHash, count)
+        return Authenticated(Identity(id, version, publisher, packageHash),
+            Proof(id, packageHash, channel, keyID, publisher, hash(policyBytes), hash(payload), artifactHash, count))
     }
     private fun digest(value: String) = value.matches(Regex("[0-9a-f]{64}"))
     private fun pluginID(value: String) = value.toByteArray(Charsets.UTF_8).size <= 128 && value.matches(Regex("[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+"))
