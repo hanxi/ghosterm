@@ -30,6 +30,7 @@ add_library(ghosterm_core STATIC
   src/extension/package-stage.c
   src/extension/registry.c
   src/extension/registry-api.c
+  src/extension/release-verify.c
   src/extension/package-api.c
   src/extension/package-arguments.c
   src/extension/session.c
@@ -103,6 +104,26 @@ if(GHOSTERM_WITH_LIBSSH2)
  else()
   include(cmake/HostSSH2.cmake)
  endif()
+endif()
+
+# Explicit optional verifier. Android passes its already pinned libcrypto target;
+# native conformance builds may find OpenSSL. Ordinary host builds stay OFF.
+option(GHOSTERM_WITH_RELEASE_SIGNATURE "Enable raw Ed25519 release signature verification" OFF)
+set(GHOSTERM_RELEASE_CRYPTO_TARGET "" CACHE STRING "Explicit cross-compiled OpenSSL crypto target")
+if(GHOSTERM_WITH_RELEASE_SIGNATURE)
+  if(GHOSTERM_RELEASE_CRYPTO_TARGET)
+    if(NOT TARGET ${GHOSTERM_RELEASE_CRYPTO_TARGET})
+      message(FATAL_ERROR "GHOSTERM_RELEASE_CRYPTO_TARGET must name an existing target")
+    endif()
+    set(_gt_release_crypto ${GHOSTERM_RELEASE_CRYPTO_TARGET})
+  elseif(CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR "Release signature cross builds require GHOSTERM_RELEASE_CRYPTO_TARGET; host discovery is forbidden")
+  else()
+    find_package(OpenSSL 1.1.1 REQUIRED COMPONENTS Crypto)
+    set(_gt_release_crypto OpenSSL::Crypto)
+  endif()
+  target_compile_definitions(ghosterm_core PRIVATE GT_HAVE_RELEASE_SIGNATURE=1)
+  target_link_libraries(ghosterm_core PUBLIC ${_gt_release_crypto})
 endif()
 
 
@@ -720,6 +741,15 @@ add_executable(test_connection_config tests/test_connection_config.c)
 target_link_libraries(test_connection_config PRIVATE ghosterm_core)
 target_compile_options(test_connection_config PRIVATE -Wall -Wextra -Werror)
 add_test(NAME connection_config COMMAND test_connection_config ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+
+add_executable(test_release_signature tests/test_release_signature.c)
+target_link_libraries(test_release_signature PRIVATE ghosterm_core)
+target_include_directories(test_release_signature PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_options(test_release_signature PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_RELEASE_SIGNATURE)
+  target_compile_definitions(test_release_signature PRIVATE GT_TEST_RELEASE_SIGNATURE=1)
+endif()
+add_test(NAME release_signature COMMAND test_release_signature)
 
 add_executable(test_api tests/test_api.c)
 target_link_libraries(test_api PRIVATE ghosterm_core)

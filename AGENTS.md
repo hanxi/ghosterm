@@ -1765,3 +1765,21 @@ enabled 114 项、四真实 SSH 生命周期及旧 catalog 七＋新选择七组
 SDK / Runtime 预算，不增 CI 二十份，默认 JS-off。非其它端 / 真机 / 云端、OS
 辅助技术 / 全大字号主题、所有并发 / 磁盘故障、自动升级 / 防回滚证据。P6 /
 P1–P6 未完成，收据 / 范围见插件计划第十批；仅本地提交，未推送 / 发行。
+
+
+**Android 发布签名后端（P6 第十一批，2026-11-16）**：新增
+`gt_ext_release_verify`、Swift / JNI / Kotlin，Core 589 CTest / 185 ABI、Apple 182/3、
+JNI 148/37。Android 显式复用已锁定 libcrypto；host 默认关闭新 crypto 开关，macOS
+产品仍用 CryptoKit。域含一个 NUL / 精确描述字节、共享预算 / 释放，AUTH / INTERNAL /
+UNSUPPORTED 分开；严格 v1 策略 / 撤销及真实 Core 固定包四字段绑定已接原 worker，
+不批准来源或 Session。API29 / 36 arm64、4 KiB 页无窗口模拟器各 42 项同源组合；
+API36 十一组设备变异与共享 C 九组 / 四故障路径、ASan/UBSan 通过，正常断言红 /
+独立配置或参数绿 / 复原 / SHA 分开记账。700 指定源一致；两设备组合所用 App APK
+摘要不同，测试 APK 相同，不能写成同一 APK 双设备验收。新 Swift 绑定两项、默认
+宿主 15 项 / 1 明确跳过 / 零失败与独立 WebKit、两端 Release / Android 四模块 lint、
+格式 271 通过。误带测试类、ABI 拒收的初始 JNI 配方、早轮 crash 写共享系统 tmp、
+发现记录准备判据、冷启动两条 CPU_BUDGET / 准备超时及临时 Debug 签名不一致均
+保留，不计通过；最终隔离启动 / 真实 CPU 空闲后完整复跑，未提高生产预算、未删
+共享历史诊断。证据 / 摘要见插件计划第十一批。仅内部数据入口，Android 签名文件 /
+策略确认页面、ZIP 安装 / 版本 / 维护及真机 / 16 KiB / 完整分发矩阵未完成；默认
+App JS-off，不增 macOS CI 二十份，P6 / P1–P6 未完成，仅本地提交，不推送 / 发行。

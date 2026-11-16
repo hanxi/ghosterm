@@ -523,6 +523,20 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }
     }
 
+    /** Explicit public policy snapshot; no source approval or Session grant. */
+    internal suspend fun verifyDirectorySignature(packageID: String, digest: String, descriptor: ByteArray,
+        signature: ByteArray, trustedPolicy: ByteArray): PluginReleaseSignature.Proof {
+        require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
+        val bytes = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
+        return onWorker {
+            checkOpen()
+            val record = records[Key(packageID, digest)] ?: error("签名材料对应的固定包已失效")
+            val metadata = record.packageBytes.metadata()
+            PluginReleaseSignature.verify(bytes, signed, policy,
+                PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest))
+        }
+    }
+
     /** A SAF tree is copied as an exact bounded byte set into private cache,
      * then Core captures that private directory by fd. Provider metadata is
      * never treated as the package snapshot. The staging directory is removed

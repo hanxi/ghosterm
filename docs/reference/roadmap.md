@@ -603,3 +603,11 @@ Android 主机关联密钥与配置输入（2026-11-03）：正式 f5eda91 APK �
 
 
 Android 主机删除与终端管理（2026-11-04，工作区候选）：新增 `gt_config_remove_host`，单独规则删除专用配置，共享头只删目标别名；Include/重复归属明确拒绝，确认绑定旧快照并沿用备份与原子替换。Core 51/95、Apple 91/4、JNI 57/38；七组 C＋一组 Swift 删除变异及旧 rename 十二组通过，Android 删除/后台/清理/输入接线九组为分轮手工证据。API 29 的 50 项与终端补充、API 36 的 71 项组合和构建范围见 [§9.198–§9.199](android-implementation.md#9199-android-删除主机与共享-c-删除接口2026-11-04工作区候选)。未将普通 SSH 重连当成进程恢复；后台服务不代替周期保活或 tmux，也不承诺 Doze/换网/强停不断线。不增加 macOS CI 20 份，物理设备、16 KiB 页及本轮签名发行矩阵仍待执行。
+
+Android 发布签名后端（2026-11-16，插件 P6 第十一批）：新增
+`gt_ext_release_verify` 与 Swift / JNI / Kotlin，公共符号 185、Apple 182 引用 / 3 登记未用、
+JNI 148 / 37。Android 用已有锁定 libcrypto，host 默认关闭；精确原始描述验签、严格
+渠道策略 / 撤销、Core 固定包四字段绑定与独立未知分类已接。Core 589 CTest、开启
+档签名与共享预算专项、C 九组 / 四故障路径和 ASan/UBSan、Android / macOS 构建证据
+及精确设备范围见[插件计划 P6 第十一批](plan-plugin-bridge.md)。仅内部后端，Android
+签名选取 / 策略确认页面、ZIP 安装 / 版本与维护仍待接，P6 / 完整客户端未完成。

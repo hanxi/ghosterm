@@ -9205,3 +9205,120 @@ enabled 证据，未把跳过当通过。独立 WebKit CSS / PNG 首次与刷新
 摘要与验收范围，原 eq 三件 SHA256 不变、tmp 根目录保留。本轮 native / signer /
 SSH / helper 全部退出；lsof 仅见旧虚拟机持 tmp 根目录 fd，未停止无关虚拟机或
 用户服务。所有自动测试后台执行。
+
+### P6 实施第十一批：Android 发布签名与 Core 固定包绑定（2026-11-16）
+
+Android 原生包审查后端新增显式发布签名核对。新增公共 C ABI
+`gt_ext_release_verify`，以已有 OpenSSL Ed25519 实现认证 ASCII
+`GHOSTERM-PLUGIN-RELEASE-V1`、一个 NUL 和精确描述字节；公钥 / 签名 32 / 64 字节，
+描述 1..65536 字节。验签消息纳入既有进程插件内存预算，先预约 / 分配，实际擦除 /
+释放后归还；第三方 OpenSSL 内部分配仍不计入 requested-heap 账，不当作 RSS 上限。
+返回 OK 只认证字节；签名不匹配为 AUTH，预算不足 / 验证未完成为 INTERNAL，
+明确关闭后端时合法输入为 UNSUPPORTED，非法参数先独立拒绝。
+
+CMake 的 `GHOSTERM_WITH_RELEASE_SIGNATURE` 在普通 host 默认 OFF；Android 显式 ON，
+通过已有 `android_crypto` target 和锁定构建收据消费原生 OpenSSL。交叉编译不允许
+回落查找宿主 OpenSSL。本机显式 conformance 档可查找 OpenSSL Crypto；不改 vendor、
+不新增密码算法、私钥输入、持久信任根或运行时下载。Swift / JNI / Kotlin 绑定同步，
+macOS 产品原 CryptoKit 策略实现保持原行为。
+
+`PluginReleaseSignature` 严格解析同一 v1 描述 / 渠道策略：128 KiB / 64 KiB、8192 节点 /
+16 层，精确字段、规范 Base64 / 公钥 ID、渠道 / 发布者 / 插件范围与撤销均独立检查。
+重复 / 转义同名 / NFC 同名和 prototype 字段、BOM、错误 UTF-8 / surrogate、字符串
+原始控制字符、额外字段及舍入数字拒绝；整数按原 lexeme 计算，不经 Double 舍入。
+未知 key、撤销、范围、签名、身份和无法完成验证保留不同结果。
+
+Controller 在原 worker / Record owner 上，从真实 Core 已 checked 的固定包 metadata
+绑定 ID / version / publisher / packageDigest；入口先复制公开材料，证明包含精确原
+策略 / 描述 SHA256。原目录后来被编辑不改变捕获身份，错误 Record / 已关闭 owner
+拒绝，核对不写来源批准或 Session grant。测试包只含合成 JS / schema / integrity，
+公开签名向量由 Node 内存 KeyObject 预生成，只有公钥、描述、签名落入测试资产；另
+一份真实目录声明的包摘要由本机实际 Core 捕获 / 校验探针取得，测试再与 Android
+实际 metadata 对拍，不由测试替换 metadata 冒充包绑定。
+
+最终共享 C 专项：开启档 `release_signature` 正常通过，验证真实 Ed25519、错误 key /
+签名、截断描述、无域 / 无 NUL、65536 上限以及共享预算不足 / 恰好足够 / 归零。
+默认关闭档由离线 gate 覆盖。`mutation-check-release-signature.py` 只编译工程 tmp
+隔离生产副本，以 Node 公开向量保护共享预算、释放记账、域、NUL、payload、错误
+签名、描述上限、关闭能力和未知分类，共 **九组**单条正常断言红 / 独立参数绿 /
+恢复绿 / 源 SHA；四条分配 / key / context / verify-incomplete 故障明确 INTERNAL。
+同套 ASan/UBSan 通过，不声称 LSan 或 OpenSSL 内部分配失败穷举。
+
+设备驱动为 `scripts/test-plugin-release-android.py`，显式 JS-enabled 编译包含真实
+Controller / Core 包测试，已有设备须明确 serial；自建只用本地 API 29 / 36 arm64
+镜像和独占端口。所有自动窗口关闭，AVD / Android 临时 / crash / discovery 目录
+显式位于工程 tmp，启动日志必须确认 crash reporting disabled。gRPC 默认可无发现
+记录；若本进程组在系统发现目录出现记录则拒绝。观察客体 CPU 三次连续至少 60%
+空闲后才开始，保持生产 Core CPU 预算；准备未完成记驱动失败，不重试测试断言。
+构建环境与 AVD 环境分开，避免临时 ANDROID_USER_HOME 换掉 Debug APK 签名。
+所属进程退出后才清理镜像，设备 / 编译断言与启动准备分别记账。
+
+前置失败保留：误带不存在的 CoreSmokeTest 使首次组合初始化失败，不计整轮绿；
+初次 JNI 验证绕过配方删除符号引用，被 ABI 闸门拒收，不计编译后目标红，修正为
+保留真实调用再错误改结果后完整重跑。手动 AVD 的早期启动漏配 crash 变量，更新了
+共享系统 /tmp 崩溃库；立即停止，未误删 Nov 12 已存在的共享历史诊断。之后改用
+上述隔离启动器复跑，早轮不记全部临时路径合规。初版发现记录存在性判据拒收默认
+无 gRPC 的 AVD，已改为归属检查；API36 首次开机的两条 CPU_BUDGET 和两次过短
+45 秒准备期限未计绿，保留生产预算并增加有实际 CPU 观察的准备上限。另一次
+组合通过后，变异驱动的临时 Android home 导致 Debug 签名不一致，安装失败未计
+目标红；修正构建环境继承。原直接 malloc 的候选验签消息也已在提交前迁入共享
+预算，最终 C / 平台证据均针对迁移后的源码。
+
+最终设备复验：`python3 -B scripts/test-plugin-release-android.py --headless-api 36 --mutate`
+与 `--headless-api 29` 均通过 **42 项**组合；API36 **十一组**不同保护完整通过，每组
+真实编译后单条正常断言红、同 APK 的独立 Core 配置往返绿、复原绿及源码 SHA。
+覆盖撤销、key 摘要、签名、包四字段、重复字段、JSON 词法、数字舍入、错误分类、
+真实 JNI verify / 参数长度、Controller 对实际 Core 摘要的绑定。最终两个自有 AVD
+均确认退出 0，随后由驱动清理私有镜像；未触碰用户设备或停止无关旧虚拟机。
+两个 API 都为 arm64-v8a / 实测 4096 字节页。该组合不打开 MainActivity，也不据此
+声称 SAF / 页面 / 真实用户点击或 16 KiB / 真机 / 完整客户端矩阵验收。
+
+最终 **700 份**指定 Core / Android / 终端 / packages 源文件 SHA256 全表比对一致，
+输入表 SHA256 `de43c6468e2935c9064cf7b4db49432033e02e4e5109992dc8ad0fe546362c01`。
+API36 组合开始的 App APK 为
+`604ed549cbee184c387eb00feefa25decadca36f2ec77e439df7fc792b02906b`，
+变异复原后供 API29 的为
+`53faa676cc32c4b11855f944c72cd10289ba8f10952717e2c674adb78e6f38de`；
+两轮测试 APK 均为
+`73d34c6748ed02bff2c4e9d77e51bf529bc0f4a6ed505a593dbf56f229174646`。
+如实记作同源组合与各组同 APK 对照，不称两个 API 用了同一 App APK。
+API36 / API29 最终驱动日志 SHA256 分别为
+`1ba4062dc7a9764d8e24aca923835cd48bd54638331c80b9ab00df307dd34fb2` /
+`6a171757d4fd3558464b5310cfc6a928a8f384a9514686bfed28dd30ef8ae225`。
+
+默认 Core **JS-off / tests-on / SSH-on / release-signature-off：589/589 CTest、185 ABI**
+及未实现入口检查通过，gate 日志 SHA256
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+开启 crypto 的独立 Core 签名测试日志为
+`50b7117fe573bcfaf91670bab0a45ad1c0b1988946f6a7eb4424139d48ba093c`。
+最终 C 九组 / 四故障路径的普通与 ASan/UBSan 驱动日志一致为
+`100dd0d7dec260ad7f4c4429b2aa3571a1b2dbb2d13c40f436961405b48799a2`；
+不把相同文字摘要当二进制一致，sanitizer 开关在独立实际编译命令执行。
+C 源 SHA256 `3fa25519b64ad3ee771658f82881a77ccad630f8d36c72254ff0853713e7e3a8`。
+
+macOS Release / Swift 两项绑定 / 默认宿主定向 15 项（1 因默认 JS-off 明确跳过）/
+独立 WebKit CSS、PNG 首次及刷新绘制通过；最终三日志 SHA256 为
+`25cd0ff8806c634884cf9db89ef3975bdeae16cf2e95b1efc7c89879805b290d` /
+`08b18df3ee27b78b84dbe33973aacdffb2501bd1be1142750afbaa86126b7309` /
+`a623d3c725577ab3e0789691d1afafe0159f6a49d906e15db731ed5b712efe0a`。
+Android 未签名 Release / R8 与 app / bridge / data / terminal 四模块 lint 通过，日志
+`34b0bc0904beb365a6643ec3b2a63d8664d48d8126702edbb1ac79de768b8537`。
+clang-format 19.1.7 的 271 文件、Apple 182 引用 / 3 登记未用、JNI 148 / 37、Python AST
+及 diff 检查通过。
+
+本批仍只有内部数据 / Controller 后端。Android 显式材料选择 / 策略确认、ZIP 核对 /
+安装、持久选择 / 升级回滚 / 禁用 / 清理尚未接，官方生产 key / 安全存储 signer、
+联网新鲜度 / 防回滚、完整磁盘与并发、其它端 / 真机 / 云端及完整 P1–P6 仍未完成。
+普通 App 保持 JS-off，不增加 macOS CI 二十份；只作本地分批提交，不推送 / 发行。
+
+设备专项结束后恢复普通 JS-off Debug / 测试 APK 构建通过，日志 SHA256
+`26ee3144ec0df4cf4737188ebec9d6ac824252d51aa858d6d15e53ad0457dcb5`；默认 Core 档
+亦保持关闭新 crypto 后端。收尾再核对 700 源与原 eq 三件不变，停止本轮创建的两个
+构建 JVM；旧 JVM / 虚拟机未停止。所有所属 AVD 已退出，lsof 仅见旧虚拟机持 tmp
+根目录 fd。
+
+本轮及闸门剩余 **95 个 tmp 顶层项 / 9058 份普通文件 / 205.36 MiB 逻辑大小**已清理；
+独占 AVD 镜像此前已由驱动及退出核对后的手工清理移除，不把上述逻辑数当 APFS
+实际回收量。只保留原 eq 三件，摘要不变，tmp 根目录保留；raw 收据 / 日志、隔离
+构建与格式工具用完清理，本文保留验证范围和摘要。早轮共享系统 crash settings 的
+更新不能归属为可独占删除对象，未误删其它历史诊断；最终两设备无该路径写入。

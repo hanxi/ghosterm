@@ -821,3 +821,46 @@ CLI 验证先固定 regular-file 快照，再检查完整 ZIP32 布局：stored 
 只用自有目录 / agent / 隔离源码，真实签名与公钥不写私钥文件；变异先编译 Python，再
 要求行为断言失败、独立 Core 配置绿、恢复绿及摘要。拒绝类型改变和错误接受分别记账，
 不把编译 / 崩溃 / 超时当目标红。测试后清理本轮 tmp，不增加 CI 二十份。
+
+## Android 发布签名核对后端
+
+P6 第十一批提供 `PluginReleaseSignature` 和
+`ExtensionController.verifyDirectorySignature` 的内部数据入口。调用者显式传入独立的
+渠道公钥策略、原始描述及 64 字节签名；Controller 在自己的 worker 上读取已经
+Core 检查的固定包 metadata，精确绑定插件 ID、版本、发布者和包摘要。证明记录
+策略 / 描述的原始 SHA256，原目录后来被编辑不会改变已捕获的包身份。
+核对不修改来源批准或 Session 权限。目前尚未接 Android 选取签名文件 / 策略确认
+页面、签名 ZIP 检查安装、版本选择或残留维护。
+
+共享 C ABI `gt_ext_release_verify` 只认证原始字节，输入公钥 32 字节、签名 64 字节、
+描述 1..65536 字节；消息缓冲纳入既有插件共享内存预算，返回前擦除并归还。
+它不解析策略或包，返回 `GT_OK` 也不授予执行。
+`GT_ERR_AUTH` 表示签名不匹配，`GT_ERR_INTERNAL` 表示验证未完成；未启用的构建对
+合法长度明确返回 `GT_ERR_UNSUPPORTED`。Swift / Kotlin / JNI 已同步绑定。
+Android 通过现有锁定的 `android_crypto` 显式开启
+`GHOSTERM_WITH_RELEASE_SIGNATURE`；交叉编译不得查找宿主 OpenSSL。
+普通 host Core 默认关闭此开关，macOS 产品仍使用现有 CryptoKit 验证。
+显式本机 conformance 构建可开启并链接 OpenSSL Crypto；新增后端使用
+[OpenSSL 的 Ed25519 单次验证接口](https://docs.openssl.org/3.0/man7/EVP_SIGNATURE-ED25519/)，不自行实现签名算法。
+
+Android v1 解码拒绝重复 / 转义重复 / NFC 同名字段、prototype 字段、额外字段、
+非规范 Base64、错误公钥摘要、BOM、畸形 UTF-8 / surrogate、未转义控制字符及数字
+舍入。限制策略 128 KiB、描述 64 KiB、8192 节点、16 层；JSON 精确整数语义与
+macOS 相同，`1.0` 可表示版本 1，舍入后才等于 1 的小数不接受。
+未知密钥、已撤销密钥、范围拒绝、签名拒绝、包身份不符和验证能力未知分别报告。
+
+手工复验使用本地已安装 API 29 / 36 arm64 镜像，不下载系统镜像：
+
+```bash
+python3 -B scripts/test-plugin-release-android.py --headless-api 29
+python3 -B scripts/test-plugin-release-android.py --headless-api 36 --mutate
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  python3 -B scripts/mutation-check-release-signature.py
+```
+
+前两条明确构建 JS-enabled 测试 APK；组合包含真实 JNI 验签、严格策略、真实 Core
+包捕获 / Controller 绑定、既有 Controller 和配置。启动器关闭窗口及崩溃报告，显式
+设置工程内 Android 临时 / AVD / 发现目录，确认日志后才测试，等待所属进程退出再
+删除镜像。已有明确授权的设备可改用 `--android SERIAL`，不自动选择用户设备。
+Core 变异脚本要求显式可用的 `pkg-config libcrypto`，只在工程 tmp 编译隔离生产副本，
+不改变 host 默认开关。测试资产只有公开描述、公钥、签名及合成目录包，无私钥。

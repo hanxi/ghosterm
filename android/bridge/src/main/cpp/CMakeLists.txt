@@ -11,17 +11,20 @@ foreach(archive libssh2.a libcrypto.a)
     endif()
 endforeach()
 add_library(android_crypto STATIC IMPORTED)
-set_target_properties(android_crypto PROPERTIES IMPORTED_LOCATION "${GHOSTERM_DEPS}/lib/libcrypto.a")
+set_target_properties(android_crypto PROPERTIES IMPORTED_LOCATION "${GHOSTERM_DEPS}/lib/libcrypto.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${GHOSTERM_DEPS}/include")
 add_library(android_ssh2 STATIC IMPORTED)
 set_target_properties(android_ssh2 PROPERTIES
     IMPORTED_LOCATION "${GHOSTERM_DEPS}/lib/libssh2.a"
     INTERFACE_INCLUDE_DIRECTORIES "${GHOSTERM_DEPS}/include"
     INTERFACE_LINK_LIBRARIES "android_crypto;dl")
 set(GHOSTERM_SSH2_TARGET android_ssh2 CACHE STRING "Android SSH library" FORCE)
+set(GHOSTERM_WITH_RELEASE_SIGNATURE ON CACHE BOOL "Android uses pinned release crypto" FORCE)
+set(GHOSTERM_RELEASE_CRYPTO_TARGET android_crypto CACHE STRING "Android release crypto library" FORCE)
 set(GHOSTERM_BUILD_TESTS OFF CACHE BOOL "No host probes in APK" FORCE)
 add_subdirectory("${GHOSTERM_ROOT}/core" core)
 add_subdirectory("${GHOSTERM_ROOT}/terminal/android/native" terminal)
-add_library(ghosterm_android SHARED core_jni.c config_jni.c known_hosts_jni.c session_jni.c ssh_session.c tmux_session.c files_jni.c staging_jni.c publication_jni.c extension_jni.c)
+add_library(ghosterm_android SHARED core_jni.c config_jni.c known_hosts_jni.c session_jni.c ssh_session.c tmux_session.c files_jni.c staging_jni.c publication_jni.c extension_jni.c release_jni.c)
 target_include_directories(ghosterm_android PRIVATE "${GHOSTERM_ROOT}/core/include")
 target_compile_options(ghosterm_android PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ghosterm_android PRIVATE ghosterm_core ghosterm_vt_android)

@@ -24,6 +24,14 @@ int main(void) {
               gt_ext_runtime_views_snapshot(NULL, &views_json, &views_size) == GT_ERR_INVALID_ARG &&
               !views_json && !views_size,
           "invalid view registration APIs clear outputs, never succeed");
+    const uint8_t release_key[32] = {0}, release_signature[64] = {0};
+    CHECK(gt_ext_release_verify(release_key,
+                                sizeof(release_key),
+                                release_signature,
+                                sizeof(release_signature),
+                                (const uint8_t *)"{}",
+                                2) != GT_OK,
+          "release authentication never accepts an invalid signature or disabled capability");
     const char *v = gt_version();
     CHECK(v && *v, "gt_version() 非空");
     gt_ext_channel_t *extension = (gt_ext_channel_t *)1;
