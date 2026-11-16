@@ -774,6 +774,11 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
+    internal fun versionRemovalChanged(result: PluginReleaseRemoval.Result) {
+        val removed = result.forgottenPackages.toSet()
+        entries = entries.filterNot { (it.review.id to it.review.digest) in removed }
+    }
+
     fun decide(entry: Entry, approve: Boolean) {
         val owner = controller ?: return
         if (busy) return

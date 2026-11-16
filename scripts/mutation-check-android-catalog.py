@@ -129,12 +129,12 @@ def main():
          'PluginReleaseCatalog.open(directory)?.use { it.observe() }', 'runCatching { PluginReleaseCatalog.open(directory)?.use { it.observe() } }.getOrNull()'),
         ('observer-worker', owner, controller,
          'return ExtensionController(releaseProfile, appContext, versionDirectory)', 'return this'),
-        ('page-entry', page, settings, 'PluginInstalledVersionsContent(extensions.controller, extensions::versionSelectionChanged)', 'Unit'),
+        ('page-entry', page, settings, 'PluginInstalledVersionsContent(extensions.controller, extensions::versionSelectionChanged, extensions::versionRemovalChanged)', 'Unit'),
         ('page-unverified', page, view,
          '仅显示已保存的声明，尚未用当前可信策略核验；不授权或执行插件。', '已验证发布者。'),
         ('page-unknown', page, view,
          'selected != null && selected.choices.isEmpty()', 'selected == null || selected.choices.isEmpty()'),
-        ('page-refresh', page, view, 'onClick = { selectionModel.cancel(); model.refresh() }', 'onClick = { selectionModel.cancel() }'),
+        ('page-refresh', page, view, 'onClick = { selectionModel.cancel(); removalModel.refresh(); model.refresh() }', 'onClick = { selectionModel.cancel(); removalModel.refresh() }'),
     ]
     selected = args.selected or [case[0] for case in cases]
     if len(selected) != len(set(selected)) or set(selected) - {c[0] for c in cases}: raise RuntimeError('Unknown or duplicate case')

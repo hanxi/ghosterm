@@ -82,7 +82,12 @@ class PluginVersionSelectionUITest {
         awaitSystem("roots drawer") { click("Show roots", "Open navigation drawer", "显示根目录", "显示位置") }
         instrumentation.uiAutomation.waitForIdle(200, 3000)
         awaitSystem("fixture root") { click("Ghosterm Official Preview Package Fixture") }
-        awaitSystem("fixture document list") { nodes().any { it.isVisibleToUser && it.text?.toString() == "channel.json" } }
+        awaitSystem("fixture root opened and drawer closed") {
+            val tree = nodes()
+            tree.none { it.isVisibleToUser && it.viewIdResourceName?.endsWith(":id/roots_list") == true } &&
+                tree.any { it.isVisibleToUser && it.text?.toString() == "Ghosterm Official Preview Package Fixture" } &&
+                tree.any { it.isVisibleToUser && it.text?.toString() == "channel.json" }
+        }
     }
     private fun choosePolicy() {
         ui.onNodeWithTag("plugin-version-policy-pick").performScrollTo().performClick(); ui.waitForIdle(); root()

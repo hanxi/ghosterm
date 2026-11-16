@@ -22,7 +22,7 @@ internal class PluginReleaseCatalog private constructor(
     private val location: File,
     private val rootSync: (FileDescriptor) -> Unit,
 ) : AutoCloseable {
-    enum class Reason { ROOT, BUSY, CHANGED, INVALID, CONFLICT, LIMIT, IO }
+    enum class Reason { ROOT, BUSY, CHANGED, INVALID, CONFLICT, LIMIT, IO, PENDING }
     class Rejected(val reason: Reason) : IllegalStateException(when (reason) {
         Reason.ROOT -> "无法读取本应用的私有安装根目录。"
         Reason.BUSY -> "安装目录正由另一项操作使用，请稍后刷新。"
@@ -31,6 +31,7 @@ internal class PluginReleaseCatalog private constructor(
         Reason.CONFLICT -> "活动选择已变化，请刷新后重新确认。"
         Reason.LIMIT -> "版本列表或选择记录超过读取上限。"
         Reason.IO -> "版本选择回执未完成，结果需重新读取核对。"
+        Reason.PENDING -> "已有待处理的删除意图，请先明确继续或撤销。"
     })
     data class Identity(val device: Long, val inode: Long, val owner: Int)
     private data class Stamp(val identity: Identity, val size: Long, val mode: Int, val links: Long,
@@ -45,6 +46,14 @@ internal class PluginReleaseCatalog private constructor(
     private lateinit var identity: Identity
     private val fd get() = checkNotNull(root)
     val rootIdentity: Identity get() { validate(); return identity }
+    /** A separately opened fd does not prolong this owner's root flock. */
+    fun maintenanceRoot(): ParcelFileDescriptor {
+        validate()
+        return LocalPublicationFile.directory(location, "").also {
+            if (objectIdentity(Os.fstat(it.fileDescriptor)) != identity) { it.close(); throw Rejected(Reason.CHANGED) }
+        }
+    }
+    fun requireNoRemoval() { validate(); requireNoRemoval(fd.fd) }
     private fun path(name: String = "") = "/proc/self/fd/${fd.fd}" + if (name.isEmpty()) "" else "/$name"
     private fun demand(value: Boolean, reason: Reason = Reason.INVALID) { if (!value) throw Rejected(reason) }
 
@@ -146,6 +155,7 @@ internal class PluginReleaseCatalog private constructor(
         checkpoint: (String) -> Unit = {}, parentSync: (FileDescriptor) -> Unit = { Os.fsync(it) }): Publication {
         demand(pluginID(plugin) && digest(releaseID))
         validate()
+        if (enabled) requireNoRemoval()
         val previous = selection()
         demand(previous.revision == expected, Reason.CONFLICT)
         LocalPublicationFile.directory(location.parentFile ?: throw Rejected(Reason.ROOT), "").use { ancestor ->
@@ -201,6 +211,12 @@ internal class PluginReleaseCatalog private constructor(
     override fun close() { root?.close(); root = null }
     companion object {
         const val SELECTION = "selection-v1.json"
+        const val REMOVAL = "removal-v1.jsonl"
+        fun requireNoRemoval(directory: Int) {
+            try { Os.lstat("/proc/self/fd/$directory/$REMOVAL") }
+            catch (failure: ErrnoException) { if (failure.errno == OsConstants.ENOENT) return else throw Rejected(Reason.IO) }
+            throw Rejected(Reason.PENDING)
+        }
         fun open(location: File, rootSync: (FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseCatalog? {
             if (!location.isAbsolute || location.path.toByteArray().size > 3500 || '\u0000' in location.path) throw Rejected(Reason.ROOT)
             val before = try { Os.lstat(location.path) } catch (failure: ErrnoException) {

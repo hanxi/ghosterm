@@ -164,6 +164,7 @@ class ExtensionController(profile: HostProfile, context: Context,
     private val managedIDs = mutableSetOf<String>()
     private val registeredDigests = mutableMapOf<String, String>()
     private var pendingVersion: PendingVersion? = null
+    private var pendingRemoval: Pair<String, PluginReleaseRemoval>? = null
     private var registry: ExtensionRegistry? = null // worker-confined
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
     @Volatile private var session: ExtensionSession? = null
@@ -719,7 +720,7 @@ class ExtensionController(profile: HostProfile, context: Context,
         require(UUID.fromString(id).toString() == id && policy.size <= 131072)
         val caller = currentCoroutineContext(); val trusted = policy.copyOf()
         return withContext(NonCancellable) { onWorker {
-            caller.ensureActive(); check(pendingVersion == null) { "请先取消上一次版本预览" }
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
             val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
             owner.use {
                 val selection = owner.selection()
@@ -773,13 +774,19 @@ class ExtensionController(profile: HostProfile, context: Context,
                     if (owner.selection().revision != pending.value.revision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
                     owner.openVersion(pending.value.releaseID).use { named -> check(named.identity == pending.version.identity) { "候选版本已被替换" } }
                     val fresh = checkedVersion(owner, pending.version, pending.policy)
+                    var sessionReference: ParcelFileDescriptor? = null
+                    var runtimeReference: ParcelFileDescriptor? = null
                     try {
                         check(fresh.value == pending.value.candidate && fresh.payload == pending.payload) { "候选包或完整声明已变化" }
+                        val key = Key(fresh.value.review.id, fresh.value.review.digest)
+                        if (sessionPackageKey == key && sessionVersionLease == null) sessionReference = pending.version.borrow()
+                        if (runtimePackageKey == key && runtimeVersionLease == null) runtimeReference = pending.version.borrow()
                         val before = owner.observe()
                         val result = owner.change(fresh.value.review.id, pending.value.releaseID, true, pending.value.revision,
                             checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync = parentSync)
                         invalidateVersionSources(fresh.value.review.id)
-                        val key = Key(fresh.value.review.id, fresh.value.review.digest)
+                        sessionReference?.let { sessionVersionLease = it; sessionReference = null }
+                        runtimeReference?.let { runtimeVersionLease = it; runtimeReference = null }
                         val record = records[key] ?: Record(fresh.packageBytes, fresh.value.review, Source.UNKNOWN).also { records[key] = it }
                         record.managedReleaseID = pending.value.releaseID
                         record.selectionGeneration = result.selection.choices.getValue(fresh.value.review.id).generation
@@ -787,6 +794,7 @@ class ExtensionController(profile: HostProfile, context: Context,
                         VersionSelectionResult(fresh.value.review.id, fresh.value.review,
                             before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
                     } finally {
+                        sessionReference?.close(); runtimeReference?.close()
                         if (records[Key(fresh.value.review.id, fresh.value.review.digest)]?.packageBytes !== fresh.packageBytes) fresh.packageBytes.close()
                     }
                 }
@@ -811,6 +819,95 @@ class ExtensionController(profile: HostProfile, context: Context,
                 VersionSelectionResult(pluginID, null, before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
             }
         } }
+    }
+    /** Observation never resumes or cancels a saved deletion intent. */
+    internal suspend fun pendingVersionRemoval(): PluginReleaseRemoval.Preview? = onWorker {
+        PluginReleaseCatalog.open(versionDirectory)?.use { PluginReleaseRemoval.pending(it) }
+    }
+    internal suspend fun previewVersionRemoval(id: String, releaseID: String, expectedRevision: String?): PluginReleaseRemoval.Preview {
+        require(UUID.fromString(id).toString() == id)
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消上一次版本预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
+            owner.use {
+                val removal = PluginReleaseRemoval.prepare(owner, releaseID, expectedRevision)
+                try {
+                    caller.ensureActive(); checkOpen()
+                    val view = removal.preview(id)
+                    pendingRemoval = id to removal
+                    view
+                } catch (failure: Throwable) { removal.close(); throw failure }
+            }
+        } }
+    }
+    internal fun cancelRemovalPreview(id: String) {
+        Handler(thread.looper).post {
+            if (pendingRemoval?.first == id) { pendingRemoval?.second?.close(); pendingRemoval = null }
+        }
+    }
+    internal suspend fun confirmVersionRemoval(id: String, acknowledged: Boolean,
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseRemoval.Result {
+        check(acknowledged) { "请核对完整文件清单并单独确认删除" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            val removal = pendingRemoval?.takeIf { it.first == id }?.second ?: error("删除预览已失效")
+            pendingRemoval = null
+            removal.use {
+                val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("本机版本目录已变化")
+                owner.use {
+                    val result = removal.confirm(owner,
+                        confirmationCheckpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, rootSync = parentSync)
+                    forgetRemovedVersion(result)
+                }
+            }
+        } }
+    }
+    internal suspend fun resumeVersionRemoval(id: String, acknowledged: Boolean,
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): PluginReleaseRemoval.Result {
+        check(acknowledged) { "请核对保留的删除意图并确认继续" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive()
+            check(pendingVersion == null && pendingRemoval == null) { "请先取消当前预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
+            owner.use {
+                forgetRemovedVersion(PluginReleaseRemoval.resume(owner, id,
+                    checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, sync = parentSync))
+            }
+        } }
+    }
+    internal suspend fun cancelPendingVersionRemoval(id: String, acknowledged: Boolean): Boolean {
+        check(acknowledged) { "请确认撤销尚未开始移除的删除意图" }
+        val caller = currentCoroutineContext()
+        return withContext(NonCancellable) { onWorker {
+            caller.ensureActive(); check(pendingVersion == null && pendingRemoval == null) { "请先取消当前预览" }
+            val owner = PluginReleaseCatalog.open(versionDirectory) ?: error("没有本机版本目录")
+            owner.use { PluginReleaseRemoval.cancelPending(owner, id) }
+        } }
+    }
+    /** Disk effects are final even if registry cleanup fails. Existing instances
+     * retain their original immutable package until their actual release. */
+    private fun forgetRemovedVersion(result: PluginReleaseRemoval.Result): PluginReleaseRemoval.Result {
+        if (!result.complete) return result
+        var issue: String? = null
+        val forgotten = mutableListOf<Pair<String, String>>()
+        val iterator = records.iterator()
+        while (iterator.hasNext()) {
+            val (key, record) = iterator.next()
+            if (record.managedReleaseID != result.releaseID) continue
+            record.source = Source.UNKNOWN; record.approvalGeneration = null
+            if (key == sessionPackageKey || key == runtimePackageKey) continue
+            try {
+                if (registeredDigests[key.id] == key.digest) {
+                    check(registryOnWorker().remove(key.id, executor = false, expectedDigest = key.digest) == ExtensionRegistry.Status.OK)
+                    registeredDigests.remove(key.id)
+                }
+                record.packageBytes.close(); iterator.remove(); forgotten += key.id to key.digest
+            } catch (_: Exception) { issue = "磁盘回收已完成，但本次内存记录清理未完成；请停止当前插件并重新打开页面。" }
+        }
+        return result.copy(memoryIssue = issue, forgottenPackages = forgotten.toList())
     }
     private fun invalidateVersionSources(id: String) {
         managedIDs += id
@@ -933,6 +1030,7 @@ class ExtensionController(profile: HostProfile, context: Context,
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
                 pendingVersion?.close(); pendingVersion = null
+                pendingRemoval?.second?.close(); pendingRemoval = null
                 // Close consumers before the transport/package owners they borrow.
                 runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null }
                 session?.let { current ->

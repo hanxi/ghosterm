@@ -20,6 +20,8 @@ import java.io.DataInputStream
 import java.io.File
 import java.net.Socket
 import java.util.UUID
+import java.util.Base64
+import java.util.zip.ZipInputStream
 
 /** Actual signed versions, native Session/QuickJS and two-hop isolated SSH. */
 @RunWith(AndroidJUnit4::class)
@@ -54,9 +56,14 @@ class PluginVersionSelectionChannelTest {
     }
     @Test fun anotherControllerSwitchPreservesSessionSnapshotAndRuntimeLease() = scenario(false)
     @Test fun sameControllerRegistryReplacementPreservesSessionSnapshotAndRuntimeLease() = scenario(true)
-    private fun scenario(sameController: Boolean) = runBlocking {
+    @Test fun developmentSessionSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval() = scenario(true, true)
+    @Test fun developmentRuntimeSelectingSameManagedDigestPinsVersionUntilActualRuntimeReleaseAndRemoval() = scenario(true, true, true)
+    private fun scenario(sameController: Boolean, developmentFirst: Boolean = false, manageAfterActivation: Boolean = false) = runBlocking {
+        require(!manageAfterActivation || developmentFirst)
+
         val payload = fixture; val ports = payload.getJSONObject("two").getJSONArray("ports")
         val packageDir = PluginInstallTestFiles.root()
+        val development = if (developmentFirst) PluginInstallTestFiles.root() else null
         val knownHosts = File(packageDir.parentFile, "extension-client-known-${System.nanoTime()}")
             .apply { writeText(payload.getJSONObject("two").getString("known")) }
         val target = PreparedSSH("dest", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
@@ -67,10 +74,23 @@ class PluginVersionSelectionChannelTest {
         val changer = if (sameController) controller else PluginVersionSelectionFixture.controller(packageDir)
         try {
             assertEquals(0, ExtensionRuntime.supportStatus())
-            val installed = PluginVersionSelectionFixture.install(controller, packageDir)
-            val next = PluginVersionSelectionFixture.install(controller, packageDir, "2.0.0")
-            val selected = select(controller, packageDir, installed.publication.releaseID)
-            val reviewed = selected.review!!
+            var installed: ExtensionController.InstalledRelease? = null
+            var next: ExtensionController.InstalledRelease? = null
+            val reviewed = if (development != null) {
+                val vector = PluginVersionSelectionFixture.vector("1.0.0")
+                ZipInputStream(Base64.getDecoder().decode(vector.getString("archive")).inputStream()).use { zip ->
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        require(!entry.name.startsWith('/') && entry.name.split('/').none { it == ".." })
+                        File(development, entry.name).apply { parentFile!!.mkdirs(); writeBytes(zip.readBytes()) }
+                    }
+                }
+                controller.review(development)
+            } else {
+                installed = PluginVersionSelectionFixture.install(controller, packageDir)
+                next = PluginVersionSelectionFixture.install(controller, packageDir, "2.0.0")
+                select(controller, packageDir, installed.publication.releaseID).review!!
+            }
             assertEquals(ExtensionRegistry.Status.OK, controller.approve(reviewed.id, reviewed.digest))
             val command = "exec " + listOf(payload.getString("rpcExecutorBinary"), "--android-executor",
                 payload.getString("rpcAndroidProofRoot"), reviewed.id, reviewed.digest,
@@ -101,11 +121,24 @@ class PluginVersionSelectionChannelTest {
                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT))
             var session = controller.adoptSSHSession(reviewed.id, reviewed.digest, payload.getString("rpcExecutorDigest"),
                 "0.1.0", target.alias, methods)
-            assertEquals(OsConstants.EAGAIN, lock(packageDir, installed.publication.releaseID))
-            val replacement = select(changer, packageDir, next.publication.releaseID)
-            val upgraded = replacement.review!!
-            assertEquals(ExtensionRegistry.Status.OK, changer.approve(upgraded.id, upgraded.digest))
-            assertEquals(ExtensionRegistry.Status.STALE, controller.resolve("fixture", reviewed.id, reviewed.digest).status)
+            var installedSlot = ""; var nextSlot = ""
+            lateinit var upgraded: ExtensionController.Review
+            suspend fun switchManagedVersion() {
+                if (developmentFirst) {
+                    installed = PluginVersionSelectionFixture.install(controller, packageDir)
+                    next = PluginVersionSelectionFixture.install(controller, packageDir, "2.0.0")
+                    val managed = select(controller, packageDir, installed.publication.releaseID)
+                    assertEquals(reviewed.digest, managed.review!!.digest)
+                }
+                installedSlot = checkNotNull(installed).publication.releaseID
+                nextSlot = checkNotNull(next).publication.releaseID
+                assertEquals(OsConstants.EAGAIN, lock(packageDir, installedSlot))
+                val replacement = select(changer, packageDir, nextSlot)
+                upgraded = replacement.review!!
+                assertEquals(ExtensionRegistry.Status.OK, changer.approve(upgraded.id, upgraded.digest))
+                assertEquals(ExtensionRegistry.Status.STALE, controller.resolve("fixture", reviewed.id, reviewed.digest).status)
+            }
+            if (!manageAfterActivation) switchManagedVersion()
             // This is an already adopted Session, before its explicit consent.
             // The global choice must not mutate its package or grant consent.
             val handshakeDeadline = SystemClock.elapsedRealtime() + 15000
@@ -131,9 +164,15 @@ class PluginVersionSelectionChannelTest {
                 SystemClock.sleep(2)
             }
             assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            if (manageAfterActivation) switchManagedVersion()
             assertEquals(reviewed.digest, runtime.packageDigest)
-            assertEquals(OsConstants.EAGAIN, lock(packageDir, installed.publication.releaseID))
-            assertEquals(0, lock(packageDir, next.publication.releaseID))
+            assertEquals(OsConstants.EAGAIN, lock(packageDir, installedSlot))
+            assertEquals(0, lock(packageDir, nextSlot))
+            if (developmentFirst) {
+                val revision = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection().revision }
+                val rejected = runCatching { controller.previewVersionRemoval(UUID.randomUUID().toString(), installedSlot, revision) }.exceptionOrNull()
+                assertTrue("live Runtime did not prevent removal", rejected is PluginReleaseRemoval.Rejected && rejected.reason == PluginReleaseRemoval.Reason.OCCUPIED)
+            }
             val choice = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection() }
             changer.disableInstalledVersion(upgraded.id, choice.revision, true)
             assertEquals(ExtensionRegistry.Status.DENIED, changer.approve(upgraded.id, upgraded.digest))
@@ -187,11 +226,18 @@ class PluginVersionSelectionChannelTest {
                 runtime = controller.stepRuntime()
             }
             controller.releaseFinished()
-            assertEquals("completed Runtime retained its version lease", 0, lock(packageDir, installed.publication.releaseID))
+            assertEquals("completed Runtime retained its version lease", 0, lock(packageDir, installedSlot))
+            if (developmentFirst) {
+                val revision = checkNotNull(PluginReleaseCatalog.open(packageDir)).use { it.selection().revision }
+                val view = controller.previewVersionRemoval(UUID.randomUUID().toString(), installedSlot, revision)
+                assertTrue(controller.confirmVersionRemoval(view.id, true).complete)
+                assertFalse(File(packageDir, installedSlot).exists())
+                assertEquals(ExtensionRegistry.Status.STALE, controller.resolve("fixture", reviewed.id, reviewed.digest).status)
+            }
         } finally {
             changer.close(); controller.close()
             assertTrue(knownHosts.delete() || !knownHosts.exists())
-            PluginInstallTestFiles.clean(packageDir)
+            PluginInstallTestFiles.clean(packageDir); development?.let(PluginInstallTestFiles::clean)
         }
     }
 

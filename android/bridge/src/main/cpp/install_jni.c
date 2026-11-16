@@ -1,16 +1,81 @@
 #define _GNU_SOURCE
+#include <android/api-level.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <jni.h>
+#include <linux/stat.h>
+#include <linux/fs.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
 
 #ifndef RENAME_NOREPLACE
 #define RENAME_NOREPLACE 1
 #endif
+
+/* Android 10 seccomp forbids statx, even with a supporting kernel. On that
+ * platform use the filesystem inode generation instead. Both are persistent
+ * object metadata; absent support is explicit, never a fabricated identity. */
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_identityMetadata(
+    JNIEnv *env, jobject self, jint descriptor) {
+    (void)self;
+    jlong result[4] = {0, 0, 0, 0};
+    struct stat before;
+    struct statx value;
+    memset(&value, 0, sizeof(value));
+    if (fstat(descriptor, &before) < 0) {
+        result[0] = errno;
+    } else if ((!S_ISDIR(before.st_mode) && !S_ISREG(before.st_mode)) ||
+               before.st_uid != geteuid() || (before.st_mode & 0077)) {
+        result[0] = EINVAL;
+    } else {
+        int flags = fcntl(descriptor, F_GETFL);
+        if (flags < 0) {
+            result[0] = errno;
+        } else if ((flags & O_ACCMODE) != O_RDONLY) {
+            result[0] = EINVAL;
+        } else if (android_get_device_api_level() < 30) {
+            unsigned int generation = 0;
+            if (ioctl(descriptor, FS_IOC_GETVERSION, &generation) < 0) {
+                result[0] = errno;
+            } else if (!generation) {
+                result[0] = EOPNOTSUPP;
+            } else {
+                result[1] = 2; /* filesystem inode generation */
+                result[2] = generation;
+            }
+        } else if (syscall(__NR_statx,
+                           descriptor,
+                           "",
+                           AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW,
+                           STATX_BASIC_STATS | STATX_BTIME,
+                           &value) < 0) {
+            result[0] = errno;
+        } else if ((value.stx_mask & (STATX_BTIME | STATX_INO | STATX_UID | STATX_TYPE)) !=
+                   (STATX_BTIME | STATX_INO | STATX_UID | STATX_TYPE)) {
+            result[0] = EOPNOTSUPP;
+        } else if (value.stx_ino != before.st_ino || value.stx_uid != before.st_uid ||
+                   value.stx_mode != before.st_mode ||
+                   value.stx_dev_major != major(before.st_dev) ||
+                   value.stx_dev_minor != minor(before.st_dev) ||
+                   value.stx_btime.tv_nsec > 999999999) {
+            result[0] = ESTALE;
+        } else {
+            result[1] = 1; /* statx birth time */
+            result[2] = value.stx_btime.tv_sec;
+            result[3] = value.stx_btime.tv_nsec;
+        }
+    }
+    jlongArray array = (*env)->NewLongArray(env, 4);
+    if (array) {
+        (*env)->SetLongArrayRegion(env, array, 0, 4, result);
+    }
+    return array;
+}
 
 static int private_directory(int descriptor, struct stat *value) {
     if (fstat(descriptor, value) < 0) {
@@ -95,6 +160,54 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_publish
     }
     /* Exactly one atomic syscall. Unsupported filesystems remain unsupported;
      * never fall back to an overwriting rename, copy, link or pre-delete. */
+    if (!error && syscall(__NR_renameat2, parent, source, parent, target, RENAME_NOREPLACE) < 0) {
+        error = errno;
+    }
+    return error;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_PluginInstallFiles_detachDirectory(
+    JNIEnv *env, jobject self, jint parent, jint descriptor, jbyteArray from, jbyteArray to) {
+    (void)self;
+    char source[65] = {0}, target[47] = {0};
+    if (!from || !to || (*env)->GetArrayLength(env, from) != 64 ||
+        (*env)->GetArrayLength(env, to) != 46) {
+        return EINVAL;
+    }
+    (*env)->GetByteArrayRegion(env, from, 0, 64, (jbyte *)source);
+    (*env)->GetByteArrayRegion(env, to, 0, 46, (jbyte *)target);
+    if ((*env)->ExceptionCheck(env) || memcmp(target, ".removing-", 10)) {
+        return EINVAL;
+    }
+    for (int i = 0; i < 64; i++) {
+        if (!((source[i] >= '0' && source[i] <= '9') || (source[i] >= 'a' && source[i] <= 'f'))) {
+            return EINVAL;
+        }
+    }
+    for (int i = 10; i < 46; i++) {
+        int separator = i == 18 || i == 23 || i == 28 || i == 33;
+        if (separator ? target[i] != '-'
+                      : !((target[i] >= '0' && target[i] <= '9') ||
+                          (target[i] >= 'a' && target[i] <= 'f'))) {
+            return EINVAL;
+        }
+    }
+    struct stat root, selected, named;
+    int error = private_directory(parent, &root);
+    if (!error) {
+        error = private_directory(descriptor, &selected);
+    }
+    if (!error && (selected.st_mode & 0222)) {
+        error = EINVAL;
+    }
+    if (!error && fstatat(parent, source, &named, AT_SYMLINK_NOFOLLOW) < 0) {
+        error = errno;
+    }
+    if (!error && (!S_ISDIR(named.st_mode) || selected.st_dev != named.st_dev ||
+                   selected.st_ino != named.st_ino || selected.st_uid != named.st_uid ||
+                   selected.st_mode != named.st_mode || selected.st_dev != root.st_dev)) {
+        error = EINVAL;
+    }
     if (!error && syscall(__NR_renameat2, parent, source, parent, target, RENAME_NOREPLACE) < 0) {
         error = errno;
     }

@@ -66,6 +66,7 @@ internal class PluginReleaseStage private constructor(
         val lock = PluginInstallFiles.lock(parentFD.fd)
         demand(lock == 0, if (lock == OsConstants.EAGAIN) Reason.BUSY else Reason.IO)
         validateParent()
+        PluginReleaseCatalog.requireNoRemoval(parentFD.fd)
         // Sync even an existing root: a previous attempt may have created it
         // and failed before syncing its directory entry. Pin the actual parent.
         LocalPublicationFile.directory(location.parentFile ?: throw Rejected(Reason.ROOT), "").use { ancestor ->
