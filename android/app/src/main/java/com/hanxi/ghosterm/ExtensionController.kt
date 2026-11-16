@@ -84,7 +84,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val publisherAuthenticated: Boolean,
         val commands: List<Command>, val sourceApproved: Boolean = false,
     )
-    internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof)
+    internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof,
+        val declarations: PluginReleaseDeclarations.Data)
     data class Resolution(
         val status: ExtensionRegistry.Status,
         val packageID: String? = null,
@@ -121,6 +122,12 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
     private val dispatcher: CoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
     private val appContext = context.applicationContext
+    private val releaseProfile = profile.copy(protocols = profile.protocols.toList(), runtimes = profile.runtimes.toList(), capabilities = profile.capabilities.toList())
+    /** An independent worker keeps archive IO away from an active Client pump. */
+    internal fun newReleaseInspector(): ExtensionController {
+        check(!closed.get()) { "插件控制器已关闭" }
+        return ExtensionController(releaseProfile, appContext)
+    }
     private val resolver: ContentResolver = appContext.contentResolver
     private val resourceDirectory = File(appContext.cacheDir, "plugin-resources-${UUID.randomUUID()}")
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
@@ -557,8 +564,13 @@ class ExtensionController(profile: HostProfile, context: Context) {
                         java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
                     val stage = java.nio.file.Files.createTempDirectory(appContext.cacheDir.toPath(), "signed-release-review-", attributes).toFile()
                     try {
+                        var manifest: ByteArray? = null
                         archive.visit { member, content ->
                             context.ensureActive()
+                            if (member.path == "plugin.json") {
+                                require(content.size <= 65536) { "插件清单超过 64 KiB 上限" }
+                                manifest = content.copyOf()
+                            }
                             val file = File(stage, member.path)
                             java.nio.file.Files.createDirectories(file.parentFile!!.toPath(), attributes)
                             val fd = Os.open(file.path, OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_EXCL or
@@ -578,7 +590,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
                             val review = packageReview(packageBytes)
                             if (PluginReleaseSignature.Identity(review.id, review.version, review.publisher, review.digest) != authenticated.identity)
                                 throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
-                            SignedArchiveReview(review, authenticated.proof)
+                            val declarations = PluginReleaseDeclarations.decode(checkNotNull(manifest), packageBytes.metadata())
+                            SignedArchiveReview(review, authenticated.proof, declarations)
                         }
                     } finally {
                         // This is our just-created private preview tree. No

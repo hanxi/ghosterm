@@ -44,6 +44,10 @@ internal class PluginSignatureReadFailure(message: String) : IllegalArgumentExce
 /** Own the content fd, ignore advertised lengths, capture to actual EOF. */
 internal object PluginSignatureDocuments {
     private val readers = Semaphore(2)
+    // ZIP streaming shares the same process-wide admission bound. A cancelled
+    // provider keeps its slot until the actual IO worker has exited.
+    internal fun acquireArchiveSlot() = readers.tryAcquire()
+    internal fun releaseArchiveSlot() = readers.release()
     private inline fun demand(value: Boolean, message: () -> String) {
         if (!value) throw PluginSignatureReadFailure(message())
     }

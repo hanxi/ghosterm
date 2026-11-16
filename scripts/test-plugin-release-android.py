@@ -125,7 +125,7 @@ def headless(api, work, environment):
             print('OWNED AVD EXITED ' + str(child.returncode), flush=True)
 
 
-def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False):
+def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False):
     for path in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
         apk = ROOT / 'android/app/build/outputs/apk' / path
         print(path + ' SHA256 ' + hashlib.sha256(apk.read_bytes()).hexdigest(), flush=True)
@@ -138,13 +138,17 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
     if archive:
         classes += ',com.hanxi.ghosterm.PluginReleaseArchiveTest,com.hanxi.ghosterm.PluginReleaseArchiveControllerTest'
         count += 23
+    if archive_ui:
+        classes += ',com.hanxi.ghosterm.PluginArchiveCaptureTest,com.hanxi.ghosterm.PluginArchiveDraftTest,com.hanxi.ghosterm.PluginReleaseDeclarationsTest,com.hanxi.ghosterm.PluginArchivePreviewTest,com.hanxi.ghosterm.PluginArchiveReviewUITest'
+        count += 24
     output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes,
         'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
     if ('OK (' + str(count) + ' tests)') not in output or 'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output:
         raise RuntimeError('Release conformance did not run the complete enabled combination:\n' + output)
     print('RELEASE AUTHENTICATION ' + str(count) + ' TESTS PASS', flush=True)
     if mutate:
-        mutation = ('scripts/mutation-check-android-release-archive.py' if archive else
+        mutation = ('scripts/mutation-check-android-archive-ui.py' if archive_ui else
+            'scripts/mutation-check-android-release-archive.py' if archive else
             'scripts/mutation-check-android-signature-ui.py' if signature_ui else 'scripts/mutation-check-android-release-signature.py')
         driver = subprocess.Popen([sys.executable, '-B', ROOT / mutation],
             cwd=ROOT, env=dict(build_environment, ANDROID_SERIAL=str(selected[-1])), start_new_session=True)
@@ -168,18 +172,20 @@ def main():
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--signature-ui', action='store_true', help='Include documents, draft and actual SAF Settings tests')
     parser.add_argument('--archive', action='store_true', help='Include strict ZIP and signed Core preview conformance')
+    parser.add_argument('--archive-ui', action='store_true', help='Include ZIP capture/draft/declarations/actual SAF UI; implies --archive --signature-ui')
     args = parser.parse_args()
+    if args.archive_ui: args.archive = True; args.signature_ui = True
     (ROOT / 'tmp').mkdir(exist_ok=True)
     environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
     # Explicit enabled build also includes the real Controller/Core snapshot test.
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
     if args.android:
-        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive)
+        execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
-                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive)
+                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 

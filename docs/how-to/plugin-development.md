@@ -911,3 +911,30 @@ SHA256。原始 `verifyDirectorySignature` 仍在 Core 已检查目录身份上�
 DEFLATE、身份不符、完整性不符及 CRC 错误向量；一次性 Node Ed25519 私钥只留在
 生成进程的 KeyObject，输出仅有归档、公钥策略、描述和签名。重新生成须显式运行并
 审查资产差异；生成器不参与产品构建或运行。
+
+### Android ZIP 导入与原生预检
+
+在显式启用插件 JS 的构建中，设置 → 插件包来源 →「检查签名 ZIP…」分别选择 ZIP、
+`release.json`、`release.sig` 和独立取得的渠道策略。页面展示实际捕获字节数 / SHA256，
+确认具体策略快照后才可检查。结果展示签名发布者 / 渠道、包与清单摘要、许可证、
+SDK 声明 / 本机选择、协议声明 / 可用交集、全部权限目的 / 程序，以及完整 Executor
+与依赖声明。后者是包声明，实际远端执行环境与依赖仍须另行核对。
+
+ZIP 从只读 content fd 流式复制到应用私有缓存，每块 16 KiB、上限 72 MiB，按
+实际 EOF / 可靠管道错误 / 文件状态戳检查，不采用提供方声明大小。60 秒为合作
+提供方的读取 / 取消预算，忽略取消的 provider 没有硬期限保证。ZIP 与三份小材料
+共用进程内两个读取名额，直到实际 IO 退出才归还。成功捕获后只保留无文件名的
+只读 fd；取消返回结果的调度同样关闭未交付的 owner，borrow 副本各自持有生命周期。
+页面上的重新选择、收起、离开会清理材料 / 证明与 ZIP owner，不持久化 URI 授权。
+
+检查使用独立 Controller worker 及原主机能力快照，不占用正在运行的 Client pump。
+权限和 Executor 展示只取本次归档的原始 `plugin.json`，先匹配 Core 给出的原始
+manifest SHA256，再做有界严格 JSON / 类型解码；不会从提供方重新读同名清单补值。
+当前页面执行预检，不登记来源、不安装或创建 Session；后续持久安装 / 版本管理另接。
+
+设备专项：`python3 -B scripts/test-plugin-release-android.py --headless-api 36 --archive-ui --mutate`。
+`--archive-ui` 包含原 `--archive --signature-ui` 组合，并增加 ZIP 捕获、草稿、声明、
+独立 Inspector 与真实 MainActivity / DocumentsUI 用例；旧后端 / 页面变异仍用原选项。
+生成完整声明的公开测试向量可显式运行
+`node scripts/fixtures/plugin-release-archive.mjs --declarations` 并将 stdout 保存到测试资产。
+该开关沿用只在进程内持有私钥的生成器，不参与产品运行或放宽原向量。

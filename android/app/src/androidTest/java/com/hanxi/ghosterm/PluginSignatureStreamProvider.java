@@ -23,6 +23,7 @@ public final class PluginSignatureStreamProvider extends ContentProvider {
     private final AtomicInteger cancelled = new AtomicInteger();
     private final java.util.List<ParcelFileDescriptor> writers = new java.util.ArrayList<>();
     private final AtomicInteger opened = new AtomicInteger();
+    private ParcelFileDescriptor shared;
     private File file() { return new File(getContext().getCacheDir(), "signature-stream-public"); }
     @Override public boolean onCreate() { return true; }
     @Override public synchronized Bundle call(String method, String arg, Bundle extras) {
@@ -31,22 +32,37 @@ public final class PluginSignatureStreamProvider extends ContentProvider {
             if ("set".equals(method)) {
                 blocked.countDown(); blocked = new CountDownLatch(1); opening = false; cancelled.set(0); opened.set(0);
                 for (ParcelFileDescriptor writer : writers) writer.close(); writers.clear();
+                if (shared != null) { shared.close(); shared = null; }
                 mode = extras.getString("mode", "regular");
                 byte[] bytes = extras.getByteArray("bytes");
                 if (bytes == null || bytes.length > 200000) throw new IllegalArgumentException();
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(file())) { out.write(bytes); }
+                if (extras.containsKey("size")) {
+                    long size = extras.getLong("size");
+                    if (size < 0 || size > 75497473L) throw new IllegalArgumentException();
+                    try (java.io.RandomAccessFile out = new java.io.RandomAccessFile(file(), "rw")) { out.setLength(size); }
+                }
+                if ("shared".equals(mode)) shared = ParcelFileDescriptor.open(file(), ParcelFileDescriptor.MODE_READ_ONLY);
             } else if ("release".equals(method)) {
                 blocked.countDown();
                 for (ParcelFileDescriptor writer : writers) writer.close(); writers.clear();
+                if (shared != null) { shared.close(); shared = null; }
                 if (!file().delete() && file().exists()) throw new java.io.IOException("cleanup");
             } else if (!"state".equals(method)) throw new IllegalArgumentException();
             result.putBoolean("ok", true); result.putBoolean("opening", opening); result.putInt("cancelled", cancelled.get()); result.putInt("opened", opened.get());
+            if (shared != null) for (String line : java.nio.file.Files.readAllLines(java.nio.file.Paths.get("/proc/self/fdinfo/" + shared.getFd()))) {
+                if (line.startsWith("flags:")) result.putLong("flags", Long.parseLong(line.substring(6).trim(), 8));
+            }
         } catch (Exception failure) { result.putString("error", failure.getClass().getSimpleName()); }
         return result;
     }
     @Override public ParcelFileDescriptor openFile(Uri uri, String access, CancellationSignal signal) throws FileNotFoundException {
         if (!"r".equals(access)) throw new FileNotFoundException("read only");
         opened.incrementAndGet();
+        if ("shared".equals(mode)) {
+            try { return ParcelFileDescriptor.dup(shared.getFileDescriptor()); }
+            catch (java.io.IOException failure) { throw new FileNotFoundException("shared"); }
+        }
         if ("blocked-open".equals(mode)) {
             CountDownLatch waiting = blocked;
             if (signal != null) signal.setOnCancelListener(() -> { cancelled.incrementAndGet(); waiting.countDown(); });

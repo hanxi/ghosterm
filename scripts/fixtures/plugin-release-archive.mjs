@@ -18,6 +18,24 @@ function walk(path, relative = '') {
   }
 }
 walk(root + 'package/');
+if (process.argv.includes('--declarations')) {
+  const manifest = JSON.parse(members.find(([name]) => name === 'plugin.json')[1]);
+  manifest.executor = { variants: [{ id: 'portable', runtime: 'portable-js', entry: 'client/index.js', requires: ['process.spawn'],
+    dependencies: [{ program: 'fixture-worker', versionPolicy: 'range', versionRange: '^1.2.0' }] }] };
+  manifest.permissions = [
+    { side: 'client', capability: 'session.rpc', purpose: 'Review the selected ZIP package without starting a session.', scope: 'instance' },
+    { side: 'executor', capability: 'process.spawn', purpose: 'Run only the separately authorized fixture worker for this instance.', scope: 'instance', programs: ['fixture-worker'] },
+  ];
+  members.find(([name]) => name === 'plugin.json')[1] = Buffer.from(JSON.stringify(manifest));
+  const integrity = JSON.parse(members.find(([name]) => name === 'integrity.json')[1]);
+  for (const member of integrity.members) {
+    const data = members.find(([name]) => name === member.path)[1];
+    member.bytes = data.length; member.sha256 = hash(data);
+  }
+  const bytes = Buffer.from(JSON.stringify(integrity));
+  members.find(([name]) => name === 'integrity.json')[1] = bytes;
+  base.packageSHA256 = hash(bytes);
+}
 function archive(method, corruptIntegrity = false, corruptCRC = false) {
   let offset = 0;
   const locals = [], central = [];

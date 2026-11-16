@@ -31,6 +31,12 @@ internal object PluginReleaseSignature {
         val artifactSHA256: String, val artifactBytes: Long)
     data class Authenticated(val identity: Identity, val proof: Proof)
 
+    /** Bounded strict JSON for display of a raw manifest already attested by Core. */
+    internal fun declarationObject(bytes: ByteArray): org.json.JSONObject {
+        parse(bytes).obj()
+        return org.json.JSONObject(String(bytes, Charsets.UTF_8))
+    }
+
     fun verify(descriptor: ByteArray, signature: ByteArray, trustedPolicy: ByteArray, identity: Identity): Proof {
         val authenticated = authenticate(descriptor, signature, trustedPolicy)
         ensure(authenticated.identity == identity, Failure.IDENTITY)

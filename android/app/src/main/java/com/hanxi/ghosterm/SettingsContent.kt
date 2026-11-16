@@ -228,6 +228,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 if (!extensions.runtimeAvailable) {
                     SettingsNote("当前构建未启用可用的 JavaScript 插件运行时。插件包不会被加载或执行。")
                 } else {
+                    PluginArchiveReviewContent(extensions.controller)
                     SettingsNote("选择一个插件包文件夹进行固定快照与元数据审查。批准只对当前进程中的该包摘要有效；启动命令后仍需单独授权。")
                     Button(onClick=onPickPlugin, enabled=!extensions.busy, modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {
                         Text("选择插件文件夹")

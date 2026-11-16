@@ -9531,3 +9531,114 @@ release-signature-off，最终 710 输入及原 eq 三件再次核对不变。
 清理 **32 个 tmp 顶层项 / 7490 份普通文件 / 190.15 MiB 逻辑大小**；
 AVD 镜像此前由驱动删除，不将逻辑数当 APFS 实际回收量。原始日志 / 收据 / 格式
 工具用后清理，本文保留范围与摘要；只留 eq 三件和 tmp 根目录。
+
+
+### P6 实施第十四批：Android 流式 ZIP 导入与原生完整声明预检（2026-11-16）
+
+Settings 的插件包来源增加独立「检查签名 ZIP…」面板，四个真实 OpenDocument
+请求分别选择归档 / 描述 / 签名 / 渠道策略。展示捕获字节数与原始 SHA256，确认
+具体策略快照后才可检查。结果显示签名发布者 / 渠道、包与清单摘要、许可证、
+Client、SDK 声明 / 本机选择、协议完整声明 / 可用交集、全部权限目的 / 范围 /
+程序、命令及完整 Executor / 依赖 JSON；依赖只是声明，不冒充实际环境可用。
+
+`PluginArchiveCapture` 从只读 content fd / 管道流式写入本次应用私有缓存，单块
+16 KiB、最多 72 MiB，按实际 EOF / 可靠 PFD 错误与普通文件状态戳核对；拒绝
+不足 22 字节、超额、可写句柄、非 content 与不支持的文件类型。源 fd CLOEXEC /
+非阻塞恢复继续用已有 API29 adapter。ZIP 和小材料共用两个进程读取名额，在
+实际 IO 退出后归还；60 秒仅为合作提供方的读取 / 取消预算，未许诺不合作 provider
+的硬期限。成功后删除文件名、只留 0400 / 只读 fd，独立 borrow 副本供检查；未交付
+结果因 dispatcher 取消而丢弃时也关闭 owner，不只清理复制失败路径。
+
+页面草稿绑定 request 对象 / epoch / 本次策略确认。更换输入清旧证明，策略重选
+再清确认；重新选择 ZIP 先释放旧 owner，取消选择保留空槽。关闭 / 收起 / 离页
+取消任务、关闭已选或晚到的捕获，不接收旧异步回包，不持久化 URI 权限。新检查
+采用独立 Controller worker 和复制的 HostProfile，不把大包 IO 放进当前 Client pump；
+检查后在 NonCancellable 收尾关闭独立 worker，原来源 / Session / Runtime 不变。
+
+归档的原始 plugin.json 最多 64 KiB，先完整 Core capture / check 与四字段身份
+核对，再比较 Core 提供的 raw manifest SHA256。只有这些字节能生成展示声明；
+额外严格 JSON / 类型 / 数量校验复用有界词法与树检查，不重读提供方同名路径。
+新 SignedArchiveReview 带声明 DTO，无新 C ABI / Swift / SDK 或运行权限。
+
+测试新增九项真实 provider / fd 捕获、八项受控草稿调度、四项原始声明绑定与类型、
+两项真实 Core / 独立 inspector、一项 MainActivity + DocumentsUI 整链。纯调度回调
+不代替密码学；原签名 / 归档 / Controller / 页面组合仍一并运行。新声明公开向量
+由原生成器的 --declarations 生成，两条权限 / 程序和 Executor 依赖经真实 Core；
+私钥仍只在一次性 Node KeyObject，旧签名向量没有被重生或改写。
+
+首轮 108 项通过后，补实际 dispatcher 排队 / 取消用例，最终组合为 109 项。
+首轮变异三十一组已完成；第三十二组的目标和复原都卡在 DocumentsUI 选择回包，
+属于夹具失败，未计目标红或通过。原动作注入成功不是选择完成。新测试只对文件行
+用稳定可见坐标的真实 finger 触摸，并仍等实际应用窗口与材料回包；公共旧
+SystemDocumentActions 原样保留，未直调导入 API 绕过 SAF。UI 变异还必须匹配具体
+预期断言文本，避免把选包夹具失败计红。修正后完整 109 项及三十三组重新通过；
+旧三十一组不是新增三十三组之外的不同保护，不重复累加。
+
+
+最终 API29 / API36 各 **109 项完整组合通过**：原 85 项与新增 24 项一并执行。
+两端均为显式自建 arm64-v8a / 实测 4096 字节页 / no-window 模拟器；最终安装
+App / 测试 APK SHA256 两轮相同：
+`b14f0033b1dc20120ae2ec077b7a5df04c600f6dced00efec3a36fb13f9709d1` /
+`1abd7f8ed99797b9cf01c14d40e009c001600645ff11b858cf86d3eb97b79b3f`。
+三十三组前的 App APK 为
+`0f26d89dcce6ab78440a0364e46cfb4b56f95d0c0c71fe1b099eb489124bd266`，
+不能将所有分轮都写成同一 App APK。三组 UI 目标分别明确命中确认按钮未启用、
+已核验 ZIP 缺少权限声明、Settings 缺少入口；原选包夹具失败没有混入最终目标红。
+捕获返回调度取消实际观察 fd 0→1 的反例与恢复 0，不把取消回调被调用当 owner
+已关闭。真实 72 MiB / 多一字节、只读 / flags、可靠管道错误和进程共享名额都有
+实际提供方与 fd；调度测试的受控 receipt 不充当密码学 / Core 完成证据。
+
+三十三组逐项实际编译后单条正常断言红、同 APK 独立 Native Core 配置往返绿、
+复原重编译绿与八份生产源 SHA；新旧场景没有删断言换绿。旧目录材料十八组、归档
+二十六组及 C crypto 变异仍为前批证据，不冒称本轮复跑；其完整正常基线在 109
+组合中执行。原读取方法主体、归档布局 / inflate 实现、C / Swift / SDK 均未改。
+
+最终 **720 份**指定 Core / Android / 终端 / packages 输入完整比对一致，表摘要
+`3cbe11936246504263b7816f1c60f7d8458a8ddee147b6405939405409a58bc8`。
+八份生产源 Capture / Model / Declarations / Controller / View / Settings /
+Signature / SignatureDocuments 的摘要依次为：
+`82a100fd23a88a13af830e4f07d8a8fecc5284541bf26e1e4fe45435df3c2b61` /
+`6830e1e13acd63ffab1121c6c5949d16435a4d82387763f2f313aa9d9756017d` /
+`dc436c5bf3f4a108501197d9633f7bf2616ba09dcd0cd9ddf398c97b04fd9668` /
+`3af267108948bc10d6704bcc00e79791a59bbd6743aac961be7653376df407c8` /
+`b2ba03bfbd18ac1fc21c325c7b9489b558091bf5870fce72507ad97689bd3947` /
+`4c2ba8d24e89fa81dc2f092b550228dabd374a4b65754afd74423758bfcadabc` /
+`bf33a7232804c01a7f1e72170af29398cedd392022c3538761867ab5e39913eb` /
+`f3fd48cc2450b146b298e107e0dfaafc200b02817312f270ae9e25f7569b9092`。
+启动器 / 新变异驱动 / 生成器摘要：
+`3b976e842d0685d8f2e14acf5397ce45330f882c9148e39df644b977c2de3dd0` /
+`9875c40293ad1fbc5e514ba7bdaaf320cf09a8f5aa588d48bf37543c0f0fcfb6` /
+`4ac36550c0037b61e47d0a6d1af10dda6704a9d9f06d2e939a23b6a3308e3ae8`，
+新公开资产摘要 `f4dbade1de990e1e944af2624a67dddcd397a0fdf8284ef6602a9f91238a244f`。
+API29 / 最终 API36 / 三十三组驱动日志摘要分别为：
+`9542bba0190d5e87ee530cc352872b7468d5b6a6e29206b6efdaebe7cf22f5a8` /
+`9994f66bf8c58854c32d08f2175396144c66daeae7258ba9205bca73032986c0` /
+`7c48feb4db2cff4bbdb4eb854f24dcfb5f4b92aac2a2b70ec5231e4e465b84b1`。
+
+默认 Core JS-off / tests-on / SSH-on / release-signature-off：**589/589 CTest、185 ABI、
+未实现入口检查通过**；汇总日志 SHA256
+`887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8`。
+它是可重复的汇总文本，不据同摘要判定旧二进制复用或修复早前未明的进程边界失败。
+格式 19.1.7 / 271 文件、Apple 182 引用 / 3 登记未用、JNI 148 / 37、Python AST /
+Node 语法及 diff 检查通过，无新 C ABI，不增加 macOS CI 二十份。
+
+当前只提供预检页，不安装 / 选择版本，不继承来源或 Session。持久发布 / 版本 /
+升级回滚 / 禁用 / 全局策略复核、进程死亡 / 磁盘故障后的归属维护、恶意同 uid 并发、
+不合作 provider 硬期限 / 完整提供方、真实设备 / 16 KiB / 旋转 / 辅助技术 / 大字号 /
+完整客户端仍待完成；默认 JS-off，P6 / P1–P6 未完成，仅本地提交，不推送 / 发行。
+
+
+Android JS-enabled 未签名 Release / 实际 R8 与 app / bridge / data / terminal 四模块
+lint 通过，日志 SHA256
+`397a1bdde814171df69620d5e2bba07bbe745b71ddf2e0b32c6bcfac9baf42b5`。
+最终恢复普通 JS-off Debug / 测试 APK、Release / 四模块 lint 通过，日志 SHA256
+`1b3d4e1d74a5b109c7ac7e12b3e72710c79521e1a392110d9233a0c34e5b8368`；缓存复用部分不称全量重编译。
+最终 720 输入再次比对不变，根 Core 保持 JS-off / tests-on / SSH-on /
+release-signature-off；这些构建不代替签名发行或真实设备矩阵。
+
+
+所属 AVD 全部退出 0、由驱动清理镜像；最终构建后停止本轮两个构建 JVM，旧 JVM /
+虚拟机未动，adb 无在线设备、lsof 只见旧虚拟机持 tmp 根目录 fd。原 eq 三件与最终
+720 输入均复验不变。清理 **32 个 tmp 顶层项 / 7630 份普通文件 / 190.03 MiB
+逻辑大小**；镜像此前已清理，不把逻辑数当 APFS 实际回收量。原始日志 / 收据 /
+格式工具用后移除，本文保留范围与摘要；只留 eq 三件与 tmp 根目录。
