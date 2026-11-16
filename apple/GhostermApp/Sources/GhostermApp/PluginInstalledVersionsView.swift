@@ -10,6 +10,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var notice: String?
     @Published private(set) var removal: ExtensionController.RemovalPreview?
     @Published private(set) var pendingRemoval: ExtensionController.RemovalPreview?
+    @Published private(set) var residues: ExtensionController.InstallationResidues?
     private var generation = UUID()
     @Published var policyPath = "" { didSet { trustedPolicy = false } }
     @Published var trustedPolicy = false
@@ -19,7 +20,9 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         busy = true; defer { busy = false }
         do {
             catalog = try await controller.installedVersions()
-            pendingRemoval = try await controller.pendingVersionRemoval(); issue = nil
+            if catalog?.removalPending == true { pendingRemoval = try await controller.pendingVersionRemoval() }
+            else { pendingRemoval = nil }
+            residues = try await controller.installationResidues(); issue = nil
         }
         catch { catalog = nil; issue = message(error) }
     }
@@ -71,11 +74,33 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             notice = "本次删除 \(value.removed) 个条目；观察到已不存在 \(value.observedAbsent) 个。" +
                 (value.complete ? "回收已完成。" : "删除记录已保留，请显式继续处理。") +
                 (value.durabilityConfirmed ? "" : "持久性未确认，请刷新核对。")
-            if let cleanup = value.cleanupIssue { issue = "磁盘操作已返回；内存登记释放未完成：" + cleanup }
+            if let cleanup = value.cleanupIssue { issue = "目录操作已返回；后续维护未完成：" + cleanup }
         } catch { issue = message(error) }
-        do { catalog = try await controller.installedVersions(); pendingRemoval = try await controller.pendingVersionRemoval() }
+        do {
+            catalog = try await controller.installedVersions(); pendingRemoval = try await controller.pendingVersionRemoval()
+            residues = try await controller.installationResidues()
+        }
         catch { issue = [issue, "刷新失败：" + message(error)].compactMap { $0 }.joined(separator: "\n") }
         return result
+    }
+    func previewResidue(_ value: ExtensionController.InstallationResidue, controller: ExtensionController) async {
+        guard !busy, removal == nil, pendingRemoval == nil else { return }
+        let request = generation
+        busy = true; issue = nil; notice = nil; defer { busy = false }
+        do {
+            let preview = try await controller.previewInstallationResidue(id: value.id, expectedDigest: value.digest)
+            guard request == generation else { await controller.cancelVersionRemoval(id: preview.id); return }
+            removal = preview
+        } catch { if request == generation { issue = message(error) } }
+    }
+    func retireResidue(_ value: ExtensionController.InstallationResidue, controller: ExtensionController) async {
+        guard !busy, removal == nil, pendingRemoval == nil else { return }
+        busy = true; issue = nil; defer { busy = false }
+        do {
+            try await controller.retireInstallationRecord(id: value.id, expectedDigest: value.digest)
+            notice = "已移除完成核对的安装记录；没有删除版本或其它目录。"
+        } catch { issue = message(error) }
+        do { residues = try await controller.installationResidues() } catch { issue = message(error) }
     }
     func cancelPending(_ controller: ExtensionController) async {
         guard !busy, let pendingRemoval else { return }
@@ -151,6 +176,10 @@ struct PluginInstalledVersionsView: View {
                 }
                 if let preview = draft.removal { removalReview(preview, confirmed: false) }
                 if let pending = draft.pendingRemoval { removalReview(pending, confirmed: true) }
+                if let residues = draft.residues {
+                    ForEach(residues.entries) { entry in residueRow(entry) }
+                    ForEach(Array(residues.issues.enumerated()), id: \.offset) { _, issue in Text(issue).foregroundStyle(.red) }
+                }
                 if let issue = draft.issue { Text(issue).foregroundStyle(.red).accessibilityIdentifier("plugin-installed-error") }
                 if let notice = draft.notice { Text(notice).accessibilityIdentifier("plugin-installed-notice") }
                 Text("列表只读本机记录，不认证包自报身份。选择旧版本即显式回滚，也须重新验签和读取内容；不会迁移来源批准、Session 授权或重放操作。禁用仅阻止新建，已运行实例仍持有原快照。")
@@ -163,9 +192,37 @@ struct PluginInstalledVersionsView: View {
             }
         }.onDisappear { if let controller { Task { await draft.cancel(controller) } } }
     }
+    private func residueRow(_ entry: ExtensionController.InstallationResidue) -> some View {
+        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+            Text("安装记录：" + residueState(entry.state)).accessibilityIdentifier("plugin-install-residue-" + entry.id)
+            Text(entry.directory.path).font(DS.Font.caption).textSelection(.enabled)
+            if let target = entry.publishedDirectory { Text("记录的发布目标：" + target.path).font(DS.Font.caption).textSelection(.enabled) }
+            if entry.state == .abandoned {
+                Button("预览此安装暂存的完整内容") {
+                    if let controller { Task { await draft.previewResidue(entry, controller: controller) } }
+                }.disabled(draft.busy || draft.removal != nil || draft.pendingRemoval != nil)
+                    .accessibilityIdentifier("plugin-install-residue-preview-" + entry.id)
+            } else if entry.state == .published || entry.state == .absent {
+                Button("仅移除此条已核对记录（保留目录）") {
+                    if let controller { Task { await draft.retireResidue(entry, controller: controller) } }
+                }.disabled(draft.busy || draft.removal != nil || draft.pendingRemoval != nil)
+                    .accessibilityIdentifier("plugin-install-residue-retire-" + entry.id)
+            }
+        }
+    }
+    private func residueState(_ state: ExtensionController.InstallationResidueState) -> String {
+        switch state {
+        case .active: return "仍在处理，保留暂存"
+        case .abandoned: return "目录身份已匹配，未观察到活动引用；可预览回收"
+        case .published: return "同一目录已在发布目标出现；仅可移除记录"
+        case .absent: return "未在原暂存位置观察到目录；仅可移除记录"
+        case .unconfirmed: return "只有预约，目录归属尚未确认；保留"
+        case .changed: return "目录身份已变化；保留"
+        }
+    }
     private func removalReview(_ preview: ExtensionController.RemovalPreview, confirmed: Bool) -> some View {
         VStack(alignment: .leading, spacing: DS.Padding.xs) {
-            Text(confirmed ? "此前已确认的版本回收尚待核对" : "确认回收此私有版本目录及以下全部内容")
+            Text(confirmed ? "此前已确认的目录回收尚待核对" : "确认回收此私有目录及以下全部内容")
             Text(preview.directory.path).textSelection(.enabled)
             Text("\(preview.files.count) 个成员，\(preview.bytes) 字节；运行引用和内容会在执行前再核对。")
             ScrollView {

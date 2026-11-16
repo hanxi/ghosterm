@@ -22,6 +22,7 @@ final class PluginReleaseStage {
     private var parent: Int32 = -1, root: Int32 = -1
     private var identity = stat(), parentIdentity = stat()
     private var published = false, directories = Set<String>()
+    private var removed = false
     private var visited = 0
     private struct FileStamp: Equatable {
         let device: dev_t, inode: ino_t, size: off_t, mode: mode_t, owner: uid_t, links: nlink_t
@@ -35,14 +36,20 @@ final class PluginReleaseStage {
     }
     private var files: [String: FileStamp] = [:]
     private var verifiedFiles = 0
+    private var journal: PluginInstallJournal?
+    private var journalRecord: PluginInstallJournal.Record?
+    private var journalReference: PluginInstallJournal.Reference?
+    private(set) var maintenanceIssue: String?
     private let parentSync: (Int32) -> Int32
+    private let checkpoint: (String) throws -> Void
     var payloadURL: URL { rootURL.appendingPathComponent(name + "/payload", isDirectory: true) }
 
-    init(directory: URL, parentSync: @escaping (Int32) -> Int32 = { fsync($0) }) throws {
+    init(directory: URL, parentSync: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in }) throws {
         guard directory.isFileURL, directory.path.hasPrefix("/"), directory.path.utf8.count <= 3500,
               !directory.path.utf8.contains(0) else { throw Failure.root }
         rootURL = directory
         self.parentSync = parentSync
+        self.checkpoint = checkpoint
         name = ".prepare-" + UUID().uuidString.lowercased()
         // The application owns this dedicated root; only its final component is
         // created here. Do not silently create a chain through an unknown root.
@@ -67,9 +74,17 @@ final class PluginReleaseStage {
                 let dot = withUnsafePointer(to: &entry.pointee.d_name) {
                     $0.withMemoryRebound(to: CChar.self, capacity: 1024) { String(cString: $0) }
                 }
-                if dot != "." && dot != ".." && dot != PluginReleaseCatalog.selectionName && dot != PluginReleaseCatalog.removalName { count += 1 }
+                if dot != "." && dot != ".." && dot != PluginReleaseCatalog.selectionName && dot != PluginReleaseCatalog.removalName && dot != PluginInstallJournal.directoryName { count += 1 }
                 guard count < 64 else { throw Failure.limit }
             }
+        } catch { Darwin.close(parent); parent = -1; throw error }
+        do {
+            let journal = try PluginInstallJournal(parent: parent, create: true)!
+            let id = String(name.dropFirst(".prepare-".count))
+            journalRecord = try journal.reserve(id: id)
+            journalReference = try journal.read(id).1
+            self.journal = journal
+            try checkpoint("after-reservation")
         } catch { Darwin.close(parent); parent = -1; throw error }
         guard mkdirat(parent, name, 0o700) == 0 else { Darwin.close(parent); parent = -1; throw Failure.io }
         root = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -77,6 +92,21 @@ final class PluginReleaseStage {
             if root >= 0 { Darwin.close(root) }; root = -1
             _ = unlinkat(parent, name, AT_REMOVEDIR); Darwin.close(parent); parent = -1
             throw Failure.io
+        }
+        do {
+            guard flock(root, LOCK_EX | LOCK_NB) == 0 else { throw Failure.busy }
+            try checkpoint("after-directory-creation")
+            var record = journalRecord!
+            record.directory = PluginInstallJournal.Identity(identity)
+            try journal!.write(record, expected: journalReference!.digest)
+            journalRecord = record; journalReference = try journal!.read(record.id).1
+            guard fsync(parent) == 0 else { throw Failure.io }
+            try checkpoint("after-directory-registration")
+        } catch {
+            // An interrupted or failed identity update is retained as unknown;
+            // the reservation alone must never adopt this directory on restart.
+            Darwin.close(root); root = -1; Darwin.close(parent); parent = -1
+            throw error
         }
     }
     deinit { if root >= 0 { Darwin.close(root) }; if parent >= 0 { Darwin.close(parent) } }
@@ -97,7 +127,7 @@ final class PluginReleaseStage {
         let path = open(rootURL.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard path >= 0 else { throw Failure.changed }
         defer { Darwin.close(path) }
-        guard fstat(path, &value) == 0, same(value, parentIdentity) else { throw Failure.changed }
+        guard fstat(path, &value) == 0, same(value, parentIdentity), value.st_mode & 0o077 == 0 else { throw Failure.changed }
     }
     func write(_ data: Data, path: String, executable: Bool = false) throws {
         try validate()
@@ -120,6 +150,7 @@ final class PluginReleaseStage {
         let output = openat(fd, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard output >= 0 else { throw Failure.io }
         defer { Darwin.close(output) }
+        try checkpoint("after-file-create")
         try data.withUnsafeBytes { buffer in
             var at = 0
             while at < buffer.count {
@@ -132,6 +163,7 @@ final class PluginReleaseStage {
         var value = stat()
         guard fstat(output, &value) == 0 else { throw Failure.io }
         files[path] = FileStamp(value)
+        try checkpoint("after-file-write")
     }
 
     /// Atomic, non-overwriting publication. A failed parent fsync after rename
@@ -144,22 +176,40 @@ final class PluginReleaseStage {
         guard verifiedFiles == files.count else { throw Failure.changed }
         try validate()
         try beforeRename?()
+        if var record = journalRecord, let journal, let reference = journalReference {
+            record.target = id
+            try journal.write(record, expected: reference.digest)
+            journalRecord = record; journalReference = try journal.read(record.id).1
+        }
+        try checkpoint("before-publication-rename")
         guard renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL)) == 0 else {
             throw errno == EEXIST ? Failure.conflict : Failure.io
         }
         published = true
         name = id
+        try checkpoint("after-publication-rename")
         let durable = parentSync(parent) == 0
+        try checkpoint("after-publication-sync")
+        if durable, let journal, let reference = journalReference {
+            do { try journal.retire(reference) }
+            catch { maintenanceIssue = "版本已发布；安装归属记录保留待核对：\(error)" }
+        } else if !durable { maintenanceIssue = "发布目录持久性未确认，安装归属记录已保留。" }
+        _ = flock(root, LOCK_UN)
         _ = flock(parent, LOCK_UN)
         return (rootURL.appendingPathComponent(id, isDirectory: true), durable)
     }
     func discard() throws {
         if published { return }
-        try validate()
-        visited = 0
-        try walk(root, removing: true)
-        try validate()
-        guard unlinkat(parent, name, AT_REMOVEDIR) == 0 else { throw Failure.io }
+        if !removed {
+            try validate()
+            visited = 0
+            try walk(root, removing: true)
+            try validate()
+            guard unlinkat(parent, name, AT_REMOVEDIR) == 0 else { throw Failure.io }
+            removed = true
+        }
+        guard fsync(parent) == 0 else { throw Failure.io }
+        if let journal, let reference = journalReference { try journal.retire(reference) }
         published = true // no longer owns a live name
         _ = flock(parent, LOCK_UN)
     }

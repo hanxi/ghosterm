@@ -128,6 +128,7 @@ struct PluginReleaseInstallView: View {
                     Text(result.durabilityConfirmed ? "已安装为独立只读版本" : "版本已发布，但目录持久性确认失败，请保留此结果核对")
                         .accessibilityIdentifier("plugin-release-installed")
                     Text(result.directory.path).font(DS.Font.caption).textSelection(.enabled)
+                    if let issue = result.maintenanceIssue { Text(issue).foregroundStyle(.orange) }
                 }
                 if let issue = draft.issue {
                     Text(issue).foregroundStyle(.red).accessibilityIdentifier("plugin-release-error")

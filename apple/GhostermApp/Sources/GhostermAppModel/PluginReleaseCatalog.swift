@@ -153,7 +153,7 @@ final class PluginReleaseCatalog {
             errno = 0
             guard let item = readdir(stream) else { guard errno == 0 else { throw Failure.io }; break }
             let name = withUnsafePointer(to: &item.pointee.d_name) { $0.withMemoryRebound(to: CChar.self, capacity: 1024) { String(cString: $0) } }
-            if name == "." || name == ".." || name == Self.selectionName || name == Self.removalName { continue }
+            if name == "." || name == ".." || name == Self.selectionName || name == Self.removalName || name == PluginInstallJournal.directoryName { continue }
             count += 1; guard count <= 128 else { throw Failure.invalid }
             guard Self.digest(name) else { maintenance += 1; continue }
             do {
@@ -245,6 +245,11 @@ final class PluginReleaseCatalog {
             Darwin.close(root); throw Failure.changed
         }
         return root
+    }
+    func journalRoot() throws -> Int32 {
+        try validate()
+        let copy = fcntl(fd, F_DUPFD_CLOEXEC, 3)
+        guard copy >= 0 else { throw Failure.io }; return copy
     }
     func hasPendingRemoval() throws -> Bool {
         try validate()

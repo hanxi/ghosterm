@@ -20,6 +20,9 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
         let regressionErrors: [String]?
         let journalSHA: String?
         let survivors: [String: String]
+        let descriptor: String?
+        let residueState: String?
+        let removalID: String?
     }
     private enum ProbeError: Error { case request, io, continuation }
     private func emit(_ kind: String, _ value: [String: Any]) throws {
@@ -45,6 +48,7 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
     private func errorKey(_ error: Error) -> String? {
         if let error = error as? PluginReleaseRemoval.Failure { return "removal." + error.rawValue }
         if let error = error as? PluginReleaseCatalog.Failure { return "catalog." + error.rawValue }
+        if let error = error as? PluginReleaseStage.Failure { return "stage." + error.rawValue }
         if let error = error as? PluginDirectorySignatureVerifier.Failure { return "json." + error.rawValue }
         return nil
     }
@@ -68,7 +72,7 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
         XCTAssertEqual(catalog.selections.first?.enabled, false)
         let pending = try await controller.pendingVersionRemoval()
         XCTAssertEqual(pending != nil, request.pending)
-        if request.pending { XCTAssertEqual(pending?.releaseID, request.releaseID) }
+        if request.pending { XCTAssertEqual(pending?.releaseID, request.removalID ?? request.releaseID) }
         if let expected = request.journalSHA {
             XCTAssertEqual(sha(root.appendingPathComponent(PluginReleaseCatalog.removalName)), expected, "inspection must not replay or rewrite deletion")
         }
@@ -99,7 +103,35 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
               String(info.st_dev) == request.device, String(info.st_ino) == request.inode else { throw ProbeError.request }
         let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: [], capabilities: []),
             installationDirectory: root)
-        if request.action == "inspect" {
+        if request.action == "stage-gc-begin" {
+            var stage: PluginReleaseStage? = try PluginReleaseStage(directory: root)
+            try stage!.write(Data("retained".utf8), path: "payload/file")
+            stage = nil
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: root, exclusive: true))
+            let fd = try owner.journalRoot(); defer { Darwin.close(fd) }
+            let journal = try XCTUnwrap(PluginInstallJournal(parent: fd))
+            let reference = try XCTUnwrap(journal.listing().entries.first).reference
+            let removal = try PluginReleaseRemoval(owner: owner, releaseID: reference.digest, expectedRevision: request.revision,
+                checkpoint: { if $0 == "after-unlink" { try self.pause("after-unlink", request: request) } }, stage: reference)
+            _ = try removal.confirm(owner: owner)
+            XCTFail("the driver must kill this staging cleanup owner")
+        } else if request.action == "stage-begin" {
+            guard let point = request.point, let descriptor = request.descriptor,
+                  ["after-reservation", "after-directory-creation", "after-directory-registration", "after-file-create", "after-file-write", "before-publication-rename", "after-publication-rename", "after-publication-sync"].contains(point) else { throw ProbeError.request }
+            let stage = try PluginReleaseStage(directory: root, checkpoint: { if $0 == point { try self.pause(point, request: request) } })
+            try stage.write(Data("retained".utf8), path: "payload/file.txt")
+            try stage.write(Data(descriptor.utf8), path: "release.json")
+            try stage.write(Data(repeating: 0, count: 64), path: "release.sig")
+            try stage.write(Data("{}".utf8), path: "policy.json")
+            _ = try stage.publish(id: request.releaseID)
+            XCTFail("the driver must kill this staging owner")
+        } else if request.action == "stage-inspect" {
+            let inventory = try await controller.installationResidues()
+            XCTAssertTrue(inventory.issues.isEmpty); XCTAssertEqual(inventory.entries.count, 1)
+            XCTAssertEqual(inventory.entries.first?.state.rawValue, request.residueState)
+            assertSurvivors(request, root: root)
+            try emit("RESULT", ["nonce": nonce, "action": request.action, "pid": getpid(), "state": inventory.entries.first?.state.rawValue ?? "missing"])
+        } else if request.action == "inspect" {
             try await observe(request, controller: controller, root: root)
         } else if request.action == "begin" {
             guard let point = request.point, ["before-intent", "after-intent", "after-detach", "after-unlink", "before-clear"].contains(point) else { throw ProbeError.request }
@@ -124,6 +156,20 @@ final class PluginRemovalProcessProbeTests: XCTestCase {
             do {
                 var result: [String: Any] = ["nonce": nonce, "action": request.action, "pid": getpid()]
                 switch request.action {
+                case "stage-clean", "stage-retire", "stage-preview-denied":
+                    let inventory = try await controller.installationResidues()
+                    XCTAssertTrue(inventory.issues.isEmpty); XCTAssertEqual(inventory.entries.count, 1)
+                    guard let entry = inventory.entries.first else { throw ProbeError.request }
+                    if request.action == "stage-retire" {
+                        try await controller.retireInstallationRecord(id: entry.id, expectedDigest: entry.digest)
+                        result["retired"] = true
+                    } else {
+                        let preview = try await controller.previewInstallationResidue(id: entry.id, expectedDigest: entry.digest)
+                        let value = try await controller.confirmVersionRemoval(id: preview.id)
+                        XCTAssertTrue(value.complete && value.durabilityConfirmed); XCTAssertNil(value.cleanupIssue)
+                        XCTAssertEqual(value.removed, request.removed); XCTAssertEqual(value.observedAbsent, request.absent)
+                        result["removed"] = value.removed
+                    }
                 case "preview-cancel":
                     let value = try await controller.previewVersionRemoval(releaseID: request.releaseID, expectedRevision: request.revision)
                     await controller.cancelVersionRemoval(id: value.id)

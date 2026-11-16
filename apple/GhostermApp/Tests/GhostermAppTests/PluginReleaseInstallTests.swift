@@ -39,7 +39,13 @@ final class PluginReleaseInstallTests: XCTestCase {
     }
     private func names(_ root: URL) throws -> [String] {
         guard FileManager.default.fileExists(atPath: root.path) else { return [] }
-        return try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        if names.contains(PluginInstallJournal.directoryName) {
+            var value = stat()
+            XCTAssertEqual(lstat(root.appendingPathComponent(PluginInstallJournal.directoryName).path, &value), 0)
+            XCTAssertEqual(value.st_mode & S_IFMT, S_IFDIR); XCTAssertEqual(value.st_mode & 0o077, 0)
+        }
+        return names.filter { $0 != PluginInstallJournal.directoryName }
     }
     private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
@@ -53,8 +59,10 @@ final class PluginReleaseInstallTests: XCTestCase {
         XCTAssertFalse(try names(store).contains(prepared.signature.descriptorSHA256))
         let resolution = try await controller.resolve(command: "preview", selectedID: prepared.review.id, selectedDigest: prepared.review.digest)
         XCTAssertNotEqual(resolution.status, 0, "preparation must not expose the package to resolution")
-        try await controller.discardPreparedRelease(id: prepared.id)
+        do { try await controller.discardPreparedRelease(id: prepared.id) }
+        catch { XCTFail("cancel must finish owned namespace and journal cleanup: \(error)"); return }
         XCTAssertEqual(try names(store), [], "cancel must remove the owned stage")
+        let records = try await controller.installationResidues(); XCTAssertTrue(records.entries.isEmpty); XCTAssertTrue(records.issues.isEmpty)
         do { _ = try await controller.installPreparedRelease(id: prepared.id); XCTFail("cancelled preparation installed") } catch {}
         let closed = await controller.close(); XCTAssertTrue(closed)
     }

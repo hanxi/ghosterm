@@ -106,6 +106,7 @@ public actor ExtensionController {
         public let signature: PluginDirectorySignature
         public let directory: URL
         public let durabilityConfirmed: Bool
+        public var maintenanceIssue: String? = nil
     }
     public struct InstallCleanupError: Error, LocalizedError, Sendable {
         public let directory: URL
@@ -158,6 +159,17 @@ public actor ExtensionController {
         public let removed: Int, observedAbsent: Int
         public let complete: Bool, durabilityConfirmed: Bool
         public let cleanupIssue: String?
+    }
+    public enum InstallationResidueState: String, Sendable { case active, abandoned, published, absent, unconfirmed, changed }
+    public struct InstallationResidue: Sendable, Equatable, Identifiable {
+        public let id: String, digest: String
+        public let directory: URL
+        public let state: InstallationResidueState
+        public let publishedDirectory: URL?
+    }
+    public struct InstallationResidues: Sendable, Equatable {
+        public let entries: [InstallationResidue]
+        public let issues: [String]
     }
 
     public struct Resolution: Sendable, Equatable {
@@ -389,6 +401,13 @@ public actor ExtensionController {
     public func confirmVersionRemoval(id: String) async throws -> RemovalResult { try await worker.confirmVersionRemoval(id: id) }
     public func resumeVersionRemoval(id: String) async throws -> RemovalResult { try await worker.resumeVersionRemoval(id: id) }
     public func pendingVersionRemoval() async throws -> RemovalPreview? { try await worker.pendingVersionRemoval() }
+    public func installationResidues() async throws -> InstallationResidues { try await worker.installationResidues() }
+    public func previewInstallationResidue(id: String, expectedDigest: String) async throws -> RemovalPreview {
+        try await worker.previewInstallationResidue(id: id, expectedDigest: expectedDigest)
+    }
+    public func retireInstallationRecord(id: String, expectedDigest: String) async throws {
+        try await worker.retireInstallationRecord(id: id, expectedDigest: expectedDigest)
+    }
     public func cancelPendingVersionRemoval(id: String) async throws -> Bool { try await worker.cancelPendingVersionRemoval(id: id) }
     public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
         try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
@@ -766,6 +785,48 @@ public actor ExtensionController {
                     files: preview.members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) }, bytes: preview.bytes)
             }
         }
+        func installationResidues() async throws -> InstallationResidues {
+            try await perform {
+                try self.checkOpen()
+                guard let owner = try self.catalogOwner(exclusive: false) else { return InstallationResidues(entries: [], issues: []) }
+                let root = try owner.journalRoot(); defer { Darwin.close(root) }
+                guard let journal = try PluginInstallJournal(parent: root) else { return InstallationResidues(entries: [], issues: []) }
+                let listing = try journal.listing()
+                return InstallationResidues(entries: listing.entries.map { entry in
+                    InstallationResidue(id: entry.reference.id, digest: entry.reference.digest,
+                        directory: owner.url.appendingPathComponent(entry.reference.name),
+                        state: InstallationResidueState(rawValue: entry.state.rawValue)!,
+                        publishedDirectory: entry.target.map { owner.url.appendingPathComponent($0) })
+                }, issues: listing.issues)
+            }
+        }
+        func previewInstallationResidue(id: String, expectedDigest: String) async throws -> RemovalPreview {
+            try await perform {
+                try self.checkOpen()
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let root = try owner.journalRoot(); defer { Darwin.close(root) }
+                guard let journal = try PluginInstallJournal(parent: root) else { throw PluginReleaseStage.Failure.changed }
+                let reference = try journal.read(id).1
+                guard reference.digest == expectedDigest else { throw PluginReleaseStage.Failure.changed }
+                let preview = try PluginReleaseRemoval(owner: owner, releaseID: reference.digest,
+                    expectedRevision: owner.selection().revision, stage: reference)
+                self.removalPreview = preview
+                return RemovalPreview(id: preview.id, releaseID: reference.digest, directory: preview.directory,
+                    files: preview.members.map { RemovalPreview.File(path: $0.path, directory: $0.directory, bytes: $0.bytes, sha256: $0.sha256) }, bytes: preview.bytes)
+            }
+        }
+        func retireInstallationRecord(id: String, expectedDigest: String) async throws {
+            try await perform {
+                try self.checkOpen()
+                guard let owner = try self.catalogOwner(exclusive: true), try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
+                let root = try owner.journalRoot(); defer { Darwin.close(root) }
+                guard let journal = try PluginInstallJournal(parent: root) else { throw PluginReleaseStage.Failure.changed }
+                let reference = try journal.read(id).1
+                guard reference.digest == expectedDigest else { throw PluginReleaseStage.Failure.changed }
+                try journal.retire(reference)
+            }
+        }
         func pendingVersionRemoval() async throws -> RemovalPreview? {
             try await perform {
                 try self.checkOpen()
@@ -787,9 +848,16 @@ public actor ExtensionController {
         func cancelVersionRemoval(id: String) async {
             _ = try? await perform { if self.removalPreview?.id == id { self.removalPreview = nil } }
         }
-        private func removalResult(_ result: PluginReleaseRemoval.Result) -> RemovalResult {
+        private func removalResult(_ result: PluginReleaseRemoval.Result, owner: PluginReleaseCatalog) -> RemovalResult {
             var cleanupIssue: String?
-            for key in Array(packages.keys) where packages[key]?.managedReleaseID == result.releaseID {
+            if result.complete, let reference = result.stage {
+                do {
+                    let root = try owner.journalRoot(); defer { Darwin.close(root) }
+                    guard let journal = try PluginInstallJournal(parent: root) else { throw PluginReleaseStage.Failure.changed }
+                    try journal.retire(reference)
+                } catch { cleanupIssue = "目录操作已完成，安装归属记录保留待核对：\(error)" }
+            }
+            for key in Array(packages.keys) where result.stage == nil && packages[key]?.managedReleaseID == result.releaseID {
                 guard var record = packages[key] else { continue }
                 record.source = .unknown; record.approvalGeneration = nil; packages[key] = record
                 if result.complete, key != runtimePackageKey, key != sessionPackageKey {
@@ -812,7 +880,7 @@ public actor ExtensionController {
                 guard let preview = self.removalPreview, preview.id == id else { throw PluginReleaseRemoval.Failure.changed }
                 defer { self.removalPreview = nil }
                 guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
-                return try self.removalResult(preview.confirm(owner: owner))
+                return try self.removalResult(preview.confirm(owner: owner), owner: owner)
             }
         }
         func resumeVersionRemoval(id: String) async throws -> RemovalResult {
@@ -821,7 +889,7 @@ public actor ExtensionController {
                 guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
                 guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
                 guard try PluginReleaseRemoval.pendingPreview(owner: owner)?.0 == id else { throw PluginReleaseRemoval.Failure.changed }
-                return try self.removalResult(PluginReleaseRemoval.resume(owner: owner))
+                return try self.removalResult(PluginReleaseRemoval.resume(owner: owner), owner: owner)
             }
         }
 
@@ -902,7 +970,7 @@ public actor ExtensionController {
                 else { try? pending.record.package.close() }
                 return InstalledRelease(review: review, signature: pending.value.signature,
                     directory: result.directory.appendingPathComponent("payload", isDirectory: true),
-                    durabilityConfirmed: result.durabilityConfirmed)
+                    durabilityConfirmed: result.durabilityConfirmed, maintenanceIssue: pending.stage.maintenanceIssue)
             }
         }
         func discardPreparedRelease(id: String) async throws {

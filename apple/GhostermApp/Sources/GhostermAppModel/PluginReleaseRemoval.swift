@@ -45,6 +45,8 @@ final class PluginReleaseRemoval {
         let operation, releaseID, tombstone: String
         let revision: String?
         let root, version: Stamp
+        var stage: PluginInstallJournal.Reference? = nil
+        var originalName: String { stage?.name ?? releaseID }
     }
     struct Result: Sendable, Equatable {
         let releaseID: String
@@ -52,6 +54,7 @@ final class PluginReleaseRemoval {
         let observedAbsent: Int
         let complete: Bool
         let durabilityConfirmed: Bool
+        var stage: PluginInstallJournal.Reference? = nil
     }
     let id = UUID().uuidString
     let directory: URL
@@ -70,7 +73,7 @@ final class PluginReleaseRemoval {
         let root = try owner.removalRoot(); defer { Darwin.close(root) }
         let (header, members, _) = try readIntent(root)
         guard header.root.sameObject(try statFD(root)) else { throw Failure.changed }
-        let name = try namedStamp(root, header.tombstone) == nil ? header.releaseID : header.tombstone
+        let name = try namedStamp(root, header.tombstone) == nil ? header.originalName : header.tombstone
         return (header.operation, header.releaseID, owner.url.appendingPathComponent(name), members)
     }
     static func cancelPending(owner: PluginReleaseCatalog, id: String) throws -> Bool {
@@ -81,7 +84,7 @@ final class PluginReleaseRemoval {
             guard detached.sameObject(header.version) else { throw Failure.changed }
             throw Failure.started
         }
-        let handle = try owner.openVersion(header.releaseID)
+        let handle = try source(owner: owner, header: header)
         guard try statFD(handle.fd) == header.version,
               try scan(handle.fd, device: header.root.device) == members else { throw Failure.changed }
         try clearIntent(root, expected: header, members: members)
@@ -89,12 +92,20 @@ final class PluginReleaseRemoval {
     }
 
     init(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?,
-         synchronize: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in }) throws {
+         synchronize: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in },
+         stage: PluginInstallJournal.Reference? = nil) throws {
         guard try !owner.hasPendingRemoval() else { throw Failure.pending }
         let selection = try owner.selection()
         guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
-        guard !selection.choices.values.contains(where: { $0.releaseID == releaseID && $0.enabled }) else { throw Failure.enabled }
-        let handle = try owner.openVersion(releaseID)
+        guard stage != nil || !selection.choices.values.contains(where: { $0.releaseID == releaseID && $0.enabled }) else { throw Failure.enabled }
+        let handle: PluginReleaseCatalog.VersionHandle
+        if let stage {
+            guard stage.digest == releaseID else { throw Failure.invalid }
+            let root = try owner.removalRoot(); defer { Darwin.close(root) }
+            guard let journal = try PluginInstallJournal(parent: root) else { throw Failure.invalid }
+            let (current, opened) = try journal.openAbandoned(id: stage.id, expected: stage.digest)
+            guard current == stage else { throw Failure.changed }; handle = opened
+        } else { handle = try owner.openVersion(releaseID) }
         guard try handle.exclusiveUse() else { throw Failure.occupied }
         let root = try owner.removalRoot()
         do {
@@ -102,9 +113,9 @@ final class PluginReleaseRemoval {
             guard rootStamp.device == versionStamp.device else { throw Failure.invalid }
             members = try Self.scan(handle.fd, device: rootStamp.device)
             let operation = UUID().uuidString.lowercased()
-            header = Header(schema: 1, operation: operation, releaseID: releaseID,
-                tombstone: ".removing-" + operation, revision: selection.revision, root: rootStamp, version: versionStamp)
-            self.root = root; version = handle; directory = owner.url.appendingPathComponent(releaseID)
+            header = Header(schema: stage == nil ? 1 : 2, operation: operation, releaseID: releaseID,
+                tombstone: ".removing-" + operation, revision: selection.revision, root: rootStamp, version: versionStamp, stage: stage)
+            self.root = root; version = handle; directory = owner.url.appendingPathComponent(stage?.name ?? releaseID)
             self.synchronize = synchronize; self.checkpoint = checkpoint
         } catch { Darwin.close(root); throw error }
     }
@@ -113,7 +124,8 @@ final class PluginReleaseRemoval {
         let currentRoot = try owner.removalRoot(); defer { Darwin.close(currentRoot) }
         guard header.root.sameObject(try Self.statFD(currentRoot)), try !owner.hasPendingRemoval() else { throw Failure.changed }
         try Self.requireDisabled(owner, header: header, checkRevision: true)
-        guard try Self.namedStamp(root, header.releaseID) == header.version,
+        try Self.verifyStage(root, header: header)
+        guard try Self.namedStamp(root, header.originalName) == header.version,
               try Self.scan(version.fd, device: header.root.device) == members else { throw Failure.changed }
         try checkpoint("before-intent")
         try Self.writeIntent(root: root, header: header, members: members)
@@ -137,9 +149,10 @@ final class PluginReleaseRemoval {
         defer { if !transferred { Darwin.close(root) } }
         let (header, members, _) = try readIntent(root)
         guard header.root.sameObject(try statFD(root)) else { throw Failure.changed }
+        try verifyStage(root, header: header)
         try requireDisabled(owner, header: header, checkRevision: false)
         let detached = try namedStamp(root, header.tombstone)
-        let original = try namedStamp(root, header.releaseID)
+        let original = try namedStamp(root, header.originalName)
         let name: String
         if let detached {
             guard detached.sameObject(header.version) else { throw Failure.changed }
@@ -147,12 +160,12 @@ final class PluginReleaseRemoval {
         } else if let original {
             guard original.sameObject(header.version) else { throw Failure.changed }
             try requireDisabled(owner, header: header, checkRevision: true)
-            name = header.releaseID
+            name = header.originalName
         } else {
             // Observation after an interruption is not proof that we deleted it.
-            guard synchronize(root) == 0 else { return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: false, durabilityConfirmed: false) }
+            guard synchronize(root) == 0 else { return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: false, durabilityConfirmed: false, stage: header.stage) }
             try clearIntent(root, expected: header, members: members)
-            return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: true, durabilityConfirmed: synchronize(root) == 0)
+            return Result(releaseID: header.releaseID, removed: 0, observedAbsent: members.count + 1, complete: true, durabilityConfirmed: synchronize(root) == 0, stage: header.stage)
         }
         let fd = openat(root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw Failure.changed }
@@ -176,8 +189,8 @@ final class PluginReleaseRemoval {
         }
         let absent = members.count - current.count
         if !alreadyDetached {
-            guard try Self.namedStamp(root, header.releaseID)?.sameObject(header.version) == true else { throw Failure.changed }
-            guard renameatx_np(root, header.releaseID, root, header.tombstone, UInt32(RENAME_EXCL)) == 0 else { throw Failure.io }
+            guard try Self.namedStamp(root, header.originalName)?.sameObject(header.version) == true else { throw Failure.changed }
+            guard renameatx_np(root, header.originalName, root, header.tombstone, UInt32(RENAME_EXCL)) == 0 else { throw Failure.io }
         }
         guard synchronize(root) == 0 else { return result(0, absent, false, false) }
         try checkpoint("after-detach")
@@ -208,12 +221,24 @@ final class PluginReleaseRemoval {
         return result(removed, absent, true, synchronize(root) == 0)
     }
     private func result(_ removed: Int, _ absent: Int, _ complete: Bool, _ durable: Bool) -> Result {
-        Result(releaseID: header.releaseID, removed: removed, observedAbsent: absent, complete: complete, durabilityConfirmed: durable)
+        Result(releaseID: header.releaseID, removed: removed, observedAbsent: absent, complete: complete, durabilityConfirmed: durable, stage: header.stage)
     }
     private static func requireDisabled(_ owner: PluginReleaseCatalog, header: Header, checkRevision: Bool) throws {
         let choice = try owner.selection()
         guard !checkRevision || choice.revision == header.revision else { throw PluginReleaseCatalog.Failure.conflict }
-        guard !choice.choices.values.contains(where: { $0.releaseID == header.releaseID && $0.enabled }) else { throw Failure.enabled }
+        guard header.stage != nil || !choice.choices.values.contains(where: { $0.releaseID == header.releaseID && $0.enabled }) else { throw Failure.enabled }
+    }
+    private static func verifyStage(_ root: Int32, header: Header) throws {
+        guard let stage = header.stage else { return }
+        guard let journal = try PluginInstallJournal(parent: root) else { throw Failure.invalid }
+        try journal.verify(stage)
+    }
+    private static func source(owner: PluginReleaseCatalog, header: Header) throws -> PluginReleaseCatalog.VersionHandle {
+        guard let stage = header.stage else { return try owner.openVersion(header.releaseID) }
+        let root = try owner.removalRoot(); defer { Darwin.close(root) }
+        guard let journal = try PluginInstallJournal(parent: root) else { throw Failure.invalid }
+        let (reference, handle) = try journal.openAbandoned(id: stage.id, expected: stage.digest)
+        guard reference == stage else { throw Failure.changed }; return handle
     }
     private static func statFD(_ fd: Int32) throws -> Stamp {
         var s = stat()
@@ -319,23 +344,27 @@ final class PluginReleaseRemoval {
         let lines = raw.split(separator: 10, omittingEmptySubsequences: false)
         guard lines.count >= 2, lines.count <= 4098, lines.last?.isEmpty == true else { throw Failure.invalid }
         let decoder = JSONDecoder()
-        func decode<T: Decodable>(_ type: T.Type, _ line: Data.SubSequence, keys: Set<String>, optional: String) throws -> T {
+        func decode<T: Decodable>(_ type: T.Type, _ line: Data.SubSequence, keys: Set<String>, optional: Set<String>) throws -> T {
             guard line.count <= 16384 else { throw Failure.invalid }
             let object = try ReleaseJSON.parse(Data(line)).object(), actual = Set(object.keys)
-            guard actual == keys || actual == keys.union([optional]) else { throw Failure.invalid }
+            guard actual.subtracting(optional) == keys else { throw Failure.invalid }
             let stampKeys: Set<String> = ["device", "inode", "uid", "mode", "links", "size", "modified", "changed", "born"]
             for key in ["root", "version", "stamp"] where object[key] != nil {
                 guard Set(try object[key]!.object().keys) == stampKeys else { throw Failure.invalid }
             }
+            if let stage = object["stage"] { guard Set(try stage.object().keys) == ["id", "name", "digest"] else { throw Failure.invalid } }
             return try decoder.decode(type, from: Data(line))
         }
-        let header = try decode(Header.self, lines[0], keys: ["schema", "operation", "releaseID", "tombstone", "root", "version"], optional: "revision")
-        guard header.schema == 1, UUID(uuidString: header.operation) != nil,
+        let header = try decode(Header.self, lines[0], keys: ["schema", "operation", "releaseID", "tombstone", "root", "version"], optional: ["revision", "stage"])
+        guard (header.schema == 1 && header.stage == nil) || (header.schema == 2 && header.stage != nil), UUID(uuidString: header.operation) != nil,
               PluginReleaseCatalog.digest(header.releaseID), header.tombstone == ".removing-" + header.operation,
               header.revision == nil || PluginReleaseCatalog.digest(header.revision!) else { throw Failure.invalid }
+        if let stage = header.stage {
+            guard UUID(uuidString: stage.id) != nil, stage.name == ".prepare-" + stage.id.lowercased(), stage.digest == header.releaseID else { throw Failure.invalid }
+        }
         var members: [Member] = [], paths = Set<String>(), bytes: Int64 = 0
         for line in lines.dropFirst().dropLast() {
-            let member = try decode(Member.self, line, keys: ["path", "directory", "stamp"], optional: "sha256")
+            let member = try decode(Member.self, line, keys: ["path", "directory", "stamp"], optional: ["sha256"])
             guard validPath(member.path), paths.insert(member.path).inserted,
                   member.directory ? member.sha256 == nil : member.sha256.map(PluginReleaseCatalog.digest) == true,
                   let size = Int64(member.stamp.size), size >= 0, size <= (member.directory ? Int64.max : 16777216) else { throw Failure.invalid }
