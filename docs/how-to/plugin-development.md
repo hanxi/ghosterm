@@ -497,6 +497,35 @@ Host 关闭长会话后远端结果仍为 unknown / 退出码 7，不能记成�
 原会话面板 / 布局保护、原生 Release / lint 或完整手机 / 输入法 / 生命周期验收，也
 不增加 macOS CI 二十份。临时内容均放工程 `tmp/`，核对收据后及时清理本轮内容。
 
+## Android 静态 HTML 预览
+
+收到的 `text/html` 默认进入原生 WebView，可显式切换查看源码。文档最多 256 KiB，
+只映射它后面、下一份 HTML / Markdown 文档之前的前六个显式附件，且必须位于同一
+文档目录范围；不扫描磁盘。文档与附件核对已知长度和 SHA256，CSS 最多 256 KiB，
+单附件最多 1 MiB。PNG / JPEG / GIF / WebP 的首帧重编码成静态 PNG，单边最多
+2048、整包最多 4,194,304 个解码像素；不接受 SVG、歧义同名或无效 UTF-8。
+
+每个视图使用独立的合成 HTTPS origin，唯一主文档和固定 CSS / 图片由本机拦截器
+返回，未映射请求一律拒绝。脚本、网络回退、文件 / content 读取、导航、表单提交、
+下载、文件选择和权限请求不开放；内联样式受 `style-src 'self'` 限制。WebView 不设
+JS 桥，不取终端焦点 / IME。切换源码 / 资源、附件变化和移除面板会销毁旧视图，
+撤销后续附件读取；它不承诺擦除已在途回包或浏览器进程的物理内存。
+
+沿用上节 JS-enabled APK 与 gterm，以下专项经真实 SAF 选包、来源批准、双跳 SSH、
+会话批准，检查生产设置页的 HTML / CSS / PNG 屏幕像素、资源切换及停止 / 释放：
+
+```sh
+python3 -B scripts/test-plugin-preview-android.py --android "$ANDROID_SERIAL" --gterm tmp/plugin-pane/gterm/gterm --preview-format html --test com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopHtmlAppearsInMainActivitySettings
+ANDROID_SERIAL="$ANDROID_SERIAL" python3 -B scripts/mutation-check-android-html.py
+```
+
+同类另有 `realTwoHopHtmlReturnsToSamePtyWithOpenIme` 和
+`realTwoHopHtmlReturnsToSamePtyWithoutSummoningHiddenIme`，增加原 PTY / 实际 IME 往返。
+HTML 变异脚本默认 21 组，`--case` 可重复选组；每组要求真实编译后单条正常断言红、
+同 APK 独立 Core 绿、恢复重编绿与 SHA256。启动 / 编译 / 崩溃 / 日志传输异常不计红。
+记录实际系统与 WebView 版本，专项不替代完整格式 / 生命周期 / 设备矩阵，不增加
+macOS CI 二十份；核对收据后清理本轮 `tmp/`。
+
 ## 离线签名发布候选
 
 `gterm-plugin release sign / verify` 是 P6 的开发工具首片，生成 / 检查候选发布包，

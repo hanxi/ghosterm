@@ -99,9 +99,34 @@ class PluginPreviewSettingsE2ETest {
     @Test fun realTwoHopPreviewReceiptAppearsInMainActivitySettings() = preview(null)
     @Test fun realTwoHopPreviewReturnsToSamePtyWithOpenIme() = preview(true)
     @Test fun realTwoHopPreviewReturnsToSamePtyWithoutSummoningHiddenIme() = preview(false)
-    private fun preview(returnKeyboard: Boolean?) {
+    @Test fun realTwoHopHtmlAppearsInMainActivitySettings() = preview(null, html = true)
+    @Test fun realTwoHopHtmlReturnsToSamePtyWithOpenIme() = preview(true, html = true)
+    @Test fun realTwoHopHtmlReturnsToSamePtyWithoutSummoningHiddenIme() = preview(false, html = true)
+    private fun preview(returnKeyboard: Boolean?, html: Boolean = false) {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture
+        assertEquals("fixture format must match the requested scenario", if (html) "html" else "markdown", payload.getString("previewFormat"))
+        val documentPath = if (html) "docs/index.html" else "docs/preview.md"
+        val assetPaths = if (html) "docs/theme.css,docs/marker.png" else "docs/marker.png"
+        val expectedDocument = if (html) "<!doctype html><link rel='stylesheet' href='theme.css'><img src='marker.png'>" +
+            "<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>"
+            else "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
+        var retainedView: android.webkit.WebView? = null
+        var retainedClient: android.webkit.WebViewClient? = null
+        var retainedRequest: HTMLRequest? = null
+        fun captureHTML() {
+            ui.waitUntil(10_000) { ui.onAllNodesWithTag("plugin-resource-html").fetchSemanticsNodes().isNotEmpty() }
+            ui.onNodeWithTag("plugin-resource-html").performScrollTo()
+            var pixels = 0 to 0
+            ui.waitUntil(15_000) {
+                pixels = main { findPluginHTMLView(ui.activity.window.decorView)?.let(::pluginHTMLPixelCounts) ?: (0 to 0) }
+                pixels.first > 10 && pixels.second > 10
+            }
+            assertTrue("real SSH HTML must draw fixed CSS blue and PNG red: $pixels", pixels.first > 10 && pixels.second > 10)
+            retainedView = main { findPluginHTMLView(ui.activity.window.decorView) }
+            retainedClient = main { retainedView!!.webViewClient }
+            retainedRequest = HTMLRequest(main { java.net.URI(retainedView!!.url!!).resolve("theme.css").toString() })
+        }
         val ports = payload.getJSONObject("two").getJSONArray("ports")
         val packageFiles = payload.getJSONObject("previewPackageFiles")
         val names = packageFiles.keys()
@@ -180,7 +205,7 @@ class PluginPreviewSettingsE2ETest {
             val request = ExtensionRelayBootstrap.Request(
                 executable = payload.getString("previewGtermWrapper"), executorDirectory = payload.getString("previewPackageDirectory"),
                 executorDigest = digest, clientDigest = digest, methods = emptyList(), command = "preview",
-                arguments = listOf("docs/preview.md", "--assets", "docs/marker.png"),
+                arguments = listOf(documentPath, "--assets", assetPaths),
                 workspaceRootDirectory = payload.getString("previewWorkspace"))
 
             System.out.println("Preview launch id=${entry.review.id} digestMatches=${entry.review.digest == request.clientDigest} " +
@@ -211,7 +236,7 @@ class PluginPreviewSettingsE2ETest {
             }
             assertNotNull("SSH route was not adopted: attempt=${main { sessions.connecting?.message }} " +
                 "error=${main { extensions.error }}", main { extensions.activeSession })
-            assertEquals("{\"assets\":\"docs/marker.png\",\"maxBytes\":262144,\"path\":\"docs/preview.md\"}",
+            assertEquals("{\"assets\":\"$assetPaths\",\"maxBytes\":262144,\"path\":\"$documentPath\"}",
                 main { extensions.activeSession!!.decodedArguments })
             await("Settings page did not reach Session consent: session=${main { extensions.activeSession?.info }} " +
                 "error=${main { extensions.error }}") {
@@ -223,24 +248,36 @@ class PluginPreviewSettingsE2ETest {
             ui.onNodeWithText("允许并启动").performClick()
 
             val resourceDeadline = SystemClock.elapsedRealtime() + 60_000
-            while (extensions.receivedResources.none { it.descriptor.displayName == "docs/preview.md" } &&
+            while (extensions.receivedResources.none { it.descriptor.displayName == documentPath } &&
                 SystemClock.elapsedRealtime() < resourceDeadline) SystemClock.sleep(20)
             assertTrue("MainActivity Settings did not receive Preview resource: " +
                 "error=${main { extensions.error }} runtime=${main { extensions.activeRuntime }} " +
                 "session=${main { extensions.activeSession?.info }}",
-                extensions.receivedResources.any { it.descriptor.displayName == "docs/preview.md" })
-            await("Settings did not receive both the Markdown document and its explicit image attachment") {
+                extensions.receivedResources.any { it.descriptor.displayName == documentPath })
+            await("Settings did not receive the exact document and explicit attachments") {
                 extensions.receivedResources.map { it.descriptor.displayName }.toSet() ==
-                    setOf("docs/preview.md", "docs/marker.png")
+                    (setOf(documentPath, "docs/marker.png") + if (html) setOf("docs/theme.css") else emptySet())
             }
-            val received = extensions.receivedResources.single { it.descriptor.displayName == "docs/preview.md" }
-            val expectedMarkdown = "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
-            assertArrayEquals(expectedMarkdown.toByteArray(), received.bytes)
-            assertEquals("text/markdown", received.descriptor.mime)
+            val received = extensions.receivedResources.single { it.descriptor.displayName == documentPath }
+            assertArrayEquals(expectedDocument.toByteArray(), received.bytes)
+            assertEquals(if (html) "text/html" else "text/markdown", received.descriptor.mime)
             val image = extensions.receivedResources.single { it.descriptor.displayName == "docs/marker.png" }
             assertEquals("image/png", image.descriptor.mime)
             ui.onNodeWithTag("plugin-runtime-state").assertExists()
             ui.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").performScrollTo().assertExists()
+            if (html) {
+                assertArrayEquals("body{background:#0000ff!important;min-height:200px}".toByteArray(),
+                    extensions.receivedResources.single { it.descriptor.displayName == "docs/theme.css" }.bytes)
+                captureHTML()
+                val firstView = retainedView!!; val firstClient = retainedClient!!; val firstRequest = retainedRequest!!
+                ui.onNodeWithTag("plugin-resource-select-${image.descriptor.resourceId}").performScrollTo().performClick()
+                ui.waitUntil(10_000) { ui.onAllNodesWithTag("plugin-resource-image").fetchSemanticsNodes().isNotEmpty() }
+                assertEquals("resource selection revokes old HTML reads", 403,
+                    firstClient.shouldInterceptRequest(firstView, firstRequest)!!.statusCode)
+                ui.onNodeWithTag("plugin-resource-select-${received.descriptor.resourceId}").performScrollTo().performClick()
+                captureHTML()
+                assertNotEquals(java.net.URI(firstRequest.url.toString()).host, java.net.URI(retainedRequest!!.url.toString()).host)
+            } else {
             ui.onNodeWithTag("plugin-resource-markdown").assertExists()
             ui.waitUntil(10_000) {
                 ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
@@ -255,6 +292,7 @@ class PluginPreviewSettingsE2ETest {
                     android.graphics.Color.blue(color) < 32) redPixels++
             }
             assertTrue("real SSH Markdown attachment should draw red pixels; got $redPixels", redPixels > 0)
+            }
 
             if (originalTerminal != null) {
                 val resourceIds = extensions.receivedResources.map { it.descriptor.resourceId }
@@ -269,7 +307,12 @@ class PluginPreviewSettingsE2ETest {
                     extensions.activeRuntime?.info?.phase)
                 assertEquals("navigation must retain exact resource receipts", resourceIds,
                     extensions.receivedResources.map { it.descriptor.resourceId })
-                assertArrayEquals(expectedMarkdown.toByteArray(), received.bytes)
+                assertArrayEquals(expectedDocument.toByteArray(), received.bytes)
+                if (html) {
+                    assertEquals("leaving Settings revokes its HTML view", 403,
+                        retainedClient!!.shouldInterceptRequest(retainedView!!, retainedRequest!!)!!.statusCode)
+                    captureHTML()
+                }
             }
 
             ui.onNodeWithText("停止插件").performScrollTo().performClick()
@@ -282,6 +325,12 @@ class PluginPreviewSettingsE2ETest {
                 "resources=${main { extensions.receivedResources.size }} error=${main { extensions.error }}") {
                 extensions.activeRuntime == null && extensions.activeSession == null &&
                     extensions.receivedResources.isEmpty() && !extensions.launchBusy
+            }
+            if (html) {
+                ui.waitForIdle()
+                ui.onNodeWithTag("plugin-resource-html").assertDoesNotExist()
+                assertEquals("stopping and releasing revokes the retained HTML view", 403,
+                    retainedClient!!.shouldInterceptRequest(retainedView!!, retainedRequest!!)!!.statusCode)
             }
             assertNull("stopping and releasing the received Preview must not leave an AppModel error",
                 extensions.error)

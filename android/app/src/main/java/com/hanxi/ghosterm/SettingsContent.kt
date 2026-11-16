@@ -404,6 +404,10 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     resources: List<com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content>,
 ) {
     val mime = resource.descriptor.mime.substringBefore(';').lowercase()
+    if (PluginResourceHTMLDocument.supports(mime)) {
+        PluginHTMLBody(resource, resources)
+        return
+    }
     if (mime in setOf("image/png", "image/jpeg", "image/gif", "image/webp")) {
         val bitmap by produceState<android.graphics.Bitmap?>(null, resource.descriptor.sha256) {
             value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
@@ -435,8 +439,6 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             Text("文本不是有效 UTF-8 或超出显示预算", Modifier.padding(16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
-        if (mime == "text/html") Text("HTML 按源码显示，不执行脚本或加载网络内容。",
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         return
     }
     Text("此格式已安全接收；当前只显示文件信息。", Modifier.padding(16.dp),

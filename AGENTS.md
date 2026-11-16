@@ -2032,3 +2032,13 @@ TalkBack / 16 KiB / Release 设备 / 云端 / 全客户端验收；P1–P6 继�
 验后清理 tmp 37 顶层项 / 661 目录 / 8459 普通文件 / 226194941 逻辑字节及四链接，
 仅留原 eq 三件与 tmp 根，三件摘要不变；镜像由 context 先行清理，不称 APFS 实际
 回收量。清理后 1631 源仍为 `e5ba59b355d348c56514c336a5d933e1c071bc7de3a8d79d95b13a62adbc66d3`。
+
+
+**Android 静态 HTML 原生预览（P2 第六十批，2026-11-17）**：独立合成 HTTPS origin
+只映射固定文档与显式 CSS / 静态栅格快照；切换 / 更新 / 移除撤销未来读取。API29 /
+API36 arm64 / 4 KiB 页同源同 APK 各 33 项组合、各六条真实 SAF / 双跳 Preview 链，
+`mutation-check-android-html.py` 完整二十一组正常断言红 / 同 APK Core 绿 / 恢复绿 /
+SHA256 通过。WebView 91 / 133、默认 Core 589/185、格式 272、Apple 182/3、JNI 148/37
+与 JS-on / off Release / R8 / 四模块 lint 通过；最终恢复默认 Debug。前置主框架拒绝、
+释放时序及变异日志传输异常单列，精确范围 / 收据见插件计划第六十批。不增 CI 二十份，
+非完整格式 / 生命周期 / 真机 / 16 KiB / 发行证据；P1–P6 继续，仅本地提交。

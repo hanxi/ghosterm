@@ -36,6 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--android", required=True, help="explicit test device or headless emulator serial")
     parser.add_argument("--gterm", type=Path, required=True, help="JS-enabled gterm executable")
+    parser.add_argument("--preview-format", choices=["markdown", "html"], default="markdown")
     parser.add_argument("--test", default="com.hanxi.ghosterm.ExtensionChannelTest#controllerReceivesOfficialPreviewOverTwoHopSSH",
                         help="single instrumentation class#method (defaults to the isolated Controller E2E)")
     args = parser.parse_args()
@@ -71,6 +72,11 @@ def main():
     markdown_dir = workspace / "docs"
     markdown_dir.mkdir(parents=True)
     (markdown_dir / "preview.md").write_bytes(fixture_markdown)
+    if args.preview_format == "html":
+        (markdown_dir / "index.html").write_bytes(
+            b"<!doctype html><link rel='stylesheet' href='theme.css'><img src='marker.png'>"
+            b"<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>")
+        (markdown_dir / "theme.css").write_bytes(b"body{background:#0000ff!important;min-height:200px}")
     # Small deterministic RGBA PNG, generated in the isolated fixture.
     width = height = 32
     scanline = b"\x00" + bytes((255, 0, 0, 255)) * width
@@ -110,6 +116,7 @@ def main():
                     for path in sorted(package.rglob("*")) if path.is_file()
                 }
                 fixture = {
+                    "previewFormat": args.preview_format,
                     "two": {"ports": ports, "known": known_hosts.read_text()},
                     "user": pwd.getpwuid(os.getuid()).pw_name,
                     "pem": private.decode("ascii"),
@@ -212,7 +219,7 @@ def main():
                 data = path.read_bytes()
                 if b"PRIVATE KEY-----" in data or b"openssh-key-v1\0" in data:
                     raise RuntimeError("temporary fixture serialized private-key material")
-        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, Markdown+PNG Settings rendering, stop/release, remote cleanup")
+        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, {args.preview_format} explicit attachments Settings rendering, stop/release, remote cleanup")
     finally:
         shutil.rmtree(work)
 

@@ -20,6 +20,20 @@ import java.io.ByteArrayOutputStream
 class PluginResourcePreviewUiTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
 
+    @Test fun htmlReceiptUsesNativePreviewAndKeepsSourceAnExplicitChoice() {
+        val bytes = "<h1>HTML Preview</h1><script>document.body.textContent='must not run'</script>".toByteArray()
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val resource = ExtensionResourceStore.Content(ExtensionResourceStore.Descriptor(
+            sha, "text/html", "docs/index.html", bytes.size.toLong(), resourceId = "html-document"), bytes)
+        ui.setContent { PluginResourcesPanel(listOf(resource)) }
+        ui.waitUntil(10000) { ui.onAllNodesWithTag("plugin-resource-html").fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("plugin-resource-html").assertExists()
+        ui.onNodeWithText(bytes.toString(Charsets.UTF_8)).assertDoesNotExist()
+        ui.onNodeWithTag("plugin-resource-html-source-toggle").performClick()
+        ui.onNodeWithText(bytes.toString(Charsets.UTF_8)).assertExists()
+    }
+
     @Test fun markdownRendersOnlyAnExplicitSameDirectoryRasterSnapshot() {
         val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.RED) }
         val imageBytes = ByteArrayOutputStream().use { output ->
@@ -64,9 +78,11 @@ class PluginResourcePreviewUiTest {
     }
 
     @Test fun receivedTextIsShownAsSourceAndImageIsRendered() {
+        val html = "<script>x</script>".toByteArray()
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(html)
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
         val text = ExtensionResourceStore.Content(
-            ExtensionResourceStore.Descriptor("a".repeat(64), "text/html", "index.html", 14, resourceId = "html-resource"),
-            "<script>x</script>".toByteArray())
+            ExtensionResourceStore.Descriptor(sha, "text/html", "index.html", html.size.toLong(), resourceId = "html-resource"), html)
         val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.RED) }
         val imageBytes = ByteArrayOutputStream().use { output ->
             assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)); output.toByteArray()
@@ -76,8 +92,10 @@ class PluginResourcePreviewUiTest {
             ExtensionResourceStore.Descriptor("b".repeat(64), "image/png", "image.png", imageBytes.size.toLong(),
                 resourceId = "image-resource"), imageBytes)
         ui.setContent { PluginResourcesPanel(listOf(text, image)) }
+        ui.waitUntil(10000) { ui.onAllNodesWithTag("plugin-resource-html").fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("plugin-resource-html-source-toggle").performClick()
         ui.onNodeWithText("<script>x</script>").assertExists()
-        ui.onNodeWithText("HTML 按源码显示，不执行脚本或加载网络内容。").assertExists()
+        ui.onNodeWithText("仅加载显式附件；脚本、外链和表单提交不启用。").assertExists()
         ui.onNodeWithTag("plugin-resource-select-${image.descriptor.resourceId}").performClick()
         ui.waitUntil(10_000) {
             ui.onAllNodes(androidx.compose.ui.test.hasTestTag("plugin-resource-image")).fetchSemanticsNodes().isNotEmpty()

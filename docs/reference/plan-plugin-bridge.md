@@ -2,7 +2,7 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 分派仍返回显式不支持，当前真实调用使用已接的显式 relay / IPC 入口。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 分派仍返回显式不支持，当前真实调用使用已接的显式 relay / IPC 入口。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
@@ -11009,3 +11009,92 @@ Debug / 测试 APK 均通过。日志 SHA256 依次为
 释放量。只保留 tmp 根与原 eq 三件，三件 SHA256 逐项不变；清理后重枚举唯一源集
 仍为 1631 份 / `e5ba59b355d348c56514c336a5d933e1c071bc7de3a8d79d95b13a62adbc66d3`。
 原始日志 / 收据 / 临时工具均已移除，本文摘要作历史记录；重验需重新生成夹具。
+
+### P2 实施第六十批：Android 静态 HTML 与显式附件的原生预览（2026-11-17）
+
+本批补 §7 的 Android 合成 HTTPS loader。`text/html` 先校验已知长度、SHA256、
+规范相对路径和严格 UTF-8，再复制文档及其后、下一 HTML / Markdown 前的显式附件。
+文档 / CSS 各最多 256 KiB，最多六附件、单附件 1 MiB、栅格单边 2048、整包
+4,194,304 解码像素。PNG / JPEG / GIF / WebP 首帧重编码为有界静态 PNG；不接 SVG、
+歧义同名或超限附件，并显示附件省略提示。有效映射内容参与视图指纹。
+
+每个真实 WebView 有独立合成 HTTPS origin；只返回唯一主文档和已捕获 CSS / 图片。
+其它来源 / 方法 / 主框架 / 未映射请求返回 403，不返回 null 触发网络回退。响应头
+与文档首个 meta 同时设置 CSP；JS、网络、file / content、DOM / 数据库存储、导航、表单提交、
+下载、文件选择及权限请求不开放。每视图关闭 Safe Browsing，以避免对已拦截的私有
+逻辑路径额外查询；网络阻断、CSP 和全未命中拒绝同时保留，不声称 OS 网络隔离。
+仅使用每视图配置 / 随机 origin，不清除共享 cookie / history 等其它 WebView 状态。
+
+捕获在 Default worker 进行；新描述符先移除旧视图，结果按指纹 / 主题 / 字号隔离。
+查看源码是显式动作；切换源码 / 附件、更新映射、离开 / 释放面板时，幂等 owner
+撤销未来读取、停止加载、移除并销毁视图。加载有十秒期限，主文档错误 / renderer
+退出显示可见失败；不宣称中断全部解码 / 在途回包或物理内存擦除。视图不取终端
+焦点 / IME，不带 JS / Core / 进程桥。原生组件与其它格式继续原有路径。
+
+前置失败单列：首轮 26 项中 22 绿、四条真实像素测试超时；换实际屏幕截图仍为
+零像素，进度 100% 不是成功证据。独立真实 WebView 记录到
+`loadDataWithBaseURL` 的内部主请求为 `data:text/html;charset=utf-8;base64,`，被原
+“主框架一律拒绝”判据返回 403；截图为 WebView 错误页。改为 `loadUrl` 唯一 HTTPS
+文档、仅在该主框架请求返回固定 HTML，网络 / CSP 不放宽，26 项随后全绿。
+renderer 退出日志出现在视图销毁时，不把这些日志当正常断言红或自然崩溃通过。
+真实 SSH 首条的释放检查早于 Compose 移除；补 UI 空闲与视图不存在判据后通过。
+
+新增 `mutation-check-android-html.py` 二十一组在自有 API36 / arm64 / 4 KiB 页 /
+`-no-window` 模拟器同轮通过：真实重编译后指定单条正常断言红、同 APK 独立 Core
+配置对照绿、恢复重编绿及生产三文件 SHA256。保护文档 / 路径 / 哈希 / 字节限额、
+附件顺序 / 文档边界 / 重复路径 / CSS 与像素 / 数量预算、CSP 表单策略、请求来源 /
+方法 / 主文档、关闭撤销、网络 / JS / 文件配置、独立 origin、原生入口和导航。
+首次驱动的导航锚点歧义在变异前拒绝；初轮三组后大文档 assertNull 打印完整对象使
+instrumentation 文本不完整，未接受该组。改为有界断言消息后重跑完整二十一组，
+原失败单列，不以编译 / runner / 传输异常替代正常目标红。未增加 CI 二十份。
+
+实际原生页面专项扩展同一官方 Preview 包：显式 `--preview-format html` 生成
+HTML / CSS / PNG，真实 SAF 选包 / 来源批准 / 双跳 SSH / Session 批准后核对完整
+字节、屏幕 CSS 蓝与 PNG 红像素、资源选择新 origin / 旧 client 拒绝，以及停止 /
+释放。另有原 PTY / 实际 IME 开关往返两条；保留旧 Markdown 三条作为回归。
+本批仍不关闭 P2 / P1–P6；真机 / OEM / 16 KiB 页、完整格式 / 生命周期 / 性能 /
+辅助技术和发行矩阵继续，普通业务命令分派仍显式不支持，仅本地分批提交。
+
+最终同源验证：API29 / API36 自有 arm64 / 4 KiB 页 / `-no-window` 模拟器各 **33 项**
+组合与各 **六条**真实双跳 Preview 链全部通过，无失败 / 跳过。组合为 HTML 捕获八、
+真实 WebView 四、旧解码五、预览 UI 七、Core 三与终端返回六；六 SSH 链为 Markdown
+三 / HTML 三，不合计冒充完整客户端回归。实际 WebView 分别为 **91.0.4472.114** /
+**133.0.6943.137**；两套实际安装 App / 测试 APK 的摘要与源构件逐项相同。
+最终唯一源集为 **1636 份**，两轮及 SSH 期间前后 SHA256 均为
+`32f7085ca7d27a45a4e769aa7b39bdbb7f77e4349b7c6dc839dae7c289a0be79`。
+
+设备使用的 JS-enabled App / 测试 APK 依次为
+`29fb3d9e2a9191431a20fc076f2e9dda56b9378cda4eca885cc8ff26b5cd9a4e` /
+`7ef8d632556ce59d7bb5f4b7578b882d7b2351772ba2f878138da085a975aa22`；
+真实 gterm 为 `1779a3c6ec2ce8de5f7e38c157b4afccab2e7f01a3123d4c0aa9478eb6c49b7f`。
+来源是本地 `07334dcb` 加本批 dirty，不声称云端 / clean / 发行证据。
+
+默认 Core **589/589 CTest、185 公共 ABI**，Apple **182 引用 / 3 登记未用**、
+JNI **148 / 37**，clang-format **19.1.7 / 272 文件**通过。JS-enabled 与默认 JS-off
+均实际完成未签名 Release / R8 及 app / bridge / data / terminal 四模块 release lint；
+最后恢复默认 JS-off Debug / 测试 APK 构建通过，不将该新包冒充上述设备包。
+未改 C / Swift / 公共头，不借旧 macOS / 云端结果当本批 Android 新验证。
+
+以下为本轮历史收据 SHA256；原始临时材料用后清理，重验需重新生成。
+
+| 材料 | SHA256 |
+|---|---|
+| api29-receipt.json | `168e40ffa2b0505bae5cb479551e00873229c8def7f6f877678c4538a3be7512` |
+| api36-receipt.json | `3ce46593b19c132818571aa4d2cf14889c6aec82b51660663cb009772fb0aeaa` |
+| mutations-final-device.log | `e8a94d3cc83f33504c817d19f407ef120aa6e2bf783bea4df446750791621dcd` |
+| mutation-evidence.json | `18c11723c7a6f79bfe7abe053ed322558545956455fef895488baa2c2a49afcd` |
+| core-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| c-format.log | `6e72b64e4d86057a2401b1d07a516ee12b12de75a7b4cc9aaf8a7a4f359e3c66` |
+| release-js-on.log | `eef1b7f9784ae3cb96c9efe050114362c1d9e1c55711d6a832d2df553ce9c209` |
+| release-js-off.log | `a758d6bc4075964185852d39d14ecf30c2c5166a040ebeca9ba879e48151f8c4` |
+| final-default-debug.log | `fcfe419c11a503f4be8f8e78d25ee22cfc18acaee168210426f7b235810e0528` |
+
+
+本批收尾：各 owned AVD 正常退出 0、adb 无在线设备；核对 PID / 启动时间后仅结束
+自有 Gradle / Kotlin JVM 78070 / 78258，原 65439 / 2637 未动。清理本批及闸门的
+32 个 tmp 顶层项、624 目录、8379 普通文件、239,512,145 逻辑字节（约 228.42 MiB）
+与四个符号链接；AVD 镜像已随 context 回收，不将逻辑大小称为 APFS 实际释放量。
+只保留 tmp 根及原 eq 三件，三件 SHA256 不变。清理后重新枚举 1636 份指定源，
+仍为 `32f7085ca7d27a45a4e769aa7b39bdbb7f77e4349b7c6dc839dae7c289a0be79`。
+本批原始日志、收据、截图及临时工具均已清理，本文摘要为历史记录；默认 JS-off，
+仅本地提交，不推送 / 发行。
