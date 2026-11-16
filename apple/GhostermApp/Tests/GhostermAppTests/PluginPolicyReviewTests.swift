@@ -26,9 +26,9 @@ final class PluginPolicyFixture {
             "pluginIds": ["org.ghosterm.one", "org.ghosterm.two", "org.ghosterm.three"]]], "revokedKeyIds": revoked ? [keyID] : []]
         try json(value).write(to: policy)
     }
-    @discardableResult func add(_ id: String = "org.ghosterm.one", enabled: Bool = true, channel: String = "test") throws -> String {
+    @discardableResult func add(_ id: String = "org.ghosterm.one", enabled: Bool = true, channel: String = "test", version: String = "0.1.0") throws -> String {
         let descriptor = try json(["schemaVersion": 1, "channel": channel, "keyId": keyID, "pluginId": id,
-            "pluginVersion": identity.version, "publisher": identity.publisher, "packageSHA256": identity.packageSHA256,
+            "pluginVersion": version, "publisher": identity.publisher, "packageSHA256": identity.packageSHA256,
             "artifact": ["format": "zip-v1", "bytes": 22, "sha256": String(repeating: "b", count: 64)]])
         let release = PluginReleaseCatalog.sha(descriptor), path = installed.appendingPathComponent(release)
         try FileManager.default.createDirectory(at: path.appendingPathComponent("payload"), withIntermediateDirectories: true)

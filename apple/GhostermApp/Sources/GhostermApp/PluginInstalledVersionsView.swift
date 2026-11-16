@@ -6,6 +6,9 @@ import SwiftUI
 final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var catalog: ExtensionController.InstalledCatalog?
     @Published private(set) var busy = false
+    private var activities = 0
+    private func beginActivity() { activities += 1; busy = true }
+    private func endActivity() { activities -= 1; busy = activities != 0 }
     @Published private(set) var issue: String?
     @Published private(set) var notice: String?
     @Published private(set) var removal: ExtensionController.RemovalPreview?
@@ -13,15 +16,36 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     @Published private(set) var residues: ExtensionController.InstallationResidues?
     @Published private(set) var unclassified: [ExtensionController.UnclassifiedEntry] = []
     @Published var acknowledgedUnknown = false
+    @Published private(set) var selectionReview: ExtensionController.SelectionReview?
+    @Published var acknowledgedSelection = false
+    private var selectionGeneration = UUID()
+    private var selectionOwner: ExtensionController?
+    private func invalidateSelection(cancelNative: Bool = true) {
+        let id = selectionReview?.id, owner = selectionOwner
+        selectionGeneration = UUID(); selectionReview = nil; acknowledgedSelection = false; selectionOwner = nil
+        if cancelNative, let id, let owner {
+            beginActivity()
+            Task { defer { endActivity() }; await owner.cancelInstalledSelection(id: id) }
+        }
+    }
+    func cancelSelection(_ controller: ExtensionController) async {
+        let id = selectionReview?.id
+        invalidateSelection(cancelNative: false)
+        if let id {
+            beginActivity(); defer { endActivity() }
+            await controller.cancelInstalledSelection(id: id)
+        }
+    }
     private var generation = UUID()
     @Published private(set) var policyReview: ExtensionController.PolicyReview?
     @Published var policyDisableIDs: Set<String> = []
     private var policyGeneration = UUID()
     @Published var policyPath = "" { didSet { trustedPolicy = false; invalidatePolicy() } }
     @Published var trustedPolicy = false { didSet { invalidatePolicy() } }
-    var canSelect: Bool { !busy && removal == nil && pendingRemoval == nil && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
+    var canSelect: Bool { !busy && removal == nil && pendingRemoval == nil && selectionReview == nil && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
     private func invalidatePolicy() {
         policyGeneration = UUID(); policyReview = nil; policyDisableIDs = []
+        invalidateSelection()
     }
     func cancelPolicy(_ controller: ExtensionController) async {
         let id = policyReview?.id; invalidatePolicy()
@@ -30,7 +54,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     func reviewPolicy(_ controller: ExtensionController) async {
         guard canSelect else { return }
         invalidatePolicy(); let request = policyGeneration
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let value = try await controller.previewInstalledPolicy(trustedPolicy: URL(fileURLWithPath: policyPath))
             guard request == policyGeneration else { await controller.cancelInstalledPolicyReview(id: value.id); return }
@@ -40,7 +64,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     func applyPolicy(_ controller: ExtensionController) async -> ExtensionController.PolicyDisableResult? {
         guard canSelect, let review = policyReview, !policyDisableIDs.isEmpty else { return nil }
         let ids = policyDisableIDs.sorted()
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let result = try await controller.disableReviewedPlugins(id: review.id, pluginIDs: ids)
             invalidatePolicy(); catalog = result.selection.catalog
@@ -51,7 +75,8 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func refresh(_ controller: ExtensionController) async {
         guard !busy, removal == nil else { return }
-        busy = true; defer { busy = false }
+        beginActivity(); defer { endActivity() }
+        await cancelSelection(controller)
         await cancelPolicy(controller)
         do {
             catalog = try await controller.installedVersions()
@@ -62,20 +87,33 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         }
         catch { catalog = nil; issue = message(error) }
     }
-    func select(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
-        guard canSelect, let catalog else { return nil }
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+    func previewSelection(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async {
+        guard canSelect, let catalog else { return }
+        invalidateSelection(); selectionOwner = controller; let request = selectionGeneration
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
-            let result = try await controller.selectInstalledVersion(releaseID: version.releaseID,
+            let value = try await controller.previewInstalledSelection(releaseID: version.releaseID,
                 expectedRevision: catalog.revision, trustedPolicy: URL(fileURLWithPath: policyPath))
-            self.catalog = result.catalog
+            guard selectionGeneration == request else { await controller.cancelInstalledSelection(id: value.id); return }
+            selectionReview = value
+        } catch { if selectionGeneration == request { issue = message(error) } }
+    }
+    var canConfirmSelection: Bool {
+        !busy && trustedPolicy && selectionReview != nil && acknowledgedSelection && removal == nil && pendingRemoval == nil
+    }
+    func confirmSelection(_ controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
+        guard canConfirmSelection, let value = selectionReview else { return nil }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
+        do {
+            let result = try await controller.confirmInstalledSelection(id: value.id, acknowledged: acknowledgedSelection)
+            invalidateSelection(cancelNative: false); catalog = result.catalog
             notice = result.durabilityConfirmed ? "活动版本已更新；精确来源和本次 Session 仍需分别批准。" : "活动选择已写入，但持久性未确认；请刷新核对。"
             return result
-        } catch { issue = message(error); return nil }
+        } catch { invalidateSelection(cancelNative: false); issue = message(error); return nil }
     }
     func disable(_ pluginID: String, controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
         guard !busy, removal == nil, let catalog else { return nil }
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let result = try await controller.disableInstalledPlugin(pluginID: pluginID, expectedRevision: catalog.revision)
             self.catalog = result.catalog
@@ -86,7 +124,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     func preview(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async {
         guard !busy, removal == nil, pendingRemoval == nil, let catalog else { return }
         let request = generation
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let value = try await controller.previewVersionRemoval(releaseID: version.releaseID, expectedRevision: catalog.revision)
             guard generation == request else { await controller.cancelVersionRemoval(id: value.id); return }
@@ -95,6 +133,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func cancel(_ controller: ExtensionController) async {
         generation = UUID()
+        await cancelSelection(controller)
         await cancelPolicy(controller)
         guard let removal else { return }
         self.removal = nil
@@ -103,7 +142,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func remove(_ controller: ExtensionController, resume: Bool) async -> ExtensionController.RemovalResult? {
         guard !busy, let value = resume ? pendingRemoval : removal else { return nil }
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         removal = nil
         var result: ExtensionController.RemovalResult?
         do {
@@ -125,7 +164,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     func previewUnknown(_ entry: ExtensionController.UnclassifiedEntry, controller: ExtensionController) async {
         guard !busy, removal == nil, pendingRemoval == nil, entry.canPreview else { return }
         let request = generation
-        busy = true; issue = nil; notice = nil; acknowledgedUnknown = false; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; acknowledgedUnknown = false; defer { endActivity() }
         do {
             let value = try await controller.previewUnclassifiedDirectory(name: entry.name, expectedIdentity: entry.identity)
             guard request == generation else { await controller.cancelVersionRemoval(id: value.id); return }
@@ -135,7 +174,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     func previewResidue(_ value: ExtensionController.InstallationResidue, controller: ExtensionController) async {
         guard !busy, removal == nil, pendingRemoval == nil else { return }
         let request = generation
-        busy = true; issue = nil; notice = nil; defer { busy = false }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let preview = try await controller.previewInstallationResidue(id: value.id, expectedDigest: value.digest)
             guard request == generation else { await controller.cancelVersionRemoval(id: preview.id); return }
@@ -144,7 +183,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func retireResidue(_ value: ExtensionController.InstallationResidue, controller: ExtensionController) async {
         guard !busy, removal == nil, pendingRemoval == nil else { return }
-        busy = true; issue = nil; defer { busy = false }
+        beginActivity(); issue = nil; defer { endActivity() }
         do {
             try await controller.retireInstallationRecord(id: value.id, expectedDigest: value.digest)
             notice = "已移除完成核对的安装记录；没有删除版本或其它目录。"
@@ -153,7 +192,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     }
     func cancelPending(_ controller: ExtensionController) async {
         guard !busy, let pendingRemoval else { return }
-        busy = true; issue = nil; defer { busy = false }
+        beginActivity(); issue = nil; defer { endActivity() }
         do {
             let durable = try await controller.cancelPendingVersionRemoval(id: pendingRemoval.id)
             self.pendingRemoval = nil
@@ -195,11 +234,11 @@ struct PluginInstalledVersionsView: View {
                             Text("包内声明发布者：\(version.publisher)（当前策略待核对）")
                                 .font(DS.Font.caption)
                             Text(version.packageSHA256).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                            Text(version.inUse.map { $0 ? "有运行引用或回收预览；先停止或取消后回收。" : "未观察到运行引用。" } ?? "运行引用状态查不出来；回收时必须重新核对。")
+                            Text(version.inUse.map { $0 ? "有运行或维护预览引用；先停止或取消后回收。" : "未观察到运行引用。" } ?? "运行引用状态查不出来；回收时必须重新核对。")
                                 .font(DS.Font.caption)
                             HStack {
-                                Button(version.selected && version.enabled ? "重新核对并载入" : "核对并设为活动版本") {
-                                    if let controller { Task { if let result = await draft.select(version, controller: controller) { didChange(version.pluginID, result) } } }
+                                Button(version.selected && version.enabled ? "预览重新载入" : "预览切换到此版本") {
+                                    if let controller { Task { await draft.previewSelection(version, controller: controller) } }
                                 }.disabled(!draft.canSelect).accessibilityIdentifier("plugin-installed-select-\(version.releaseID)")
                                 if version.selected && version.enabled {
                                     Button("禁用新建") {
@@ -226,6 +265,7 @@ struct PluginInstalledVersionsView: View {
                     ForEach(Array(catalog.issues.enumerated()), id: \.offset) { _, issue in Text(issue).foregroundStyle(.red).textSelection(.enabled) }
                     if catalog.maintenanceCount > 0 { Text("另有 \(catalog.maintenanceCount) 个待核对条目；不会按名称自动删除。") }
                 }
+                PluginSelectionReviewView(draft: draft, controller: controller) { id, result in didChange(id, result) }
                 if let preview = draft.removal { removalReview(preview, confirmed: false) }
                 if let pending = draft.pendingRemoval { removalReview(pending, confirmed: true) }
                 if let residues = draft.residues {

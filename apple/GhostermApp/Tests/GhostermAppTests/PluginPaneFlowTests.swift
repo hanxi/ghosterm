@@ -52,9 +52,14 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true, versionPolicy: true)
     }
 
+    func testManagedPreviewSurvivesSelectionReviewAndCommit() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionRemoval: true, versionSelectionReview: true)
+    }
+
     private enum Format { case markdown, html, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -219,7 +224,7 @@ final class PluginPaneFlowTests: XCTestCase {
             let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!)
             let original = try await controller.stepRuntime()
             let installed: ExtensionController.InstalledRelease
-            let revision: String?
+            var revision: String?
             if let managed {
                 installed = managed; revision = try await controller.installedVersions().revision
             } else {
@@ -229,6 +234,19 @@ final class PluginPaneFlowTests: XCTestCase {
                 let selected = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256,
                     expectedRevision: nil, trustedPolicy: fixture.appendingPathComponent("policy.json"))
                 revision = selected.catalog.revision
+            }
+            if versionSelectionReview {
+                let input = fixture.appendingPathComponent("upgrade")
+                let prepared = try await controller.prepareSignedRelease(artifact: input.appendingPathComponent("r/plugin.zip"), descriptor: input.appendingPathComponent("r/release.json"),
+                    signature: input.appendingPathComponent("r/release.sig"), trustedPolicy: input.appendingPathComponent("policy.json"))
+                let candidate = try await controller.installPreparedRelease(id: prepared.id)
+                let before = try await controller.installedVersions()
+                let view = try await controller.previewInstalledSelection(releaseID: candidate.signature.descriptorSHA256, expectedRevision: before.revision, trustedPolicy: input.appendingPathComponent("policy.json"))
+                XCTAssertEqual(view.previousState, .verified)
+                let observed = try await controller.installedVersions(); XCTAssertEqual(observed.revision, before.revision)
+                let selected = try await controller.confirmInstalledSelection(id: view.id, acknowledged: true)
+                revision = selected.catalog.revision
+                XCTAssertEqual(selected.catalog.selections.first?.releaseID, candidate.signature.descriptorSHA256)
             }
             let retained: ExtensionController.RuntimeState
             do { retained = try await controller.stepRuntime() }

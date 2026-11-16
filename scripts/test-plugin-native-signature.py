@@ -49,13 +49,16 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
             input=helper.DOMAIN + raw, capture_output=True, check=True)
         (destination / 'r/release.json').write_bytes(raw)
         (destination / 'r/release.sig').write_bytes(signed.stdout)
-    for name in ['v2', 'compressed', 'live']:
+    for name in ['v2', 'compressed', 'live', 'upgrade']:
         target = fixture / name
         shutil.copytree(ROOT / 'plugins/official/preview' if name == 'live' else fixture / 'p', target / 'p')
         (target / 'policy.json').write_bytes(policy)
-        if name == 'v2':
+        if name in ['v2', 'upgrade']:
             manifest = target / 'p/plugin.json'
-            value = json.loads(manifest.read_bytes()); value['pluginVersion'] = '0.2.0'
+            value = json.loads(manifest.read_bytes()); value['pluginVersion'] = '0.3.0' if name == 'upgrade' else '0.2.0'
+            if name == 'upgrade':
+                value['permissions'][0]['purpose'] = 'Review changed declaration before a version switch.'
+                value['executor']['variants'][0]['id'] = 'portable-reviewed'
             manifest.write_text(json.dumps(value))
             integrity = target / 'p/integrity.json'; value = json.loads(integrity.read_bytes())
             for item in value['members']:
@@ -121,11 +124,13 @@ def main():
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
+    parser.add_argument('--selection-review', action='store_true', help='include reviewed version transitions, Core-bound declarations and live old-version references')
     parser.add_argument('--policy-review', action='store_true', help='include explicit policy review/disable data, UI, actual Core and live Runtime tests')
     parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.selection_review: args.policy_review = True
     if args.policy_review: args.remove = True
     if args.remove: args.versions = True
     if args.versions:
@@ -231,11 +236,11 @@ def main():
              'try beforeRename?()\n        guard fd >= 0 else', selected + 'testAtomicSelectionCASAndFailureBeforeRename'),
             ('catalog-durability', catalog, 'parentSync(fd) == 0)', 'parentSync(fd) != 42)', selected + 'testSelectionParentSyncFailureIsPublishedButUnknown'),
             ('catalog-no-follow', catalog, 'O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC', 'O_RDONLY | O_NONBLOCK | O_CLOEXEC', selected + 'testStrictSelectionRejectsDuplicateBooleanAndSymlink'),
-            ('catalog-policy', CONTROLLER, 'signature: handle.read("release.sig", limit: 64), trustedPolicy: PluginSignatureFile.read(trustedPolicy, limit: 131072)',
-             'signature: handle.read("release.sig", limit: 64), trustedPolicy: handle.read("policy.json", limit: 131072)', selected + 'testCurrentPolicyRevocationCannotUseStoredPolicyAsTrust'),
-            ('catalog-identity', CONTROLLER, 'let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,\n                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))',
+            ('catalog-policy', CONTROLLER, 'let policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072)\n            guard expectedPolicySHA',
+             'let policy = try handle.read("policy.json", limit: 131072)\n            guard expectedPolicySHA', selected + 'testCurrentPolicyRevocationCannotUseStoredPolicyAsTrust'),
+            ('catalog-identity', CONTROLLER, 'let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,\n                    publisher: metadata.publisher, packageSHA256: metadata.packageDigest))',
              'let proof = authenticated.proof', selected + 'testAlteredPayloadCannotBorrowStoredSignature'),
-            ('catalog-ui', view, 'await draft.select(version, controller: controller)', 'Optional<ExtensionController.VersionSelectionResult>.none', 'PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls'),
+            ('catalog-ui', view, 'await draft.previewSelection(version, controller: controller)', '_ = version', 'PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls'),
             ('catalog-live-owner', CONTROLLER, 'self.invalidateSourceDecisions(pluginID: metadata.id)',
              'self.runtime?.stop(); self.invalidateSourceDecisions(pluginID: metadata.id)', live),
         ]
@@ -246,6 +251,29 @@ def main():
              'PluginPolicyReviewSignedTests.testChangedPayloadCannotBeReportedAcceptedFromStoredSignature'),
             ('policy-disable', policy_review, 'enabled: false, generation: UUID().uuidString', 'enabled: true, generation: UUID().uuidString',
              'PluginPolicyReviewSignedTests.testExplicitRevocationBlocksOtherControllerAndNeedsFreshApproval'),
+        ]
+    if args.selection_review:
+        selection = 'apple/GhostermApp/Sources/GhostermAppModel/PluginSelectionReview.swift'
+        selection_view = 'apple/GhostermApp/Sources/GhostermApp/PluginSelectionReviewView.swift'
+        selection_test = 'PluginSelectionReviewSignedTests.'
+        recipes += [
+            ('selection-ack', CONTROLLER, 'guard acknowledged else { throw PluginSelectionReview.Failure.confirmation }',
+             'guard true else { throw PluginSelectionReview.Failure.confirmation }', selection_test + 'testAcknowledgementRequiredAndConfirmedSwitchStillNeedsNewSourceApproval'),
+            ('selection-policy', CONTROLLER, 'expectedPolicySHA == nil || PluginReleaseCatalog.sha(policy) == expectedPolicySHA',
+             'expectedPolicySHA == nil || policy.count <= 131072', selection_test + 'testChangedPolicyAfterPreviewCannotUseItsOldAttestation'),
+            ('selection-reference', selection, 'let opened = try owner.openVersion(releaseID); try opened.pin(); candidate = opened',
+             'let opened = try owner.openVersion(releaseID); candidate = opened', selection_test + 'testCancelReleasesRealVersionReferenceWithoutChangingSelection'),
+            ('selection-confirm-ui', selection_view, 'await draft.confirmSelection(controller)', 'Optional<ExtensionController.VersionSelectionResult>.none',
+             'PluginSelectionReviewUITests.testActualReviewCancelPathChangeAcknowledgementAndCommit'),
+            ('selection-ack-ui', 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift', 'selectionReview != nil && acknowledgedSelection && removal == nil',
+             'selectionReview != nil && removal == nil', 'PluginSelectionReviewUITests.testActualReviewCancelPathChangeAcknowledgementAndCommit'),
+            ('selection-cancel-busy', 'apple/GhostermApp/Sources/GhostermApp/PluginInstalledVersionsView.swift',
+             'if cancelNative, let id, let owner {\n            beginActivity()\n            Task { defer { endActivity() }; await owner.cancelInstalledSelection(id: id) }\n        }',
+             'if cancelNative, let id, let owner { Task { await owner.cancelInstalledSelection(id: id) } }',
+             'PluginSelectionReviewUITests.testActualReviewCancelPathChangeAcknowledgementAndCommit'),
+            ('selection-declaration-diff', CONTROLLER, 'return candidate.permissions.filter { !(previous?.permissions ?? []).contains($0) }',
+             'return candidate.permissions.filter { new in !(previous?.permissions ?? []).contains { $0.side == new.side && $0.capability == new.capability } }',
+             selection_test + 'testActualCorePreviewBindsFullManifestAndLeavesSelectionAndApprovalAlone'),
         ]
     if args.case:
         if not args.mutate: parser.error('--case requires --mutate')
@@ -321,10 +349,14 @@ def main():
         if args.policy_review:
             baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
             baseline_count += 25
+        if args.selection_review:
+            baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
+            baseline_count += 26
         run('baseline', baseline, count=baseline_count)
         if args.versions: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
         if args.policy_review: run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
+        if args.selection_review: run('live-selection-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesSelectionReviewAndCommit')
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
             stem = Path(filename).stem
@@ -350,7 +382,7 @@ def main():
              'macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
-        baselineTests=baseline_count, lifetimeTests=3 if args.policy_review else 2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review,
+        baselineTests=baseline_count, lifetimeTests=4 if args.selection_review else 3 if args.policy_review else 2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review, selectionReview=args.selection_review,
         inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 

@@ -48,6 +48,12 @@ final class PluginInstalledVersionsUITests: XCTestCase {
                 return ["accessibilityValue", "accessibilityLabel"].contains { PluginTableRendering.attribute(control, $0)?.contains(expected) == true }
             }) else { XCTFail("version operation did not report \(expected)"); return }
         }
+        func confirmSelection() async throws {
+            guard try await until({ node("plugin-selection-confirm") != nil }) else { XCTFail("selection must show its complete review before changing versions"); return }
+            try press("plugin-selection-acknowledge")
+            try await Task.sleep(for: .milliseconds(25))
+            try press("plugin-selection-confirm")
+        }
         try press("plugin-installed-expand")
         guard try await until({ versions.allSatisfy { node("plugin-installed-row-" + $0.signature.descriptorSHA256) != nil } }) else { XCTFail("restart inventory controls missing"); return }
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"))
@@ -58,12 +64,14 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         try await Task.sleep(for: .milliseconds(25))
         try press("plugin-installed-trust"); try await Task.sleep(for: .milliseconds(25))
         try press("plugin-installed-select-" + versions[1].signature.descriptorSHA256)
+        try await confirmSelection()
         try await waitNotice("活动版本已更新")
         guard try await until({ node("plugin-approve-org.ghosterm.preview") != nil }) else { XCTFail("selected version must enter source review"); return }
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"), "selection must not approve source")
         try press("plugin-installed-disable-" + versions[1].signature.descriptorSHA256)
         try await waitNotice("已禁用新建")
         try press("plugin-installed-select-" + versions[0].signature.descriptorSHA256)
+        try await confirmSelection()
         try await waitNotice("活动版本已更新")
         let catalog = try await controller.installedVersions()
         XCTAssertEqual(catalog.versions.first(where: { $0.selected })?.releaseID, versions[0].signature.descriptorSHA256)

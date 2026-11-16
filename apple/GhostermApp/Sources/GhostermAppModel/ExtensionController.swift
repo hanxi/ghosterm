@@ -141,6 +141,40 @@ public actor ExtensionController {
         public let catalog: InstalledCatalog
         public let durabilityConfirmed: Bool
     }
+    public struct VersionDeclarations: Sendable, Equatable {
+        public let review: PackageReview
+        public let sdkVersion: String
+        public let protocols: [UInt16]
+        public let permissions: [ReleasePermission]
+        public let executorDeclarations: String?
+    }
+    public struct SelectionReview: Sendable, Equatable {
+        public enum PreviousState: String, Sendable { case none, verified, unknown }
+        public let id: String, revision: String?, candidateReleaseID: String
+        public let candidate: VersionDeclarations
+        public let signature: PluginDirectorySignature
+        public let previousReleaseID: String?
+        public let previousEnabled: Bool?
+        public let previous: VersionDeclarations?
+        public let previousState: PreviousState
+        public let previousIssue: String?
+        public var addedPermissions: [ReleasePermission]? {
+            guard previousState != .unknown else { return nil }
+            return candidate.permissions.filter { !(previous?.permissions ?? []).contains($0) }
+        }
+        public var removedPermissions: [ReleasePermission]? {
+            guard previousState != .unknown else { return nil }
+            return (previous?.permissions ?? []).filter { !candidate.permissions.contains($0) }
+        }
+        public var addedCapabilities: [String]? {
+            guard previousState != .unknown else { return nil }
+            return candidate.review.requiredCapabilities.filter { !(previous?.review.requiredCapabilities ?? []).contains($0) }
+        }
+        public var removedCapabilities: [String]? {
+            guard previousState != .unknown else { return nil }
+            return (previous?.review.requiredCapabilities ?? []).filter { !candidate.review.requiredCapabilities.contains($0) }
+        }
+    }
     public struct PolicyReview: Sendable, Equatable {
         public enum State: String, Sendable { case accepted, rejected, unknown }
         public struct Entry: Sendable, Equatable, Identifiable {
@@ -439,6 +473,13 @@ public actor ExtensionController {
     public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
         try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
     }
+    public func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> SelectionReview {
+        try await worker.previewInstalledSelection(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
+    }
+    public func cancelInstalledSelection(id: String) async { await worker.cancelInstalledSelection(id: id) }
+    public func confirmInstalledSelection(id: String, acknowledged: Bool = false) async throws -> VersionSelectionResult {
+        try await worker.confirmInstalledSelection(id: id, acknowledged: acknowledged)
+    }
     public func previewInstalledPolicy(trustedPolicy: URL) async throws -> PolicyReview {
         try await worker.previewInstalledPolicy(trustedPolicy: trustedPolicy)
     }
@@ -648,6 +689,7 @@ public actor ExtensionController {
         private var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
         private var removalPreview: PluginReleaseRemoval?
         private var policyReview: PluginPolicyReview?
+        private var selectionReview: PluginSelectionReview?
         private var runtimePackageKey: String?
         private var runtimeInstanceID: String?
         private var runtimeCommand: String?
@@ -753,41 +795,82 @@ public actor ExtensionController {
         func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
             try await perform {
                 try self.checkOpen()
-                guard let directory = self.installationDirectory,
-                      let owner = try PluginReleaseCatalog(directory: directory, exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
-                guard try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
-                var selection = try owner.selection()
-                let inventory = try owner.inventory()
-                guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
-                let handle = try owner.openVersion(releaseID)
-                let descriptor = try handle.read("release.json", limit: 65536)
-                guard PluginReleaseCatalog.sha(descriptor) == releaseID else { throw PluginReleaseCatalog.Failure.invalid }
-                let authenticated = try PluginDirectorySignatureVerifier.authenticate(descriptor: descriptor,
-                    signature: handle.read("release.sig", limit: 64), trustedPolicy: PluginSignatureFile.read(trustedPolicy, limit: 131072))
-                let payload = try handle.payload()
-                defer { Darwin.close(payload) }
-                let captured = try self.captureOnQueue(directoryFD: payload)
-                do {
-                    let metadata = try captured.package.metadata()
-                    let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,
-                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
-                    try owner.validateVersion(releaseID, handle: handle, payload: payload)
-                    let key = self.key(metadata.id, metadata.packageDigest)
-                    let pinRuntime = self.runtimePackageKey == key && self.runtimeVersionLease == nil
-                    let pinSession = self.sessionPackageKey == key && self.sessionVersionLease == nil
-                    if pinRuntime || pinSession { try handle.pin() }
-                    selection.choices[metadata.id] = PluginReleaseCatalog.Choice(releaseID: releaseID, enabled: true, generation: UUID().uuidString)
-                    let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
-                    self.invalidateSourceDecisions(pluginID: metadata.id)
-                    if self.packages[key] == nil { self.packages[key] = captured }
-                    else { try? captured.package.close() }
-                    self.packages[key]?.managedReleaseID = releaseID
-                    if pinRuntime { self.runtimeVersionLease = handle }
-                    if pinSession { self.sessionVersionLease = handle }
-                    let installed = InstalledRelease(review: captured.review, signature: proof,
-                        directory: directory.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
-                    return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
-                } catch { try? captured.package.close(); throw error }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                return try self.selectInstalledOnQueue(owner: owner, releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
+            }
+        }
+        private func selectInstalledOnQueue(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?,
+                                            trustedPolicy: URL, expectedPolicySHA: String? = nil) throws -> VersionSelectionResult {
+            guard try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
+            var selection = try owner.selection()
+            let inventory = try owner.inventory()
+            guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
+            let handle = try owner.openVersion(releaseID)
+            let descriptor = try handle.read("release.json", limit: 65536)
+            guard PluginReleaseCatalog.sha(descriptor) == releaseID else { throw PluginReleaseCatalog.Failure.invalid }
+            let policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072)
+            guard expectedPolicySHA == nil || PluginReleaseCatalog.sha(policy) == expectedPolicySHA else { throw PluginReleaseCatalog.Failure.changed }
+            let authenticated = try PluginDirectorySignatureVerifier.authenticate(descriptor: descriptor,
+                signature: handle.read("release.sig", limit: 64), trustedPolicy: policy)
+            let payload = try handle.payload()
+            defer { Darwin.close(payload) }
+            let captured = try self.captureOnQueue(directoryFD: payload)
+            do {
+                let metadata = try captured.package.metadata()
+                let proof = try authenticated.bind(.init(id: metadata.id, version: metadata.version,
+                    publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
+                try owner.validateVersion(releaseID, handle: handle, payload: payload)
+                let key = self.key(metadata.id, metadata.packageDigest)
+                let pinRuntime = self.runtimePackageKey == key && self.runtimeVersionLease == nil
+                let pinSession = self.sessionPackageKey == key && self.sessionVersionLease == nil
+                if pinRuntime || pinSession { try handle.pin() }
+                selection.choices[metadata.id] = PluginReleaseCatalog.Choice(releaseID: releaseID, enabled: true, generation: UUID().uuidString)
+                let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
+                self.invalidateSourceDecisions(pluginID: metadata.id)
+                if self.packages[key] == nil { self.packages[key] = captured }
+                else { try? captured.package.close() }
+                self.packages[key]?.managedReleaseID = releaseID
+                if pinRuntime { self.runtimeVersionLease = handle }
+                if pinSession { self.sessionVersionLease = handle }
+                let installed = InstalledRelease(review: captured.review, signature: proof,
+                    directory: owner.url.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
+                return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
+            } catch { try? captured.package.close(); throw error }
+        }
+        private func versionDeclarations(_ payload: Int32) throws -> VersionDeclarations {
+            let captured = try captureOnQueue(directoryFD: payload)
+            defer { try? captured.package.close() }
+            let metadata = try captured.package.metadata()
+            let bytes = try PluginReleaseCatalog.read(payload, name: "plugin.json", limit: 65536)
+            let (permissions, executor) = try PluginReleaseDeclarations.decode(bytes, manifestDigest: metadata.manifestDigest)
+            return VersionDeclarations(review: captured.review, sdkVersion: metadata.sdkVersion, protocols: metadata.protocols,
+                permissions: permissions, executorDeclarations: executor)
+        }
+        func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> SelectionReview {
+            try await perform {
+                try self.checkOpen(); self.selectionReview = nil
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let ticket = try PluginSelectionReview(owner: owner, releaseID: releaseID, expectedRevision: expectedRevision, policyURL: trustedPolicy,
+                    inspect: { try self.versionDeclarations($0) })
+                self.selectionReview = ticket
+                return ticket.value
+            }
+        }
+        func cancelInstalledSelection(id: String) async {
+            _ = try? await perform { if self.selectionReview?.value.id == id { self.selectionReview = nil } }
+        }
+        func confirmInstalledSelection(id: String, acknowledged: Bool) async throws -> VersionSelectionResult {
+            try await perform {
+                try self.checkOpen()
+                guard let ticket = self.selectionReview, ticket.value.id == id else { throw PluginReleaseCatalog.Failure.changed }
+                guard acknowledged else { throw PluginSelectionReview.Failure.confirmation }
+                defer { self.selectionReview = nil }
+                guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
+                guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                try ticket.validate(owner: owner)
+                return try self.selectInstalledOnQueue(owner: owner, releaseID: ticket.value.candidateReleaseID, expectedRevision: ticket.value.revision,
+                    trustedPolicy: ticket.policyURL, expectedPolicySHA: ticket.value.signature.policySHA256)
             }
         }
         func previewInstalledPolicy(trustedPolicy: URL) async throws -> PolicyReview {
@@ -1696,6 +1779,7 @@ public actor ExtensionController {
             (try? await perform {
                 self.closed = true
                 self.removalPreview = nil
+                self.selectionReview = nil
                 self.policyReview = nil
                 if self.closeComplete { return self.closeResult ? 1 : -1 }
                 do {
