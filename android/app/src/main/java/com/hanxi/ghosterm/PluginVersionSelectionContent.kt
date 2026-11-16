@@ -58,11 +58,18 @@ internal fun PluginVersionPreviewContent(model: PluginVersionSelectionModel) {
             ExtensionController.PreviousVersionState.VERIFIED -> "旧版已用本次策略核验；此前${if (preview.previousEnabled == true) "启用" else "禁用"}。"
             ExtensionController.PreviousVersionState.UNKNOWN -> "旧版状态查不出来，不能把旧权限当作空，也不能判断没有新增权限。"
         }, Modifier.testTag("plugin-version-previous-state"))
+        val addedCapabilities = preview.addedCapabilities
+        val removedCapabilities = preview.removedCapabilities
+        if (addedCapabilities != null && removedCapabilities != null) {
+            Text("必需能力声明新增：${addedCapabilities.joinToString().ifEmpty { "无" }}；移除：${removedCapabilities.joinToString().ifEmpty { "无" }}。",
+                Modifier.testTag("plugin-version-capability-diff"))
+        } else Text("旧能力声明查不出来，无法计算完整差异。", Modifier.testTag("plugin-version-capability-unknown"))
         preview.addedPermissions?.let { added ->
             Text("新增或修改权限 ${added.size} 项；移除或修改旧权限 ${preview.removedPermissions!!.size} 项。")
             added.forEach { Text("＋ ${it.side} · ${it.capability} · ${it.purpose} · ${it.scope} · ${it.programs.joinToString()}") }
             preview.removedPermissions!!.forEach { Text("－ ${it.side} · ${it.capability} · ${it.purpose} · ${it.scope} · ${it.programs.joinToString()}") }
         }
+        if (preview.addedPermissions == null) Text("旧权限声明查不出来，无法计算完整差异；请核对候选完整声明。", Modifier.testTag("plugin-version-permission-unknown"))
         VersionDeclarations(preview.candidate, "candidate")
         preview.previous?.let { VersionDeclarations(it, "previous") }
         Text("切换影响后续新实例，已有实例保留原包；完整声明不等于代码审计，来源批准与 Session 授权仍须独立确认。")

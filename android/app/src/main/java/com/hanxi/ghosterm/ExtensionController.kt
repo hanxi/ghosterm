@@ -92,6 +92,8 @@ class ExtensionController(profile: HostProfile, context: Context,
     internal data class VersionPreview(val id: String, val revision: String?, val releaseID: String,
         val candidate: SignedArchiveReview, val previous: SignedArchiveReview?, val previousState: PreviousVersionState,
         val previousReleaseID: String?, val previousEnabled: Boolean?) {
+        val addedCapabilities get() = if (previousState == PreviousVersionState.UNKNOWN) null else candidate.review.requiredCapabilities.filter { it !in previous?.review?.requiredCapabilities.orEmpty() }
+        val removedCapabilities get() = if (previousState == PreviousVersionState.UNKNOWN) null else previous?.review?.requiredCapabilities.orEmpty().filter { it !in candidate.review.requiredCapabilities }
         val addedPermissions get() = if (previousState == PreviousVersionState.UNKNOWN) null else candidate.declarations.permissions.filter { it !in previous?.declarations?.permissions.orEmpty() }
         val removedPermissions get() = if (previousState == PreviousVersionState.UNKNOWN) null else previous?.declarations?.permissions.orEmpty().filter { it !in candidate.declarations.permissions }
     }

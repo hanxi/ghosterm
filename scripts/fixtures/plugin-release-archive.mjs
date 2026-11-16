@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { deflateRawSync, crc32 } from 'node:zlib';
 
 const root = fileURLToPath(new URL('../../android/app/src/androidTest/assets/plugin-release/', import.meta.url));
+const capabilityChanges = process.argv.includes('--capability-versions');
+const versionFamily = process.argv.includes('--versions') || capabilityChanges;
+if (capabilityChanges && process.argv.includes('--versions')) throw new Error('Choose one version fixture family');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const base = JSON.parse(JSON.parse(readFileSync(root + 'controller.json', 'utf8')).descriptor);
 const members = [];
@@ -18,7 +21,7 @@ function walk(path, relative = '') {
   }
 }
 walk(root + 'package/');
-if (process.argv.includes('--declarations') || process.argv.includes('--versions')) {
+if (process.argv.includes('--declarations') || versionFamily) {
   const manifest = JSON.parse(members.find(([name]) => name === 'plugin.json')[1]);
   manifest.executor = { variants: [{ id: 'portable', runtime: 'portable-js', entry: 'client/index.js', requires: ['process.spawn'],
     dependencies: [{ program: 'fixture-worker', versionPolicy: 'range', versionRange: '^1.2.0' }] }] };
@@ -65,9 +68,10 @@ const keyID = hash(publicBytes);
 const policy = JSON.stringify({ schemaVersion: 1, channel: 'fixture', keys: [{ id: keyID, algorithm: 'ed25519',
   publicKey: publicBytes.toString('base64'), publisher: 'fixture', pluginIds: [base.pluginId] }], revokedKeyIds: [] });
 let inputs;
-if (process.argv.includes('--versions')) {
-  // Two actual Core package digests, one disposable public policy. Keep the
-  // original ZIP vectors unchanged; write this output to versions.json only.
+if (versionFamily) {
+  // Two actual Core package digests under one disposable public policy.
+  // --versions writes versions.json; --capability-versions writes a separate
+  // capability-versions.json. Keep the original ZIP vector family unchanged.
   if (process.argv.includes('--declarations')) throw new Error('Choose one fixture family');
   inputs = [];
   for (const version of ['1.0.0', '2.0.0']) {
@@ -75,7 +79,17 @@ if (process.argv.includes('--versions')) {
     manifest.pluginVersion = version;
     manifest.permissions[0].purpose = `Allow fixture RPC for version ${version}.`;
     manifest.permissions[1].programs = [version === '1.0.0' ? 'fixture-worker' : 'fixture-worker-v2'];
-    const entry = `import {object,text,integer} from '@ghosterm/plugin-sdk';
+    if (capabilityChanges) {
+      const capability = version === '1.0.0' ? 'ui.diff' : 'ui.table';
+      manifest.client.requires = ['session.rpc', capability];
+      manifest.client.optional = ['ui.chat'];
+      manifest.permissions = manifest.permissions.filter(permission => permission.capability !== 'ui.diff' && permission.capability !== 'ui.table');
+      manifest.permissions.push({ side: 'client', capability, purpose: `Review ${capability} for version ${version}.`, scope: 'instance' });
+      manifest.executor.variants[0].id = version === '1.0.0' ? 'portable' : 'portable-reviewed';
+    }
+    const entry = capabilityChanges ? `throw new Error('SELECTION_PREVIEW_EXECUTED');
+export function activate(){throw new Error('SELECTION_PREVIEW_ACTIVATED');}
+` : `import {object,text,integer} from '@ghosterm/plugin-sdk';
 export function activate(ctx){
   const codec=object({text:text(40),count:integer(0,100)});
   const echo={name:'fixture.echo',input:codec,output:codec};
@@ -104,7 +118,7 @@ export function activate(ctx){
 ];
 const vectors = inputs.map(([name, zip, version = base]) => {
   const descriptor = JSON.stringify({ ...version, keyId: keyID,
-    packageSHA256: name === 'identity' && !process.argv.includes('--versions') ? '0'.repeat(64) : version.packageSHA256,
+    packageSHA256: name === 'identity' && !versionFamily ? '0'.repeat(64) : version.packageSHA256,
     artifact: { format: 'zip-v1', bytes: zip.length, sha256: hash(zip) } });
   const signature = sign(null, Buffer.concat([Buffer.from('GHOSTERM-PLUGIN-RELEASE-V1\0'), Buffer.from(descriptor)]), privateKey);
   return { name, archive: zip.toString('base64'), descriptor, signature: signature.toString('base64') };

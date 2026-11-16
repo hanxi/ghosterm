@@ -1199,3 +1199,26 @@ python3 -B scripts/test-plugin-release-android.py --headless-api 36 --policy-rev
 
 本批具体验证范围和原始收据摘要见插件计划第二十一批；不代替发行、真机、16 KiB 页
 或完整客户端验收。
+
+### Android 选择版本前的能力声明差异
+
+已保存版本的切换预览现在单独列出 Client 必需能力声明的新增与移除，保留声明顺序，共同
+能力不会出现在增删列表。首次选择时全部候选必需能力列为新增；旧选择即使已禁用，
+只要能经本次策略和真实 Core 核验，仍参与完整比较。回滚按声明比较，不按版本字符串
+自动判断先后，也不把变少解释为更安全。
+
+旧版缺失、验签失败或无法完成核验时，能力与权限差异明确显示查不出来；不把未知
+当空集合或「没有新增」。仍展示完整候选权限用途 / 范围 / 程序、SDK / 协议、必需 /
+未提供的可选能力、命令与执行端 / 依赖声明。可经独立确认选择有效候选替代坏旧版，
+来源批准与新 Session 授权继续分开。
+
+```bash
+# 公共签名测试向量；私钥仅在生成进程内，输出不要覆盖既有 versions.json
+TMPDIR="$PWD/tmp" node scripts/fixtures/plugin-release-archive.mjs --capability-versions > tmp/capability-versions.json
+# 自有 no-window AVD；包含原签名/安装/选择/维护/当前策略组合
+python3 -B scripts/test-plugin-release-android.py --headless-api 29 --version-changes --removal-hardlink --selection-channel
+python3 -B scripts/test-plugin-release-android.py --headless-api 36 --version-changes --removal-hardlink --selection-channel --mutate
+```
+
+默认仍为 JS-off。具体模拟器 / 构件、声明比较与真实 Core 的不同证据范围见插件计划
+第二十二批；本入口不审计代码行为，也不安装执行端依赖或迁移已有运行实例。

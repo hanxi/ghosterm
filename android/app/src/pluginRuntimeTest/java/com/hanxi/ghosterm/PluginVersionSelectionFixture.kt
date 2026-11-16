@@ -12,15 +12,17 @@ import java.util.zip.ZipInputStream
 /** Disposable signed public fixtures, installed only under each test's root. */
 internal object PluginVersionSelectionFixture {
     val context get() = InstrumentationRegistry.getInstrumentation().targetContext
-    private val fixture get() = JSONObject(InstrumentationRegistry.getInstrumentation().context.assets.open("plugin-release/versions.json").bufferedReader().use { it.readText() })
-    val policy get() = fixture.getString("policy").toByteArray()
-    fun vector(name: String): JSONObject {
-        val all = fixture.getJSONArray("vectors")
+    private fun fixture(asset: String) = JSONObject(InstrumentationRegistry.getInstrumentation().context.assets.open("plugin-release/$asset").bufferedReader().use { it.readText() })
+    val policy get() = policy("versions.json")
+    fun policy(asset: String) = fixture(asset).getString("policy").toByteArray()
+    fun vector(name: String, asset: String = "versions.json"): JSONObject {
+        val all = fixture(asset).getJSONArray("vectors")
         return (0 until all.length()).map { all.getJSONObject(it) }.single { it.getString("name") == name }
     }
-    fun controller(root: File) = ExtensionController(ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")), context, root)
-    suspend fun install(owner: ExtensionController, root: File, name: String = "1.0.0"): ExtensionController.InstalledRelease {
-        val value = vector(name); val source = File(context.cacheDir, "version-archive-${UUID.randomUUID()}")
+    fun controller(root: File, capabilities: List<String> = listOf("session.rpc")) = ExtensionController(ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), capabilities), context, root)
+    suspend fun install(owner: ExtensionController, root: File, name: String = "1.0.0", asset: String = "versions.json"): ExtensionController.InstalledRelease {
+        val policy = policy(asset)
+        val value = vector(name, asset); val source = File(context.cacheDir, "version-archive-${UUID.randomUUID()}")
         source.writeBytes(Base64.getDecoder().decode(value.getString("archive")))
         try { ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
             val raw = value.getString("descriptor").toByteArray(); val sig = Base64.getDecoder().decode(value.getString("signature"))
