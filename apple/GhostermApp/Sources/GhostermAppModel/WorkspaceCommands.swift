@@ -3,14 +3,15 @@ import Foundation
 @MainActor public extension AppModel {
     /// The generic workspace owns the instance; command names do not become
     /// layout enum cases. Refocusing reuses its UUID and existing native hosts.
-    func showExtensionWorkspace() {
-        if let tab = tabs.tabs.first(where: { $0.workspacePanes.contains(where: { $0.id == extensionInstance.id }) }) {
-            tabs.activate(tab); tab.activeWorkspacePaneID = extensionInstance.id; tab.zoomedPaneID = nil
+    func showExtensionWorkspace(_ selectedInstance: ExtensionInstanceModel? = nil) {
+        let instance = selectedInstance ?? extensionInstance
+        if let tab = tabs.tabs.first(where: { $0.workspacePanes.contains(where: { $0.id == instance.id }) }) {
+            tabs.activate(tab); tab.activeWorkspacePaneID = instance.id; tab.zoomedPaneID = nil
             return
         }
         let tab = tabs.activeTab ?? TerminalTab(kind: .workspace)
         if !tabs.tabs.contains(where: { $0.id == tab.id }) { tabs.add(tab) }
-        tab.addExtensionPane(extensionInstance)
+        tab.addExtensionPane(instance)
         tabs.activate(tab)
     }
     func openLocalFiles(newTab: Bool = false) {

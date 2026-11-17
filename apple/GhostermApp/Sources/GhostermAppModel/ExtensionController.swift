@@ -422,6 +422,31 @@ public actor ExtensionController {
     }
 
     private let worker: Worker
+    private init(worker: Worker) { self.worker = worker }
+
+    public struct MultiplexScope: Sendable, Equatable {
+        public let instance: String, epoch: UInt64
+        public init(instance: String, epoch: UInt64) { self.instance = instance; self.epoch = epoch }
+    }
+    public struct MultiplexState: Sendable {
+        public let error: Int32, cleanupError: Int32, instances: Int
+        public let received: UInt64, sent: UInt64, rejected: UInt64
+        public let stopping: Bool, released: Bool
+        public let peerEOF: Bool
+        public let transport: ChannelState
+    }
+
+    /// Shares the approved catalog and serial owner, with independent run state.
+    public func makeInvocationController() async throws -> ExtensionController {
+        try await worker.makeInvocationController()
+    }
+    public func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope]) async throws -> [ExtensionController] {
+        try await worker.adoptMultiplexConnection(connection: connection, scopes: scopes)
+    }
+    public func stepMultiplexConnection() async throws -> MultiplexState {
+        try await worker.stepMultiplexConnection()
+    }
+    public func multiplexObservation() async throws -> MultiplexState? { try await worker.multiplexObservation() }
 
     public init(profile: HostProfile, resourceDirectory: URL? = nil, localJournalDirectory: URL? = nil,
                 installationDirectory: URL? = nil) throws {
@@ -652,10 +677,6 @@ public actor ExtensionController {
     @discardableResult public func close() async -> Bool { await worker.close() }
 
     private final class Worker: @unchecked Sendable {
-        private let queue = DispatchQueue(label: "org.ghosterm.extension-controller")
-        private let hostJSON: String
-        private let resourceDirectory: URL?
-        private var registry: ExtensionRegistry?
         private enum SourceDecision: Equatable { case unknown, denied, allowed }
         private struct Record {
             let package: ExtensionPackage
@@ -664,63 +685,193 @@ public actor ExtensionController {
             var managedReleaseID: String? = nil
             var approvalGeneration: String? = nil
         }
-        private var packages: [String: Record] = [:]
         private struct Prepared {
             let value: PreparedRelease
             let record: Record
             let stage: PluginReleaseStage
         }
-        private var prepared: [String: Prepared] = [:]
-        private var failedInstallDiscards = Set<String>()
-        private var retainedInstallStages: [PluginReleaseStage] = []
-        private let installationDirectory: URL?
-        private var managedPluginIDs = Set<String>()
-        private var registeredDigests: [String: String] = [:]
-        private var closed = false
-        private var closeComplete = false
-        private var closeResult = false
-        private var channel: ExtensionChannel?
-        private var foregroundInspectionData = Data()
-        private var foregroundInspectionReading = false
-        private var local = false
-        private var lastLocalProcess: ProcessState?
-        private var localTemporary: ExtensionLocalTemporaryDirectory?
-        private var lastLocalTemporary: ExtensionLocalTemporaryState?
-        private let localJournalDirectory: URL?
-        private var localJournal: ExtensionLocalJournal?
-        private var session: ExtensionSession?
-        private var sessionPackageKey: String?
-        private var runtime: ExtensionRuntime?
-        private var sessionVersionLease: PluginReleaseCatalog.VersionHandle?
-        private var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
-        private var removalPreview: PluginReleaseRemoval?
-        private var policyReview: PluginPolicyReview?
-        private var selectionReview: PluginSelectionReview?
-        private var runtimePackageKey: String?
-        private var runtimeInstanceID: String?
-        private var runtimeCommand: String?
-        private var runtimeViewScope: (instance: String, epoch: String)?
-        private var runtimeViewIssue: String?
-        private var clientRootFD: Int32 = -1
-        private var clientSource: ExtensionFileSource?
-        private var clientPublication: ResourcePublication?
-        private var clientPublicationDeadline = 0.0
-        private var resourceStore: ExtensionResourceStore?
-        private var resourceRootFD: Int32 = -1
-        private var resourceDirectoryName: String?
-        private var resourceDirectoryDevice: dev_t?
-        private var resourceDirectoryInode: ino_t?
-        private let hostCapabilities: [String]
+
+        private final class State {
+            let queue = DispatchQueue(label: "org.ghosterm.extension-controller")
+            var closing = false
+            var runs: [UUID: Run] = [:]
+            let hostJSON: String
+            let resourceDirectory: URL?
+            var registry: ExtensionRegistry?
+            var packages: [String: Record] = [:]
+            var prepared: [String: Prepared] = [:]
+            var failedInstallDiscards: Set<String> = Set<String>()
+            var retainedInstallStages: [PluginReleaseStage] = []
+            let installationDirectory: URL?
+            var managedPluginIDs: Set<String> = Set<String>()
+            var registeredDigests: [String: String] = [:]
+            let localJournalDirectory: URL?
+            var localJournal: ExtensionLocalJournal?
+            var removalPreview: PluginReleaseRemoval?
+            var policyReview: PluginPolicyReview?
+            var selectionReview: PluginSelectionReview?
+            let hostCapabilities: [String]
+            init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?) {
+                self.hostJSON = hostJSON; self.resourceDirectory = resourceDirectory
+                self.localJournalDirectory = localJournalDirectory; self.installationDirectory = installationDirectory
+                if let data = hostJSON.data(using: .utf8),
+                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    hostCapabilities = object["capabilities"] as? [String] ?? []
+                } else { hostCapabilities = [] }
+            }
+        }
+        private final class Run {
+            let id = UUID()
+            var parent: Run?
+            var multiplexer: ExtensionMultiplexer?
+            var pump: DispatchSourceTimer?
+            var drainDeadline: Double?
+            var finalMultiplexState: MultiplexState?
+            var closed: Bool = false
+            var closeComplete: Bool = false
+            var closeResult: Bool = false
+            var channel: ExtensionChannel?
+            var foregroundInspectionData: Data = Data()
+            var foregroundInspectionReading: Bool = false
+            var local: Bool = false
+            var lastLocalProcess: ProcessState?
+            var localTemporary: ExtensionLocalTemporaryDirectory?
+            var lastLocalTemporary: ExtensionLocalTemporaryState?
+            var session: ExtensionSession?
+            var sessionPackageKey: String?
+            var runtime: ExtensionRuntime?
+            var sessionVersionLease: PluginReleaseCatalog.VersionHandle?
+            var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
+            var runtimePackageKey: String?
+            var runtimeInstanceID: String?
+            var runtimeCommand: String?
+            var runtimeViewScope: (instance: String, epoch: String)?
+            var runtimeViewIssue: String?
+            var clientRootFD: Int32 = -1
+            var clientSource: ExtensionFileSource?
+            var clientPublication: ResourcePublication?
+            var clientPublicationDeadline: Double = 0.0
+            var resourceStore: ExtensionResourceStore?
+            var resourceRootFD: Int32 = -1
+            var resourceDirectoryName: String?
+            var resourceDirectoryDevice: dev_t?
+            var resourceDirectoryInode: ino_t?
+        }
+        private let state: State
+        private let run: Run
+        private let ownsLibrary: Bool
+        private var queue: DispatchQueue { state.queue }
+        private var hostJSON: String { get { state.hostJSON } }
+        private var resourceDirectory: URL? { get { state.resourceDirectory } }
+        private var registry: ExtensionRegistry? { get { state.registry } set { state.registry = newValue } }
+        private var packages: [String: Record] { get { state.packages } set { state.packages = newValue } }
+        private var prepared: [String: Prepared] { get { state.prepared } set { state.prepared = newValue } }
+        private var failedInstallDiscards: Set<String> { get { state.failedInstallDiscards } set { state.failedInstallDiscards = newValue } }
+        private var retainedInstallStages: [PluginReleaseStage] { get { state.retainedInstallStages } set { state.retainedInstallStages = newValue } }
+        private var installationDirectory: URL? { get { state.installationDirectory } }
+        private var managedPluginIDs: Set<String> { get { state.managedPluginIDs } set { state.managedPluginIDs = newValue } }
+        private var registeredDigests: [String: String] { get { state.registeredDigests } set { state.registeredDigests = newValue } }
+        private var closed: Bool { get { run.closed } set { run.closed = newValue } }
+        private var closeComplete: Bool { get { run.closeComplete } set { run.closeComplete = newValue } }
+        private var closeResult: Bool { get { run.closeResult } set { run.closeResult = newValue } }
+        private var channel: ExtensionChannel? { get { run.channel } set { run.channel = newValue } }
+        private var foregroundInspectionData: Data { get { run.foregroundInspectionData } set { run.foregroundInspectionData = newValue } }
+        private var foregroundInspectionReading: Bool { get { run.foregroundInspectionReading } set { run.foregroundInspectionReading = newValue } }
+        private var local: Bool { get { run.local } set { run.local = newValue } }
+        private var lastLocalProcess: ProcessState? { get { run.lastLocalProcess } set { run.lastLocalProcess = newValue } }
+        private var localTemporary: ExtensionLocalTemporaryDirectory? { get { run.localTemporary } set { run.localTemporary = newValue } }
+        private var lastLocalTemporary: ExtensionLocalTemporaryState? { get { run.lastLocalTemporary } set { run.lastLocalTemporary = newValue } }
+        private var localJournalDirectory: URL? { get { state.localJournalDirectory } }
+        private var localJournal: ExtensionLocalJournal? { get { state.localJournal } set { state.localJournal = newValue } }
+        private var session: ExtensionSession? { get { run.session } set { run.session = newValue } }
+        private var sessionPackageKey: String? { get { run.sessionPackageKey } set { run.sessionPackageKey = newValue } }
+        private var runtime: ExtensionRuntime? { get { run.runtime } set { run.runtime = newValue } }
+        private var sessionVersionLease: PluginReleaseCatalog.VersionHandle? { get { run.sessionVersionLease } set { run.sessionVersionLease = newValue } }
+        private var runtimeVersionLease: PluginReleaseCatalog.VersionHandle? { get { run.runtimeVersionLease } set { run.runtimeVersionLease = newValue } }
+        private var removalPreview: PluginReleaseRemoval? { get { state.removalPreview } set { state.removalPreview = newValue } }
+        private var policyReview: PluginPolicyReview? { get { state.policyReview } set { state.policyReview = newValue } }
+        private var selectionReview: PluginSelectionReview? { get { state.selectionReview } set { state.selectionReview = newValue } }
+        private var runtimePackageKey: String? { get { run.runtimePackageKey } set { run.runtimePackageKey = newValue } }
+        private var runtimeInstanceID: String? { get { run.runtimeInstanceID } set { run.runtimeInstanceID = newValue } }
+        private var runtimeCommand: String? { get { run.runtimeCommand } set { run.runtimeCommand = newValue } }
+        private var runtimeViewScope: (instance: String, epoch: String)? { get { run.runtimeViewScope } set { run.runtimeViewScope = newValue } }
+        private var runtimeViewIssue: String? { get { run.runtimeViewIssue } set { run.runtimeViewIssue = newValue } }
+        private var clientRootFD: Int32 { get { run.clientRootFD } set { run.clientRootFD = newValue } }
+        private var clientSource: ExtensionFileSource? { get { run.clientSource } set { run.clientSource = newValue } }
+        private var clientPublication: ResourcePublication? { get { run.clientPublication } set { run.clientPublication = newValue } }
+        private var clientPublicationDeadline: Double { get { run.clientPublicationDeadline } set { run.clientPublicationDeadline = newValue } }
+        private var resourceStore: ExtensionResourceStore? { get { run.resourceStore } set { run.resourceStore = newValue } }
+        private var resourceRootFD: Int32 { get { run.resourceRootFD } set { run.resourceRootFD = newValue } }
+        private var resourceDirectoryName: String? { get { run.resourceDirectoryName } set { run.resourceDirectoryName = newValue } }
+        private var resourceDirectoryDevice: dev_t? { get { run.resourceDirectoryDevice } set { run.resourceDirectoryDevice = newValue } }
+        private var resourceDirectoryInode: ino_t? { get { run.resourceDirectoryInode } set { run.resourceDirectoryInode = newValue } }
+        private var hostCapabilities: [String] { get { state.hostCapabilities } }
 
         init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?) {
-            self.hostJSON = hostJSON
-            self.resourceDirectory = resourceDirectory
-            self.localJournalDirectory = localJournalDirectory
-            self.installationDirectory = installationDirectory
-            if let data = hostJSON.data(using: .utf8),
-               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                self.hostCapabilities = object["capabilities"] as? [String] ?? []
-            } else { self.hostCapabilities = [] }
+            state = State(hostJSON: hostJSON, resourceDirectory: resourceDirectory,
+                localJournalDirectory: localJournalDirectory, installationDirectory: installationDirectory)
+            run = Run(); ownsLibrary = true
+            state.runs[run.id] = run
+        }
+        private init(state: State, run: Run) {
+            self.state = state; self.run = run; ownsLibrary = false
+        }
+
+        func makeInvocationController() async throws -> ExtensionController {
+            try await perform {
+                try self.checkOpen()
+                guard self.state.runs.count < 145 else { throw ControllerError.channelUnavailable }
+                let run = Run(); self.state.runs[run.id] = run
+                return ExtensionController(worker: Worker(state: self.state, run: run))
+            }
+        }
+        func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope]) async throws -> [ExtensionController] {
+            try await perform {
+                try self.checkOpen()
+                guard self.run.parent == nil, self.run.multiplexer == nil,
+                      self.session == nil, self.runtime == nil, let channel = self.channel,
+                      (1...8).contains(scopes.count), self.state.runs.count + scopes.count <= 145,
+                      Set(scopes.map(\.instance)).count == scopes.count,
+                      Set(scopes.map(\.epoch)).count == scopes.count else { throw ControllerError.channelUnavailable }
+                let mux = try ExtensionMultiplexer(channel: channel, connection: connection)
+                self.run.multiplexer = mux; self.channel = nil
+                var children: [ExtensionController] = []
+                for scope in scopes {
+                    let child = Run(); child.parent = self.run; child.local = self.local
+                    self.state.runs[child.id] = child
+                    child.channel = try mux.openChannel(instance: scope.instance, epoch: scope.epoch)
+                    children.append(ExtensionController(worker: Worker(state: self.state, run: child)))
+                }
+                let timer = DispatchSource.makeTimerSource(queue: self.queue)
+                timer.schedule(deadline: .now(), repeating: .milliseconds(2), leeway: .milliseconds(1))
+                timer.setEventHandler { [weak run = self.run] in
+                    guard let run, let mux = run.multiplexer else { return }
+                    _ = try? mux.step()
+                    if (try? mux.info().error) != 0 { run.pump?.cancel(); run.pump = nil }
+                }
+                self.run.pump = timer; timer.resume()
+                return children
+            }
+        }
+        func stepMultiplexConnection() async throws -> MultiplexState {
+            try await perform {
+                try self.checkOpen()
+                guard let mux = self.run.multiplexer else { throw ControllerError.channelUnavailable }
+                _ = try mux.step()
+                return try self.multiplexState(mux)
+            }
+        }
+        private func multiplexState(_ mux: ExtensionMultiplexer, peerEOF: Bool? = nil) throws -> MultiplexState {
+            let info = try mux.info(), transport = try mux.transportInfo()
+            return MultiplexState(error: info.error, cleanupError: info.cleanupError, instances: info.instances,
+                received: info.received, sent: info.sent, rejected: info.rejected, stopping: info.stopping, released: info.released,
+                peerEOF: peerEOF ?? transport.remoteEOF, transport: try channelState(info: transport))
+        }
+        func multiplexObservation() async throws -> MultiplexState? {
+            try await perform {
+                if let mux = self.run.multiplexer { return try self.multiplexState(mux) }
+                return self.run.finalMultiplexState
+            }
         }
 
         func review(directory: URL) async throws -> PackageReview {
@@ -827,17 +978,17 @@ public actor ExtensionController {
                     publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
                 try owner.validateVersion(releaseID, handle: handle, payload: payload)
                 let key = self.key(metadata.id, metadata.packageDigest)
-                let pinRuntime = self.runtimePackageKey == key && self.runtimeVersionLease == nil
-                let pinSession = self.sessionPackageKey == key && self.sessionVersionLease == nil
-                if pinRuntime || pinSession { try handle.pin() }
+                let pinRuntime = self.state.runs.values.filter { $0.runtimePackageKey == key && $0.runtimeVersionLease == nil }
+                let pinSession = self.state.runs.values.filter { $0.sessionPackageKey == key && $0.sessionVersionLease == nil }
+                if !pinRuntime.isEmpty || !pinSession.isEmpty { try handle.pin() }
                 selection.choices[metadata.id] = PluginReleaseCatalog.Choice(releaseID: releaseID, enabled: true, generation: UUID().uuidString)
                 let (updated, durable) = try owner.writeSelection(selection, expected: expectedRevision)
                 self.invalidateSourceDecisions(pluginID: metadata.id)
                 if self.packages[key] == nil { self.packages[key] = captured }
                 else { try? captured.package.close() }
                 self.packages[key]?.managedReleaseID = releaseID
-                if pinRuntime { self.runtimeVersionLease = handle }
-                if pinSession { self.sessionVersionLease = handle }
+                for run in pinRuntime { run.runtimeVersionLease = handle }
+                for run in pinSession { run.sessionVersionLease = handle }
                 let installed = InstalledRelease(review: captured.review, signature: proof,
                     directory: owner.url.appendingPathComponent(releaseID + "/payload", isDirectory: true), durabilityConfirmed: durable)
                 return VersionSelectionResult(release: installed, catalog: self.catalogView(inventory, selection: updated), durabilityConfirmed: durable)
@@ -1226,11 +1377,12 @@ public actor ExtensionController {
         func openSSHChannel(hops input: [SSHHop], bootstrap: String) async throws -> ChannelState {
             try await perform {
                 try self.checkOpen()
-                guard self.channel == nil, self.session == nil, self.runtime == nil, self.localTemporary == nil else {
+                guard self.run.parent == nil, self.run.multiplexer == nil,
+                      self.channel == nil, self.session == nil, self.runtime == nil, self.localTemporary == nil else {
                     throw ControllerError.channelUnavailable
                 }
                 guard (1...8).contains(input.count), !bootstrap.isEmpty,
-                      !bootstrap.utf8.contains(0), bootstrap.utf8.count <= 4096 else {
+                      !bootstrap.utf8.contains(0), bootstrap.utf8.count <= 32768 else {
                     throw ControllerError.invalidHostProfile
                 }
                 let hops = try input.enumerated().map { index, hop -> ExtensionChannel.Hop in
@@ -1271,7 +1423,8 @@ public actor ExtensionController {
                               environmentNames: [String]) async throws -> ChannelState {
             try await perform {
                 try self.checkOpen()
-                guard self.channel == nil, self.session == nil, self.runtime == nil, self.localTemporary == nil else { throw ControllerError.channelUnavailable }
+                guard self.run.parent == nil, self.run.multiplexer == nil,
+                      self.channel == nil, self.session == nil, self.runtime == nil, self.localTemporary == nil else { throw ControllerError.channelUnavailable }
                 let names = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(
                     String(decoding: JSONEncoder().encode(environmentNames), as: UTF8.self))
                 guard names.allSatisfy({ !$0.hasPrefix("LD_") && !$0.hasPrefix("DYLD_") && $0 != "NODE_OPTIONS" && $0 != "NODE_PATH" }) else {
@@ -1323,8 +1476,9 @@ public actor ExtensionController {
         }
 
         private func captureLocalProcess() throws {
-            guard local else { return }
-            if let runtime { lastLocalProcess = try ProcessState(runtime.transportProcessObservation()) }
+            guard local, run.parent == nil else { return }
+            if let mux = run.multiplexer { lastLocalProcess = try ProcessState(mux.processObservation()) }
+            else if let runtime { lastLocalProcess = try ProcessState(runtime.transportProcessObservation()) }
             else if let session { lastLocalProcess = try ProcessState(session.processObservation()) }
             else if let channel { lastLocalProcess = try ProcessState(channel.processObservation()) }
         }
@@ -1828,13 +1982,26 @@ public actor ExtensionController {
         private func closeOnce() async -> Int {
             (try? await perform {
                 self.closed = true
-                self.removalPreview = nil
-                self.selectionReview = nil
-                self.policyReview = nil
+                if self.ownsLibrary { self.state.closing = true }
                 if self.closeComplete { return self.closeResult ? 1 : -1 }
                 do {
+                    let children = self.state.runs.values.filter {
+                        $0.id != self.run.id && (self.ownsLibrary || $0.parent === self.run)
+                    }.sorted { ($0.parent == nil ? 1 : 0) < ($1.parent == nil ? 1 : 0) }
+                    for child in children {
+                        child.closed = true
+                        try Worker(state: self.state, run: child).releaseOwners(forceStop: true)
+                        child.closeComplete = true; child.closeResult = (child.lastLocalTemporary?.error ?? 0) == 0
+                        self.state.runs.removeValue(forKey: child.id)
+                    }
                     try self.releaseOwners(forceStop: true)
                     var cleanupFailed = (self.lastLocalTemporary?.error ?? 0) != 0
+                    if !self.ownsLibrary {
+                        self.closeComplete = true; self.closeResult = !cleanupFailed
+                        self.state.runs.removeValue(forKey: self.run.id)
+                        return cleanupFailed ? -1 : 1
+                    }
+                    self.removalPreview = nil; self.selectionReview = nil; self.policyReview = nil
                     if let registry = self.registry {
                         do {
                             if try registry.close() != .ok { cleanupFailed = true }
@@ -1861,7 +2028,9 @@ public actor ExtensionController {
         }
 
         private func channelState(_ channel: ExtensionChannel) throws -> ChannelState {
-            let info = try channel.info()
+            try channelState(info: channel.info())
+        }
+        private func channelState(info: ExtensionChannel.Info) throws -> ChannelState {
             return ChannelState(phase: info.phase.rawValue, stage: info.stage.rawValue,
                                 error: info.error, cleanupError: info.cleanupError,
                                 hop: info.hop, challenge: info.challenge,
@@ -1910,7 +2079,7 @@ public actor ExtensionController {
                     let done = try runtime.closeStep(); try captureLocalProcess()
                     if done { released = true; break }
                 }
-                guard released, clientSource == nil else { throw local ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
+                guard released, clientSource == nil else { throw (local || run.parent != nil) ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
                 self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
                 runtimeVersionLease = nil
                 runtimeViewScope = nil; runtimeViewIssue = nil
@@ -1931,7 +2100,7 @@ public actor ExtensionController {
                     let done = try session.closeStep(); try captureLocalProcess()
                     if done { released = true; break }
                 }
-                guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.sessionUnavailable }
+                guard released else { throw (local || run.parent != nil) ? ControllerError.localProcessDraining : ControllerError.sessionUnavailable }
                 self.session = nil; sessionPackageKey = nil; sessionVersionLease = nil
             }
             try closeResourceStore()
@@ -1948,8 +2117,25 @@ public actor ExtensionController {
                     let done = try channel.closeStep(); try captureLocalProcess()
                     if done { released = true; break }
                 }
-                guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }
+                guard released else { throw (local || run.parent != nil) ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }
                 self.channel = nil
+            }
+            if let mux = run.multiplexer {
+                // Scope CLOSE is not a process-exit receipt. Let the Executor
+                // finish its own shutdown before sending SSH CHANNEL_CLOSE.
+                _ = try mux.step()
+                let observation = try multiplexState(mux)
+                let now = ProcessInfo.processInfo.systemUptime
+                if run.drainDeadline == nil { run.drainDeadline = now + 1 }
+                if !observation.peerEOF, observation.error == 0, now < (run.drainDeadline ?? now) {
+                    throw ControllerError.localProcessDraining
+                }
+                run.finalMultiplexState = observation
+                guard try mux.closeStep() else { throw ControllerError.localProcessDraining }
+                run.finalMultiplexState = try multiplexState(mux, peerEOF: observation.peerEOF)
+                try captureLocalProcess()
+                run.pump?.cancel(); run.pump = nil
+                run.multiplexer = nil
             }
             if let temporary = localTemporary {
                 do {
@@ -1961,6 +2147,9 @@ public actor ExtensionController {
         }
 
         private func openResourceStoreIfNeeded() throws -> ExtensionResourceStore? {
+            if let parent = run.parent {
+                return try Worker(state: state, run: parent).openResourceStoreIfNeeded()
+            }
             guard hostCapabilities.contains("resource.receive") else { return nil }
             if let resourceStore { return resourceStore }
             guard let directory = resourceDirectory, directory.isFileURL,
@@ -2000,7 +2189,7 @@ public actor ExtensionController {
                 throw ControllerError.resourceUnavailable
             }
             do {
-                let store = try ExtensionResourceStore(directoryFD: directoryFD, owner: queue)
+                let store = try ExtensionResourceStore(directoryFD: directoryFD, owner: queue, totalBytes: run.multiplexer == nil ? 1048576 : 8388608)
                 _ = Darwin.close(directoryFD)
                 self.resourceRootFD = rootFD
                 self.resourceDirectoryName = name
@@ -2017,6 +2206,7 @@ public actor ExtensionController {
         }
 
         private func closeResourceStore() throws {
+            if run.parent != nil { return }
             if let resourceStore {
                 let status = try resourceStore.close()
                 if status == .ok || status == .io { self.resourceStore = nil }
@@ -2052,7 +2242,13 @@ public actor ExtensionController {
         private func perform<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
             try await withCheckedThrowingContinuation { continuation in
                 queue.async {
-                    do { continuation.resume(returning: try operation()) }
+                    do {
+                        let mux = self.run.parent?.multiplexer
+                        _ = try mux?.step()
+                        let value = try operation()
+                        _ = try mux?.step()
+                        continuation.resume(returning: value)
+                    }
                     catch { continuation.resume(throwing: error) }
                 }
             }
@@ -2061,7 +2257,7 @@ public actor ExtensionController {
         private func checkOpen() throws {
             dispatchPrecondition(condition: .onQueue(queue))
             guard !Thread.isMainThread else { throw ControllerError.closed }
-            guard !closed else { throw ControllerError.closed }
+            guard !closed, !state.closing else { throw ControllerError.closed }
         }
 
         private func registryOnQueue() throws -> ExtensionRegistry {

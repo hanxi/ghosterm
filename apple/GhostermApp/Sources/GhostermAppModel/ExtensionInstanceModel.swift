@@ -97,6 +97,37 @@ import GhostermCore
         return canDiscard
     }
 
+    struct ClientPlan { let methods: [String], services: [String] }
+    static func clientPlan(selected: ExtensionController.Resolution, methods: [String], hostMethods: [String]) throws -> ClientPlan {
+    let tableContribution = selected.command?.views.contains("table") == true
+    if tableContribution && !["session.rpc", "ui.table"].allSatisfy(selected.requiredCapabilities.contains) {
+        throw GhostermError.failed("表格贡献必须声明 session.rpc 与 ui.table")
+    }
+    let diffContribution = selected.command?.views.contains("diff") == true
+    if diffContribution && !["session.rpc", "ui.diff"].allSatisfy(selected.requiredCapabilities.contains) {
+        throw GhostermError.failed("差异贡献必须声明 session.rpc 与 ui.diff")
+    }
+    let taskContribution = selected.command?.views.contains("task") == true
+    if taskContribution && !["session.rpc", "ui.task"].allSatisfy(selected.requiredCapabilities.contains) {
+        throw GhostermError.failed("任务贡献必须声明 session.rpc 与 ui.task")
+    }
+    let registeredViews = selected.requiredCapabilities.contains("ui.views")
+    if registeredViews && !(tableContribution || diffContribution || taskContribution) {
+        throw GhostermError.failed("视图注册服务需要所选命令声明标准视图")
+    }
+    var sessionMethods = !registeredViews && tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+    if !registeredViews && diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
+    if !registeredViews && taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
+    var clientServices = tableContribution ? ["ui.table"] : []
+    if diffContribution { clientServices.append("ui.diff") }
+    if taskContribution { clientServices.append("ui.task") }
+    if registeredViews { clientServices.append("ui.views") }
+    guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
+        throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
+    }
+        return ClientPlan(methods: sessionMethods, services: clientServices)
+    }
+
     public func startExtensionClient(packageID: String, packageDigest: String, command: String,
                                      arguments: [String], sshAlias: String, executable: String,
                                      executorDirectory: String, executorDigest: String,
@@ -107,7 +138,7 @@ import GhostermCore
                                      executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
-                                     localLaunch: ExtensionLocalLaunch? = nil) async {
+                                     localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil) async {
         guard launchTask == nil, !extensionRunBusy, extensionRun == nil, !cleanupPending else {
             extensionRunIssue = "已有插件运行或资源仍待释放"; return
         }
@@ -120,7 +151,7 @@ import GhostermCore
                 methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots,
                 processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames,
                 executorExecution: executorExecution, executorAttachment: executorAttachment,
-                clientWorkspace: clientWorkspace, localLaunch: localLaunch)
+                clientWorkspace: clientWorkspace, localLaunch: localLaunch, multiplexedConnectionCommand: multiplexedConnectionCommand)
         }
         launchTask = task
         await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
@@ -135,7 +166,7 @@ import GhostermCore
                              processPrograms: [ExtensionRelayBootstrap.ProcessProgram],
                              processEnvironmentNames: [String], executorExecution: ExtensionRelayBootstrap.Execution?,
                              executorAttachment: ExtensionRelayBootstrap.Attachment?,
-                             clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?) async {
+                             clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil; extensionLastLocalTemporary = nil
@@ -147,32 +178,8 @@ import GhostermCore
                   selected.packageDigest == packageDigest, selected.command?.path == command else {
                 throw GhostermError.failed("只能启动本进程已批准摘要中的精确 Client 命令")
             }
-            let tableContribution = selected.command?.views.contains("table") == true
-            if tableContribution && !["session.rpc", "ui.table"].allSatisfy(selected.requiredCapabilities.contains) {
-                throw GhostermError.failed("表格贡献必须声明 session.rpc 与 ui.table")
-            }
-            let diffContribution = selected.command?.views.contains("diff") == true
-            if diffContribution && !["session.rpc", "ui.diff"].allSatisfy(selected.requiredCapabilities.contains) {
-                throw GhostermError.failed("差异贡献必须声明 session.rpc 与 ui.diff")
-            }
-            let taskContribution = selected.command?.views.contains("task") == true
-            if taskContribution && !["session.rpc", "ui.task"].allSatisfy(selected.requiredCapabilities.contains) {
-                throw GhostermError.failed("任务贡献必须声明 session.rpc 与 ui.task")
-            }
-            let registeredViews = selected.requiredCapabilities.contains("ui.views")
-            if registeredViews && !(tableContribution || diffContribution || taskContribution) {
-                throw GhostermError.failed("视图注册服务需要所选命令声明标准视图")
-            }
-            var sessionMethods = !registeredViews && tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
-            if !registeredViews && diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
-            if !registeredViews && taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
-            var clientServices = tableContribution ? ["ui.table"] : []
-            if diffContribution { clientServices.append("ui.diff") }
-            if taskContribution { clientServices.append("ui.task") }
-            if registeredViews { clientServices.append("ui.views") }
-            guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
-                throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
-            }
+            let plan = try Self.clientPlan(selected: selected, methods: methods, hostMethods: hostMethods)
+            let sessionMethods = plan.methods, clientServices = plan.services
             try clientWorkspace?.validate(requiredCapabilities: selected.requiredCapabilities)
             if ["ai codex", "ai claude"].contains(command), let executorAttachment, !executorAttachment.remoteProcesses {
                 throw GhostermError.failed("此命令需要明确允许沿用前台实例已有的远端业务进程范围")
@@ -186,8 +193,8 @@ import GhostermCore
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment,
                 command: command, arguments: arguments)
-            let argv = try localLaunch.map { _ in try ExtensionRelayBootstrap.buildLocal(request) }
-            let bootstrap = try argv.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ExtensionRelayBootstrap.build(request)
+            let argv = try localLaunch.flatMap { _ in multiplexedConnectionCommand == nil ? try ExtensionRelayBootstrap.buildLocal(request) : nil }
+            let bootstrap = try multiplexedConnectionCommand ?? argv.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ExtensionRelayBootstrap.build(request)
             if let localLaunch, let executorExecution, localLaunch.temporaryDirectory != executorExecution.temporaryDirectory {
                 throw GhostermError.failed("本机宿主与 Executor 必须使用同一显式临时目录")
             }
@@ -196,7 +203,9 @@ import GhostermCore
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
             try Task.checkCancellation()
-            if let localLaunch, let argv {
+            if multiplexedConnectionCommand != nil {
+                // The connection owner admitted this exact logical channel.
+            } else if let localLaunch, let argv {
                 _ = try await extensionController.openLocalChannel(executable: executable, arguments: argv, launch: localLaunch, environmentNames: processEnvironmentNames)
             } else {
                 _ = try await connectSSH(sshAlias, bootstrap)

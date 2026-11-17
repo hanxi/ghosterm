@@ -70,6 +70,9 @@ public final class AppModel: ObservableObject {
     public let extensionController: ExtensionController?
     public let extensionInstance: ExtensionInstanceModel
     private var extensionObservation: AnyCancellable?
+    @Published public internal(set) var extensionConnections: [ExtensionConnectionModel] = []
+    @Published public internal(set) var extensionConnectionIssue: String?
+    var extensionConnectionObservations: [UUID: AnyCancellable] = [:]
     private var closingExtensionTabs = Set<UUID>()
 
     public var extensionLastLocalProcess: ExtensionController.ProcessState? { extensionInstance.extensionLastLocalProcess }
@@ -1030,7 +1033,7 @@ public final class AppModel: ObservableObject {
 
     /// 普通终端的前台作业与传输仍需关闭确认。
     public func shouldTerminate() -> Bool {
-        guard extensionInstance.canDiscard,
+        guard extensionConnections.allSatisfy(\.canDiscard), extensionInstance.canDiscard,
               !tabs.tabs.contains(where: { $0.workspacePanes.compactMap(\.extensionInstance).contains(where: { !$0.canDiscard }) }) else { return false }
         return !TransferManager.shared.hasActive && !tabs.tabs.contains { tab in
             if case .sftp = tab.kind { return tab.closeNeedsConfirmation }
@@ -1041,6 +1044,7 @@ public final class AppModel: ObservableObject {
     /// Stop per-invocation UI/RPC tasks before closing their Core owner. Failed
     /// cleanup keeps the App and the same owner alive for a later explicit retry.
     public func closeExtensionOwners() async -> Bool {
+        for connection in extensionConnections { if !(await connection.close()) { return false } }
         let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
         var visited = Set<UUID>()
         for instance in instances where visited.insert(instance.id).inserted {
@@ -1175,8 +1179,8 @@ public final class AppModel: ObservableObject {
     /// Opens the optional plugin channel through the same resolved ssh_config
     /// / ProxyJump route as terminal and SFTP connections. DNS is resolved only
     /// for the first hop; inner hostnames are forwarded through direct-tcpip.
-    public func openPluginSSHChannel(alias: String, bootstrap: String) async throws -> ExtensionController.ChannelState {
-        guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+    public func openPluginSSHChannel(alias: String, bootstrap: String, controller: ExtensionController? = nil) async throws -> ExtensionController.ChannelState {
+        guard let extensionController = controller ?? self.extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
         let hops = try await resolvePluginSSHRoute(alias: alias)
         try Task.checkCancellation()
         return try await extensionController.openSSHChannel(hops: hops, bootstrap: bootstrap)
@@ -1201,11 +1205,11 @@ public final class AppModel: ObservableObject {
     /// Opens the configured plugin route and answers each Native SSH
     /// challenge through the App's existing host-key and Keychain credential
     /// flows. Caller owns subsequent Session / consent / Runtime work.
-    public func authenticatePluginSSHChannel(alias: String, bootstrap: String) async throws -> ExtensionController.ChannelState {
-        guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+    public func authenticatePluginSSHChannel(alias: String, bootstrap: String, controller: ExtensionController? = nil) async throws -> ExtensionController.ChannelState {
+        guard let extensionController = controller ?? self.extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
         let targets = try configuredSSHRoute(for: [alias])
         guard !targets.isEmpty else { throw GhostermError.failed("SSH 配置没有生成连接路线") }
-        var state = try await openPluginSSHChannel(alias: alias, bootstrap: bootstrap)
+        var state = try await openPluginSSHChannel(alias: alias, bootstrap: bootstrap, controller: extensionController)
         let selectors = targets.map { target in
             SSHCredentialSelector(target: target, storage: sshCredentialStorage, ask: { [weak self] kind in
                 guard let self else { return nil }

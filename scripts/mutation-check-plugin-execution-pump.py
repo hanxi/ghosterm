@@ -32,7 +32,7 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def execute(args, serial=None):
     mac = args.macos
-    component = 'AppModel' if args.local_temporary_retry else 'ExtensionRelayBootstrap' if args.business_environment or args.foreground_grant else 'ExtensionController'
+    component = 'ExtensionInstanceModel' if args.local_temporary_retry else 'ExtensionRelayBootstrap' if args.business_environment or args.foreground_grant else 'ExtensionController'
     name = Path('apple/GhostermApp/Sources/GhostermAppModel/' + component + '.swift' if mac else
                 'android/app/src/main/java/com/hanxi/ghosterm/' + component + '.kt')
     original = (ROOT / name).read_bytes()

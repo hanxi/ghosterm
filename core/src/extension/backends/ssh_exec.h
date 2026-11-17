@@ -3,7 +3,8 @@
 #define GT_BRIDGE_SSH_EXEC_H
 #include "extension/stream.h"
 #include "ghosterm/ssh.h"
-#define GT_BRIDGE_SSH_COMMAND_MAX 1024u
+/* Explicit native instance-group profiles; still bounded before allocation. */
+#define GT_BRIDGE_SSH_COMMAND_MAX 32768u
 #define GT_BRIDGE_SSH_DIAGNOSTIC_MAX 4096u
 #define GT_BRIDGE_SSH_STDERR_MAX 1048576u
 

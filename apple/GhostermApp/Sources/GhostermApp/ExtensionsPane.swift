@@ -16,6 +16,7 @@ struct ExtensionsPane: View {
     @State private var importing = false
     @State private var entries: [Entry] = []
     @State private var issue: String?
+    @State private var pendingConnections: [ExtensionGroupInvocation] = []
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspectionTask: Task<Void, Never>?
 
@@ -35,6 +36,7 @@ struct ExtensionsPane: View {
                 authorized: localAllowed) : nil
         }
 
+        var multiplexTemporaryDirectory = ""
         var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
@@ -260,6 +262,13 @@ struct ExtensionsPane: View {
                             Text("只填写执行机器上的变量名，例如 [\"CLAUDE_CONFIG_DIR\"]；不要填写凭据值。缺失的显式变量会报错。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
                             }
+                            if !entry.localConnection && !entry.attachExisting {
+                                TextField("连接组的执行端临时目录", text: $entry.multiplexTemporaryDirectory)
+                                    .accessibilityIdentifier("plugin-group-temporary-" + entry.review.id)
+                            }
+                            Button("加入连接组") { enqueue(entry) }
+                                .disabled(entry.attachExisting || pendingConnections.count >= 8)
+                                .accessibilityIdentifier("plugin-enqueue-" + entry.review.id)
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(!model.extensionInstance.canDiscard)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
@@ -279,6 +288,7 @@ struct ExtensionsPane: View {
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
 
+            connectionGroups
             localReservations
             if let run = model.extensionRun {
                 HStack {
@@ -442,36 +452,108 @@ struct ExtensionsPane: View {
         }
     }
 
+    private func configuration(_ entry: Entry) throws -> ExtensionGroupInvocation {
+    let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
+    var methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
+    var hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+    if entry.command == "ai codex" {
+        methods = Array(Set(methods + ["codex.thread.start", "codex.turn.send",
+            "codex.turn.interrupt", "codex.approval.respond"])).sorted()
+        hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
+    }
+    if entry.command == "ai claude" { methods = Array(Set(methods + ClaudeRPCClient.methods)).sorted() }
+    let processPrograms = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
+    let processEnvironment = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
+    let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.attachExisting || entry.resourceRoot.isEmpty
+        ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
+    try entry.clientWorkspace?.validate(requiredCapabilities: entry.review.requiredCapabilities)
+    guard entry.localConnection || !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
+        let request = ExtensionRelayBootstrap.Request(executable: entry.executable, executorDirectory: entry.attachExisting ? "" : entry.executorDirectory,
+            executorDigest: entry.executorDigest, clientDigest: entry.review.digest, methods: methods, hostMethods: hostMethods,
+            scopedRoots: roots, processPrograms: processPrograms, processEnvironmentNames: processEnvironment,
+            execution: entry.attachExisting ? nil : entry.executionDraft.selection, attachment: entry.attachment,
+            command: entry.command, arguments: arguments)
+        let temporary = entry.localLaunch?.temporaryDirectory ?? entry.executionDraft.selection?.temporaryDirectory ?? entry.multiplexTemporaryDirectory
+        return ExtensionGroupInvocation(packageID: entry.review.id, request: request, sshAlias: entry.sshAlias,
+            localLaunch: entry.localLaunch, clientWorkspace: entry.clientWorkspace, temporaryDirectory: temporary)
+    }
+    private func enqueue(_ entry: Entry) {
+        do {
+            guard pendingConnections.count < 8, !entry.attachExisting else { throw GhostermError.failed("连接组最多八项，且不能包含已有前台附着") }
+            pendingConnections.append(try configuration(entry))
+        } catch { issue = "连接组配置无效：\(error)" }
+    }
     private func launch(_ entry: Entry) {
         do {
-            let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
-            var methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
-            var hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
-            if entry.command == "ai codex" {
-                methods = Array(Set(methods + ["codex.thread.start", "codex.turn.send",
-                    "codex.turn.interrupt", "codex.approval.respond"])).sorted()
-                hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
-            }
-            if entry.command == "ai claude" { methods = Array(Set(methods + ClaudeRPCClient.methods)).sorted() }
-            let processPrograms = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
-            let processEnvironment = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
-            let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.attachExisting || entry.resourceRoot.isEmpty
-                ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
-            try entry.clientWorkspace?.validate(requiredCapabilities: entry.review.requiredCapabilities)
-            guard entry.localConnection || !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
-            model.showExtensionWorkspace()
-            SettingsWindow.close()
+            let launch = try configuration(entry), request = launch.request
+            model.showExtensionWorkspace(); SettingsWindow.close()
             Task {
-                await model.startExtensionClient(packageID: entry.review.id,
-                    packageDigest: entry.review.digest, command: entry.command,
-                    arguments: arguments, sshAlias: entry.sshAlias,
-                    executable: entry.executable, executorDirectory: entry.attachExisting ? "" : entry.executorDirectory,
-                    executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
-                    scopedRoots: roots, processPrograms: processPrograms,
-                    processEnvironmentNames: processEnvironment,
-                    executorExecution: entry.attachExisting ? nil : entry.executionDraft.selection, executorAttachment: entry.attachment, clientWorkspace: entry.clientWorkspace, localLaunch: entry.localLaunch)
+                await model.startExtensionClient(packageID: launch.packageID, packageDigest: request.clientDigest,
+                    command: request.command, arguments: request.arguments, sshAlias: launch.sshAlias,
+                    executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
+                    methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
+                    processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
+                    executorExecution: request.execution, executorAttachment: request.attachment,
+                    clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
+    }
+
+    @ViewBuilder private var connectionGroups: some View {
+        if !pendingConnections.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("待启动连接组（\(pendingConnections.count)/8）").font(DS.Font.caption)
+                Text("已固定加入时的配置。组内使用同一目标和 gterm，每个实例仍须单独确认权限。").font(DS.Font.caption).foregroundStyle(.secondary)
+                ForEach(pendingConnections) { launch in
+                    HStack {
+                        Text(verbatim: launch.packageID + " · " + launch.request.command)
+                        Spacer()
+                        Button("移除") { pendingConnections.removeAll { $0.id == launch.id } }
+                    }
+                    DisclosureGroup("查看配置") {
+                        Text(verbatim: "目标：" + (launch.localLaunch == nil ? launch.sshAlias : "本机") + " · " + launch.request.executable)
+                        Text(verbatim: "Client：" + launch.request.clientDigest + "\nExecutor：" + launch.request.executorDigest)
+                        Text(verbatim: "命令参数：" + String(decoding: (try? JSONEncoder().encode(launch.request.arguments)) ?? Data(), as: UTF8.self))
+                        Text(verbatim: "连接临时根目录：" + launch.temporaryDirectory)
+                        if let local = launch.localLaunch { Text(verbatim: local.reviewDescription) }
+                        if let execution = launch.request.execution { Text(verbatim: execution.reviewDescription) }
+                        if let workspace = launch.clientWorkspace { Text(verbatim: workspace.reviewDescription) }
+                        ForEach(launch.request.scopedRoots, id: \.id) { root in Text(verbatim: "只读范围：" + root.id + " · " + root.directory) }
+                        ForEach(launch.request.processPrograms, id: \.name) { program in
+                            Text(verbatim: "业务进程：" + program.name + " · " + program.executable + " · " + program.sha256)
+                            Text(verbatim: "固定参数：" + String(decoding: (try? JSONEncoder().encode(program.prefixArguments)) ?? Data(), as: UTF8.self))
+                        }
+                        Text(verbatim: "选定环境名称：" + launch.request.processEnvironmentNames.joined(separator: ", "))
+                    }.font(DS.Font.caption).textSelection(.enabled)
+                }
+                Button("连接并启动整组") {
+                    let snapshot = pendingConnections; pendingConnections = []
+                    SettingsWindow.close()
+                    Task { await model.startExtensionGroup(snapshot) }
+                }.accessibilityIdentifier("plugin-launch-group")
+            }
+        }
+        if let issue = model.extensionConnectionIssue { Text(verbatim: issue).foregroundStyle(.red) }
+        ForEach(model.extensionConnections) { connection in
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(verbatim: "连接组：" + connection.title)
+                    Spacer()
+                    Button(connection.closed ? "已关闭" : "停止并关闭连接") { Task { _ = await connection.close() } }
+                        .disabled(connection.closed)
+                }
+                ForEach(connection.instances) { instance in
+                    Button(instance.extensionRun?.command ?? "查看实例") { model.showExtensionWorkspace(instance); SettingsWindow.close() }
+                }
+                if let issue = connection.issue { Text(verbatim: issue).font(DS.Font.caption).foregroundStyle(.red) }
+                if connection.cleanupPending { Text("连接或资源仍待释放，请重试关闭。").font(DS.Font.caption).foregroundStyle(.red) }
+                if let process = connection.process {
+                    Text(verbatim: "共享宿主进程退出码：" + (process.exitCode.map(String.init) ?? "未知") + " · reap：" + (process.reaped ? "完成" : "待确认"))
+                        .font(DS.Font.caption)
+                }
+                if let temporary = connection.temporary { localTemporaryState(temporary) }
+            }
+        }
     }
 
     @ViewBuilder
