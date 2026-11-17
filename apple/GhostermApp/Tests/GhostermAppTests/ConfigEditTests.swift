@@ -7,7 +7,8 @@
 //   4. 备份：save 时 .bak 有原文件内容；
 //   5. 通配块编辑（M1 遗留项）：`Host *` 可改，改的是它自己的行。
 //   6. directives：编辑器初值来自块内实际指令（非求值结果）。
-import GhostermAppModel
+import Darwin
+@testable import GhostermAppModel
 import XCTest
 
 @MainActor
@@ -100,5 +101,112 @@ final class ConfigEditTests: XCTestCase {
         XCTAssertEqual(ds.map { $0.keyword.lowercased() }, ["user"],
                        "只看块内实际指令（保留原拼写）")
         XCTAssertEqual(ds.first?.values, ["me"])
+    }
+
+    func testBackupFailureCannotPublishOrLeakRejectedEdits() throws {
+        let original = "Host web\n  User deploy\n"
+        let (path, model) = try makeConfig(original)
+        let backup = (path as NSString).deletingPathExtension + ".bak"
+        try FileManager.default.createDirectory(atPath: backup, withIntermediateDirectories: false)
+        var rejected = false, nextSaved = false
+        do { try model.applyEdits(alias: "web", [("User", ["rejected"])]) } catch { rejected = true }
+        let unchanged = model.configModel?.rawConfig == original && model.hosts.first?.user == "deploy"
+        try FileManager.default.removeItem(atPath: backup)
+        do { try model.applyEdits(alias: "web", [("Port", ["2222"])]); nextSaved = true } catch { }
+        XCTAssertTrue(rejected && unchanged && nextSaved && model.hosts.first?.user == "deploy"
+                      && model.hosts.first?.port == 2222,
+                      "a rejected candidate must not reach the published model or a later independent save")
+    }
+
+    func testFailedNewHostCannotRemainInTheModel() throws {
+        let (path, model) = try makeConfig("Host web\n  User deploy\n")
+        let before = model.configModel?.rawConfig
+        let backup = (path as NSString).deletingPathExtension + ".bak"
+        try FileManager.default.createDirectory(atPath: backup, withIntermediateDirectories: false)
+        var rejected = false
+        do { try model.addHost(alias: "rejected", [("User", ["ops"])]) } catch { rejected = true }
+        XCTAssertTrue(rejected && model.configModel?.rawConfig == before
+                      && model.hosts.map(\.pattern) == ["web"],
+                      "a failed new host must not pollute either the AST or the visible host list")
+    }
+
+    func testSuccessfulEditPublishesOnlyAfterRealCommit() throws {
+        let original = "Host web\n  User deploy\n"
+        let (path, model) = try makeConfig(original)
+        var operations = ConfigStore.FileOperations(), observedOldModel = false
+        var previous: HostListModel?
+        weak var observedModel = model
+        let rename = operations.rename
+        operations.rename = { directory, source, target, replace in
+            if target == "config", let model = observedModel {
+                observedOldModel = model.configModel === previous
+                    && previous?.rawConfig == original && model.hosts.first?.user == "deploy"
+            }
+            return rename(directory, source, target, replace)
+        }
+        model.makeConfigStore = { ConfigStore(path: $0, operations: operations) }
+        model.reload()
+        previous = model.configModel
+        try model.applyEdits(alias: "web", [("User", ["ops"])])
+        XCTAssertTrue(observedOldModel && previous?.rawConfig == original
+                      && model.configModel !== previous && model.hosts.first?.user == "ops"
+                      && (try? String(contentsOfFile: path, encoding: .utf8))?.contains("User ops") == true,
+                      "only a durable successful candidate may replace the published configuration")
+    }
+
+    func testCommittedErrorReloadsObservedDiskAndStillReportsFailure() throws {
+        let (path, model) = try makeConfig("Host web\n  User deploy\n")
+        var operations = ConfigStore.FileOperations(), syncs = 0
+        let synchronize = operations.sync
+        operations.sync = { fd in
+            syncs += 1
+            if syncs == 4 { errno = EIO; return -1 }
+            return synchronize(fd)
+        }
+        model.makeConfigStore = { ConfigStore(path: $0, operations: operations) }
+        model.reload()
+        var reportedCommitted = false
+        do { try model.applyEdits(alias: "web", [("User", ["ops"])]) }
+        catch { if case ConfigStoreError.committed = error { reportedCommitted = true } }
+        XCTAssertTrue(reportedCommitted && model.hosts.first?.user == "ops"
+                      && model.configModel?.rawConfig == (try? String(contentsOfFile: path, encoding: .utf8)),
+                      "a committed storage error must reload the observed file and remain an explicit failure")
+    }
+
+    func testExternalMainBytesAreNotAdoptedAsTheEditBase() throws {
+        let (path, model) = try makeConfig("Host web\n  User deploy\n")
+        let before = model.configModel?.rawConfig
+        try "Host web\n  User external\n".write(toFile: path, atomically: true, encoding: .utf8)
+        var rejected = false
+        do { try model.applyEdits(alias: "web", [("Port", ["2222"])]) }
+        catch { if case ConfigStoreError.conflict = error { rejected = true } }
+        XCTAssertTrue(rejected && model.configModel?.rawConfig == before
+                      && model.hosts.first?.user == "deploy",
+                      "external changes require explicit reload rather than silently becoming a candidate base")
+    }
+
+    func testLoadStoreRaceCannotAdoptChangedMainBytes() throws {
+        let original = "Host web\n  User deploy\n"
+        let (path, model) = try makeConfig(original)
+        model.makeConfigStore = { path in
+            try? "Host web\n  User external\n".write(toFile: path, atomically: false, encoding: .utf8)
+            return ConfigStore(path: path)
+        }
+        model.reload()
+        var rejected = false
+        do { try model.applyEdits(alias: "web", [("Port", ["2222"])]) }
+        catch { if case ConfigStoreError.conflict = error { rejected = true } }
+        XCTAssertTrue(rejected && model.configModel?.rawConfig == original
+                      && model.hosts.first?.user == "deploy"
+                      && (try? String(contentsOfFile: path, encoding: .utf8)) == "Host web\n  User external\n",
+                      "a parse-to-store race must not adopt unseen bytes as the editor's candidate base")
+    }
+
+    func testNewWildcardPublishesRuleListAfterCommit() throws {
+        let (path, model) = try makeConfig("Host web\n  User deploy\n")
+        try model.addHost(alias: "*", [("ServerAliveInterval", ["0"])])
+        XCTAssertTrue(model.wildcards == ["*"] && model.hosts.map(\.pattern) == ["web"]
+                      && (try? String(contentsOfFile: path, encoding: .utf8))?.contains("Host *") == true,
+                      "successful configuration publication must update rule choices without adding a connectable wildcard")
     }
 }

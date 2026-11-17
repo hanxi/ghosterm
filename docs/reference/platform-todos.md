@@ -2,7 +2,7 @@
 
 2026-11-17 对照源码 `d53c987a`、[路线图](roadmap.md)、[能力矩阵](capability-matrix.md)、两端 README 与实施记录核对。范围为普通终端、SSH/tmux、配置、设置、文件管理和分发；插件由另一 session 处理，本轮不审计或修改其计划、实现及状态。本文是工作索引，验收规则仍以 [AGENTS.md](../../AGENTS.md) 为准。
 
-本轮只做静态源码/文档核对和文档链接检查，没有运行原生构建、设备、变异、完整回归或线上发行查询。下列代码缺口是源码事实；所引通过/失败均属于原记录，不是本轮重验。
+最初核对轮只做静态源码/文档与链接检查；后续实际实现及原生验证按文末各批次分别记账。下列代码缺口是源码事实；所引通过/失败均属于原记录，不是本轮重验。
 
 ## 已实现但总览滞后的项目
 
@@ -21,7 +21,7 @@
 
 | 顺序 / 优先级 | 可做切片 | 源码落点与缺口 | 本片交付 / 验证边界 |
 |---|---|---|---|
-| 1 / P0（存储已修） | SSH 配置候选模型发布 | [ConfigStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) 已独立补强写盘事务；`AppModel.applyEdits/addHost` 仍先改内存后落盘 | 下一片待插件对 AppModel 的修改稳定后，再接候选落盘后发布；本片验证范围及未收口边界见[写盘事务](macos-config-store.md)，不扩大为整个表单已完成 |
+| 1 / 已修 | SSH 配置候选模型发布 | ConfigStore 存储事务与 AppModel 候选发布均已接；失败不污染已发布 AST/列表，已提交后错误重载磁盘并明确报告 | 50 项原生组合、六组实际编译变异和 arm64 Release 通过；主机表单/来源与改名仍属下一片，不扩大为 M3 全完成 |
 | 2 / P0 | 主机表单保真 | [HostListModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/HostListModel.swift) 简化扫描，[HostEditorSheet.swift](../../apple/GhostermApp/Sources/GhostermApp/HostEditorSheet.swift) 提交全部字段、多条身份只回显最后一条 | 共享语法/来源与脏字段接线，未改保存不变；Include/重复块保持归属保护。别名改名依赖此片与事务片 |
 | 3 / P0 | 私钥安全存储生产接线 | [SSHCredentialSelector.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) 从受限磁盘文件读 PEM，Keychain 生产路径保存口令/密码 | 私钥导入→安全存储→解锁→认证，引用/取消/错误明确；不把 Android 容器引用当本端路径，不放宽铁律 #5 |
 | 4 / P1 | 宿主闸门必跑项 | [apple-app-gate.sh](../../scripts/apple-app-gate.sh) 的 ABI/HTML 子检查失败传播已修；sshd 失败可 SKIP 后 PASS 的策略仍未收口 | 失败传播五项 shell 检查与两组撤回修复验证已通过，非原生业务证据。后续明确 full 档 SSH 必跑策略，独立验证缺环境会失败；不删测试或把缺环境改成通过 |
@@ -61,3 +61,4 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - ConfigStore 独立写盘批：强制备份、稳定非阻塞保存锁、字节/身份快照、原子替换、首次创建排他提交、提交后错误和重载保护已接。最终同源 43 项与 22 组完整 native 变异、arm64 Release、隔离 Core 589/185 与 C 格式 276 通过；不改 AppModel 或插件。完整范围/前置失败与剩余模型发布见[写盘事务](macos-config-store.md)。
 - 普通设置文案批：六处启动、普通/tmux 关闭、字号、标题栏动作及配置重载提示已修，不改偏好/生命周期。与已提交 ConfigStore 组合的 arm64 Release 通过；97 项为 95 通过/1 开发态资源跳过/1 既有插件页像素失败，四个普通页原像素断言通过，未改原版复现同一插件页失败。完整数字不记全绿，也不改插件页，详见 Apple 说明。
 - 上述两代码批收尾：格式工具以工程 TMPDIR/缓存重建后复验通过；仅移除本轮 cfg17/set17 两个隔离 worktree，主输入摘要不变。临时原件已清理，证据口径与工具前置修正见[ConfigStore 收尾](macos-config-store.md)。
+- 剩余批 1：AppModel 配置候选发布完成。50 项组合与六组完整 native 变异通过（单条正常断言红/独立读取绿/恢复绿/SHA256），arm64 Release 通过；失败草稿/旧模型保留，提交后错误重载观察。仅改配置写侧方法，未纳入插件暂存内容。后续范围见[剩余实施记录](non-plugin-remainder.md)。

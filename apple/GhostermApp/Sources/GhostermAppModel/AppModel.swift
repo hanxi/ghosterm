@@ -215,6 +215,7 @@ public final class AppModel: ObservableObject {
     public let knownHostsPath: String
     /// 配置写侧（冲突检测 / 备份 / 原子写；reload 后重建）。
     private var configStore: ConfigStore?
+    var makeConfigStore: (String) -> ConfigStore = { ConfigStore(path: $0) }
 
     /// 在途连接的取消票（跨线程：主线程投、工作线程查，故用带锁的类）。
     /// 关闭一个**还在建连接**的标签页时投一张；工作线程在每个会弹框的地方
@@ -334,7 +335,7 @@ public final class AppModel: ObservableObject {
             hosts = model.hosts
             wildcards = model.wildcardPatterns
             configModel = model
-            configStore = ConfigStore(path: configPath)
+            configStore = makeConfigStore(configPath)
             loadError = nil
         } catch {
             hosts = []
@@ -725,23 +726,36 @@ public final class AppModel: ObservableObject {
     /// 任何一步失败都显式抛错（UI 转成提示），绝不静默丢编辑。
     public func applyEdits(alias: String,
                            _ edits: [(String, [String]?)]) throws {
-        guard let model = configModel, let store = configStore else {
-            throw GhostermError.failed("配置未加载")
-        }
-        try model.edit(alias: alias, edits)
-        try store.save(model.serialized)
-        reload()
+        guard !edits.isEmpty else { return }
+        try commitConfigurationEdit { try $0.edit(alias: alias, edits) }
     }
 
     /// 新建 Host 块（reset=true：文件末尾追加新块）。
     public func addHost(alias: String,
                         _ edits: [(String, [String]?)]) throws {
+        try commitConfigurationEdit { try $0.edit(alias: alias, edits, reset: true) }
+    }
+
+    private func commitConfigurationEdit(_ update: (HostListModel) throws -> Void) throws {
         guard let model = configModel, let store = configStore else {
             throw GhostermError.failed("配置未加载")
         }
-        try model.edit(alias: alias, edits, reset: true)
-        try store.save(model.serialized)
-        reload()
+        // Reparse the real source so Include provenance keeps its file context.
+        // The published model remains immutable throughout candidate editing.
+        let candidate = try HostListModel(path: configPath)
+        guard candidate.rawConfig == model.rawConfig else {
+            throw ConfigStoreError.conflict("配置内容与编辑快照不一致")
+        }
+        try update(candidate)
+        do { try store.save(candidate.serialized) }
+        catch {
+            if case ConfigStoreError.committed = error { reload() }
+            throw error
+        }
+        configModel = candidate
+        hosts = candidate.hosts
+        wildcards = candidate.wildcardPatterns
+        loadError = nil
     }
 
     /// 一块的全部指令（编辑器初值）。
