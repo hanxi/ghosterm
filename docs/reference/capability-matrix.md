@@ -224,9 +224,9 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 窗格外观 | 跟随终端配色；当前分屏顶部蓝线；gap>0 细框，gap=0 共享分隔线；悬停/菜单分屏预览与 Shift | 离屏像素、可控窗口焦点、真实桌面激活/全屏是不同档证据 |
 | 文件浏览 | `FilesPanelView` 与本地/SFTP 后端；列表/树、搜索、操作、工具条折行、原生单击选择/双击打开与键盘归属 | 远端 cwd 未交付，不能声称与 SSH 当前目录同步 |
 | 目录导航与缓存 | 最新请求、成功后历史提交、排队旧读跳过、刷新 epoch 与树错误重试、cwd 同目标去重 | 🟡 最终 34 项、十组变异、33 项实际本机 SSH/SFTP 组合及 Release；在途后端取消仍待，见[导航说明](macos-files-navigation.md) |
-| 文件树、本地搜索与递归权限 | 页面/正常操作链路已接入 | 树错误/重试已有独立专项；本地搜索忽略 walk 错误仍标完成，取消未停遍历；递归权限忽略 walk 自身失败，本地 lstat 失败条目被跳过。源码核对结论，异常路径仍待验收，见 [Apple 说明](../../apple/README.md#文件查询与线程边界) |
+| 文件树、本地搜索与递归权限 | 树错误可重试；本地搜索失败/部分结果/协作取消及范围预算已接，本地 lstat/枚举错误抛出 | 搜索专项见[说明](macos-file-search.md)；递归权限仍忽略 walk 自身错误，扫描/修改汇总与链接保护待做 |
 | 递归权限的链接处理 | 普通条目 chmod 与递归入口已接 | 未过滤 walk 返回的链接；本地 lstat 后仍用 chmod，不能保证目录外链接目标权限不变。复制跳过链接不等于权限操作跳过，见 [Apple 说明](../../apple/README.md#递归权限与链接边界) |
-| 远端搜索与取消 | 已接 exec 优先/walk 回退及页面档位显示 | 任意 exec 打开失败均回退；stderr/退出状态与条目查询失败被忽略，可能显示不完整结果为完成；取消只撤下旧 UI 结果，尚未停止远端工作 |
+| 远端搜索与取消 | 仅明确禁 exec 才回退；退出状态/输出/元数据错误保留部分结果，取消传入读取/遍历，页面提供原范围重试 | 🟡 原生/真实本机 SSH、变异与 Release 证据见[搜索说明](macos-file-search.md)；旧打开/关闭和单次 SFTP I/O 尚无贯通取消 deadline |
 | 文件查询与响应性 | SFTP 后端串行保序，目录展开在后台执行 | 存在性查询折叠读取错误；传输入队/控制仍在 MainActor 同步等后端队列，可能被长遍历阻塞；见 [Apple 说明](../../apple/README.md#文件查询与线程边界) |
 | 独立文件标签 | SFTP 标签在同一工作区中创建本地+远端窗格；支持纯本地文件标签 | `SFTPBrowser`、`DualPaneFilesView`、`DualPaneSession` 均已退役，不能作为当前组件名 |
 | 文件传输 | `CoreEventPump` 唯一事件泵；`TransferManager` 父子任务、进度/速度/ETA、暂停继续取消重试的正常路由；本地↔远端 | 控制异常被忽略仍改变状态，未知 job 结果折为失败；本地↔本地、远端↔远端统一队列未做；目录冲突 UI 等完整流程仍需补证据 |
@@ -244,7 +244,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 **CI 触发范围**：dev 的 main push 有忽略路径，release 的 PR 有路径白名单；仅 `docs/` 或 `android/` 的改动不触发两者，`terminal/android/` 则不同。Markdown 在 dev push 被忽略，但 `apple/README.md` 等白名单内文档的 PR 仍会触发 release。dev 旧运行还可能因后续 push 被取消。不能把“有出包工作流”表述为“每个提交都有发布包”；准确范围见 [CI 说明](../how-to/dev-build.md#ci-是怎么串起来的)，这些过滤不改变合并前应执行的闸门。
 
-**三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 已独立接强制备份、字节/身份快照、稳定锁、原子替换与提交结果，见[写盘事务](macos-config-store.md)，但 `AppModel` 模型发布顺序尚未修；终端 `SettingsStore` 使用备份与 `replaceItemAt`，仍有重复键、读取错误、冲突和引擎恢复缺口。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
+**三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 已独立接强制备份、字节/身份快照、稳定锁、原子替换与提交结果，见[写盘事务](macos-config-store.md)，`AppModel` 已经候选写盘后发布，见[分批实施](non-plugin-remainder.md)；终端 `SettingsStore` 使用备份与 `replaceItemAt`，仍有重复键、读取错误、冲突和引擎恢复缺口。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
 
 **SSH 地址选择**：macOS 的异步 DNS 仅在所选族缺记录时换族，首个有效地址即完成解析；Android 已按 §9.40 传递全部候选，在同一 native owner 内顺序尝试，2 秒 TCP 宽限且共用总预算；协商开始后不换地址。12 项定向与 14 组变异证明设备回环双栈 SSH、丢包与取消，不扩大为公网或真实 DNS 矩阵。实现边界与后续条件见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)和路线图 P1；macOS 网络路径没有本轮新增实测。
 

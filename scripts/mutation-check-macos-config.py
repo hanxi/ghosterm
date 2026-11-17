@@ -212,7 +212,56 @@ FILES_UI_CASES = [
     ('files-retry-target', 'Button("重试") { panel.retryTree(path) }',
      'Button("重试") { panel.retryTree(panel.currentPath) }', 'testActualTreeShowsFailureAndRetriesThroughItsButton'),
 ]
+SEARCH_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/FileSearchTests.swift'
+SEARCH_CASES = [
+    ('search-navigation', 'if changed { self.cancelSearch(); self.invalidateTreeCache(preserveExpansion: false) }',
+     'if changed { self.invalidateTreeCache(preserveExpansion: false) }', 'testCompletedNavigationCancelsSearchStartedDuringItsPendingRead'),
+    ('search-failure', 'self.searchMode = .failed(hits: snapshot.entries.count)',
+     'self.searchMode = .done(usedExec: false, hits: snapshot.entries.count)', 'testBackendFailureKeepsPartialResultsAndAllowsFreshRetry'),
+    ('search-cancel', 'isCancelled: { request.isCancelled || state.snapshot().stopped != nil }',
+     'isCancelled: { state.snapshot().stopped != nil }', 'testCancelReachesBackendAndDiscardsLateResultsAndFailure'),
+    ('search-latest', 'guard let self, self.searchRequest === request, !request.isCancelled else { return }\n                self.searchResults = snapshot.entries\n                self.scanned = snapshot.scanned\n                switch result',
+     'guard let self else { return }\n                self.searchResults = snapshot.entries\n                self.scanned = snapshot.scanned\n                switch result', 'testQueuedSearchIsSkippedAndOlderCompletionCannotPublish'),
+    ('search-queued', 'guard !request.isCancelled else { return }\n            let result: Result<Bool, Error>',
+     'let result: Result<Bool, Error>', 'testQueuedSearchIsSkippedAndOlderCompletionCannotPublish'),
+    ('search-cap-result', 'if let reason = state.snapshot().stopped { throw FileSearchError.incomplete(reason) }',
+     '// mutation: report capped search as completed', 'testResultBudgetStopsBackendAndCannotBeReportedAsDone'),
+    ('search-cap-scan', '_ = state.scan(count)', '_ = count', 'testScanBudgetStopsEvenWithoutAnyMatches'),
+]
+SEARCH_STATE_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/FileSearchState.swift'
+SEARCH_STATE_CASES = [
+    ('search-metadata', 'pathBytes + nameBytes <= limits.metadataBytes - metadataBytes', 'true', 'testMetadataBudgetAndByteIdentityAndThrottling'),
+    ('search-byte-key', 'let key = Data(entry.path.utf8)', 'let key = Data(entry.path.precomposedStringWithCanonicalMapping.utf8)', 'testMetadataBudgetAndByteIdentityAndThrottling'),
+    ('search-throttle', 'scanned - publishedScanned >= 100 || (publishedHits == 0 && !entries.isEmpty)', 'true', 'testMetadataBudgetAndByteIdentityAndThrottling'),
+]
+SEARCH_READER_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/RemoteFindReader.swift'
+SEARCH_READER_CASES = [
+    ('search-exit-known', 'guard let status = exitStatus() else { throw FileSearchError.incomplete("远端搜索退出状态未知") }',
+     'let status = exitStatus() ?? 0', 'testNonzeroAndUnknownExitAreNotSuccessfulEmptySearches'),
+    ('search-exit-success', 'status == 0, !stderrSeen', 'true, !stderrSeen', 'testNonzeroAndUnknownExitAreNotSuccessfulEmptySearches'),
+    ('search-stderr', 'stderrSeen = stderrSeen || !bytes.isEmpty', 'stderrSeen = false', 'testStderrIsNotDiscardedAsSuccess'),
+    ('search-frame', 'guard pending.isEmpty else', 'guard true else', 'testTruncatedAndInvalidUtf8AndOutsideRootAreRejected'),
+    ('search-root', 'record.starts(with: prefix),', 'true,', 'testTruncatedAndInvalidUtf8AndOutsideRootAreRejected'),
+    ('search-read-cancel', 'if isCancelled() { throw FileSearchError.cancelled }', '// mutation: ignore requested cancellation', 'testCancelledTimeoutCannotSpinOrLookUpLateMetadata'),
+    ('search-stream-cap', 'bytes.count <= outputLimit - total', 'true', 'testOutputAndRecordBudgetRejectUnboundedServerStream'),
+    ('search-record-cap', 'pending.count <= recordLimit', 'true', 'testRecordBudgetRejectsPathBeforeEOF'),
+    ('search-timeout', 'if clock() >= deadline {', 'if false && clock() >= deadline {', 'testDeadlineAndVisitorStopCannotBecomeDone'),
+]
+SEARCH_BACKEND_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift'
+SEARCH_BACKEND_CASES = [
+    ('search-fallback', 'catch let error as GhostermError where error.isExecUnsupported {',
+     'catch {', 'testOnlyExplicitCapabilityRefusalUsesWalkFallback'),
+]
+SEARCH_UI_CASES = [
+    ('search-ui-retry', 'Button("重试搜索") { panel.retrySearch() }',
+     'Button("重试搜索") { panel.cancelSearch() }', 'testActualSearchCancelAndFailureRetryButtons'),
+]
 PHASES = {
+    'search-model': (FILES_SOURCE, SEARCH_TESTS, 'FileSearchTests', SEARCH_CASES),
+    'search-state': (SEARCH_STATE_SOURCE, SEARCH_TESTS, 'FileSearchTests', SEARCH_STATE_CASES),
+    'search-reader': (SEARCH_READER_SOURCE, SEARCH_TESTS, 'RemoteFindReaderTests', SEARCH_READER_CASES),
+    'search-backend': (SEARCH_BACKEND_SOURCE, SEARCH_TESTS, 'RemoteFindReaderTests', SEARCH_BACKEND_CASES),
+    'search-ui': (FILES_UI_SOURCE, 'apple/GhostermApp/Tests/GhostermAppTests/FileSearchUITests.swift', 'FileSearchUITests', SEARCH_UI_CASES),
     'files-navigation': (FILES_SOURCE, FILES_TESTS, 'FileNavigationTests', FILES_CASES),
     'files-tree-ui': (FILES_UI_SOURCE, FILES_UI_TESTS, 'FileTreeUITests', FILES_UI_CASES),
     'private-store': (PRIVATE_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', PRIVATE_CASES),
@@ -263,6 +312,8 @@ def main():
     baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
     if args.phase.startswith('private-'):
         baseline += '|NativePrivateKeyStoreTests|SSHCredentialSelectorTests|KeychainStoreTests'
+    if args.phase.startswith('search-'):
+        baseline = 'FileSearchTests|FileSearchUITests|RemoteFindReaderTests|FileNavigationTests|FileTreeUITests|FilesPanelTests|FilesDragDropTests|HostListTests|TransferManagerTests'
     if args.phase.startswith('files-'):
         baseline = 'FileNavigationTests|FileTreeUITests|FilesPanelTests|FilesDragDropTests|HostListTests'
     records = []

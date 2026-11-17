@@ -25,7 +25,7 @@
 | 2 / 已交付专项 | 主机表单保真与改名 | Core 物理块快照替换 Swift 解析；脏字段、逐行身份、继承来源、多别名提示、只读/歧义保护；改名预览确认及旧表单冲突 | 结果逐项记入[剩余实施记录](non-plugin-remainder.md)；重复未知标量及 Include 仍显式转来源文件编辑，不声称全指令表单支持 |
 | 3 / 已交付专项 | 私钥安全存储生产接线 | IdentityFile 首次导入后从 Keychain 回读认证，表单可主动重新导入；写/读失败明确终止，取消隔离，来源文件仍由用户管理 | 46/105 项组合分轮、十八项真实 SSH、十四组变异和 Release，见[材料说明](macos-private-keys.md)；Android 引用不自动迁移 |
 | 4 / 已交付 | 宿主闸门必跑项 | full CI 两个 Apple 闸门显式 required；缺 Swift/SSH、启动失败、空测试、必跑项无 passed 收据均失败；optional 缺证据报 PARTIAL | Bash 3.2/5 各 18 项、六组 shell 故障断言及自有 sshd 原生专项通过；其它条件跳过仍单列，见[分批实施](non-plugin-remainder.md) |
-| 5 / 部分完成 | 文件导航/错误/缓存 | 最新导航身份、历史成功提交、刷新 epoch、树失败可重试及 cwd 同目标去重已接 | 最终 34 项/十组变异/33 项真实 SSH 与 Release，见[导航说明](macos-files-navigation.md)；搜索取消/失败、递归权限仍待做 |
+| 5 / 部分完成 | 文件导航/错误/缓存 | 最新导航身份、历史成功提交、刷新 epoch、树失败可重试及 cwd 同目标去重已接 | 最终 34 项/十组变异/33 项真实 SSH 与 Release，见[导航说明](macos-files-navigation.md)；搜索取消/部分失败另见[搜索专项](macos-file-search.md)，递归权限仍待做 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
 | 8 / P1 | 终端配置读写 | [SettingsStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SettingsStore.swift) 读取失败当空，外部新建不冲突，重复键读改不一致；引擎校验/恢复顺序待修 | 不存在/失败分开，候选先验证，提交后才发布；实际已开 surface 字号/配色与磁盘一致。此存储与 SSH ConfigStore 分开实施 |
@@ -70,3 +70,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 4：普通连接/SFTP/tmux/分屏与选择器统一别名字节身份，避免 Unicode 规范等价别名借用另一行的地址/凭据。50 项连接组合、76 项配置组合分轮、两组变异与 Release 通过，见[分批实施](non-plugin-remainder.md)。
 
 - 剩余批 5：full CI 必跑 Swift/SSH 收据，optional 缺证据只报 PARTIAL；两版 Bash 各 18 项、六组 shell 断言故障与真实本机 SSH 原生专项通过，详见[分批实施](non-plugin-remainder.md)，没有把其它条件跳过记为完成。
+
+- 剩余批 8：文件搜索取消/部分结果、明确 exec 回退、范围与输出预算已接；最终 68 项、21 组变异、26 项真实本机 SSH 组合与 Release 通过，范围及前置失败见[搜索说明](macos-file-search.md)。递归权限/传输 owner 仍分批推进。

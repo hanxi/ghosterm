@@ -92,6 +92,20 @@ final class FilesPanelTests: XCTestCase {
         XCTAssertEqual(stopped, 2, "visitor 返回 false 即停")
     }
 
+    func testLocalWalkReportsDeniedDescendantWithoutEnteringBeyondScope() throws {
+        let root = try tmpDir(), blocked = root + "/blocked"
+        try FileManager.default.createDirectory(atPath: blocked, withIntermediateDirectories: false)
+        try touch(blocked + "/private-child", 1)
+        guard chmod(blocked, 0) == 0 else { return XCTFail("owned permission fixture") }
+        defer { _ = chmod(blocked, 0o700) }
+        let backend = LocalFileBackend(initialPath: root)
+        var shallow = 0, partial = 0, rejected = false
+        try backend.walk(root: root, maxDepth: 1) { _ in shallow += 1; return true }
+        do { try backend.walk(root: root, maxDepth: 64) { _ in partial += 1; return true } }
+        catch { rejected = true }
+        XCTAssertTrue(shallow == 1 && partial == 1 && rejected, "owned denied child must fail the deeper scan and preserve the scoped shallow scan")
+    }
+
     // MARK: - FilesPanelModel
 
     @MainActor

@@ -167,14 +167,15 @@ struct FilesPanelView: View {
         HStack(spacing: DS.Padding.xs) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 .font(DS.Font.caption)
-            TextField("搜索当前目录（递归）", text: $searchText)
+            TextField("搜索当前目录（最多 64 层）", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(DS.Font.callout)
                 .onSubmit { runSearch() }
             if case .running = panel.searchMode {
                 Button("取消") { panel.cancelSearch() }.buttonStyle(.link)
+                    .accessibilityIdentifier("files-search-cancel")
             } else if case .done(let usedExec, let hits) = panel.searchMode {
-                Text("\(hits) 项 · \(usedExec ? "远端快路径" : "本地回退") 扫描 \(panel.scanned)")
+                Text("\(hits) 项 · \(usedExec ? "远端命令" : (panel.backend is TransferBackend ? "SFTP 遍历" : "本地遍历")) 扫描 \(panel.scanned) · 深度 \(panel.searchDepth)")
                     .font(DS.Font.captionSmall).foregroundStyle(.secondary)
             }
         }
@@ -193,7 +194,19 @@ struct FilesPanelView: View {
         if case .none = panel.searchMode {
             if panel.viewMode == .tree { treeList } else { directoryList }
         } else {
-            resultsList
+            VStack(spacing: 0) {
+                if case .failed(let hits) = panel.searchMode {
+                    VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                        Text(panel.errorText ?? "搜索未完成，已保留 \(hits) 项")
+                            .font(DS.Font.caption).foregroundStyle(.red)
+                            .accessibilityIdentifier("files-search-incomplete")
+                        Button("重试搜索") { panel.retrySearch() }.buttonStyle(.borderless)
+                            .accessibilityIdentifier("files-search-retry")
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(DS.Padding.s)
+                        .accessibilityElement(children: .contain)
+                }
+                resultsList
+            }
         }
     }
 

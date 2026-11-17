@@ -150,6 +150,29 @@ final class SFTPBrowserTests: XCTestCase {
     }
 
     @MainActor
+    func testSearchUsesRealExecAndLiteralPatternWithinOwnedDepth() throws {
+        guard let env = sshEnv() else { throw XCTSkip("未设置自有 SSH 搜索夹具") }
+        let (model, work) = try makeModel(e: env)
+        defer { model.disconnectForTesting() }
+        let root = work + "/search-root'quote"
+        try FileManager.default.createDirectory(atPath: root + "/deep", withIntermediateDirectories: true)
+        for name in ["target[x].txt", "targeté.txt", "deep/target-hidden.txt"] {
+            try Data("owned search".utf8).write(to: URL(fileURLWithPath: root + "/" + name))
+        }
+        model.openSFTP(for: "gatehost")
+        guard waitUntil(timeout: 20, { model.remoteFiles?.panel != nil }), let panel = model.remoteFiles?.panel else { return XCTFail("owned SFTP connection") }
+        panel.navigate(to: root)
+        guard waitUntil(timeout: 15, { !panel.isLoading && panel.currentPath == root }) else { return XCTFail("owned search root navigation: \(panel.errorText ?? "none")") }
+        panel.search("target[x]", maxDepth: 1)
+        guard waitUntil(timeout: 20, { panel.searchMode != .running }) else { return XCTFail("search did not finish") }
+        let literal = panel.searchMode == .done(usedExec: true, hits: 1) && panel.searchResults.first?.name == "target[x].txt" && panel.errorText == nil
+        panel.search("target", maxDepth: 1)
+        guard waitUntil(timeout: 20, { panel.searchMode != .running }) else { return XCTFail("second search did not finish") }
+        XCTAssertTrue(literal && panel.searchMode == .done(usedExec: true, hits: 2) && Set(panel.searchResults.map(\.name)) == ["target[x].txt", "targeté.txt"] && panel.scanned == 3 && panel.errorText == nil,
+                      "real search: mode=\(panel.searchMode), scanned=\(panel.scanned), error=\(panel.errorText ?? "none")")
+    }
+
+    @MainActor
     private func waitUntil(timeout: TimeInterval,
                            _ predicate: @MainActor () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

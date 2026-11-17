@@ -61,7 +61,7 @@ public final class FilesPanelModel: ObservableObject {
     @Published public var selection: Set<String> = []
 
     // 搜索（⌘F）：优先远端 exec 快路径，禁 exec 显式回退 walk。
-    public enum SearchMode: Equatable { case none, running(usedExec: Bool), done(usedExec: Bool, hits: Int) }
+    public enum SearchMode: Equatable { case none, running, done(usedExec: Bool, hits: Int), failed(hits: Int) }
     @Published public private(set) var searchMode: SearchMode = .none
     @Published public private(set) var searchResults: [FileEntry] = []
     @Published public private(set) var scanned = 0
@@ -69,7 +69,11 @@ public final class FilesPanelModel: ObservableObject {
     private let queue = DispatchQueue(label: "dev.ghosterm.files-panel")
     private var backStack: [String] = []
     private var forwardStack: [String] = []
-    private var searchToken = 0
+    private var searchRequest: FilePanelReadRequest?
+    private var searchError: String?
+    private var lastSearch: (query: String, depth: Int)?
+    var searchLimits = FileSearchLimits()
+    @Published public private(set) var searchDepth = 64
     private var navigationRequest: FilePanelReadRequest?
     private var pendingNavigationPath: Data?
     private enum NavigationHistory { case record, unchanged, back, forward }
@@ -143,7 +147,7 @@ public final class FilesPanelModel: ObservableObject {
         return !directory.isEmpty && path != Data(currentPath.utf8) && pendingNavigationPath != path
     }
 
-    deinit { followTimer?.invalidate(); navigationRequest?.cancel() }
+    deinit { followTimer?.invalidate(); navigationRequest?.cancel(); searchRequest?.cancel() }
 
     public func navigate(to path: String, record: Bool = true) {
         requestNavigation(path, history: record ? .record : .unchanged)
@@ -180,7 +184,7 @@ public final class FilesPanelModel: ObservableObject {
                         self.forwardStack = Array(forward.dropLast())
                         self.backStack = back + [origin]
                     }
-                    if changed { self.invalidateTreeCache(preserveExpansion: false) }
+                    if changed { self.cancelSearch(); self.invalidateTreeCache(preserveExpansion: false) }
                     self.currentPath = target
                     self.entries = list
                     self.errorText = nil
@@ -338,89 +342,93 @@ public final class FilesPanelModel: ObservableObject {
     // MARK: - 搜索
 
     public func search(_ query: String, maxDepth: Int = -1) {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { cancelSearch(); return }
-        guard let tb = backend as? TransferBackend else {
-            // 本地后端：用 walk 做客户端匹配。
-            runLocalSearch(q, maxDepth: maxDepth)
+        cancelSearch()
+        lastSearch = (query, maxDepth)
+        let pattern = query.trimmingCharacters(in: .whitespaces)
+        guard !pattern.isEmpty else { return }
+        let limits = searchLimits
+        guard pattern.utf8.count <= 1024, !pattern.utf8.contains(0), maxDepth >= -1,
+              maxDepth <= limits.depth else {
+            searchMode = .failed(hits: 0)
+            errorText = "搜索条件无效：名称最多 1024 字节，深度不能超过 \(limits.depth) 层"
+            searchError = errorText
             return
         }
-        searchToken += 1
-        let token = searchToken
-        searchResults = []
-        scanned = 0
-        searchMode = .running(usedExec: true)
-        queue.async { [weak self] in
-            guard let self else { return }
-            var hits: [FileEntry] = []
-            var usedExec = true
-            let lock = NSLock()
-            do {
-                usedExec = try tb.search(root: self.currentPath, pattern: q, maxDepth: maxDepth,
-                    onHit: { e in
-                        lock.lock(); hits.append(e); lock.unlock()
-                        DispatchQueue.main.async {
-                            guard token == self.searchToken else { return }
-                            self.searchResults = hits
-                        }
-                        return true
-                    },
-                    onScanned: { n in
-                        DispatchQueue.main.async {
-                            guard token == self.searchToken else { return }
-                            self.scanned = n
-                        }
-                    })
-            } catch {
-                DispatchQueue.main.async {
-                    guard token == self.searchToken else { return }
-                    self.searchMode = .done(usedExec: usedExec, hits: hits.count)
-                    self.errorText = "搜索失败：\(error)"
-                }
-                return
+        let depth = maxDepth < 0 ? limits.depth : maxDepth
+        searchDepth = depth
+        let request = FilePanelReadRequest(), state = FileSearchState(limits: limits)
+        searchRequest = request
+        searchMode = .running
+        errorText = nil
+        let root = currentPath, backend = self.backend
+        let publish: (FileSearchSnapshot) -> Void = { [weak self] snapshot in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.searchRequest === request, !request.isCancelled else { return }
+                self.searchResults = snapshot.entries
+                self.scanned = snapshot.scanned
             }
-            DispatchQueue.main.async {
-                guard token == self.searchToken else { return }
-                self.searchResults = hits
-                self.searchMode = .done(usedExec: usedExec, hits: hits.count)
+        }
+        queue.async { [weak self] in
+            guard !request.isCancelled else { return }
+            let result: Result<Bool, Error> = Result {
+                let resolvedRoot = try backend.realpath(root)
+                guard !request.isCancelled else { throw FileSearchError.cancelled }
+                let usedExec: Bool
+                if let remote = backend as? TransferBackend {
+                    usedExec = try remote.search(root: resolvedRoot, pattern: pattern, maxDepth: depth,
+                        isCancelled: { request.isCancelled || state.snapshot().stopped != nil },
+                        onHit: { entry in
+                            guard !request.isCancelled else { return false }
+                            let more = state.append(entry)
+                            if let snapshot = state.progress() { publish(snapshot) }
+                            return more
+                        }, onScanned: { count in
+                            _ = state.scan(count)
+                            if let snapshot = state.progress() { publish(snapshot) }
+                        })
+                } else {
+                    usedExec = false
+                    try backend.walk(root: resolvedRoot, maxDepth: depth) { entry in
+                        guard !request.isCancelled, state.scan() else { return false }
+                        let more = !Self.matches(entry.name, pattern) || state.append(entry)
+                        if let snapshot = state.progress() { publish(snapshot) }
+                        return more && !request.isCancelled
+                    }
+                }
+                if let reason = state.snapshot().stopped { throw FileSearchError.incomplete(reason) }
+                guard !request.isCancelled else { throw FileSearchError.cancelled }
+                return usedExec
+            }
+            let snapshot = state.snapshot()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.searchRequest === request, !request.isCancelled else { return }
+                self.searchResults = snapshot.entries
+                self.scanned = snapshot.scanned
+                switch result {
+                case .success(let usedExec):
+                    self.searchMode = .done(usedExec: usedExec, hits: snapshot.entries.count)
+                    self.searchError = nil
+                case .failure(let error):
+                    self.searchMode = .failed(hits: snapshot.entries.count)
+                    self.errorText = "搜索未完成：\(snapshot.stopped ?? String(describing: error))（已保留 \(snapshot.entries.count) 项）"
+                    self.searchError = self.errorText
+                }
             }
         }
     }
 
-    private func runLocalSearch(_ q: String, maxDepth: Int) {
-        searchToken += 1
-        let token = searchToken
-        searchResults = []; scanned = 0
-        searchMode = .running(usedExec: false)
-        queue.async { [weak self] in
-            guard let self else { return }
-            var hits: [FileEntry] = []
-            var n = 0
-            try? self.backend.walk(root: self.currentPath, maxDepth: maxDepth) { e in
-                n += 1
-                if Self.matches(e.name, q) { hits.append(e) }
-                if n % 200 == 0 {
-                    DispatchQueue.main.async {
-                        guard token == self.searchToken else { return }
-                        self.searchResults = hits; self.scanned = n
-                    }
-                }
-                return true
-            }
-            DispatchQueue.main.async {
-                guard token == self.searchToken else { return }
-                self.searchResults = hits
-                self.scanned = n
-                self.searchMode = .done(usedExec: false, hits: hits.count)
-            }
-        }
+    public func retrySearch() {
+        if let lastSearch { search(lastSearch.query, maxDepth: lastSearch.depth) }
     }
 
     public func cancelSearch() {
-        searchToken += 1
+        searchRequest?.cancel()
+        searchRequest = nil
         searchMode = .none
         searchResults = []
         scanned = 0
+        if let searchError, errorText == searchError { errorText = nil }
+        searchError = nil
     }
 
     // MARK: - 匹配（与 SFTPFileBackend.matches 同口径）

@@ -216,17 +216,15 @@ macOS `makeSFTPFileBackend` 已接固定预算的 `sftp` 重载，剩余预算/�
 
 `exists` 目前将任何 `lstat` 异常转换为 false。上传冲突检查、自动编号和目录创建据此判断不存在，无法区分确实不存在、无权查看与连接失败。需改为可区分三种结果的查询，查询失败不得继续当作空目标提交；即使查询修复，非覆盖创建仍须由共享写入契约保证。
 
-[FilesPanelModel.search](GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 已提供搜索入口和 exec/walk 档位显示，但错误与取消尚不完整：exec 打开阶段任意异常都会回退 walk；`readFind` 忽略 stderr、没有调用现有 `SSHExec.exitStatus()`，条目 `lstat` 失败也被跳过，结束后仍返回 exec 档。远端命令失败可能显示零条或部分搜索结果为完成。页面 `cancelSearch` 只更新 token 并清列表，传给后端的回调仍返回 true；它阻止旧结果显示，尚未取消远端工作，无输出时的 read timeout 会继续循环。
+[FilesPanelModel.search](GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 已区分完成/未完成与部分结果，只有明确禁 exec 才回退；stderr、退出状态、NUL 帧/UTF-8/目录边界及元数据错误不再忽略。默认最多 64 层，扫描/结果/元数据和远端输出/时间都有预算；取消实际传入读取和遍历，旧请求不能发布。界面错误与原范围重试按钮、实际本机 SSH 及变异证据见[搜索说明](../docs/reference/macos-file-search.md)。旧 exec 打开/同步关闭及单次文件 I/O 仍未接完整 deadline，不宣称所有阶段有界释放。
 
-文件错误边界不限于 SFTP。`FilesPanelModel.loadTreeChildren` 现保留可重试的错误而不缓存为空，根/子目录实际控件证据见[导航说明](../docs/reference/macos-files-navigation.md)。`runLocalSearch` 用 `try?` 忽略遍历错误，随后仍标完成；取消只改变结果 token，visitor 仍返回 true。`setPermissions` 虽记录子项 chmod 错误，却忽略 `walk` 自身抛出的错误，可能只改了根或部分条目便正常刷新。`FileBackend.swift` 中的本地后端还会跳过 lstat 失败的条目，枚举未接入逐项错误报告。普通列表导航的 catch 会显示错误，不能把树/搜索的缺口扩大成所有目录错误都被吞掉。
+文件错误边界不限于 SFTP。树错误保留重试而不缓存为空，见[导航说明](../docs/reference/macos-files-navigation.md)。本地 list/walk 的 lstat 与枚举错误已抛出，搜索显示未完成；`setPermissions` 仍忽略 walk 自身错误，可能只改了根或部分条目便刷新。递归权限需要扫描/修改结果汇总与链接保护，不能由搜索专项代替。
 
-树节点错误状态已接；后续仍需为搜索提供失败/部分结果、递归权限汇总扫描与修改结果；这与终端 I/O 和传输队列控制是不同验收面。当前只是源码核对，没有新增文件系统拒绝/扫描失败的运行证据。
-
-以上为当前源码调用链结论，尚无本轮慢网络/失败命令的端到端验收。修复顺序为查询三态与异步 owner、远端退出状态和取消，再回归传输冲突/控制与页面切换；具体退出条件列在[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后续工作。搜索取消是协作式停止，终端 stop 的有界证据不覆盖文件旧调用。具体退出条件见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ### 目录导航与缓存边界
 
-目录导航已按请求身份发布最新结果，排队旧读取跳过；前进/后退随成功提交，失败保留位置、选择、条目和历史。刷新推进树 epoch 并重读当前根/展开分支，旧树回包不能重填缓存。树错误不当空目录，根/子节点错误在有界状态区提供真实重试按钮；跟随 cwd 不重复取消同目标读取。最终原生、真实 SFTP、变异及 Release 证据见[导航说明](../docs/reference/macos-files-navigation.md)。在途旧后端网络读取、搜索/权限与完整 owner/传输迁移仍分开处理。
+目录导航已按请求身份发布最新结果，排队旧读取跳过；前进/后退随成功提交，失败保留位置、选择、条目和历史。刷新推进树 epoch 并重读当前根/展开分支，旧树回包不能重填缓存。树错误不当空目录，根/子节点错误在有界状态区提供真实重试按钮；跟随 cwd 不重复取消同目标读取。最终原生、真实 SFTP、变异及 Release 证据见[导航说明](../docs/reference/macos-files-navigation.md)。在途旧后端网络读取、权限与完整 owner/传输迁移仍分开处理；搜索专项见上述说明。
 
 共享底层的两项生命周期问题已在 §9.49 修复：任务提交在移交 worker 前保存 ID，防止返回前对象已被释放；exec 读取结束恢复原会话超时，不将 100 ms 片段泄漏给 SFTP。真实 SFTP/ASan 与三组 exec 变异有证据；不改变下面的文件原子提交、冲突、重试与产品主线程等待缺口。
 

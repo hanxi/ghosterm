@@ -103,75 +103,56 @@ public final class SFTPFileBackend: TransferBackend {
     // MARK: - 远端搜索（exec 优先，walk 回退）
 
     public func search(root: String, pattern: String, maxDepth: Int,
+                       isCancelled: @escaping () -> Bool,
                        onHit: @escaping (FileEntry) -> Bool,
                        onScanned: @escaping (Int) -> Void) throws -> Bool {
-        try queue.sync { try searchLocked(root: root, pattern: pattern,
-                                          maxDepth: maxDepth, onHit: onHit,
-                                          onScanned: onScanned) }
+        guard root.hasPrefix("/"), !root.utf8.contains(0), (0...64).contains(maxDepth) else {
+            throw FileSearchError.incomplete("远端搜索目录或深度无效")
+        }
+        return try queue.sync {
+            try Self.runSearch(open: { try self.session.exec(Self.findCommand(root: root, maxDepth: maxDepth)) },
+                read: { exec in
+                    defer { exec.close() }
+                    try RemoteFindReader.run(root: root, pattern: pattern, isCancelled: isCancelled,
+                        read: { try exec.read(max: 32768, timeoutMS: 100) }, exitStatus: { exec.exitStatus() },
+                        lookup: { path in Self.entry(path: path, stat: try self.lstatLocked(path)) },
+                        onHit: onHit, onScanned: onScanned)
+                }, fallback: {
+                    var scanned = 0
+                    do {
+                        try self.sftp.walk(root: root, maxDepth: maxDepth) { entry in
+                            if isCancelled() { return false }
+                            scanned += 1; onScanned(scanned)
+                            if isCancelled() { return false }
+                            return !Self.matches(entry.name, pattern) || onHit(Self.entry(from: entry))
+                        }
+                    } catch let error as GhostermError where error.isCancelled && isCancelled() {
+                        throw FileSearchError.cancelled
+                    }
+                    if isCancelled() { throw FileSearchError.cancelled }
+                }, isCancelled: isCancelled)
+        }
     }
 
-    private func searchLocked(root: String, pattern: String, maxDepth: Int,
-                              onHit: @escaping (FileEntry) -> Bool,
-                              onScanned: @escaping (Int) -> Void) throws -> Bool {
-        if let exec = try? session.exec(findCommand(root: root, pattern: pattern,
-                                                   maxDepth: maxDepth)) {
-            return try readFind(exec, onHit: onHit, onScanned: onScanned)
+    /// Only an explicit exec capability refusal permits a walk fallback. Network,
+    /// authentication and command/read failures must retain their original error.
+    static func runSearch<T>(open: () throws -> T, read: (T) throws -> Void,
+                             fallback: () throws -> Void, isCancelled: () -> Bool) throws -> Bool {
+        if isCancelled() { throw FileSearchError.cancelled }
+        let channel: T
+        do { channel = try open() }
+        catch let error as GhostermError where error.isExecUnsupported {
+            if isCancelled() { throw FileSearchError.cancelled }
+            try fallback(); return false
         }
-        var scanned = 0
-        try sftp.walk(root: root, maxDepth: maxDepth) { e in
-            scanned += 1
-            if scanned % 200 == 0 { onScanned(scanned) }
-            if Self.matches(e.name, pattern) {
-                if !onHit(Self.entry(from: e)) { return false }
-            }
-            return true
-        }
-        onScanned(scanned)
-        return false
-    }
-
-    private func findCommand(root: String, pattern: String, maxDepth: Int) -> String {
-        let pat = pattern.contains("*") || pattern.contains("?") ? pattern : "*\(pattern)*"
-        var cmd = "find \(Self.sq(root))"
-        if maxDepth >= 0 { cmd += " -maxdepth \(maxDepth)" }
-        cmd += " -iname \(Self.sq(pat)) -print0"
-        return cmd
-    }
-
-    private func readFind(_ exec: SSHExec, onHit: (FileEntry) -> Bool,
-                          onScanned: (Int) -> Void) throws -> Bool {
-        var pending = Data()
-        var hits = 0
-        func emit(_ path: String) -> Bool {
-            guard !path.isEmpty else { return true }
-            hits += 1
-            if let st = try? lstatLocked(path) {
-                return onHit(Self.entry(path: path, stat: st))
-            }
-            return true
-        }
-        loop: while true {
-            let r = try exec.read(max: 32768, timeoutMS: 4000)
-            switch r {
-            case .data(let d, let isErr):
-                if isErr { continue }
-                pending.append(d)
-                while let nul = pending.firstIndex(of: 0) {
-                    let pathData = pending.subdata(in: pending.startIndex..<nul)
-                    pending.removeSubrange(pending.startIndex...nul)
-                    if !emit(String(decoding: pathData, as: UTF8.self)) { break loop }
-                }
-                onScanned(hits)
-            case .timeout:
-                continue
-            case .eof:
-                break loop
-            }
-        }
-        if !pending.isEmpty { _ = emit(String(decoding: pending, as: UTF8.self)) }
-        onScanned(hits)
-        exec.close()
+        try read(channel)
         return true
+    }
+
+    static func findCommand(root: String, maxDepth: Int) -> String {
+        // Filter locally so find's bracket syntax and locale cannot change the
+        // name matching contract. -mindepth excludes the root in both engines.
+        "find \(Self.sq(root)) -mindepth 1 -maxdepth \(maxDepth) -print0"
     }
 
     // MARK: - 映射
@@ -210,25 +191,22 @@ public final class SFTPFileBackend: TransferBackend {
         let p = pattern.lowercased()
         let n = name.lowercased()
         if !p.contains("*") && !p.contains("?") { return n.contains(p) }
-        func glob(_ s: Array<Character>, _ pat: Array<Character>, _ si: Int, _ pi: Int) -> Bool {
-            var si = si, pi = pi
-            while pi < pat.count {
-                if pat[pi] == "*" {
-                    let rest = pi + 1
-                    if rest == pat.count { return true }
-                    var k = si
-                    while k <= s.count {
-                        if glob(s, pat, k, rest) { return true }
-                        k += 1
-                    }
-                    return false
-                }
-                if si >= s.count { return false }
-                if pat[pi] != "?" && pat[pi] != s[si] { return false }
-                si += 1; pi += 1
-            }
-            return si == s.count
+        let text = Array(n), tokens = Array(p)
+        var i = 0, j = 0, star: Int?, retry = 0
+        while i < text.count {
+            if j < tokens.count && (tokens[j] == "?" || tokens[j] == text[i]) { i += 1; j += 1 }
+            else if j < tokens.count && tokens[j] == "*" { star = j; j += 1; retry = i }
+            else if let star { retry += 1; i = retry; j = star + 1 }
+            else { return false }
         }
-        return glob(Array(n), Array(p), 0, 0)
+        while j < tokens.count && tokens[j] == "*" { j += 1 }
+        return j == tokens.count
+    }
+}
+
+private extension GhostermError {
+    var isExecUnsupported: Bool {
+        if case .status(let code, _) = self { return code == SSHExec.unsupportedRaw }
+        return false
     }
 }

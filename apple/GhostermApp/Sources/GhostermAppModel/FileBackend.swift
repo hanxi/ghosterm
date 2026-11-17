@@ -78,6 +78,7 @@ public protocol TransferBackend: FileBackend {
     /// 递归搜索：优先走远端 exec（find/grep，一次往返）；服务器禁 exec 时
     /// **显式回退** SFTP walk。返回 true 表示用的是 exec 快路径。
     func search(root: String, pattern: String, maxDepth: Int,
+                isCancelled: @escaping () -> Bool,
                 onHit: @escaping (FileEntry) -> Bool,
                 onScanned: @escaping (Int) -> Void) throws -> Bool
 }
@@ -96,7 +97,7 @@ public final class LocalFileBackend: FileBackend {
 
     public func list(_ path: String) throws -> [FileEntry] {
         let names = try fm.contentsOfDirectory(atPath: path)
-        return names.compactMap { entry(at: join(path, $0)) }
+        return try names.map { try entry(at: join(path, $0)) }
     }
 
     public func mkdir(_ path: String, mode: UInt32) throws {
@@ -135,15 +136,24 @@ public final class LocalFileBackend: FileBackend {
     }
 
     public func walk(root: String, maxDepth: Int, visit: @escaping (FileEntry) -> Bool) throws {
-        guard let en = fm.enumerator(atPath: root) else {
-            throw GhostermError.failed("无法枚举：\(root)")
+        let rootURL = URL(fileURLWithPath: root)
+        let rootEntry = try entry(at: root)
+        guard rootEntry.isDirectory else { throw GhostermError.failed("遍历来源不是目录：\(root)") }
+        var enumerationError: Error?
+        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [], errorHandler: { _, error in
+            enumerationError = error
+            return false
+        }) else { throw GhostermError.failed("无法枚举：\(root)") }
+        while let url = enumerator.nextObject() as? URL {
+            let depth = enumerator.level
+            if maxDepth >= 0 && depth > maxDepth { enumerator.skipDescendants(); continue }
+            let item = try entry(at: url.path)
+            if item.isSymlink || (item.isDirectory && maxDepth >= 0 && depth >= maxDepth) {
+                enumerator.skipDescendants()
+            }
+            if !visit(item) { return }
         }
-        while let rel = en.nextObject() as? String {
-            let depth = rel.split(separator: "/").count
-            if maxDepth >= 0 && depth > maxDepth { en.skipDescendants(); continue }
-            guard let e = entry(at: join(root, rel)) else { continue }
-            if !visit(e) { break }
-        }
+        if let enumerationError { throw enumerationError }
     }
 
     // MARK: helpers
@@ -158,9 +168,9 @@ public final class LocalFileBackend: FileBackend {
         (dir as NSString).appendingPathComponent(name)
     }
 
-    private func entry(at full: String) -> FileEntry? {
+    private func entry(at full: String) throws -> FileEntry {
         var st = stat()
-        guard lstat(full, &st) == 0 else { return nil }
+        guard lstat(full, &st) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let kind: FileEntry.Kind
         switch st.st_mode & S_IFMT {
         case S_IFDIR: kind = .directory

@@ -39,6 +39,7 @@ final class FakeTransferBackend: TransferBackend {
     func pause(jobID: UInt64, _ p: Bool) throws { paused.append((jobID, p)) }
     func cancel(jobID: UInt64) throws { cancelled.append(jobID) }
     func search(root: String, pattern: String, maxDepth: Int,
+                isCancelled: @escaping () -> Bool,
                 onHit: @escaping (FileEntry) -> Bool,
                 onScanned: @escaping (Int) -> Void) throws -> Bool { true }
 }

@@ -796,6 +796,6 @@ final class WorkspaceBackend: TransferBackend {
     func upload(local: String, remote: String) throws -> UInt64 { uploads.append(remote); id += 1; return id }
     func pause(jobID: UInt64, _ p: Bool) throws {}
     func cancel(jobID: UInt64) throws {}
-    func search(root: String, pattern: String, maxDepth: Int, onHit: @escaping (FileEntry) -> Bool,
+    func search(root: String, pattern: String, maxDepth: Int, isCancelled: @escaping () -> Bool, onHit: @escaping (FileEntry) -> Bool,
                 onScanned: @escaping (Int) -> Void) throws -> Bool { true }
 }
