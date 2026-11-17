@@ -952,7 +952,16 @@ done:
 }
 
 int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
-    return stdio_run(argc, argv, cancelled, false);
+    int reference = -1;
+    int result = gterm_release_pin_profile(argc, argv, &reference);
+    if (result) {
+        return diagnostic("signed version reference unavailable", result);
+    }
+    result = stdio_run(argc, argv, cancelled, false);
+    if (reference >= 0 && close(reference)) {
+        result = 5;
+    }
+    return result;
 }
 
 int gterm_stdio_validate(int argc, char **argv) {

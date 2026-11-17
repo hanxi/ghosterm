@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE 1
 #include "ghosterm.h"
 #include <fcntl.h>
 #include <signal.h>
@@ -461,10 +462,10 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
               GT_OK);
     }
-    uint64_t deadline = now() + (process_prefix ? 30000 : 10000), consent_at = 0, handle = 0,
-             process_ready_at = 0;
+    uint64_t deadline = now() + (process_prefix || !strcmp(mode, "active-hold") ? 30000 : 10000),
+             consent_at = 0, handle = 0, process_ready_at = 0;
     bool confirmed = false, host_method_confirmed = false, decided = false, signalled = false,
-         lost = false;
+         lost = false, held = false;
     bool preview_main = false, preview_asset = false;
     uint64_t preview_complete_at = 0;
     gt_ext_lease_t lease;
@@ -594,6 +595,10 @@ int main(int argc, char **argv) {
                 host_method_confirmed = true;
             }
         }
+        if (held && access(getenv("GT_GTERM_FIXTURE_RELEASE"), R_OK) == 0) {
+            held = false;
+            gt_ext_session_revoke(session);
+        }
         if (handle && !confirmed) {
             gt_ext_rpc_result_t result;
             CHECK(gt_ext_session_request_result(session, &lease, handle, &result) == GT_EXT_RPC_OK);
@@ -620,6 +625,14 @@ int main(int argc, char **argv) {
                 } else if (!strcmp(mode, "lost")) {
                     CHECK(!shutdown(fd[0], SHUT_RDWR));
                     lost = true;
+                } else if (!strcmp(mode, "active-hold")) {
+                    const char *marker = getenv("GT_GTERM_FIXTURE_READY");
+                    CHECK(marker && getenv("GT_GTERM_FIXTURE_RELEASE"));
+                    int ready =
+                        open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+                    CHECK(ready >= 0 && write(ready, "active", 6) == 6 && !fsync(ready) &&
+                          !close(ready));
+                    held = true;
                 } else {
                     if (strcmp(mode, "host-method") || host_method_confirmed) {
                         gt_ext_session_revoke(session);

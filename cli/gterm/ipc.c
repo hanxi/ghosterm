@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "foreground.h"
 #include "stdio.h"
+#include "release.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -327,10 +328,8 @@ static struct sockaddr_un address(void) {
     return value;
 }
 
-int gterm_ipc_listen(const char *directory,
-                     int argc,
-                     char **argv,
-                     volatile sig_atomic_t *cancelled) {
+static int
+listen_run(const char *directory, int argc, char **argv, volatile sig_atomic_t *cancelled) {
     endpoint_t e = {.directory = -1, .listener = -1, .peer = -1, .cwd = -1};
     permit_t permit = {0};
     int result = 5;
@@ -449,6 +448,21 @@ done:
         return 130;
     }
     return result == 5 ? error() : result;
+}
+
+int gterm_ipc_listen(const char *directory,
+                     int argc,
+                     char **argv,
+                     volatile sig_atomic_t *cancelled) {
+    int reference = -1;
+    int result = gterm_release_pin_profile(argc, argv, &reference);
+    if (!result) {
+        result = listen_run(directory, argc, argv, cancelled);
+    }
+    if (reference >= 0 && close(reference)) {
+        result = 5;
+    }
+    return result;
 }
 
 typedef struct {

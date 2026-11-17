@@ -636,6 +636,11 @@ int gterm_release_install(const char *store,
         result = 130;
         goto done;
     }
+    result = gterm_release_pending(parent, proof.descriptor_digest);
+    if (result) {
+        goto done;
+    }
+    result = 5;
     if (publish(parent, stage_name, proof.descriptor_digest)) {
         result = errno == EEXIST ? 8 : errno == ENOTSUP || errno == ENOSYS ? 4 : 5;
         goto done;

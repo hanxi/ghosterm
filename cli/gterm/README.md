@@ -387,6 +387,69 @@ python3 -B scripts/test-gterm-release.py --build tmp/gterm-build \
 保留断流结果不明 7。不是 App 点击、Linux 或完整 IO / 取消 / 崩溃 / 发行证据。
 
 
+
+### 安装版本清单与显式清理
+
+签名构建可观察用户明确指定的私有安装根与登记目录：
+
+```text
+gterm plugin versions --store ABSOLUTE_INSTALL_ROOT --catalog ABSOLUTE_CATALOG
+gterm plugin review-installed --store ABSOLUTE_INSTALL_ROOT --catalog ABSOLUTE_CATALOG \
+  --version RELEASE_DESCRIPTOR_SHA256
+```
+
+`versions` 列出磁盘条目、版本目录名、已观察引用与所选目录的登记引用数；未知条目
+只列举、不收养。这里的 version 是安装槽的原始发布描述 SHA256，不是包版本号。
+列表不认证发布者，目录名也不证明安装成功。`review-installed` 给出当前完整排序清单
+（路径、类型、文件长度 / SHA256）、逻辑文件总字节、引用状态和精确 `reviewDigest`。
+根目录不入清单。最多 4096 项、深度 34、单路径 4096 字节、路径总量 16 MiB、
+单文件 16 MiB、文件总量 64 MiB＋64 KiB＋64 字节。该数字不是实际磁盘释放量。
+
+初次清理要求同文件系统、当前用户的只读安装目录、固定的三项布局和匹配目录名的
+release.json；文件为普通单链接、0400 / 0500，目录为 0500。不跟链接、不跨文件系统，
+不 chmod 普通文件；这份目录检查不认证当前签名，不授予运行权限。
+先用 unregister / disable-denied 取消所选目录的登记，再查看完整清单并明确执行：
+
+```text
+gterm plugin remove-installed --store ABSOLUTE_INSTALL_ROOT --catalog ABSOLUTE_CATALOG \
+  --version RELEASE_DESCRIPTOR_SHA256 --expect-revision REVIEW_REVISION --review-digest REVIEW_SHA256
+```
+
+确认绑定目录身份、所选登记目录身份 / 修订、全部当前路径与文件字节、权限 / 时间、
+删除意图及引用观察。提交时重新核对，不允许用旧确认删除变化后的内容。仍被所选目录
+引用退出 8，持有引用退出 11，过期确认退出 9。该工具只检查所选登记目录，不枚举其它
+目录：`otherCatalogsChecked=false`。其它目录可能仍留下失效登记，后续启动会明确失败。
+
+新的 CLI 在普通命令选择释放目录锁前取得版本引用，待附着前台 / stdio 到 Runtime
+释放期间保持；引用是目录 fd 的协作锁，不猜 PID。短暂的安装根锁关闭引用与隔离的
+竞态，运行期间不占用整个安装根，故可安装 / 选择新版。它保护使用本版本协议的 CLI
+owner，不是 OS 沙箱，也不追踪旧二进制、手工进程或任意配置路径的间接依赖。
+
+删除先同步绑定安装根与版本 inode 的私有 `.remove-SHA.intent`，再不覆盖地将原目录
+改名为 `.remove-SHA` 隔离。随后仅处理本次复核的对象，逐项重新核对、同步并删除；
+最后删除空目录与意图。`removed`、`quarantined`、`intentRetained`、`durabilityConfirmed`
+分别报告，失败不冒充回滚。原槽有待处理删除时，新的启动和同描述重新安装明确拒绝。
+
+中断后的原目录、隔离目录或“目录已无、意图尚在”均须再次 review-installed，再使用
+新的确认。复核展示全部当前剩余内容；新增内容会使旧确认失效，显式新确认才授权
+该次完整清单。不会启动时自动继续删除；损坏 / 归属不明意图、无意图的孤立隔离目录
+与未知安装暂存保留。完整磁盘故障、挂载、并发和其它 OS 矩阵仍待集中验收。
+
+定向场景使用工程内签名夹具，不操作用户安装根、账号或外部主机：
+
+```sh
+python3 -B scripts/test-gterm-release.py --build tmp/gterm-build --node 已安装Node路径 \
+  --sdk 已构建HostSDK目录 --case version-maintenance --case version-reference \
+  --case version-active --case node-version-active --case exec-version-active
+# 仅显式夹具构建提供删除一次后的暂停；真实 SIGKILL 后重新复核继续。
+cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_TESTS=ON -DGHOSTERM_GTERM_STORE_FAULTS=ON
+cmake --build tmp/gterm-build --target gterm
+python3 -B scripts/test-gterm-release.py --build tmp/gterm-build --node 已安装Node路径 --case version-resume
+# 收尾恢复普通构建；普通二进制不识别测试暂停环境。
+cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_STORE_FAULTS=OFF
+cmake --build tmp/gterm-build --target gterm
+```
+
 ### 执行端当前策略复核与显式批量禁用
 
 签名构建可只读复核一个已登记目录与明确选定的独立策略：

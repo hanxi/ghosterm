@@ -672,7 +672,7 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
     uint32_t index = 0;
     unsigned matches = 0;
     char **call = NULL;
-    int call_count = 0;
+    int call_count = 0, version_reference = -1;
     bool explicit_id = false;
     if (status) {
         goto done;
@@ -776,6 +776,11 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
         code = "COMMAND_ENDPOINT_REQUIRED";
         goto done;
     }
+    status = gterm_release_pin_profile(call_count, call, &version_reference);
+    if (status) {
+        code = "VERSION_REFERENCE";
+        goto done;
+    }
     /* Selection is linearized under the shared catalog lock. Its fixed bytes
      * remain valid for this invocation; later edits affect future commands. */
     if (gt_ext_package_destroy(&selected) != GT_OK ||
@@ -790,6 +795,10 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
         goto done;
     }
     status = gterm_ipc_listen(endpoint, call_count, call, cancelled);
+    if (version_reference >= 0 && close(version_reference)) {
+        status = 5;
+    }
+    version_reference = -1;
     /* IPC replaced stdout with the protocol socket. Never print JSON there. */
     free(call);
     call = NULL;
@@ -798,6 +807,9 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
     }
     return status;
 done:
+    if (version_reference >= 0 && close(version_reference)) {
+        status = 5;
+    }
     free(call);
     if (package && gt_ext_package_destroy(&package) != GT_OK) {
         status = 5;

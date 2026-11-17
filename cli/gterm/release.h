@@ -41,6 +41,10 @@ int gterm_release_installed(const char *,
                             volatile sig_atomic_t *);
 int gterm_release_profile(
     int, char **, const char *, const gt_ext_package_metadata_t *, volatile sig_atomic_t *);
+/* Directory references are cooperative and held through pending IPC / Runtime. */
+int gterm_release_pin_profile(int, char **, int *);
+int gterm_release_pending(int, const char *);
+int gterm_release_manage(const char *, int, char **, volatile sig_atomic_t *);
 void gterm_release_clear(gterm_release_t *);
 /* Owns a new fixed version. Published versions survive catalog-save failures.
  * On success output is an allocated canonical payload path. */

@@ -38,7 +38,8 @@ CASES = ['roundtrip', 'deflate', 'bad-signature', 'revoked', 'scope', 'duplicate
 CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 'node-deny',
           'node-active-cancel', 'exec-roundtrip', 'exec-deny', 'exec-active-cancel',
           'node-development', 'exec-development']
-CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review']
+CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review', 'version-maintenance', 'version-reference', 'version-active', 'node-version-active', 'exec-version-active']
+FAULT_CASES = ['version-resume']
 
 
 def require(value, label):
@@ -125,6 +126,136 @@ def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_versi
     final = review()
     require(not final['deniedCount'] and apply(final)['result'] == 'unchanged', 'explicit second review has no replay')
     print('PASS policy workflow: allowed/current and stale bindings, other policy, invalid/unavailable, evidence/policy/catalog CAS, mixed atomic disable', flush=True)
+
+
+
+def version_workflow(run, build, node, signer, work, catalog, store, endpoint, env,
+                     installed_version, package, digest, host, profile, policy, description, case):
+    version = installed_version.name
+    def observe():
+        return run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version])
+    def remove(observation, expected=0):
+        return run(['plugin','remove-installed','--catalog',catalog,'--store',store,'--version',version,
+                    '--expect-revision',observation['revision'],'--review-digest',observation['reviewDigest']], expected)
+    def listing(): return run(['plugin','versions','--catalog',catalog,'--store',store])
+    def unregister():
+        run(['plugin','unregister','--catalog',catalog,'--expect-revision','1',
+             '--id',description['pluginId'],'--expect-digest',digest])
+    initial = observe()
+    require(initial['catalogReferences'] == 1 and not initial['removable'] and not initial['publisherAuthenticated'], 'selected catalog reference blocks removal')
+    require(observe()['reviewDigest'] == initial['reviewDigest'], 'read-only complete inventory is stable')
+    require({p['path'] for p in initial['entries']} == {str(p.relative_to(installed_version)) for p in installed_version.rglob('*')}, 'full inventory has every current entry')
+    remove(initial,8)
+    require(not list(store.glob('.remove-*')), 'selected version cannot start retirement')
+    if case in ('version-reference','version-active'):
+        binary = build/'gterm'
+        front = subprocess.Popen([binary,*ipc.CALL],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
+        owner = None
+        try:
+            ipc.wait(lambda:(endpoint/'permit').exists() or front.poll() is not None,'owned old-version listener')
+            require(front.poll() is None,'old selected invocation still alive')
+            ipc.wait(lambda:(endpoint/'permit').stat().st_size==56,'complete old-version permit')
+            if case=='version-active':
+                ready, release_marker = work/'active-ready', work/'active-release'
+                instance=(endpoint/'permit').read_bytes()[8:24].hex()
+                owner=subprocess.Popen([build/'test_gterm_stdio',binary,installed_version/'payload',digest,'active-hold'],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,env={**env,'GT_GTERM_FIXTURE_ATTACH':str(endpoint),
+                    'GT_GTERM_FIXTURE_ATTACH_INSTANCE':instance,'GT_GTERM_FIXTURE_READY':str(ready),'GT_GTERM_FIXTURE_RELEASE':str(release_marker)})
+                ipc.wait(lambda:ready.exists() or owner.poll() is not None,'confirmed real RPC before hold')
+                require(ready.exists() and owner.poll() is None,'actual Session/RPC is active before upgrade')
+            # A real second package/version is signed and installed while the
+            # first pending/active instance keeps its old fixed invocation.
+            import shutil
+            upgraded=work/'upgrade-package';shutil.copytree(package,upgraded)
+            metadata=json.loads((upgraded/'plugin.json').read_text());metadata['pluginVersion']='0.2.0'
+            (upgraded/'plugin.json').write_text(json.dumps(metadata))
+            integrity=json.loads((upgraded/'integrity.json').read_text())
+            for item in integrity['members']:
+                raw=(upgraded/item['path']).read_bytes();item.update(bytes=len(raw),sha256=release.sha(raw))
+            (upgraded/'integrity.json').write_text(json.dumps(integrity));new_digest=release.sha((upgraded/'integrity.json').read_bytes())
+            artifact=work/'upgrade.zip'
+            with zipfile.ZipFile(artifact,'w',compression=zipfile.ZIP_STORED) as archive:
+                for member in sorted(p for p in upgraded.rglob('*') if p.is_file()):
+                    archive.write(member,member.relative_to(upgraded).as_posix())
+            new_description={**description,'pluginVersion':'0.2.0','packageSHA256':new_digest,
+                'artifact':dict(format='zip-v1',bytes=artifact.stat().st_size,sha256=release.sha(artifact.read_bytes()))}
+            descriptor=work/'upgrade.json';descriptor.write_text(json.dumps(new_description));raw=descriptor.read_bytes()
+            signature=work/'upgrade.sig';signature.write_bytes(subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',signer],
+                input=release.DOMAIN+raw,capture_output=True,check=True,timeout=3).stdout)
+            run(['plugin','install','--catalog',catalog,'--expect-revision','1','--expect-digest',digest,'--store',store,
+                '--artifact',artifact,'--descriptor',descriptor,'--signature',signature,'--policy',policy,'--host-json',host,'--',*profile])
+            active=observe()
+            require(active['inUse'] and not active['catalogReferences'] and not active['removable'],'old pending/active version survives a new selected package')
+            row=next(p for p in listing()['entries'] if p.get('name')==version)
+            require(row['inUse'] and row['catalogReferences']==0,'version list observes actual cross-process reference')
+            remove(active,11)
+            foreign_catalog=work/'other-catalog';foreign_catalog.mkdir(mode=0o700)
+            foreign=run(['plugin','review-installed','--catalog',foreign_catalog,'--store',store,'--version',version])
+            require(foreign['inUse'] and not foreign['catalogReferences'],'cross-catalog observer sees the same held directory reference')
+            run(['plugin','remove-installed','--catalog',foreign_catalog,'--store',store,'--version',version,
+                 '--expect-revision',foreign['revision'],'--review-digest',foreign['reviewDigest']],11)
+            if owner:
+                release_marker.write_text('release')
+                out,err=owner.communicate(timeout=10)
+                require(owner.returncode==0 and b'PASS stdio active-hold' in out,f'owned active Host release: {out!r} {err!r}')
+                require(front.wait(timeout=6)==0,'old active Runtime finishes after selection replacement')
+            else:
+                front.terminate();require(front.wait(timeout=6)==130,'owned pending invocation explicitly cancels')
+            remove(active,9)
+            fresh=observe();require(fresh['removable'] and not fresh['inUse'],'last old-version reference released')
+            require(remove(fresh)['removed'],'explicit old-version removal after owner exit')
+            current=store/release.sha(raw)
+            require(current.is_dir() and run(['plugin','list','--catalog',catalog])['entries'][0]['version']=='0.2.0','new selected version remains intact')
+        finally:
+            if owner:
+                ipc.terminate(owner);owner.stdout.close();owner.stderr.close()
+            ipc.terminate(front);front.stdout.close();front.stderr.close()
+        return
+    unregister();remove(initial,9)
+    fresh=observe();require(fresh['removable'],'unregistered inactive version can be proposed')
+    if case=='version-resume':
+        marker=work/'removal-paused'
+        args=[build/'gterm','plugin','remove-installed','--catalog',catalog,'--store',store,'--version',version,
+              '--expect-revision',fresh['revision'],'--review-digest',fresh['reviewDigest']]
+        operation=subprocess.Popen(list(map(str,args)),stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            env={**env,'GTERM_TEST_STORE_PAUSE':str(marker)})
+        try:
+            ipc.wait(lambda:marker.exists() or operation.poll() is not None,'test-only post-unlink checkpoint')
+            require(marker.exists() and operation.poll() is None,'explicit fault build must pause after a real durable unlink')
+            operation.kill();require(operation.wait(timeout=5)==-9,'actual owned SIGKILL')
+        finally:
+            ipc.terminate(operation);operation.stdout.close();operation.stderr.close()
+        quarantine=store/('.remove-'+version)
+        require(quarantine.is_dir() and not installed_version.exists() and not (quarantine/'release.sig').exists(),'published name quarantined; one actual entry removed')
+        remove(fresh,9)
+        # A durable pending removal blocks reinstalling the same descriptor.
+        run(['plugin','install','--catalog',catalog,'--expect-revision','2','--store',store,
+             '--artifact',work/'plugin.zip','--descriptor',work/'release.json','--signature',work/'release.sig',
+             '--policy',policy,'--host-json',host,'--',*profile],11)
+        require(quarantine.is_dir() and not installed_version.exists(),'reinstall cannot bypass pending removal')
+        resumed=observe();require(resumed['pendingRemoval'] and resumed['quarantined'],'fresh explicit observation after process death')
+        extra=quarantine/'new-owned-file';extra.write_text('new explicit review required');extra.chmod(0o400)
+        remove(resumed,9)
+        final=observe();require(any(p['path']=='new-owned-file' for p in final['entries']),'new current content is fully visible before new confirmation')
+        require(remove(final)['removed'] and not list(store.glob('.remove-*')),'explicit continuation removes exact newly reviewed owned tree and intent')
+        return
+    outside=work/'outside';outside.write_text('outside unchanged');outside.chmod(0o600)
+    leaf=installed_version/'payload/README';original=leaf.read_bytes();parent=leaf.parent
+    parent.chmod(0o700);leaf.unlink();leaf.symlink_to(outside)
+    run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version],6)
+    require(outside.read_text()=='outside unchanged' and stat.S_IMODE(outside.stat().st_mode)==0o600,'no symlink traversal or chmod outside selected tree')
+    leaf.unlink();leaf.write_bytes(original);leaf.chmod(0o400);parent.chmod(0o500)
+    hardlink=work/'hardlink';os.link(leaf,hardlink)
+    run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version],6)
+    require(hardlink.read_bytes()==original and stat.S_IMODE(hardlink.stat().st_mode)==0o400,'hardlink guard never chmods regular files')
+    hardlink.unlink();remove(fresh,9)
+    final=observe()
+    other=store/'unknown';other.mkdir(mode=0o700);(other/'keep').write_text('keep')
+    result=remove(final)
+    require(result['removed'] and not result['intentRetained'] and result['durabilityConfirmed'] and not installed_version.exists(),'complete confirmed removal')
+    require((other/'keep').read_text()=='keep' and outside.read_text()=='outside unchanged','unrelated selected-store entries and external files retained')
+    require({p.get('name') for p in listing()['entries']}=={'unknown'},'version list retains unknown entries without adoption')
+    run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version],10)
 
 
 def exercise(build, node, sdk, case, work):
@@ -278,6 +409,10 @@ def exercise(build, node, sdk, case, work):
             require(result['committed'] and result['durabilityConfirmed'] and result['publisherAuthenticated'] != development, 'authenticated durable registration')
         listing = run(['plugin', 'list', '--catalog', catalog])
         require(listing['entries'][0]['source'] == ('explicit-development-digest' if development else 'signed-release-record') and not listing['publisherAuthenticated'], 'listing is a declaration, not current authentication')
+        if case.startswith('version-') or '-version-' in case:
+            version_workflow(run, build, node, signer, work, catalog, store, endpoint, env,
+                installed_version, package, digest, host, profile, policy, description, case[case.index('version-'):])
+            return
         if case == 'policy-review':
             policy_workflow(run, work, catalog, policy, trusted, key_id, installed_version, package, host, profile)
             return
@@ -342,7 +477,7 @@ def main():
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--node', type=Path, required=True)
     parser.add_argument('--sdk', type=Path)
-    parser.add_argument('--case', choices=CASES, action='append')
+    parser.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
     args = parser.parse_args()
     import shutil
     for case in args.case or CASES:
