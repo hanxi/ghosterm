@@ -217,7 +217,7 @@ bash scripts/gate.sh
 bash scripts/package-mac.sh --adhoc --out dist
 ```
 
-普通 full libghostty 仅应用 host IO、程序状态与语义提示三份补丁；构建器在工程 `tmp/`
+普通 full libghostty 应用 host IO、程序状态、语义提示与设置候选四份补丁；构建器在工程 `tmp/`
 内使用隔离源码，保持 vendor pin 不变。SDK 的 `terminal-engine.json` 记录实际 archive
 与补丁哈希。打包校验拒绝旧 session helper、快照 API、旧收据与随包 runtime。
 应用不携带 Linux 安装包，不要求远端编译器，也不自动安装 tmux。

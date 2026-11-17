@@ -1,0 +1,177 @@
+diff --git aa/include/ghostty.h bb/include/ghostty.h
+index 9a12b9ca..3a1ae82c 100644
+--- aa/include/ghostty.h
++++ bb/include/ghostty.h
+@@ -1147,6 +1147,7 @@ GHOSTTY_API void ghostty_config_free(ghostty_config_t);
+ GHOSTTY_API ghostty_config_t ghostty_config_clone(ghostty_config_t);
+ GHOSTTY_API void ghostty_config_load_cli_args(ghostty_config_t);
+ GHOSTTY_API void ghostty_config_load_file(ghostty_config_t, const char*);
++GHOSTTY_API bool ghostty_config_load_buffer(ghostty_config_t, const char*, uintptr_t, const char*);
+ GHOSTTY_API void ghostty_config_load_default_files(ghostty_config_t);
+ GHOSTTY_API void ghostty_config_load_recursive_files(ghostty_config_t);
+ GHOSTTY_API void ghostty_config_finalize(ghostty_config_t);
+@@ -1169,6 +1170,7 @@ GHOSTTY_API bool ghostty_app_key(ghostty_app_t, ghostty_input_key_s);
+ GHOSTTY_API void ghostty_app_keyboard_changed(ghostty_app_t);
+ GHOSTTY_API void ghostty_app_open_config(ghostty_app_t);
+ GHOSTTY_API void ghostty_app_update_config(ghostty_app_t, ghostty_config_t);
++GHOSTTY_API bool ghostty_app_update_config_checked(ghostty_app_t, ghostty_config_t);
+ GHOSTTY_API bool ghostty_app_needs_confirm_quit(ghostty_app_t);
+ GHOSTTY_API bool ghostty_app_has_global_keybinds(ghostty_app_t);
+ GHOSTTY_API void ghostty_app_set_color_scheme(ghostty_app_t, ghostty_color_scheme_e);
+diff --git aa/src/config/Config.zig bb/src/config/Config.zig
+index fd6d8cf3..6ebea4a5 100644
+--- aa/src/config/Config.zig
++++ bb/src/config/Config.zig
+@@ -4116,6 +4116,13 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
+     try self.loadFsFile(alloc, &file, path);
+ }
+ 
++/// Parse a complete unsaved file using its final absolute path for diagnostics,
++/// relative paths and replay. The input bytes are copied by the normal parser.
++pub fn loadBuffer(self: *Config, alloc: Allocator, data: []const u8, path: []const u8) !void {
++    var reader: std.Io.Reader = .fixed(data);
++    try self.loadReader(alloc, &reader, path);
++}
++
+ /// Load config from the given File.
+ fn loadFsFile(self: *Config, alloc: Allocator, file: *std.Io.File, path: []const u8) !void {
+     std.log.info("reading configuration file path={s}", .{path});
+@@ -4417,12 +4424,28 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
+ 
+ /// Load and parse the config files that were added in the "config-file" key.
+ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
++    return self.loadRecursiveFilesWithRoot(alloc_gpa, null);
++}
++
++/// An unsaved root must not be reopened through an include, symlink or hard
++/// link: that would validate the old on-disk bytes instead of the candidate.
++pub fn loadRecursiveFilesWithRoot(self: *Config, alloc_gpa: Allocator, root: ?[]const u8) !void {
+     if (self.@"config-file".value.items.len == 0) return;
+     const arena_alloc = self._arena.?.allocator();
+ 
+     // Keeps track of loaded files to prevent cycles.
+     var loaded = std.StringHashMap(void).init(alloc_gpa);
+     defer loaded.deinit();
++    var root_identity: ?ConfigFileIdentity = null;
++    if (root) |path| {
++        try loaded.put(path, {});
++        if (std.Io.Dir.openFileAbsolute(global.io(), path, .{})) |file| {
++            defer file.close(global.io());
++            root_identity = try configFileIdentity(file);
++        } else |err| {
++            if (err != error.FileNotFound) return err;
++        }
++    }
+ 
+     // We need to insert all of our loaded config-file values
+     // PRIOR to the "-e" in our replay steps, since everything
+@@ -4512,6 +4535,17 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
+             },
+         }
+ 
++        if (root_identity) |identity| {
++            const included = try configFileIdentity(file);
++            if (identity.device == included.device and identity.inode == included.inode) {
++                const diag: cli.Diagnostic = .{
++                    .message = try std.fmt.allocPrintSentinel(arena_alloc, "config-file {s}: root cycle detected", .{path}, 0),
++                };
++                try self._diagnostics.append(arena_alloc, diag);
++                try self._replay_steps.append(arena_alloc, .{ .diagnostic = diag });
++                continue;
++            }
++        }
+         try self.loadFsFile(arena_alloc, &file, path);
+     }
+ 
+@@ -4524,6 +4558,18 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
+     }
+ }
+ 
++const ConfigFileIdentity = struct { device: i128, inode: u128 };
++
++fn configFileIdentity(file: std.Io.File) !ConfigFileIdentity {
++    if (comptime builtin.os.tag == .macos or builtin.os.tag == .ios or builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
++        var info: std.c.Stat = undefined;
++        if (std.c.fstat(file.handle, &info) != 0) return error.ConfigIdentityUnavailable;
++        return .{ .device = @intCast(info.dev), .inode = @intCast(info.ino) };
++    } else {
++        return error.ConfigIdentityUnsupported;
++    }
++}
++
+ /// Get the arena allocator associated with the configuration.
+ pub fn arenaAlloc(self: *Config) Allocator {
+     return self._arena.?.allocator();
+diff --git aa/src/config/CApi.zig bb/src/config/CApi.zig
+index f69f48ea..6e2389f3 100644
+--- aa/src/config/CApi.zig
++++ bb/src/config/CApi.zig
+@@ -78,6 +78,26 @@ export fn ghostty_config_load_file(self: *Config, path: [*:0]const u8) void {
+ /// Load the configuration from the user-specified configuration
+ /// file locations in the previously loaded configuration. This will
+ /// recursively continue to load up to a built-in limit.
++/// Checked parsing of an unsaved root using its final absolute pathname.
++/// Recursive includes are loaded before returning; errors never mean success.
++export fn ghostty_config_load_buffer(self: *Config, data: [*]const u8, len: usize, origin: [*:0]const u8) bool {
++    if (len > 16 * 1024 * 1024) return false;
++    const bytes = data[0..len];
++    const path = std.mem.span(origin);
++    if (!std.fs.path.isAbsolute(path) or !std.unicode.utf8ValidateSlice(bytes) or
++        std.mem.indexOfScalar(u8, bytes, 0) != null) return false;
++    self.loadBuffer(global.alloc(), bytes, path) catch return false;
++    self.loadRecursiveFilesWithRoot(global.alloc(), path) catch return false;
++    self.finalize() catch return false;
++    if (!self._diagnostics.empty()) return false;
++    var other_state = self._conditional_state;
++    other_state.theme = if (other_state.theme == .light) .dark else .light;
++    var alternate = self.changeConditionalState(other_state) catch return false;
++    defer if (alternate) |*value| value.deinit();
++    if (alternate) |value| if (!value._diagnostics.empty()) return false;
++    return true;
++}
++
+ export fn ghostty_config_load_recursive_files(self: *Config) void {
+     self.loadRecursiveFiles(global.alloc()) catch |err| {
+         log.err("error loading config err={}", .{err});
+diff --git aa/src/App.zig bb/src/App.zig
+index 840dac6e..4c07f7f3 100644
+--- aa/src/App.zig
++++ bb/src/App.zig
+@@ -196,6 +196,20 @@ pub fn updateConfig(self: *App, rt_app: *apprt.App, config: *const Config) !void
+     );
+ }
+ 
++/// Checked host update. Resolve conditional allocation/parse errors before
++/// changing surfaces. A later surface error propagates to the host, which must
++/// account for a partial update and an explicitly checked restoration attempt.
++pub fn updateConfigChecked(self: *App, rt_app: *apprt.App, config: *const Config) !void {
++    var applied_ = try config.changeConditionalState(self.config_conditional_state);
++    defer if (applied_) |*value| value.deinit();
++    const applied: *const configpkg.Config = if (applied_) |*value| value else config;
++    if (!applied._diagnostics.empty()) return error.InvalidConfiguration;
++    for (self.surfaces.items) |surface| {
++        try surface.core().handleMessage(.{ .change_config = config });
++    }
++    if (!try rt_app.performAction(.app, .config_change, .{ .config = applied })) return error.ConfigUpdateDeclined;
++}
++
+ /// Add an initialized surface. This is really only for the runtime
+ /// implementations to call and should NOT be called by general app users.
+ /// The surface must be from the pool.
+diff --git aa/src/apprt/embedded.zig bb/src/apprt/embedded.zig
+index 3c6b2c1f..bf472fb8 100644
+--- aa/src/apprt/embedded.zig
++++ bb/src/apprt/embedded.zig
+@@ -1811,6 +1811,12 @@ pub const CAPI = struct {
+         };
+     }
+ 
++    /// Unlike the legacy void entry point, failure is visible to the host.
++    export fn ghostty_app_update_config_checked(v: *App, config: *const Config) bool {
++        v.core_app.updateConfigChecked(v, config) catch return false;
++        return true;
++    }
++
+     /// Returns true if the app needs to confirm quitting.
+     export fn ghostty_app_needs_confirm_quit(v: *App) bool {
+         return v.core_app.needsConfirmQuit();

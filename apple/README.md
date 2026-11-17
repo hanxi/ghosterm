@@ -77,7 +77,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 |---|---|---|
 | SSH `config` | `ConfigStore.save`；稳定保存锁、完整字节/身份快照、强制备份、同目录原子替换；提交后错误单独报告 | 候选落盘后发布及表单脏字段已接；专项与非协作写者边界见[写盘事务](../docs/reference/macos-config-store.md) |
 | `known_hosts` | `ssh.c` → `known_hosts_store.c`；TOFU 与删除绑定共用协调、备份和原子替换 | 本端管理 UI 未接；备份清理、任意非协作写者与断电边界未收口 |
-| Ghostty `ghostty.conf` | `SettingsStore` 复用字节/身份快照、稳定锁、强制备份与原子替换，保持 `ghostty.conf.bak`；失败读取与显式重新读取分开 | 存储/重复键专项见[说明](../docs/reference/macos-terminal-settings.md)；引擎候选校验/应用顺序仍待下一片 |
+| Ghostty `ghostty.conf` | `SettingsStore` 复用字节/身份快照、稳定锁、强制备份与原子替换，保持 `ghostty.conf.bak`；失败读取与显式重新读取分开 | 存储/重复键专项见[说明](../docs/reference/macos-terminal-settings.md)；候选校验/应用和实际回显已接，提交后应用错误/恢复状态单独报告 |
 
 这些路径的源码与专项证据分开记账；共享信任事务通过不改变 M3 配置编辑和 M4.5 终端设置的进度。macOS 设置页目前仅展示 known_hosts 路径和 Finder 入口，没有记录列表、指纹详情或删除确认。
 
@@ -125,7 +125,7 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 | 连接与配置编辑 | [ConnectionChooser](GhostermApp/Sources/GhostermApp/ConnectionChooser.swift)、[HostEditorSheet](GhostermApp/Sources/GhostermApp/HostEditorSheet.swift)、[ConfigStore](GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) | 主机不放侧栏；共享块快照/脏字段/继承来源/逐行身份/改名预览确认已接，Include 只读与歧义报错 |
 | SSH 认证与凭据 | [SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift)、[SSHCredentialSelector](GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
 | 文件与传输 | [FilesPanelView](GhostermApp/Sources/GhostermApp/FilesPanelView.swift)、[TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
-| 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储/重复键和文案已分别修复，引擎候选校验/应用顺序待修；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
+| 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储/重复键和文案已分别修复，候选校验/应用和实际回显另有专项；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
 | 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 共享配置检查的拒绝原因随连接目标传递，在 DNS 前阻断；高级选项尚不执行 |
 | 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME、标准菜单 copy/paste 和 OSC 52 文本读写已接；全局菜单路由及菜单粘贴确认仍列 P1 |
 
@@ -192,9 +192,9 @@ macOS `makeSFTPFileBackend` 已接固定预算的 `sftp` 重载，剩余预算/�
 
 普通设置包含通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；UI 已说明保存会重新应用终端配置，不再称只有新标签生效。
 
-终端配置存储与 SSH 配置存储分别验收，现复用同一原生写盘事务。终端仍用 `ghostty.conf.bak`，读取错误/目录/链接/非法 UTF-8/NUL 不当空文件，外部新建/替换会冲突；提交后错误失效缓存并要求显式重新读取。标量更新最后一条声明，删除清除所有本地重复值，CRLF/空值与字体 fallback 单独覆盖。设置配置页有真实错误/重新读取入口，读取不表示引擎应用；证据及仍在旧引擎路径的边界见[设置存储说明](../docs/reference/macos-terminal-settings.md)。历史 2026-10-30 探针保留，但不再用它描述当前存储。
+终端配置存储与 SSH 配置存储分别验收，现复用同一原生写盘事务。终端仍用 `ghostty.conf.bak`，读取错误/目录/链接/非法 UTF-8/NUL 不当空文件，外部新建/替换会冲突；提交后错误失效缓存并要求显式重新读取。标量更新最后一条声明，删除清除所有本地重复值，CRLF/空值与字体 fallback 单独覆盖。设置配置页有真实错误/重新读取入口，读取不表示引擎应用；存储与候选提交的证据/边界见[设置存储说明](../docs/reference/macos-terminal-settings.md)。历史 2026-10-30 探针保留，但不再用它描述当前存储。
 
-`AppModel.applyTerminalSettings` 写盘后才请求引擎重载，重载失败没有恢复旧文件；`replaceTerminalConfig` 尝试恢复旧文件但忽略恢复错误。因此“错误已提示”不等于“磁盘与已有 surface 都保持旧值”。修复与失败注入条件纳入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+`applyTerminalSettings` / `replaceTerminalConfig` 现共用内存候选准备→主文件提交→保留解析对象应用，不重读已提交文件；无效配置或备份拒绝不先应用。当前生效标量从条件配置克隆回读，文件重新读取只更新编辑器，打开外观页不写配置；附加配置参与时快捷控件只读。运行期应用/恢复结果明确报告，不能据此承诺多文件或全部 surface 的原子事务；原件与界面、链接、递归/主题边界见[设置说明](../docs/reference/macos-terminal-settings.md)。
 
 2026-11-17 设置文案已对齐：外观字号说明同步已有/新终端，标题栏提示当前窗格/悬停/键盘入口，启动说明新建普通本地终端；关闭说明区分普通会话与 tmux 客户端，并说明后台保留取决于 tmux/目标系统。配置页显示当前文件内容并说明保存后重新应用；没有修改偏好或关闭策略。
 

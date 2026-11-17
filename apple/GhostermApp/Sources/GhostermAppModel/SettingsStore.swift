@@ -16,6 +16,7 @@ public enum SettingsStoreError: Error, CustomStringConvertible {
     case conflict(String)
     case invalid(String)
     case io(String)
+    case committed(String)
 
     public var description: String {
         switch self {
@@ -25,6 +26,8 @@ public enum SettingsStoreError: Error, CustomStringConvertible {
             return "配置无效：\(d)"
         case .io(let d):
             return "写入失败：\(d)"
+        case .committed(let detail):
+            return "配置文件已保存，但终端应用未确认：\(detail)；请重新读取核对后重试应用"
         }
     }
 }
@@ -183,6 +186,15 @@ public final class SettingsStore {
 
     /// The exact loaded snapshot. Missing is empty; failed reads throw.
     public func rawConfig() throws -> String { try content.get() }
+
+    func requireUnchanged(expected: Data) throws {
+        guard Data(try rawConfig().utf8) == expected else {
+            throw SettingsStoreError.conflict("配置已由另一个窗口修改，请重新读取")
+        }
+        guard !transaction.isExternallyModified() else {
+            throw SettingsStoreError.conflict("磁盘内容或身份已改变")
+        }
+    }
 
     /// Mandatory backup, exact byte/identity conflict checks, stable writer lock
     /// and same-directory atomic replacement are shared with SSH configuration.

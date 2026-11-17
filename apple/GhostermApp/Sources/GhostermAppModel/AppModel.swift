@@ -247,6 +247,7 @@ public final class AppModel: ObservableObject {
 
     /// 终端配置（字体 / 主题…）的读写口。终端 app 用它的文件启动。
     public let settings: SettingsStore
+    var applyPreparedTerminalConfiguration: (TerminalApp.PreparedConfiguration) throws -> Void = { try $0.apply() }
     /// 应用偏好（启动行为 / 默认 shell）。
     ///
     /// **必须 @Published**：设置页的「默认命令行解释器」下拉读
@@ -301,13 +302,14 @@ public final class AppModel: ObservableObject {
         do {
             let app = try TerminalApp.shared()
             let path = self.settings.terminalConfigPath
-            if self.settings.loadError == nil, FileManager.default.fileExists(atPath: path),
-               let err = app.reloadConfig(path: path) {
-                // 配置无效：报错，但**不丢 app**（继续用引擎默认配置）。
-                self.terminalApp = app
-                self.terminalConfigError = "配置无效：\(err)"
-            } else {
-                self.terminalApp = app
+            self.terminalApp = app
+            do {
+                let text = try self.settings.rawConfig()
+                try self.settings.requireUnchanged(expected: Data(text.utf8))
+                let prepared = try app.prepareConfiguration(text: text, origin: URL(fileURLWithPath: path).standardizedFileURL.path)
+                try prepared.apply()
+            } catch {
+                self.terminalConfigError = "配置未应用：\(error)"
             }
         } catch {
             // app 本身建不起来（引擎初始化失败）才是真没救。
@@ -643,24 +645,14 @@ public final class AppModel: ObservableObject {
         try replaceTerminalConfig(TerminalFontSelection.replacing(in: terminalConfigText, family: family))
     }
 
-    /// 保存终端设置并**应用到已有终端面**。
-    ///
-    /// 三步都不许静默：写文件失败抛错；libghostty 不接受这份配置也抛错
-    /// （用户看到的就是「字体没变」——得告诉他为什么）。
+    /// Sparse controls and the full editor share one checked candidate commit.
     public func applyTerminalSettings(_ edits: [(String, String?)]) throws {
-        let text = SettingsStore.merging(try settings.rawConfig(), edits: edits)
-        try settings.saveTerminalConfig(text)
-
-        guard let app = terminalApp else {
-            throw SettingsStoreError.invalid(
-                terminalConfigError ?? "libghostty 未初始化")
+        let before = try settings.rawConfig()
+        guard !TerminalFontSelection(config: before).external else {
+            throw SettingsStoreError.invalid("附加配置参与生效，请在配置文件页修改并核对结果")
         }
-        // libghostty 的 app 级更新会遍历所有 surface 下发（App.zig
-        // updateConfig），所以这一步之后已有终端面自动是新配置。
-        if let err = app.reloadConfig(path: settings.terminalConfigPath) {
-            throw SettingsStoreError.invalid(err)
-        }
-        terminalConfigRevision += 1
+        let text = SettingsStore.merging(before, edits: edits)
+        try replaceTerminalConfig(text, expectedConfiguration: Data(before.utf8))
     }
 
     /// 已加载的终端配置文件快照（读取不代表引擎已经应用）。
@@ -674,34 +666,41 @@ public final class AppModel: ObservableObject {
 
     /// 终端配置文件被写回过一次（每次写回成功 +1）。
     ///
-    /// 为什么需要它：`terminalConfigText` / `themeSelection` 都是**从文件现读**
-    /// 的（文件即真相），不是 `@Published` 存储属性。设置页那两个配色下拉的
+    /// 为什么需要它：`terminalConfigText` / `themeSelection` 读取已加载的文件
+    /// 快照，不是 `@Published` 存储属性。显式重新读取也要广播；引擎实际值
+    /// 另由强类型 getter 查询。设置页那两个配色下拉的
     /// 标题、勾选与「当前生效的配置」那块都读它们——没有这声广播，SwiftUI
     /// 就不知道要重画，改完一档之后标题会停在旧值上（用户实测：「选了能生效，
     /// 但下拉还显示原来那个」）。写回成功的每一处都必须 `+= 1`。
     @Published public private(set) var terminalConfigRevision = 0
 
-    /// 整份替换终端配置（「配置文件」页的编辑框）。
-    ///
-    /// 与 `applyTerminalSettings` 的区别：那个是**稀疏补丁**（改几个键），
-    /// 这个是**整份原文**——用户在编辑框里写的就是他要的全文，逐字写回。
-    /// 两步仍然都不许静默：写文件失败抛错；引擎不接受这份配置也抛错，
-    /// 并把**旧配置**留在原地（`saveTerminalConfig` 是先写文件，所以这里
-    /// 要先把文件恢复回去，不能让一个坏配置落了盘）。
-    public func replaceTerminalConfig(_ text: String) throws {
+    /// Prepare without changing the engine, commit the exact text snapshot,
+    /// then apply the retained parsed configuration without rereading files.
+    public func replaceTerminalConfig(_ text: String, expectedConfiguration: Data? = nil) throws {
         let before = try settings.rawConfig()
-        try settings.saveTerminalConfig(text)
+        try settings.requireUnchanged(expected: expectedConfiguration ?? Data(before.utf8))
         guard let app = terminalApp else {
-            // 连 app 都没有：说明本来就没在跑配置，写文件即完成。
+            throw SettingsStoreError.invalid(terminalConfigError ?? "终端引擎不可用")
+        }
+        let candidate = try app.prepareConfiguration(text: text,
+            origin: URL(fileURLWithPath: settings.terminalConfigPath).standardizedFileURL.path)
+        do {
+            try settings.saveTerminalConfig(text)
+        } catch {
+            if case ConfigStoreError.committed = error {
+                terminalConfigError = "\(error)；终端未应用这次候选配置"
+                terminalConfigRevision += 1
+            }
+            throw error
+        }
+        do {
+            try applyPreparedTerminalConfiguration(candidate)
+        } catch {
+            terminalConfigError = "磁盘已保存，终端应用失败：\(error)"
             terminalConfigRevision += 1
-            return
+            throw SettingsStoreError.committed(String(describing: error))
         }
-        if let err = app.reloadConfig(path: settings.terminalConfigPath) {
-            // 引擎不收：把文件恢复成上一份（**不留半份**——它现在是个
-            // 引擎读不懂的配置，留着会让下次启动直接进「配置无效」）。
-            try? settings.saveTerminalConfig(before)
-            throw SettingsStoreError.invalid(err)
-        }
+        terminalConfigError = nil
         terminalConfigRevision += 1
     }
 
@@ -722,12 +721,11 @@ public final class AppModel: ObservableObject {
     /// 可用的配色名（随包提供的那 600 多套）。
     public var availableThemes: [String] { settings.availableThemes() }
 
-    /// 读一个终端配置项的当前值（有文件读文件；否则问 libghostty 的默认值）。
+    /// Read a supported scalar from the applied engine, independently of editor text.
     public func terminalSetting(_ key: String) -> String? {
-        guard let text = settings.loadedText else { return nil }
-        if let v = SettingsStore.value(of: key, in: text) { return v }
-        // 文件里没写 → 回落到 libghostty 的默认值（按键的 C 类型问：
-        // f32 与 f64 是不同的入口，用错类型只会拿到 0/false）。
+        guard settings.loadedText != nil else { return nil }
+        // Query the current conditional configuration with its native C type.
+        // Unsupported structured values remain unknown instead of returning raw text.
         switch SettingsStore.cValueKind(of: key) {
         case .float:
             if let v = terminalApp?.float(key) { return "\(v)" }

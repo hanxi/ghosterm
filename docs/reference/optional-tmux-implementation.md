@@ -72,7 +72,7 @@ backing 回调兜住，目标未红；改为实际漏同步未上屏窗口的变
 | `SessionAuthentication{Flow,Broker}`、`SessionCredentialSelector` | setup/control/recoverable 认证；selector 的目标类型绑在旧 Record 上 | 抽出主机/账户配置与认证生命周期，复用 hostkey/Keychain 提示；无旧 Record/Recoverable 类型依赖；保留 auth 与取消回归 |
 | `GhostermTerminal` replica policy、import/output/style/sequence 接口与 `GhostermGhosttyShim` 对应入口 | `RecoverableSurfaceTransport` 与 replica tests | 删除全部 replica 扩展，保留常规 Surface 创建/输出/IME/焦点/可见性/配色/OSC 回调；真实原生构建与像素回归 |
 | `terminal/{session-state,state}/` 全部 | session probes、engine 构建与 daemon | 删除；恢复普通 full libghostty 的独立构建，不得继续间接 import `probe-session-import.py` |
-| `patches/libghostty/8159838/experimental/` | session engine、预算、快照、replica | 删除全部；保留 `0001-host-io-backend`、`0002-program-status`、`0003-semantic-prompt` 与 WHY；shim 如仍用 experimental 符号先移除调用，再构建干净 staging；不改 vendor |
+| `patches/libghostty/8159838/experimental/` | session engine、预算、快照、replica | 删除全部；保留普通 host 补丁与 WHY（当前另含设置候选 `0004-config-candidate`，见[设置说明](macos-terminal-settings.md)）；shim 如仍用 experimental 符号先移除调用，再构建干净 staging；不改 vendor |
 | `scripts/{build,probe,mutation-check,stage,package,prepare}-session*` 与 daemon-vt 等专用校验 | package、CI、各探针相互 import | 专用链路整体退役；有普通连接/认证断言的脚本拆分保留；`build-ghostty.sh` 改用普通引擎构建器；共享 timeout/themes/签名逻辑保留 |
 | `package-mac.sh` 与 `macos-package.yml` | main dev/release 出包、package mutation | 删除 helper 构建、catalog、Linux bundles、签名遍历与参数；保留更新清单、主题、签名四档、公证守卫和 Homebrew cask 对拍；干净检出打包验包内无 sessiond |
 | `docs/architecture/{session-runtime,remote-session}.md`、`docs/reference/session-*`、`plan-session-daemon.md`、Linux 会话 how-to | README/overview/roadmap/矩阵/许可/dev-build 的交叉引用 | 删除被替代文档并同步所有引用；AGENTS 的 CI 与变异范围随退役提交更新，旧历史证据不冒充新支持范围 |

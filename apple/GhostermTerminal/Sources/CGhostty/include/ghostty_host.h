@@ -22,6 +22,7 @@ extern "C" {
 #endif
 
 typedef struct gt_ghostty_app gt_ghostty_app_t;
+typedef struct gt_ghostty_prepared_config gt_ghostty_prepared_config_t;
 typedef struct gt_ghostty_surface gt_ghostty_surface_t;
 
 /*
@@ -303,7 +304,7 @@ gt_ghostty_app_t *gt_ghostty_app_new_with_config(const char *path);
 
 /*
  * 把配置文件重新加载进 app（设置页「保存」后用）。
- * 返回 0 失败（错误串给出原因），已加载的 app 保持原配置不变。
+ * 返回 0 成功、非零失败（错误串给出原因）；失败会尝试恢复旧配置。
  *
  * 已存在的 surface **不需要**另外通知：libghostty 的
  * ghostty_app_update_config 会遍历 app 的所有 surface 逐个下发
@@ -313,6 +314,17 @@ gt_ghostty_app_t *gt_ghostty_app_new_with_config(const char *path);
  * 实测在测试里被 sentry 抓到。已删除。
  */
 int gt_ghostty_app_reload_config(gt_ghostty_app_t *app, const char *path);
+/* Owned parsed candidate; original path supplies include/relative-path context.
+ * Preparation has no app/surface side effects. The app must outlive its candidate.
+ * Apply: 0 success, 1 update failed/restoration accepted, 2 restoration failed,
+ * -1 invalid/consumed handle. A failed apply may have changed some surfaces.
+ */
+gt_ghostty_prepared_config_t *gt_ghostty_app_prepare_config(gt_ghostty_app_t *app,
+                                                            const char *text,
+                                                            size_t length,
+                                                            const char *origin);
+int gt_ghostty_app_apply_config(gt_ghostty_app_t *app, gt_ghostty_prepared_config_t *candidate);
+void gt_ghostty_prepared_config_free(gt_ghostty_prepared_config_t *candidate);
 
 /*
  * 读当前生效配置里的一个键（如 "font-size"、"background-opacity"）。

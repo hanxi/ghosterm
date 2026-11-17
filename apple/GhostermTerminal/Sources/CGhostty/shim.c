@@ -2,7 +2,10 @@
 
 #include <ghostty.h>
 
+#include <errno.h>
+#include <fcntl.h>
 #include <mach-o/dyld.h>
+#include <unistd.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -36,6 +39,7 @@ struct gt_ghostty_surface;
 struct gt_ghostty_app {
     ghostty_app_t app;
     ghostty_config_t config;
+    ghostty_config_t resolved_config;
     /* config 保留条件主题源；这里保存 CONFIG_CHANGE 提供的已解析颜色。 */
     bool has_resolved_colors;
     bool color_valid[3];
@@ -50,6 +54,11 @@ struct gt_ghostty_app {
     struct gt_ghostty_surface **surfaces;
     size_t surface_count;
     size_t surface_cap;
+};
+
+struct gt_ghostty_prepared_config {
+    ghostty_config_t config;
+    gt_ghostty_app_t *owner;
 };
 
 struct gt_ghostty_surface {
@@ -71,6 +80,13 @@ static bool cb_action(ghostty_app_t app, ghostty_target_s target, ghostty_action
         if (!a) {
             return false;
         }
+        ghostty_config_t resolved = ghostty_config_clone(action.action.config_change.config);
+        if (!resolved) {
+            set_err("当前生效配置快照分配失败");
+            return false;
+        }
+        ghostty_config_free(a->resolved_config);
+        a->resolved_config = resolved;
         const char *keys[] = {"background", "foreground", "unfocused-split-fill"};
         for (size_t i = 0; i < 3; i++) {
             a->color_valid[i] = ghostty_config_get(action.action.config_change.config,
@@ -322,6 +338,13 @@ gt_ghostty_app_t *gt_ghostty_app_create(const char *path) {
         return NULL;
     }
     out->config = config;
+    out->resolved_config = ghostty_config_clone(config);
+    if (!out->resolved_config) {
+        ghostty_config_free(config);
+        free(out);
+        set_err("初始配置快照分配失败");
+        return NULL;
+    }
 
     ghostty_runtime_config_s rt;
     memset(&rt, 0, sizeof rt);
@@ -337,6 +360,7 @@ gt_ghostty_app_t *gt_ghostty_app_create(const char *path) {
     ghostty_app_t app = ghostty_app_new(&rt, config);
     if (!app) {
         set_err("ghostty_app_new 失败（配置无效？）");
+        ghostty_config_free(out->resolved_config);
         free(out);
         ghostty_config_free(config);
         return NULL;
@@ -362,72 +386,194 @@ void gt_ghostty_app_free(gt_ghostty_app_t *a) {
     if (a->config) {
         ghostty_config_free(a->config);
     }
+    ghostty_config_free(a->resolved_config);
     free(a->surfaces);
     free(a);
 }
 
-static ghostty_config_t load_config(const char *path) {
+static ghostty_config_t parse_config(const char *text, size_t length, const char *origin) {
     ghostty_config_t config = ghostty_config_new();
     if (!config) {
         set_err("ghostty_config_new 失败");
         return NULL;
     }
-    if (path && *path) {
-        /* 加载 + finalize 后看**诊断**：libghostty 对未知键 / 语法错误不丢弃
-     * 配置，只记一条诊断（实测 `bogus-key = 1` → 1 条诊断，font-size
-     * 照样取得到）。所以判有效的口径是诊断条数，不是「取不取得到某个键」。
-     * 有诊断就显式报错——不静默当成「用户设置没生效」（铁律 #6）。 */
-        ghostty_config_load_file(config, path);
-        ghostty_config_finalize(config);
-        uint32_t n = ghostty_config_diagnostics_count(config);
-        if (n > 0) {
-            ghostty_diagnostic_s d = ghostty_config_get_diagnostic(config, 0);
-            set_err("配置无效：%s", d.message ? d.message : path);
-            ghostty_config_free(config);
-            return NULL;
+    if (!ghostty_config_load_buffer(config, text, length, origin)) {
+        uint32_t count = ghostty_config_diagnostics_count(config);
+        if (count > 0) {
+            ghostty_diagnostic_s diagnostic = ghostty_config_get_diagnostic(config, 0);
+            set_err("配置无效：%s", diagnostic.message ? diagnostic.message : origin);
+        } else {
+            set_err("候选配置、附加文件或深浅色分支校验失败");
         }
-        return config;
+        ghostty_config_free(config);
+        return NULL;
     }
-    ghostty_config_finalize(config);
     return config;
 }
 
-int gt_ghostty_app_reload_config(gt_ghostty_app_t *a, const char *path) {
-    if (!a || !a->app) {
+static ghostty_config_t load_config(const char *path) {
+    if (!path || !*path) {
+        ghostty_config_t config = ghostty_config_new();
+        if (!config) {
+            set_err("ghostty_config_new 失败");
+            return NULL;
+        }
+        ghostty_config_finalize(config);
+        return config;
+    }
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) {
+        set_err("无法读取终端配置：%s", strerror(errno));
+        return NULL;
+    }
+    struct stat before;
+    if (fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) || before.st_size < 0 ||
+        before.st_size > 16 * 1024 * 1024) {
+        set_err("终端配置必须是最多 16 MiB 的常规文件");
+        close(fd);
+        return NULL;
+    }
+    size_t length = (size_t)before.st_size;
+    char *bytes = malloc(length + 1);
+    if (!bytes) {
+        close(fd);
+        set_err("终端配置读取分配失败");
+        return NULL;
+    }
+    size_t offset = 0;
+    while (offset < length) {
+        ssize_t count = read(fd, bytes + offset, length - offset);
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count <= 0) {
+            set_err("终端配置读取未完成");
+            free(bytes);
+            close(fd);
+            return NULL;
+        }
+        offset += (size_t)count;
+    }
+    bytes[length] = '\0';
+    struct stat after;
+    struct stat current;
+    bool stable = fstat(fd, &after) == 0 && lstat(path, &current) == 0 &&
+                  before.st_dev == after.st_dev && before.st_ino == after.st_ino &&
+                  after.st_dev == current.st_dev && after.st_ino == current.st_ino &&
+                  before.st_size == after.st_size &&
+                  before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec &&
+                  before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec &&
+                  before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec &&
+                  before.st_ctimespec.tv_nsec == after.st_ctimespec.tv_nsec;
+    int close_result = close(fd);
+    ghostty_config_t config = NULL;
+    if (stable && close_result == 0) {
+        config = parse_config(bytes, length, path);
+    } else {
+        set_err("终端配置在读取期间变化或关闭失败");
+    }
+    free(bytes);
+    return config;
+}
+
+gt_ghostty_prepared_config_t *gt_ghostty_app_prepare_config(gt_ghostty_app_t *app,
+                                                            const char *text,
+                                                            size_t length,
+                                                            const char *origin) {
+    if (!app || !app->app || !text || !origin || !*origin) {
+        set_err("候选配置参数无效");
+        return NULL;
+    }
+    ghostty_config_t config = parse_config(text, length, origin);
+    if (!config) {
+        return NULL;
+    }
+    gt_ghostty_prepared_config_t *candidate = calloc(1, sizeof(*candidate));
+    if (!candidate) {
+        ghostty_config_free(config);
+        set_err("候选配置分配失败");
+        return NULL;
+    }
+    candidate->owner = app;
+    candidate->config = config;
+    return candidate;
+}
+
+static int apply_config_with(gt_ghostty_app_t *app,
+                             gt_ghostty_prepared_config_t *candidate,
+                             bool (*update)(ghostty_app_t, ghostty_config_t)) {
+    if (!app || !app->app || !candidate || candidate->owner != app || !candidate->config) {
+        set_err("候选配置归属无效或已应用");
+        return -1;
+    }
+    if (!update(app->app, candidate->config)) {
+        if (update(app->app, app->config)) {
+            set_err("候选配置应用失败；旧配置恢复请求已接受");
+            return 1;
+        }
+        set_err("候选配置应用与旧配置恢复均失败；终端状态未确认");
+        return 2;
+    }
+    ghostty_config_free(app->config);
+    app->config = candidate->config;
+    candidate->config = NULL;
+    return 0;
+}
+
+int gt_ghostty_app_apply_config(gt_ghostty_app_t *app, gt_ghostty_prepared_config_t *candidate) {
+    return apply_config_with(app, candidate, ghostty_app_update_config_checked);
+}
+
+void gt_ghostty_prepared_config_free(gt_ghostty_prepared_config_t *candidate) {
+    if (!candidate) {
+        return;
+    }
+    if (candidate->config) {
+        ghostty_config_free(candidate->config);
+    }
+    free(candidate);
+}
+
+int gt_ghostty_app_reload_config(gt_ghostty_app_t *app, const char *path) {
+    if (!app || !app->app) {
         set_err("reload_config: app 为空");
         return -1;
     }
     ghostty_config_t fresh = load_config(path);
     if (!fresh) {
-        return -1; /* 错误串已置；旧配置原样保留（不半途换配置） */
+        return -1;
     }
-    ghostty_app_update_config(a->app, fresh);
-    if (a->config) {
-        ghostty_config_free(a->config);
+    gt_ghostty_prepared_config_t candidate = {.config = fresh, .owner = app};
+    int result = gt_ghostty_app_apply_config(app, &candidate);
+    if (candidate.config) {
+        ghostty_config_free(candidate.config);
     }
-    a->config = fresh;
-    return 0;
+    return result;
+}
+
+static ghostty_config_t effective_config(gt_ghostty_app_t *app) {
+    return app ? app->resolved_config : NULL;
 }
 
 bool gt_ghostty_config_get_float(gt_ghostty_app_t *a, const char *key, float *out) {
-    if (!a || !a->config || !key || !out) {
+    if (!a || !effective_config(a) || !key || !out) {
         return false;
     }
-    return ghostty_config_get(a->config, out, key, (uintptr_t)strlen(key));
+    return ghostty_config_get(effective_config(a), out, key, (uintptr_t)strlen(key));
 }
 
 bool gt_ghostty_config_get_bool(gt_ghostty_app_t *a, const char *key, bool *out) {
-    if (!a || !a->config || !key || !out) {
+    if (!a || !effective_config(a) || !key || !out) {
         return false;
     }
-    return ghostty_config_get(a->config, out, key, (uintptr_t)strlen(key));
+    return ghostty_config_get(effective_config(a), out, key, (uintptr_t)strlen(key));
 }
 
 bool gt_ghostty_config_get_double(gt_ghostty_app_t *a, const char *key, double *out) {
-    if (!a || !a->config || !key || !out) {
+    if (!a || !effective_config(a) || !key || !out) {
         return false;
     }
-    return ghostty_config_get(a->config, out, key, (uintptr_t)strlen(key));
+    return ghostty_config_get(effective_config(a), out, key, (uintptr_t)strlen(key));
 }
 
 bool gt_ghostty_config_get_color(

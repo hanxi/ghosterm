@@ -71,6 +71,14 @@ else
     bad "头文件未声明 host 回调（xcframework 里的头是旧的？）"
   fi
 
+  if [ -e "$PATCHDIR/0004-config-candidate.patch" ]; then
+    if grep -qx ghostty_config_load_buffer "$SYMFILE" && grep -qx ghostty_app_update_config_checked "$SYMFILE" && grep -q 'ghostty_config_load_buffer' "$HDR" && grep -q 'ghostty_app_update_config_checked' "$HDR"; then
+      ok "候选配置缓冲入口已声明并导出"
+    else
+      bad "候选配置缓冲入口缺失（0004 未进入 SDK）"
+    fi
+  fi
+
   # 0003（OSC 133 shell integration）：同上。
   if [ -e "$PATCHDIR/0003-semantic-prompt.patch" ]; then
     if grep -q 'void (\*host_semantic_prompt)' "$HDR" 2>/dev/null \

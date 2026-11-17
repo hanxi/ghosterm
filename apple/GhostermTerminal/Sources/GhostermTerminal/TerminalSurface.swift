@@ -108,7 +108,7 @@ public final class TerminalApp {
     }
 
     /// 重新加载配置文件（设置页「保存」后调用）。失败返回错误描述，
-    /// **旧配置保持有效**（不半途换配置）。
+    /// 应用失败时检查恢复旧配置的结果；恢复失败会明确报告状态未确认。
     ///
     /// 已存在的 surface 不用另外通知：libghostty 的 app 级更新会遍历它们
     /// 逐个下发（见 CGhostty 头里 gt_ghostty_app_reload_config 的说明）。
@@ -116,6 +116,33 @@ public final class TerminalApp {
     public func reloadConfig(path: String?) -> String? {
         let rc: Int32 = (path ?? "").withCString { gt_ghostty_app_reload_config(raw, $0) }
         return rc == 0 ? nil : Self.lastError()
+    }
+
+    /// Parsed engine state retained across disk commit; applying never rereads
+    /// the just-written file or its dependencies.
+    public final class PreparedConfiguration {
+        private let owner: TerminalApp
+        private var raw: OpaquePointer?
+        fileprivate init(owner: TerminalApp, raw: OpaquePointer) { self.owner = owner; self.raw = raw }
+        deinit { if let raw { gt_ghostty_prepared_config_free(raw) } }
+        public func apply() throws {
+            guard let raw else { throw TerminalSurfaceError.appInit("候选配置已应用") }
+            let result = gt_ghostty_app_apply_config(owner.raw, raw)
+            guard result == 0 else { throw TerminalSurfaceError.appInit(TerminalApp.lastError()) }
+            gt_ghostty_prepared_config_free(raw)
+            self.raw = nil
+        }
+    }
+
+    public func prepareConfiguration(text: String, origin: String) throws -> PreparedConfiguration {
+        guard !text.utf8.contains(0), !origin.utf8.contains(0), text.utf8.count <= 16 * 1024 * 1024 else {
+            throw TerminalSurfaceError.appInit("配置必须是最多 16 MiB 的无 NUL 文本")
+        }
+        let candidate = text.withCString { bytes in
+            origin.withCString { path in gt_ghostty_app_prepare_config(raw, bytes, text.utf8.count, path) }
+        }
+        guard let candidate else { throw TerminalSurfaceError.appInit(Self.lastError()) }
+        return PreparedConfiguration(owner: self, raw: candidate)
     }
 
     /// 读一个数值配置项（设置页回显 / 测试探针）。键用 Ghostty 语法

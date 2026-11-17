@@ -281,7 +281,52 @@ SETTINGS_CASES = [
 SETTINGS_UI_CASES = [
     ('settings-ui-reload', 'try model.readTerminalConfigFromDisk()', '()', 'testActualConfigurationReadErrorAndExplicitReloadProtectTheFile'),
 ]
+CANDIDATE_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/TerminalConfigurationCommitTests.swift'
+CANDIDATE_MODEL_CASES = [
+    ('candidate-sparse-owner', 'guard !TerminalFontSelection(config: before).external else {',
+     'guard true else {', 'testSparseControlsCannotSilentlyEditAShadowedRootDeclaration'),
+    ('candidate-effective-readback', 'guard settings.loadedText != nil else { return nil }',
+     'guard let source = settings.loadedText else { return nil }\n        if let value = SettingsStore.value(of: key, in: source) { return value }', 'testReadbackUsesAppliedEngineUntilExplicitApplyAfterFileReload'),
+    ('candidate-before-write', 'let candidate = try app.prepareConfiguration(text: text,',
+     'try settings.saveTerminalConfig(text)\n        let candidate = try app.prepareConfiguration(text: text,', 'testInvalidSparseAndFullCandidatesCannotWriteTargetOrBackupOrChangeSurface'),
+    ('candidate-after-commit', 'do {\n            try settings.saveTerminalConfig(text)',
+     'try applyPreparedTerminalConfiguration(candidate)\n        do {\n            try settings.saveTerminalConfig(text)', 'testBackupRefusalCannotApplyPreparedConfiguration'),
+    ('candidate-apply', 'try applyPreparedTerminalConfiguration(candidate)', '_ = candidate', 'testSuccessfulSparseCommitChangesDiskBackupAndExistingSurfaceTogether'),
+    ('candidate-apply-error', 'throw SettingsStoreError.committed(String(describing: error))',
+     'return', 'testApplyFailureReportsCommittedFileAndExplicitRetryClearsError'),
+    ('candidate-clear-error', 'terminalConfigError = nil\n        terminalConfigRevision += 1',
+     'terminalConfigRevision += 1', 'testApplyFailureReportsCommittedFileAndExplicitRetryClearsError'),
+    ('candidate-committed-report', 'terminalConfigError = "\\(error)；终端未应用这次候选配置"',
+     '// mutation: omit committed effect', 'testPostCommitSyncFailureReportsSavedEffectWithoutApplyingCandidate'),
+    ('candidate-startup', 'try prepared.apply()', '_ = prepared', 'testStartupAppliesRecursiveConfigurationFromTheLoadedSnapshot'),
+]
+CANDIDATE_STORE_CASES = [
+    ('candidate-editor-snapshot', 'Data(try rawConfig().utf8) == expected', 'true', 'testOldEditorSnapshotCannotOverwriteAnEarlierSuccessfulControlEdit'),
+]
+CANDIDATE_UI_CASES = [
+    ('candidate-opening-readonly', 'if model.terminalSetting("font-size").flatMap(Double.init) != value {',
+     'if true {', 'testOpeningAppearanceReadsActualSizeWithoutWritingConfiguration'),
+    ('candidate-ui-snapshot', 'try model.replaceTerminalConfig(customLines, expectedConfiguration: loadedConfiguration)',
+     'try model.replaceTerminalConfig(customLines)', 'testActualOldEditorSaveCannotOverwriteNewControlCommit'),
+]
+CANDIDATE_SURFACE_CASES = [
+    ('candidate-origin-nul', '!origin.utf8.contains(0)', 'true', 'testCAbiOriginAndTextCannotBeTruncatedAtNul'),
+]
+CANDIDATE_NATIVE_CASES = [
+    ('candidate-resolved-readback', 'return app ? app->resolved_config : NULL;',
+     'return app ? app->config : NULL;', 'testConditionalReadbackTracksActualSurfaceThemeState'),
+    ('candidate-owner', 'candidate->owner != app', 'false', 'testNativeApplyFailureBookkeepingIsChecked'),
+    ('candidate-restore-result', 'set_err("候选配置应用失败；旧配置恢复请求已接受");\n            return 1;',
+     'set_err("候选配置应用失败；旧配置恢复请求已接受");\n            return 0;', 'testNativeApplyFailureBookkeepingIsChecked'),
+    ('candidate-restore-unknown', 'set_err("候选配置应用与旧配置恢复均失败；终端状态未确认");\n        return 2;',
+     'set_err("候选配置应用与旧配置恢复均失败；终端状态未确认");\n        return 1;', 'testNativeApplyFailureBookkeepingIsChecked'),
+]
 PHASES = {
+    'candidate-model': (PUBLICATION_SOURCE, CANDIDATE_TESTS, 'TerminalConfigurationCommitTests', CANDIDATE_MODEL_CASES),
+    'candidate-store': (SETTINGS_SOURCE, CANDIDATE_TESTS, 'TerminalConfigurationCommitTests', CANDIDATE_STORE_CASES),
+    'candidate-ui': ('apple/GhostermApp/Sources/GhostermApp/SettingsView.swift', 'apple/GhostermApp/Tests/GhostermAppTests/SettingsStorageUITests.swift', 'SettingsStorageUITests', CANDIDATE_UI_CASES),
+    'candidate-surface': ('apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift', CANDIDATE_TESTS, 'TerminalConfigurationCommitTests', CANDIDATE_SURFACE_CASES),
+    'candidate-native': ('apple/GhostermTerminal/Sources/CGhostty/shim.c', CANDIDATE_TESTS, 'TerminalConfigurationCommitTests', CANDIDATE_NATIVE_CASES),
     'settings-store': (SETTINGS_SOURCE, SETTINGS_TESTS, 'SettingsStoreTests', SETTINGS_CASES),
     'settings-ui': ('apple/GhostermApp/Sources/GhostermApp/SettingsView.swift', 'apple/GhostermApp/Tests/GhostermAppTests/SettingsStorageUITests.swift', 'SettingsStorageUITests', SETTINGS_UI_CASES),
     'search-model': (FILES_SOURCE, SEARCH_TESTS, 'FileSearchTests', SEARCH_CASES),
@@ -332,13 +377,28 @@ def main():
     source, tests = checkout / source_name, checkout / tests_name
     original, test_bytes = source.read_bytes(), tests.read_bytes()
     main_source = ROOT / source_name
-    main_bytes = main_source.read_bytes() if main_source.exists() else None
+    def protected_main_bytes():
+        if not main_source.exists():
+            return None
+        value = main_source.read_bytes()
+        if args.phase == 'candidate-model':
+            # Another session owns AppModel's plugin blocks. Protect only our
+            # configuration initialization/methods, allowing unrelated plugin edits.
+            text = value.decode()
+            initial = text.split('try? TerminalFonts.prepare()', 1)[1].split('terminalApp?.startEventLoop()', 1)[0]
+            settings = text.split('public func applyTerminalSettings(', 1)[1].split('public var themeSelection:', 1)[0]
+            readback = text.split('public func terminalSetting(', 1)[1].split('// MARK: - ssh_config', 1)[0]
+            return (initial + settings + readback).encode()
+        return value
+    main_bytes = protected_main_bytes()
     environment = {**os.environ, 'TMPDIR': str(scratch), 'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}
     command = ['swift', 'test', '--package-path', str(checkout / 'apple/GhostermApp'),
                '--cache-path', str(scratch / 'spm-cache'), '--skip-update', '--filter']
     baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
     if args.phase.startswith('private-'):
         baseline += '|NativePrivateKeyStoreTests|SSHCredentialSelectorTests|KeychainStoreTests'
+    if args.phase.startswith('candidate-'):
+        baseline = 'TerminalConfigurationCommitTests|SettingsStoreTests|SettingsStorageUITests|TerminalFontTests|ConfigStoreTests|ConfigEditTests|HostListTests'
     if args.phase.startswith('settings-'):
         baseline = 'SettingsStoreTests|SettingsStorageUITests|TerminalFontTests|ConfigStoreTests|ConfigEditTests|HostListTests'
     if args.phase.startswith('search-'):
@@ -362,6 +422,8 @@ def main():
             accepted = (result.returncode == 0 and
                         re.search(r'Executed [1-9][0-9]* tests?, with 0 failures', text)
                         and not re.search(r'Executed 0 tests|Test Case .* skipped', text))
+        if red and selected.endswith('.testNativeApplyFailureBookkeepingIsChecked'):
+            accepted = accepted and 'NATIVE_CONFIG_PROBE_COMPILED' in text
         if not accepted:
             raise RuntimeError(f'{label}: expected {"normal assertion red" if red else "green"}; see {logfile}')
         records.append({'case': label, 'returncode': result.returncode, 'log': str(logfile.relative_to(checkout))})
@@ -385,7 +447,7 @@ def main():
         run('final', baseline)
     finally:
         source.write_bytes(original)
-        if tests.read_bytes() != test_bytes or (main_source.read_bytes() if main_source.exists() else None) != main_bytes:
+        if tests.read_bytes() != test_bytes or protected_main_bytes() != main_bytes:
             raise RuntimeError('test inputs or main checkout changed during the scan')
         (work / 'receipt.json').write_text(json.dumps({
             'source_sha256': sha(original), 'tests_sha256': sha(test_bytes),

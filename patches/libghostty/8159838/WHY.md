@@ -223,3 +223,13 @@ OSC 133（semantic prompt）是 shell 集成协议：shell 用它告诉终端「
   断言 kind/prompt_kind/命令行解码/退出码，12 tests / 0 failures；
 - `mutation-check-program-status.sh` M3：把「只有 prompt_start 才清记录」的
   判别改坏 → 对应断言变红，prompt_start 用例仍绿（红有指向性）。
+
+## 0004：设置候选解析与可检查的应用结果
+
+现有 `ghostty_config_load_file` 只能读已落盘文件，且 IO 错误仅记日志；宿主先写后验会让无效候选进入磁盘。临时换名解析又可能错误读取旧根文件、相对路径或链接别名。新增 `ghostty_config_load_buffer`：使用最终绝对路径解析内存文本和递归 config-file，复用上游 LineIterator/expandPaths/条件重放，不另写语法解析器；输入限 16 MiB、UTF-8/无 NUL，明确返回失败并检查两个深浅色分支。准备态拥有正常解析结果，不借用输入缓冲。
+
+候选根路径预先登记；指向当前根的符号链接/硬链接按 dev/inode 显式拒绝，不能用旧磁盘根内容替候选背书。该保守限制不承诺处理候选提交前后所有链接拓扑，也不提供多文件原子快照。附加文件按引擎打开时捕获，之后变化不会重新读入本次准备态；下一次加载仍重新验证。
+
+`ghostty_app_update_config` 原 void 入口吞掉异常；新增 `ghostty_app_update_config_checked`，条件求值先于 surface 更新，surface/应用错误或宿主拒绝传播 false。宿主可检查恢复旧配置的返回值。失败可能已经更新部分 surface，补丁不宣称跨磁盘/所有 surface 的原子事务；恢复失败必须保留状态未确认，不装成功。既有 void 入口保留给上游调用方，不改原 ABI/字段布局。
+
+两入口仅由 full 引擎宿主使用；Android libghostty-vt 构建不应用此 full 补丁、不增加 Core ABI。锁定 pin 不变，构建/SDK 符号与头校验必须包含第四份补丁，旧 SDK 不得通过。实际行为/故障范围记在 `docs/reference/macos-terminal-settings.md`，未修改 vendor 工作树。

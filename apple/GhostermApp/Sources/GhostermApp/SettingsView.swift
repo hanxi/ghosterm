@@ -373,13 +373,19 @@ private struct AppearancePane: View {
             SettingsRow("终端") {
                 HStack(spacing: DS.Padding.m) {
                     ValueText(text: points(terminalFontSize))
+                        .accessibilityIdentifier("settings-terminal-font-size")
                     Stepper("终端", value: $terminalFontSize,
                             in: TerminalFontSize.range, step: 0.5)
                         .labelsHidden()
-                        .onChange(of: terminalFontSize) { applyTerminalFont(size: $0) }
+                        .disabled(model.terminalFontSelection.external)
+                        .onChange(of: terminalFontSize) { value in
+                            if model.terminalSetting("font-size").flatMap(Double.init) != value {
+                                applyTerminalFont(size: value)
+                            }
+                        }
                 }
             } details: {
-                SettingsNote("保存成功后，同步更新已有终端与新终端的字号。")
+                SettingsNote(model.terminalFontSelection.external ? "由附加配置管理，请在配置文件页修改。" : "保存成功后，同步更新已有终端与新终端的字号。")
             }
 
             SettingsRow("终端字体") { TerminalFontControl(model: model) }
@@ -446,6 +452,7 @@ private struct AppearancePane: View {
     }
 
     private var themesNote: String {
+        if model.terminalFontSelection.external { return "由附加配置管理，请在配置文件页修改并核对结果。" }
         let themes = model.availableThemes
         if themes.isEmpty {
             return "配色集未随包提供（主题列表为空）。开发态直接跑可执行文件时"
@@ -505,13 +512,13 @@ private struct AppearancePane: View {
                 // 见上）。定宽 240（不是 `maxWidth`）：短值（`0x96f`）与长值
                 // （`iTerm2 Solarized Dark`）宽度必须一样，否则这一整行
                 // 会随选中项伸缩、色块跟着左右挪（用户实测）。
-                PopupLabel(title: selected ?? "（不设置）")
+                PopupLabel(title: model.terminalFontSelection.external ? "由附加配置管理" : selected ?? "（不设置）")
             }
-            .disabled(model.availableThemes.isEmpty)
+            .disabled(model.availableThemes.isEmpty || model.terminalFontSelection.external)
             .accessibilityLabel(slot.title)
-            .accessibilityValue(selected ?? "不设置")
+            .accessibilityValue(model.terminalFontSelection.external ? "由附加配置管理" : selected ?? "不设置")
 
-            if let preview = preview(of: selected) {
+            if !model.terminalFontSelection.external, let preview = preview(of: selected) {
                 ThemeSwatch(preview: preview)
             }
         }
@@ -619,6 +626,7 @@ private struct ConfigurationPane: View {
     /// 用户自己写的那些行（`ghostty.conf` 原文）。
     @State private var customLines = ""
     @State private var loaded = false
+    @State private var loadedConfiguration: Data?
     @State private var statusText: String?
     @State private var errorText: String?
 
@@ -694,6 +702,7 @@ private struct ConfigurationPane: View {
     private func load() {
         do {
             customLines = try model.settings.rawConfig()
+            loadedConfiguration = Data(customLines.utf8)
             errorText = nil; loaded = true
         } catch {
             errorText = "\(error)"; loaded = false
@@ -713,7 +722,8 @@ private struct ConfigurationPane: View {
     /// 东西都是他的原文，逐字保真是铁律 #4 的精神在终端配置上的对应）。
     private func save() {
         do {
-            try model.replaceTerminalConfig(customLines)
+            try model.replaceTerminalConfig(customLines, expectedConfiguration: loadedConfiguration)
+            loadedConfiguration = Data(customLines.utf8)
             errorText = nil
             statusText = "已保存"
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { statusText = nil }

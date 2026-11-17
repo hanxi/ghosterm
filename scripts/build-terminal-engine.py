@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build full libghostty with the three ordinary host patches in isolated sources."""
+"""Build full libghostty with the pinned ordinary host patches in isolated sources."""
 import hashlib
 import json
 import os
@@ -13,7 +13,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PIN = "81598385d608dda4946093d6d6a234d204a2f225"
 PATCHES = tuple(ROOT / "patches/libghostty/8159838" / name for name in (
-    "0001-host-io-backend.patch", "0002-program-status.patch", "0003-semantic-prompt.patch"))
+    "0001-host-io-backend.patch", "0002-program-status.patch", "0003-semantic-prompt.patch",
+    "0004-config-candidate.patch"))
 
 
 def run(command, **kwargs):
@@ -40,8 +41,8 @@ def validate(sdk):
     names = {line.split()[-1].removeprefix("_") for line in symbols.splitlines()
              if len(line.split()) >= 3 and line.split()[-2] == "T"}
     required = {"ghostty_surface_process_output", "ghostty_surface_key",
-                "ghostty_surface_new", "ghostty_surface_set_color_scheme"}
-    if not required <= names:
+                "ghostty_surface_new", "ghostty_surface_set_color_scheme", "ghostty_config_load_buffer", "ghostty_app_update_config_checked"}
+    if not required <= names or not all(name in header.read_text() for name in required):
         raise RuntimeError("ordinary terminal engine entry points missing")
     if any(name.startswith("ghostty_p0_") for name in names) or "ghostty_p0_" in header.read_text():
         raise RuntimeError("retired session engine API remains in SDK")
@@ -110,7 +111,7 @@ def main():
                 backup.rename(destination)
             raise
     run(["git", "-C", vendor, "diff", "--quiet", "HEAD", "--"])
-    print("PASS full libghostty host engine: unchanged vendor pin, 3 patches, no session/replica API", flush=True)
+    print("PASS full libghostty host engine: unchanged vendor pin, 4 patches, no session/replica API", flush=True)
     return 0
 
 

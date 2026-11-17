@@ -35,6 +35,75 @@ final class SettingsStorageUITests: XCTestCase {
         typealias Action = @convention(c) (AnyObject, Selector) -> Bool
         return unsafeBitCast(implementation, to: Action.self)(node, selector)
     }
+    func testActualOldEditorSaveCannotOverwriteNewControlCommit() async throws {
+        TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("settings-stale-ui-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("ghostty.conf")
+        try Data("font-size = 8\n".utf8).write(to: path)
+        let model = isolatedAppModel(configPath: root.appendingPathComponent("ssh_config").path,
+            knownHostsPath: root.appendingPathComponent("known_hosts").path,
+            settings: SettingsStore(terminalConfigPath: path.path))
+        let view = NSHostingView(rootView: SettingsView(model: model, initialPane: .configuration))
+        let window = SettingsStorageWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; TestWindows.presentOffscreen(window)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func editor(_ view: NSView) -> NSTextView? {
+            if let text = view as? NSTextView, text.isEditable { return text }
+            for child in view.subviews { if let found = editor(child) { return found } }
+            return nil
+        }
+        for _ in 0..<150 {
+            if editor(view)?.string == "font-size = 8\n" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let loadedOld = editor(view)?.string == "font-size = 8\n"
+        try model.applyTerminalSettings([("font-size", "19")])
+        let pressed = press(node(view, "settings-config-save"))
+        for _ in 0..<150 {
+            if node(view, "settings-config-error") != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(loadedOld && pressed && node(view, "settings-config-error") != nil && editor(view)?.string == "font-size = 8\n" && model.terminalApp?.float("font-size") == 19 && (try? Data(contentsOf: path)) == Data("font-size = 19\n".utf8))
+    }
+    func testOpeningAppearanceReadsActualSizeWithoutWritingConfiguration() async throws {
+        TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("settings-open-ui-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("ghostty.conf"), original = "font-size = 8\n"
+        try Data(original.utf8).write(to: path)
+        let model = isolatedAppModel(configPath: root.appendingPathComponent("ssh_config").path,
+            knownHostsPath: root.appendingPathComponent("known_hosts").path,
+            settings: SettingsStore(terminalConfigPath: path.path))
+        let revision = model.terminalConfigRevision
+        let view = NSHostingView(rootView: SettingsView(model: model, initialPane: .appearance))
+        let window = SettingsStorageWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; TestWindows.presentOffscreen(window)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func displayed() -> String? {
+            guard let text = node(view, "settings-terminal-font-size") else { return nil }
+            for name in ["accessibilityValue", "accessibilityLabel"] {
+                let selector = NSSelectorFromString(name)
+                if text.responds(to: selector), let value = text.perform(selector)?.takeUnretainedValue() as? String { return value }
+            }
+            return nil
+        }
+        for _ in 0..<150 {
+            if displayed() == "8 pt" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        XCTAssertTrue(displayed() == "8 pt" && model.terminalConfigRevision == revision && (try? Data(contentsOf: path)) == Data(original.utf8) && !FileManager.default.fileExists(atPath: path.path + ".bak"), "actual size=\(displayed() ?? "missing"), revision=\(model.terminalConfigRevision)")
+    }
     func testActualConfigurationReadErrorAndExplicitReloadProtectTheFile() async throws {
         TestWindows.enterAutomationMode()
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
