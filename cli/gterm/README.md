@@ -56,6 +56,47 @@ gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CL
 stdout 只传 Core 协议，诊断只到 stderr，且不记录参数、模块异常文本或授权 token。
 Host 必须管理专属 stdio 的对端归属；`--stdio` 本身不实现 socket 认证。一次性本机接入使用下节的独立入口。
 
+### 原生宿主明确登记的多实例组（实验）
+
+```text
+gterm relay --multiplex --connection HEX32 --instance HEX32 EPOCH ARGV_HEX [--instance HEX32 EPOCH ARGV_HEX]...
+```
+
+同一前台 gterm 进程接管一个专属 stdin/stdout，最多八个实例复用同一物理连接。
+每项仍是完整的 `--stdio` 启动配置：固定包 / Client 摘要、运行档、RPC 方法、根目录、
+执行许可、程序映射及 `-- DIRECTORY COMMAND [ARG...]`。原生 Host 明确分配 connection、
+instance 与非零 uint64 epoch，两端按相同身份登记；epoch 遵守 Core 的六十四代准入
+窗口，不重复、不回绕。每个 Session 分别握手和批准，远端消息不能创建或授权实例。
+整组先完成参数、固定包 / 命令 / 来源预检，再开始任何 Session；签名版本引用持续保留，
+运行前照常再次核对当前策略。拒绝、结束或激活失败只拆除对应实例，其余实例继续。
+
+`ARGV_HEX` 是 CLI 私有、未冻结的 argv-v1 编码，不改变 wire v1：字节 `01`，随后
+BEu16 参数数量，再逐项 BEu16 UTF-8 字节长度和原始字节，最后转为小写十六进制。
+不含 C 字符串终止 NUL；空参数长度为零；不得截断、带尾随字节或内嵌 NUL。每项
+1–256 参数，编码前至多 64 KiB，整组参数含终止 NUL 的累计大小也至多 64 KiB。
+实际 Native 启动接口另有自己的参数数量 / 字节上限，必须在启动前核对；compact 编码
+使八项普通配置可以放进现有 64 个 Native argv 的数量上限。此编码不经过 shell 求值，
+业务 argv 之后仍按包的命令 schema 校验。
+
+同一非 UI owner 轮转驱动各实例的 Session / Runtime 与关闭状态，继续使用 Core 的有界
+mux 队列 / 调度。资源共享一个私有 Store：128 MiB 总量、64 项、每资源 1 MiB、每实例
+16 MiB scope 预算，具体传输仍受 Session 协商值限制。资源 token / 完整 lease、独立
+根 fd 与源文件授权继续核验。需要显式的绝对 `TMPDIR`；本文仓库内执行统一设为工程
+`tmp/`。关闭等待按实例驱动，正常结束后释放共享连接、版本引用和私有目录。
+
+stdout 仅为 Core 帧，stderr 报公开实例 ID / epoch / 本机退出码和清理错误，不输出
+argv、环境值、授权 token 或模块异常原文。整组退出码取配置顺序中首个非零实例结果；
+清理错误覆盖为 5。零只表示所有本机实例按已有通道结束规则退出并完成本机清理，
+不能替代具体业务回执。SIGINT / SIGTERM / SIGHUP 取消整组；不杀调用 shell 或 tmux。
+
+这是固定启动组入口，尚未接在线添加 / 重用槽位、`--listen` / 被动发现或两端产品实例
+管理，不据此声明 SSH / ProxyJump、Node / Exec 混合八实例或完整生命周期矩阵通过。
+本机关键冒烟：
+
+```sh
+python3 scripts/test-gterm-multiplex.py --build tmp/gterm-build
+```
+
 ### 一次性前台 IPC 与显式 SSH attach（实验）
 
 ```text

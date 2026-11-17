@@ -67,6 +67,8 @@ static int usage(void) {
         "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
         "[--process-argument NAME VALUE]... [--process-environment NAME]... "
         "-- DIRECTORY COMMAND [ARG...]\n"
+        "       gterm relay --multiplex --connection HEX32 "
+        "--instance HEX32 EPOCH ARGV_HEX ...\n"
         "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
         stderr);
     return 2;
@@ -523,6 +525,9 @@ int main(int argc, char **argv) {
     }
     if (argc >= 3 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--stdio")) {
         return gterm_stdio(argc - 3, argv + 3, &interrupted);
+    }
+    if (argc >= 3 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--multiplex")) {
+        return gterm_multiplex(argc - 3, argv + 3, &interrupted);
     }
     if (argc == 2 && !strcmp(argv[1], "doctor")) {
         bool available = gt_ext_runtime_support() == GT_OK;

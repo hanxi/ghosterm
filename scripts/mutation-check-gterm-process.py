@@ -16,11 +16,11 @@ SOURCE = 'cli/gterm/stdio.c'
 ARCH = 'aarch64' if platform.machine() in ['arm64','aarch64'] else 'x86_64'
 CASES = [
     ('unsupported-result', 'info.external_process && info.execution_error == GT_ERR_UNSUPPORTED', 'false', 'exec-unsupported'),
-    ('runtime-facts', '                             runtime_name,', '                             "portable-js",', 'node-roundtrip'),
+    ('runtime-facts', 'runtime_name,\n', '"portable-js",\n', 'node-roundtrip'),
     ('execution-approval', 'if (external && !execution_authorized)', 'if (false && external && !execution_authorized)', 'node-no-approval'),
-    ('runtime-config', '.execution = external ? &execution : NULL', '.execution = NULL', 'node-roundtrip'),
+    ('runtime-config', '.execution = external ? &job->execution : NULL', '.execution = NULL', 'node-roundtrip'),
     ('sdk-identity', '.node_sdk_catalog_sha256 = sdk_sha', '.node_sdk_catalog_sha256 = NULL', 'node-roundtrip'),
-    ('selected-environment', 'execution.environment_count = process_environment_count;', 'execution.environment_count = 0;', 'node-roundtrip'),
+    ('selected-environment', 'job->execution.environment_count = job->process_environment_count;', 'job->execution.environment_count = 0;', 'node-roundtrip'),
     ('embedded-budget', '.cpu_ms = external ? 0 : 100,', '.cpu_ms = 100,', 'node-roundtrip'),
     ('source-trust', 'if (strcmp(metadata.package_digest, trusted))', 'if (false && strcmp(metadata.package_digest, trusted))', 'node-source-digest'),
     ('exec-platform', 'const char *host_arch = "'+ARCH+'";', 'const char *host_arch = "incompatible";', 'exec-roundtrip'),

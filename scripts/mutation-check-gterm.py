@@ -25,7 +25,7 @@ def main():
             ('tty', 'if (!validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'if (false && !validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'tty'),
             ('trust-digest', 'if (strcmp(metadata.package_digest, trusted))', 'if (false && strcmp(metadata.package_digest, trusted))', 'digest'),
             ('selected-command', 'if (!selected)', 'if (false && !selected)', 'command'),
-            ('consent', '        if (state == GT_EXT_SESSION_ACTIVE) {\n', '        if (state < GT_EXT_SESSION_ENDING) {\n', 'deny'),
+            ('consent', '        if (state != GT_EXT_SESSION_ACTIVE) {\n            return;\n        }\n', '        if (state >= GT_EXT_SESSION_ENDING) {\n            return;\n        }\n', 'deny'),
             ('arguments', '(size_t)(argc - at - 3)', '0', 'roundtrip'),
             ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
             ('method-role', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_EXECUTOR : GT_EXT_EXECUTOR;', 'host-method'),
