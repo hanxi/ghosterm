@@ -125,7 +125,7 @@ final class SSHAuthTests: XCTestCase {
         // 加密的 OpenSSH 新格式：闸门有 ssh-keygen 时现场生成一把（材料不入库）。
         let keygen = "/usr/bin/ssh-keygen"
         if FileManager.default.isExecutableFile(atPath: keygen) {
-            let dir = NSTemporaryDirectory() + "ghosterm-enc-\(UUID().uuidString)"
+            let dir = ownedTemporaryPath("ghosterm-enc-")
             try FileManager.default.createDirectory(atPath: dir,
                                                     withIntermediateDirectories: true)
             addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
@@ -153,6 +153,12 @@ final class SSHAuthTests: XCTestCase {
         let keyPath: String
     }
 
+    private func ownedTemporaryPath(_ prefix: String) -> String {
+        var project = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { project.deleteLastPathComponent() }
+        return project.appendingPathComponent("tmp").appendingPathComponent(prefix + UUID().uuidString).path
+    }
+
     private func sshEnv() throws -> SSHEnv? {
         let e = ProcessInfo.processInfo.environment
         guard let host = e["GHOSTERM_SSH_HOST"], let user = e["GHOSTERM_SSH_USER"],
@@ -165,7 +171,7 @@ final class SSHAuthTests: XCTestCase {
     /// 临时 ssh_config：IdentityFile 指向闸门给的钥匙（与用户那份同构）。
     private func writeConfig(host: String, port: UInt16, user: String,
                              identity: String) throws -> String {
-        let dir = NSTemporaryDirectory() + "ghosterm-authcfg-\(UUID().uuidString)"
+        let dir = ownedTemporaryPath("ghosterm-authcfg-")
         try FileManager.default.createDirectory(atPath: dir,
                                                 withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
@@ -181,7 +187,7 @@ final class SSHAuthTests: XCTestCase {
     }
 
     private func isolatedKnownHosts() throws -> String {
-        let dir = NSTemporaryDirectory() + "ghosterm-authkh-\(UUID().uuidString)"
+        let dir = ownedTemporaryPath("ghosterm-authkh-")
         try FileManager.default.createDirectory(atPath: dir,
                                                 withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
@@ -321,11 +327,17 @@ final class SSHAuthTests: XCTestCase {
     func testUnacceptedKeyAsksForLoginPasswordNotPassphrase() throws {
         guard let e = try sshEnv() else { throw XCTSkip("未设置 GHOSTERM_SSH_* —— 跳过") }
         // 现生成一把**没被授权**的钥匙（闸门的 authorized_keys 里没有它）。
-        let dir = NSTemporaryDirectory() + "ghosterm-badkey-\(UUID().uuidString)"
+        let dir = ownedTemporaryPath("ghosterm-badkey-")
         try FileManager.default.createDirectory(atPath: dir,
                                                 withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         let badKey = dir + "/bad"
+        addTeardownBlock {
+            KeychainStore.removePrivateKeyPEM(forPath: badKey)
+            do { _ = try KeychainStore.privateKeyPEM(forPath: badKey); XCTFail("owned rejected key fixture was not retired") }
+            catch KeychainStoreError.notFound { }
+            catch { XCTFail("owned rejected key cleanup was not confirmed") }
+        }
         let keygen = Process()
         keygen.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
         keygen.arguments = ["-t", "ed25519", "-f", badKey, "-N", "", "-q"]

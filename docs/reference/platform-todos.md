@@ -10,7 +10,7 @@
 |---|---|---|
 | macOS 应用内更新 | 不再把 commit/摘要/下载来源校验或下载重启列为待实现 | [UpdateCheck.swift](../../apple/GhostermApp/Sources/GhostermAppModel/UpdateCheck.swift) 已校验字符集、资产及渠道基址；Sparkle/Ed25519 与本地安装专项见[更新说明](../how-to/macos-updates.md)。实际 GitHub 分发、首次手装迁移和权限/系统矩阵仍待验 |
 | macOS 设置页像素失败 | 从“布局待修”改为“布局已修，当前完整宿主待跑” | [字体记录](macos-terminal-fonts.md)已有高度/正文布局修复和关联 56 通过/1 跳过；`4cbfcf4` 完整失败不抹去，也不能用定向结果记新完整绿 |
-| macOS SFTP 打开 | 不再写成“仍调用无参 sftp” | [AppModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift) 已用 `sftp(timeoutMilliseconds: 5000)`；缺原认证剩余预算/取消，浏览/传输仍未迁移，不因此关闭整个待办 |
+| macOS SFTP 打开 | 原认证余额与取消已贯通 | 普通文件工厂调用已有受控重载，取原余额与五秒上限较小值，取消直接置令牌；实际 SFTP INIT 等待有自有 sshd 证据，见[打开说明](macos-ssh-opening.md)。浏览/传输/关闭仍未迁移 |
 | Android 会话/IME | 总览补到固定会话按钮、同窗口覆盖面板与切换保持 IME | [TerminalScreen.kt](../../android/app/src/main/java/com/hanxi/ghosterm/TerminalScreen.kt)、实施记录 §9.207–§9.208；自动化按模拟器档记账，OEM 输入法另列人工手测 |
 | 统一连接入口与 ProxyJump | 不再泛称“高级 SSH 选项均未实现”，也不再把默认入口描述成旧后台菜单 | [统一入口记录](optional-tmux-implementation.md#远端统一连接入口2026-11-06)、[§9.214](android-implementation.md#9214-proxyjump-普通终端sftp-与-tmux2026-11-08)已有两端普通终端/SFTP/tmux；自动查询不授权创建/attach，ProxyCommand/转发等仍未实现 |
 | Android 出包 | 删除“无 Android workflow / 无 16 KiB / 无发行证据”的旧概括 | [android-release.yml](../../.github/workflows/android-release.yml)已接签名优化包和对齐检查，历史实际包/设备证据见[发行说明](../how-to/android-release.md)。CI 不跑完整设备套件；当前源码与实际发行包仍需分别验收 |
@@ -29,7 +29,7 @@
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
 | 8 / 已交付专项 | 终端配置读写与应用 | 存储事务、内存候选预校验、提交后应用、条件状态回显及旧编辑器保护已接 | 证据/提交后应用错误与恢复边界见[设置说明](macos-terminal-settings.md)，不承诺多文件/全部 surface 原子事务 |
-| 9 / P1 | SSH 多地址与 shell 打开取消 | [SSHAddressResolver.swift](../../apple/GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 首个有效地址即结束；`AppModel.startSSH` 用旧 shell opener | 两片分别做：TCP 阶段候选推进；认证剩余 deadline/取消贯通 channel→PTY→shell。SSH/SFTP/tmux 各入口验证，ProxyJump 首跳也不能沿用新能力的假定 |
+| 9 / 部分完成 | SSH 多地址与打开取消 | 普通 shell/SFTP 原认证余额、独立取消和晚到交接已接；DNS 仍首个有效地址即结束 | 打开切片见[说明](macos-ssh-opening.md)；TCP 候选推进与原 hostname 身份仍待做，SSH/SFTP/tmux 和 ProxyJump 首跳各自验收，不能借打开接线关闭整个网络矩阵 |
 | 10 / P1 | 剪贴板收尾（设置文案已修） | 菜单 paste 仍直接输入；[SettingsView.swift](../../apple/GhostermApp/Sources/GhostermApp/SettingsView.swift) 的六处过时提示已独立修正 | 粘贴确认与全局菜单路由仍须单独实现/验证；文案修正不改变设置存储或关闭规则，像素/既有插件页失败范围见 Apple 说明 |
 
 共享事件队列终态保留/查询、旧 job 下载完整性、负深度 walk 硬护栏、递归权限链接处理仍有效，属于文件迁移的相关工作，不借新绑定或 Android 验收关闭。macOS 信任记录管理页也可接现有快照/事务 API；别名改名应排在配置事务/表单之后。
@@ -76,3 +76,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 9：终端设置存储/读取/CRLF/重复声明及真实重新读取入口完成；80 项与真实本机 SSH 85 项分轮、十二个新保护/旧事务二十二组、Release 通过，见[设置说明](macos-terminal-settings.md)。引擎候选校验/应用下一片处理。
 
 - 剩余批 10：终端设置内存候选校验/提交后应用、递归来源/条件回显、旧编辑器和打开页面不写盘完成。99 项定向/104 项本机 SSH 组合、17 组变异、Core 596/190、C 格式、四补丁闸门与 Release 通过，完整范围见[设置说明](macos-terminal-settings.md)。
+
+- 剩余批 11：普通 SSH/SFTP 原预算/取消、旧完成隔离和取消状态已接；62 项真实本机 SSH 组合、真实协议等待与二十个新保护分轮，旧保护和 Release 收据见[打开说明](macos-ssh-opening.md)。多地址与后续文件 IO 仍分批推进。

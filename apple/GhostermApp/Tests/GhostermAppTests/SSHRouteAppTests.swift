@@ -44,7 +44,7 @@ final class SSHRouteAppTests: XCTestCase {
         wait(for: [complete], timeout: 3)
     }
     @MainActor func testChangedDestinationCannotKeepOldLabel() async throws {
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("route-target-" + UUID().uuidString)
+        let directory = sessionTestDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appendingPathComponent("config").path
@@ -96,7 +96,7 @@ final class SSHRouteAppTests: XCTestCase {
               let user = env["GHOSTERM_ROUTE_USER"], let mode = env["GHOSTERM_ROUTE_MODE"] else { throw XCTSkip("Owned route fixture required") }
         let ports = raw.split(separator: ",").compactMap { UInt16($0) }
         let pem = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("route-app-" + UUID().uuidString)
+        let directory = sessionTestDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var hostkeys = try String(contentsOfFile: known, encoding: .utf8)
@@ -241,7 +241,7 @@ final class SSHRouteAppTests: XCTestCase {
                 guard let chooser = model.tmuxChooser else { return XCTFail("Missing connection chooser") }
                 guard wait({ !chooser.busy }) else { return XCTFail("Chooser probe did not finish") }
                 XCTAssertFalse(chooser.message.contains("ProxyJump"), chooser.message)
-                XCTAssertEqual(keys.values.count, ports.count)
+                guard keys.values.count == ports.count else { return XCTFail("Discovery did not authenticate every configured hop") }
                 XCTAssertTrue(interaction.hosts.isEmpty)
                 chooser.openTerminal()
                 XCTAssertNil(model.tmuxChooser)

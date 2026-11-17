@@ -10,6 +10,7 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
     typealias Failure = SSHAuthenticationFlow.Failure
     typealias Authenticated = SSHAuthenticationFlow.Authenticated
     private let owner: DispatchQueue
+    private let opening: SSHConnectionOpening?
     private let options: [SSHOptions]
     private let prompts: [SSHAuthenticationPrompts]
     private let lookup: SSHAuthenticationFlow.AddressLookup
@@ -26,6 +27,7 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
     private var prompting = false, started = false, finished = false
     private var deadline: TimeInterval = 0
     init(owner: DispatchQueue, options: [SSHOptions], prompts: [SSHAuthenticationPrompts],
+         opening: SSHConnectionOpening? = nil,
          lookup: @escaping SSHAuthenticationFlow.AddressLookup = { host, ipv6, owner, completion in
              SSHAddressResolver.resolve(host: host, preferIPv6: ipv6, owner: owner, completion: completion)
          }, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -33,19 +35,20 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
              try SSHRoute(hops: $0, timeoutMilliseconds: $1, owner: $2)
          }, nextID: @escaping () -> UInt64?, completion: @escaping (Result<Authenticated, Failure>) -> Void) {
         self.owner = owner; self.options = options; self.prompts = prompts; self.lookup = lookup
-        self.nextID = nextID; self.completion = completion; self.now = now; self.makeRoute = makeRoute
+        self.nextID = nextID; self.completion = completion; self.now = now; self.makeRoute = makeRoute; self.opening = opening
         attempts = Array(repeating: 0, count: options.count); requests = Array(repeating: 0, count: options.count)
     }
     private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
     func start() {
         checkOwner(); guard !started, !finished else { return }; started = true
         guard (2...8).contains(options.count), prompts.count == options.count else { fail(1, "SSH 跳板路线无效"); return }
-        deadline = now() + 60
+        deadline = opening?.deadline ?? (now() + 60)
+        guard checkAdmission() else { return }
         let timer = DispatchSource.makeTimerSource(queue: owner)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.tick() }; self.timer = timer; timer.resume()
         resolver = lookup(options[0].host, false, owner) { [weak self] result in
-            guard let self, !self.finished else { return }; self.resolver = nil
+            guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
             do {
                 let address = try result.get(), remaining = self.deadline - self.now()
                 guard remaining > 0 else { self.fail(3, "SSH 跳板认证超时"); return }
@@ -65,11 +68,15 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
         return (id, scope)
     }
     private func active(_ id: UInt64, _ index: Int, _ scope: SSHCancellation) -> Bool {
-        !finished && hop == index && requests[index] == id && prompting && !scope.isCancelled
+        !finished && hop == index && requests[index] == id && prompting && !scope.isCancelled && checkAdmission()
+    }
+    private func checkAdmission() -> Bool {
+        guard opening?.cancellation.isCancelled != true else { fail(8, "SSH 跳板连接已取消"); return false }
+        guard deadline.isFinite, now() < deadline else { fail(3, "SSH 跳板认证超时"); return false }
+        return true
     }
     private func tick() {
-        checkOwner(); guard !finished else { return }
-        guard now() < deadline else { fail(3, "SSH 跳板认证超时"); return }
+        checkOwner(); guard !finished, checkAdmission() else { return }
         guard let route else { return }
         _ = route.step()
         guard let info = route.info, Int(info.hop) < options.count else { fail(9, "无法读取跳板认证状态"); return }
@@ -91,7 +98,7 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
         if auth.phase == .hostkey {
             guard !prompting, let (id, scope) = newPrompt() else { return }
             DispatchQueue.main.async { [weak self, scope] in
-                guard let self, !scope.isCancelled else { return }
+                guard let self, !scope.isCancelled, self.opening?.cancellation.isCancelled != true else { return }
                 prompt.hostkey(id, auth.keyType, auth.fingerprint) { [weak self, scope] decision in
                     self?.owner.async { [weak self, scope] in
                         guard let self, self.active(id, index, scope) else { return }
@@ -108,7 +115,7 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
             guard let (id, scope) = newPrompt() else { return }; attempts[index] += 1
             let attempt = attempts[index]
             DispatchQueue.main.async { [weak self, scope] in
-                guard let self, !scope.isCancelled else { return }
+                guard let self, !scope.isCancelled, self.opening?.cancellation.isCancelled != true else { return }
                 prompt.methods(id, auth.methods, auth.error)
                 prompt.credential(id, attempt) { [weak self, scope] result in
                     self?.owner.async { [weak self, scope] in

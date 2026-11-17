@@ -64,7 +64,7 @@ sys.exit(p.returncode)
         run(command,label,{**env,'GHOSTERM_ROUTE_EXPECT_RED':'1' if red else '0'})
         made=set((work/'tmp').glob('sj-*'))-before;assert len(made)==1
         shutil.copytree(made.pop()/'logs',logs/label)
-    names=['AppModel.swift','SSHRouteAuthenticationFlow.swift','SFTPFileBackend.swift','TmuxChooser.swift']
+    names=['AppModel.swift','SSHRouteAuthenticationFlow.swift','SSHConnectionOpening.swift','SFTPFileBackend.swift','TmuxChooser.swift']
     paths={n:package/'Sources/GhostermAppModel'/n for n in names}
     originals={n:p.read_bytes() for n,p in paths.items()}
     hashes={n:hashlib.sha256(b).hexdigest() for n,b in originals.items()}
@@ -75,13 +75,13 @@ sys.exit(p.returncode)
       ('route-entry','AppModel.swift','if target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {','if false && target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {','pty'),
       ('file-alias','AppModel.swift','connectionIssues: entry?.connectionIssues ?? [], alias: pattern)','connectionIssues: entry?.connectionIssues ?? [], alias: host)','sftp'),
       ('panel-alias','AppModel.swift','connectionIssues: target.connectionIssues, alias: target.pattern)','connectionIssues: target.connectionIssues, alias: target.host)','pty-echo'),
-      ('controlled-sftp','AppModel.swift','try ssh.sftp(timeoutMilliseconds: 5000)','try ssh.sftp()','sftp'),
+      ('controlled-sftp','SSHConnectionOpening.swift','try $0.sftp(timeoutMilliseconds: $1, cancellation: $2)','_ = $1; _ = $2; return try $0.sftp()','sftp'),
       ('hop-identity','SSHRouteAuthenticationFlow.swift','route.supply(options: self.options[index],','route.supply(options: self.options[0],','pty'),
-      ('reply-once','SSHRouteAuthenticationFlow.swift','&& prompting && !scope.isCancelled','&& true','read-wait-error'),
-      ('late-dns','SSHRouteAuthenticationFlow.swift','guard let self, !self.finished else { return }; self.resolver = nil','guard let self else { return }; self.resolver = nil','dns'),
-      ('total-deadline','SSHRouteAuthenticationFlow.swift','guard now() < deadline else','guard true else','deadline'),
+      ('reply-once','SSHRouteAuthenticationFlow.swift','&& prompting && !scope.isCancelled && checkAdmission()','&& true','read-wait-error'),
+      ('late-dns','SSHRouteAuthenticationFlow.swift','guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil','guard let self else { return }; self.resolver = nil','dns'),
+      ('total-deadline','SSHRouteAuthenticationFlow.swift','guard deadline.isFinite, now() < deadline else','guard true else','deadline'),
       ('first-hop-dns','SSHRouteAuthenticationFlow.swift','lookup(options[0].host, false, owner)','lookup(options[1].host, false, owner)','dns'),
-      ('reload-cancel','AppModel.swift','cancelledConnects.add(id); owner.async { flow.cancel() }','_ = id; _ = owner; _ = flow','open-cancel'),
+      ('reload-cancel','AppModel.swift','for (id, (owner, flow)) in authentications {\n            cancelledConnects.add(id); owner.async { flow.cancel() }\n        }\n        for (id, opening) in connectionOpenings { cancelledConnects.add(id); opening.cancel() }','_ = authentications; _ = connectionOpenings','open-cancel'),
     ]
     if args.core_tmux:
         paths['ssh.c']=work/'core/src/ssh.c'

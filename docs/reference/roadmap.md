@@ -138,7 +138,7 @@ M4.6 的 S1–S7 历史切片与 macOS S6 正常路径已交付，队列 UI 已�
 
 历史跨端复核（2026-10-31）记录了配置事务、控制错误与旧文件接口等缺口；2026-11-17 非插件源码复核见[两端待办核对](platform-todos.md)。标准剪贴板与 OSC 52 已接，剩余为菜单路由/粘贴确认等专项；SFTP 打开和更新已有进展，下表按当前实际消费者修正。Android 执行器、页面、进程所有权与 FIFO 队列不改变 macOS 产品完成状态。
 
-以下项目仍未完成；共享非连续重复指令误删、known_hosts 标记误信任及信任写入事务已修复，移至上方已交付范围，未因此改变其他缺口状态。特别是 known_hosts、SSH config 与 Ghostty 配置的保存路径彼此独立；对应源码与剩余问题见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
+下表分别列出已交付切片与剩余完成条件；共享非连续重复指令误删、known_hosts 标记误信任及信任写入事务已修复，移至上方已交付范围，未因此改变其他缺口状态。特别是 known_hosts、SSH config 与 Ghostty 配置的保存路径彼此独立；对应源码与剩余问题见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
 
 | 优先级 | 工作 | 当前源码事实 | 完成条件 |
 |---|---|---|---|
@@ -146,7 +146,7 @@ M4.6 的 S1–S7 历史切片与 macOS S6 正常路径已交付，队列 UI 已�
 | 已交付专项 | macOS 主机表单保真 | Core 原生块快照、首条标量/累积身份、脏字段与继承开关、旧表单冲突保护已接；未改保存零写盘 | 原生控件/模型与变异证据见[分批实施](non-plugin-remainder.md)；重复未知标量与 Include 路径需来源文件编辑，完整客户端另验 |
 | 已交付专项 | 私钥安全存储接线 | 生产 `SSHCredentialSelector` 经 Keychain 回读材料；首次导入/显式重新导入、取消和错误可见，绝不以文件回退代替失败的安全存储 | 46/105 项组合、18 项真实 SSH 与十四组变异分轮及 Release；旧不存材料断言与当前铁律冲突，已替换为来源移除后的再次实际认证，见[材料说明](macos-private-keys.md)。其它系统授权矩阵和发行另记 |
 | P1 | macOS SSH 多地址连接 | `SSHAddressResolver` 遇所选族 `NoSuchRecord` 才换族，首个成功答案即结束解析，`SSHAuthenticationFlow` 只创建一个地址的认证器；TCP 失败不遍历其余候选。Android 已按 §9.40 接入自己的 native owner，未改变 Apple 实现 | 保留原 hostname 的主机验证身份，在同一总预算及请求身份内尝试候选；仅在 TCP 阶段切换，不绕过协议/主机验证/凭据失败。验证首地址拒绝或无响应、备用可达、IPv4/IPv6、取消与晚到结果；macOS SSH/SFTP/tmux 分别验收，见 [Apple 网络边界](../../apple/README.md#ssh-地址选择与取消边界) |
-| P1 | macOS 普通 SSH shell 打开预算与取消 | §9.41 已验共享 controlled API、Android owner 与 Swift 绑定；macOS `AppModel.startSSH` 仍使用旧 opener 的独立 5000 ms 预算且没有取消回调，认证成功即撤销计时器；不能用绑定验收代替桌面产品接线 | 将原 deadline 余额和取消信号传入 owner；分别停滞 channel-open、PTY、shell，验证取消/超时/拒绝、后续请求停止、晚到结果隔离和 owner 释放。新增 ABI 同步 Swift/JNI 并真实编译；SFTP/tmux 独立验收，见 [源码边界](../../apple/README.md#ssh-认证后的通道打开边界)与 [实施契约](android-implementation.md#认证后打开-shell-的实施契约) |
+| 已交付专项 | macOS 普通 SSH/SFTP 打开预算与取消 | 普通终端与文件工厂在认证前建立作用域，将原余额和独立取消令牌传到已有 controlled API；代次清理、晚到成功和仍存在窗格的取消状态已接 | 62 项真实 SSH 组合、二十组新保护与自有停滞 SFTP INIT 等待，旧认证/跳板复验和 Release 见[打开说明](macos-ssh-opening.md)。多地址、后续文件 IO 与专用 tmux 生命周期继续独立验收 |
 | P2 | 主机信任事务剩余边界 | TOFU 与移除已共用协调、备份和原子替换；Android 管理页已按 §9.39 验收，macOS 无管理页；锁等待有界，文件系统调用不承诺有界；备份暂不自动清理 | 管理页正确处理已提交后失败与快照冲突；备份保留/清理策略另行设计；非协作写者的检查到替换竞态与断电恢复未验，不扩大 §9.37 的证据 |
 | 已交付专项 | macOS 终端配置读写与应用 | 存储事务、CRLF/重复键、显式重新读取、内存候选预校验、提交后应用及条件状态回显、旧编辑器保护已接 | 原件和提交后错误/恢复范围见[设置说明](macos-terminal-settings.md)；不据此关闭多文件、所有 surface 原子性或完整客户端验收 |
 | P1 | macOS 设置页完整回归 | `4cbfcf4` 的键盘页像素失败保留；2026-11-04 字体切片已修正布局，关联组合 56 通过/1 开发态资源跳过，见[字体记录](macos-terminal-fonts.md) | 尚需当前源码完整宿主回归与 macOS 15 证据；保留原像素断言，逐项说明跳过，不再将已修布局列为待开发 |

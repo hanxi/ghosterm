@@ -28,6 +28,9 @@ def main():
             shutil.copytree(ROOT/'apple'/package,folder/'apple'/package,symlinks=True,ignore=shutil.ignore_patterns('.build','.swiftpm'))
         for name in ['core','terminal','build','assets']:(folder/name).symlink_to(ROOT/name,target_is_directory=True)
         package=folder/'apple/GhostermApp'
+        owned=folder/'tmp/apple-app-authflow';owned.mkdir(parents=True)
+        ownedkey=owned/'clientkey';shutil.copyfile(key,ownedkey);ownedkey.chmod(0o600)
+        os.environ.update(GHOSTERM_SSH_KEY=str(ownedkey),GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE=str(ownedkey))
         def check(red=False,control=False):
             code,out=run(['xcrun','swift','test','--package-path',package,'--filter','HostListTests' if control else 'SSHAuthTests'])
             valid=(code==1 and ('XCTAssert' in out or ': failed - ' in out) and 'Build complete' in out) if red else code==0 and 'Test Suite' in out and 'skipped' not in out
@@ -42,7 +45,7 @@ def main():
             ('config-admission','SSHAuthenticationFlow.swift','guard configurationIssues.isEmpty else {','guard true else {'),
             ('config-target','AppModel.swift','configurationIssues: target.connectionIssues, prompts:', 'configurationIssues: [], prompts:'),
             ('config-host-list','HostListModel.swift','connectionIssues: try config.connectionIssues(host: pattern)', 'connectionIssues: []'),
-            ('config-sftp','AppModel.swift','identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: entry?.connectionIssues ?? [])', 'identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: [])'),
+            ('config-sftp','AppModel.swift','identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: entry?.connectionIssues ?? [], alias: pattern)', 'identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: [], alias: pattern)'),
             ('config-binding','../../../GhostermCore/Sources/GhostermCore/GhostermCore.swift','sourceLine: Int(info.source_line), included: info.included)', 'sourceLine: 0, included: info.included)'),
             ('trust-save-result','SSHAuthenticationFlow.swift','if status != 0 { self.fail(status, decision == .reject ?', 'if false { self.fail(status, decision == .reject ?'),
         ]

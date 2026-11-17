@@ -11,6 +11,7 @@ final class SSHAuthenticationFlow {
     }
     private let owner: DispatchQueue
     private let options: SSHOptions
+    private let opening: SSHConnectionOpening?
     private let preferIPv6: Bool
     typealias AddressLookup = (String, Bool, DispatchQueue, @escaping (Result<SSHAddress, SSHAddressResolver.Failure>) -> Void) -> SSHAddressResolver?
     private let lookup: AddressLookup
@@ -30,13 +31,14 @@ final class SSHAuthenticationFlow {
     private var finished = false
 
     init(owner: DispatchQueue, options: SSHOptions, preferIPv6: Bool = false,
+         opening: SSHConnectionOpening? = nil,
          configurationIssues: [SSHConnectionIssue] = [],
          lookup: @escaping AddressLookup = { host, ipv6, owner, completion in
              SSHAddressResolver.resolve(host: host, preferIPv6: ipv6, owner: owner, completion: completion)
          }, prompts: SSHAuthenticationPrompts,
          nextID: @escaping () -> UInt64?, completion: @escaping (Result<Authenticated, Failure>) -> Void) {
         self.owner = owner; self.options = options; self.preferIPv6 = preferIPv6; self.prompts = prompts; self.nextID = nextID; self.completion = completion
-        self.configurationIssues = configurationIssues; self.lookup = lookup
+        self.configurationIssues = configurationIssues; self.lookup = lookup; self.opening = opening
     }
     private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
     func start() {
@@ -44,12 +46,13 @@ final class SSHAuthenticationFlow {
         guard configurationIssues.isEmpty else {
             fail(7, "不支持 SSH 配置：" + configurationIssues.map(\.description).joined(separator: "、")); return
         }
-        deadline = ProcessInfo.processInfo.systemUptime + 60
+        deadline = opening?.deadline ?? (ProcessInfo.processInfo.systemUptime + 60)
+        guard checkAdmission() else { return }
         let timer = DispatchSource.makeTimerSource(queue: owner)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.tick() }; self.timer = timer; timer.resume()
         resolver = lookup(options.host, preferIPv6, owner) { [weak self] result in
-            guard let self, !self.finished else { return }; self.resolver = nil
+            guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
             do {
                 let address = try result.get(), remaining = self.deadline - ProcessInfo.processInfo.systemUptime
                 guard remaining > 0 else { self.fail(3, "SSH 认证超时"); return }
@@ -73,18 +76,22 @@ final class SSHAuthenticationFlow {
         let scope = SSHCancellation(); self.scope = scope; request = id; prompting = true
         return (id, scope)
     }
+    private func checkAdmission() -> Bool {
+        guard opening?.cancellation.isCancelled != true else { fail(8, "SSH 连接已取消"); return false }
+        guard deadline.isFinite, ProcessInfo.processInfo.systemUptime < deadline else { fail(3, "SSH 认证超时"); return false }
+        return true
+    }
     private func tick() {
-        checkOwner(); guard !finished else { return }
-        guard ProcessInfo.processInfo.systemUptime < deadline else { fail(3, "SSH 认证超时"); return }
+        checkOwner(); guard !finished, checkAdmission() else { return }
         guard let authenticator, let info = step(authenticator) else { return }
         switch info.phase {
         case .hostkey:
             guard !prompting, let (id, scope) = newPrompt() else { return }
             DispatchQueue.main.async { [weak self, scope] in
-                guard let self, !scope.isCancelled else { return }
+                guard let self, !scope.isCancelled, self.opening?.cancellation.isCancelled != true else { return }
                 self.prompts.hostkey(id, info.keyType, info.fingerprint) { [weak self, scope] decision in
                     self?.owner.async { [weak self, scope] in
-                        guard let self, !self.finished, self.request == id, self.prompting, !scope.isCancelled else { return }
+                        guard let self, !self.finished, self.request == id, self.prompting, !scope.isCancelled, self.checkAdmission() else { return }
                         self.prompting = false; scope.cancel()
                         if decision == .unknown { self.fail(8, "未确认主机密钥，SSH 连接已取消"); return }
                         let status = self.authenticator?.decide(decision) ?? 8
@@ -98,11 +105,11 @@ final class SSHAuthenticationFlow {
             guard let (id, scope) = newPrompt() else { return }; attempt += 1
             let current = attempt
             DispatchQueue.main.async { [weak self, scope] in
-                guard let self, !scope.isCancelled else { return }
+                guard let self, !scope.isCancelled, self.opening?.cancellation.isCancelled != true else { return }
                 self.prompts.methods(id, info.methods, info.error)
                 self.prompts.credential(id, current) { [weak self, scope] result in
                     self?.owner.async { [weak self, scope] in
-                        guard let self, !self.finished, self.request == id, self.prompting, !scope.isCancelled else { return }
+                        guard let self, !self.finished, self.request == id, self.prompting, !scope.isCancelled, self.checkAdmission() else { return }
                         // Consume once before any Core call or error completion.
                         self.prompting = false; scope.cancel()
                         do {

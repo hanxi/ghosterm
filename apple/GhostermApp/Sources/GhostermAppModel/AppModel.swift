@@ -260,6 +260,10 @@ public final class AppModel: ObservableObject {
 
     private var startedInitialSessions = false
     private var authentications: [UUID: (DispatchQueue, SSHAuthenticationOperation)] = [:]
+    private var authenticationGenerations: [UUID: UUID] = [:]
+    private var connectionOpenings: [UUID: SSHConnectionOpening] = [:]
+    var makeSSHConnectionOpening: () -> SSHConnectionOpening = { SSHConnectionOpening() }
+    var sshOpeningOperations = SSHOpeningOperations()
     var sshCredentialStorage: SSHCredentialSelector.Storage = .platform
     @Published public var tmuxChooser: TmuxChooser?
 
@@ -351,6 +355,7 @@ public final class AppModel: ObservableObject {
         for (id, (owner, flow)) in authentications {
             cancelledConnects.add(id); owner.async { flow.cancel() }
         }
+        for (id, opening) in connectionOpenings { cancelledConnects.add(id); opening.cancel() }
         do {
             let model = try HostListModel(path: configPath)
             hosts = model.hosts
@@ -510,12 +515,31 @@ public final class AppModel: ObservableObject {
         let owner = DispatchQueue(label: "dev.ghosterm.files-connect")
         let target = SSHConnectionTarget(alias: alias ?? host, host: host, user: user, port: port,
             knownHosts: knownHosts, identityPaths: identityFiles, connectionIssues: connectionIssues)
-        let ssh = try await authenticate(target, id: cancelID, owner: owner)
-        let sftp: SFTPSession = try await withCheckedThrowingContinuation { continuation in
-            owner.async { do { continuation.resume(returning: try ssh.sftp(timeoutMilliseconds: 5000)) } catch { continuation.resume(throwing: error) } }
+        let opening = await beginConnectionOpening(cancelID)
+        let operations = await sshOpeningOperations
+        do {
+            let backend: SFTPFileBackend = try await withTaskCancellationHandler(operation: {
+                let ssh = try await authenticate(target, id: cancelID, owner: owner, opening: opening)
+                return try await withCheckedThrowingContinuation { continuation in
+                    owner.async {
+                        do {
+                            let remaining = try opening.remainingMilliseconds(maximum: 5000)
+                            let sftp = try operations.sftp(ssh, remaining, opening.cancellation)
+                            if opening.cancellation.isCancelled {
+                                sftp.close()
+                                throw GhostermError.status(8, "SFTP 打开已取消")
+                            }
+                            continuation.resume(returning: SFTPFileBackend(session: ssh, sftp: sftp, user: user, host: host, initialPath: "."))
+                        } catch { continuation.resume(throwing: error) }
+                    }
+                }
+            }, onCancel: { opening.cancel() })
+            await finishConnectionOpening(cancelID, opening: opening)
+            return backend
+        } catch {
+            await finishConnectionOpening(cancelID, opening: opening)
+            throw error
         }
-        return SFTPFileBackend(session: ssh, sftp: sftp, user: user, host: host,
-                               initialPath: ".")
     }
 
     // MARK: - 分屏 / 标签页动作（UI 的入口，结构改动一律经 TabManager）
@@ -928,28 +952,36 @@ public final class AppModel: ObservableObject {
         let owner = DispatchQueue(label: "dev.ghosterm.terminal-connect")
         statusMessage = "连接 \(target.user)@\(target.host)…"
         pane.onStop = { [weak self] in self?.cancelConnection(id) }
+        let opening = beginConnectionOpening(id), operations = sshOpeningOperations
         Task { @MainActor [weak self, weak pane] in
             guard let self else { return }
+            defer { self.finishConnectionOpening(id, opening: opening) }
             do {
-                let ssh = try await self.authenticate(target, id: id, owner: owner)
-                let transport: Transport = try await withCheckedThrowingContinuation { continuation in
-                    owner.async {
-                        do {
-                            let transport = try Transport.openSSHShell(ssh)
-                            transport.releaseOn(owner); continuation.resume(returning: transport)
-                        } catch { continuation.resume(throwing: error) }
+                let transport: Transport = try await withTaskCancellationHandler(operation: {
+                    let ssh = try await self.authenticate(target, id: id, owner: owner, opening: opening)
+                    return try await withCheckedThrowingContinuation { continuation in
+                        owner.async {
+                            do {
+                                let remaining = try opening.remainingMilliseconds()
+                                let transport = try operations.shell(ssh, remaining, opening.cancellation)
+                                transport.releaseOn(owner); continuation.resume(returning: transport)
+                            } catch { continuation.resume(throwing: error) }
+                        }
                     }
-                }
+                }, onCancel: { opening.cancel() })
+                guard self.connectionOpenings[id] === opening else { return }
                 let cancelled = self.cancelledConnects.take(id)
-                guard let pane, !cancelled, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
+                guard let pane, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
+                if cancelled || opening.cancellation.isCancelled { pane.markFailed("SSH 连接已取消"); return }
                 pane.onStop = nil
                 let surface = try TerminalSurface(app: terminalApp)
                 let session = SessionController(transport: transport, surface: surface)
                 pane.attach(surface: surface, session: session); pane.start()
             } catch {
+                guard self.connectionOpenings[id] === opening else { return }
                 _ = self.cancelledConnects.take(id)
                 guard let pane, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
-                pane.markFailed(connectionErrorMessage(error))
+                pane.markFailed(opening.cancellation.isCancelled ? "SSH 连接已取消" : connectionErrorMessage(error))
             }
         }
     }
@@ -1011,7 +1043,8 @@ public final class AppModel: ObservableObject {
 
     /// One authentication implementation for ordinary terminals, files and
     /// optional management/attach. Prompts stay on main; DNS/libssh2 on owner.
-    func authenticate(_ target: SSHConnectionTarget, id: UUID, owner: DispatchQueue) async throws -> SSHSession {
+    func authenticate(_ target: SSHConnectionTarget, id: UUID, owner: DispatchQueue,
+                      opening: SSHConnectionOpening? = nil) async throws -> SSHSession {
         if cancelledConnects.contains(id) { throw ConnectCancelled() }
         if target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {
             let targets = try configuredSSHRoute(for: [target.alias])
@@ -1021,7 +1054,7 @@ public final class AppModel: ObservableObject {
                   finalTarget.knownHosts == target.knownHosts, finalTarget.identityPaths == target.identityPaths else {
                 throw GhostermError.failed("SSH 目标配置已改变，请重新连接")
             }
-            return try await authenticateRoute(targets, alias: target.alias, id: id, owner: owner)
+            return try await authenticateRoute(targets, alias: target.alias, id: id, owner: owner, opening: opening)
         }
         let selector = SSHCredentialSelector(target: target, storage: sshCredentialStorage, ask: { [weak self] kind in
             guard let self, !self.cancelledConnects.contains(id) else { return nil }
@@ -1036,19 +1069,21 @@ public final class AppModel: ObservableObject {
         }, notice: { [weak self] message in self?.statusMessage = message })
         return try await withCheckedThrowingContinuation { continuation in
             var request: UInt64 = 0
+            let generation = UUID()
             let flow = SSHAuthenticationFlow(owner: owner,
                 options: SSHOptions(host: target.host, port: target.port, username: target.user, knownHostsPath: target.knownHosts),
-                configurationIssues: target.connectionIssues, prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
+                opening: opening, configurationIssues: target.connectionIssues, prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
                 completion: { [weak self] result in
                     if case .success(let value) = result { value.connection.releaseOn(owner) }
-                    DispatchQueue.main.async { self?.authentications.removeValue(forKey: id) }
+                    DispatchQueue.main.async { self?.finishAuthentication(id, generation: generation) }
                     continuation.resume(with: result.map { $0.connection }.mapError { $0 as Error })
                 })
-            authentications[id] = (owner, flow)
+            registerAuthentication(id, owner: owner, flow: flow, generation: generation)
             owner.async { flow.start() }
         }
     }
-    private func authenticateRoute(_ targets: [SSHConnectionTarget], alias: String, id: UUID, owner: DispatchQueue) async throws -> SSHSession {
+    private func authenticateRoute(_ targets: [SSHConnectionTarget], alias: String, id: UUID, owner: DispatchQueue,
+                                   opening: SSHConnectionOpening? = nil) async throws -> SSHSession {
         let valid = { [weak self] in
             guard let self, !self.cancelledConnects.contains(id), self.loadError == nil else { return false }
             return (try? self.configuredSSHRoute(for: [alias])) == targets
@@ -1078,20 +1113,42 @@ public final class AppModel: ObservableObject {
         }
         let connection: SSHSession = try await withCheckedThrowingContinuation { continuation in
             var request: UInt64 = 0
+            let generation = UUID()
             let flow = SSHRouteAuthenticationFlow(owner: owner, options: targets.map {
                 SSHOptions(host: $0.host, port: $0.port, username: $0.user, knownHostsPath: $0.knownHosts)
-            }, prompts: prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request }, completion: { [weak self] result in
+            }, prompts: prompts, opening: opening, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request }, completion: { [weak self] result in
                 if case .success(let value) = result { value.connection.releaseOn(owner) }
-                DispatchQueue.main.async { self?.authentications.removeValue(forKey: id) }
+                DispatchQueue.main.async { self?.finishAuthentication(id, generation: generation) }
                 continuation.resume(with: result.map { $0.connection }.mapError { $0 as Error })
             })
-            authentications[id] = (owner, flow); owner.async { flow.start() }
+            registerAuthentication(id, owner: owner, flow: flow, generation: generation); owner.async { flow.start() }
         }
         guard valid() else { owner.async { connection.close() }; throw ConnectCancelled() }
         return connection
     }
+    func registerAuthentication(_ id: UUID, owner: DispatchQueue, flow: SSHAuthenticationOperation, generation: UUID) {
+        if let (previousOwner, previous) = authentications[id] { previousOwner.async { previous.cancel() } }
+        authenticationGenerations[id] = generation
+        authentications[id] = (owner, flow)
+    }
+    func finishAuthentication(_ id: UUID, generation: UUID) {
+        guard authenticationGenerations[id] == generation else { return }
+        authenticationGenerations.removeValue(forKey: id); authentications.removeValue(forKey: id)
+    }
+    func beginConnectionOpening(_ id: UUID) -> SSHConnectionOpening {
+        connectionOpenings[id]?.cancel()
+        let opening = makeSSHConnectionOpening()
+        connectionOpenings[id] = opening
+        if cancelledConnects.contains(id) { opening.cancel() }
+        return opening
+    }
+    func finishConnectionOpening(_ id: UUID, opening: SSHConnectionOpening) {
+        if connectionOpenings[id] === opening { connectionOpenings.removeValue(forKey: id) }
+    }
+
     func cancelConnection(_ id: UUID) {
         cancelledConnects.add(id)
+        connectionOpenings[id]?.cancel()
         if let (owner, flow) = authentications[id] { owner.async { flow.cancel() } }
     }
     func finishChooserAuthentication(_ id: UUID) { _ = cancelledConnects.take(id) }

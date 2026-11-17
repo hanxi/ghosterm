@@ -143,29 +143,23 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 
 macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 使用异步 DNSService，支持数字 IPv4、IPv6 和 IPv6 scope；默认先查询 IPv4。只有所选地址族返回 `kDNSServiceErr_NoSuchRecord` 才查询另一族，首个有效地址到达即完成并释放 DNS 查询。因此这是 DNS 缺记录时的换族，不是 TCP 失败后的备用地址重试，也没有并行竞速连接。
 
-[SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 在 owner 队列建立 60 秒总预算，包含 DNS、主机验证与凭据等待；解析成功后仅将剩余预算交给一个认证器。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通 SSH、独立文件连接及 tmux 共用该认证流程；任一选中地址 TCP 失败就结束本次流程，不会继续尝试同一域名的其他地址。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
+[SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 使用 60 秒认证总预算，包含 DNS、主机验证与凭据等待；普通终端和文件工厂在上层提前建立作用域并延伸至后续打开，独立管理认证仍保留原入口。解析成功后仅将剩余预算交给一个认证器。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通 SSH、独立文件连接及 tmux 共用该认证流程；任一选中地址 TCP 失败就结束本次流程，不会继续尝试同一域名的其他地址。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
 
 现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 已由 native owner 接入候选推进，定向与变异范围见 [§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不改变本端单地址行为；macOS 的后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。 Android 系统 DNS/UTS46 与错误分档的后续验证见 [§9.109](../docs/reference/android-implementation.md#android-dns-diagnostics)，不作为本端 IDNA、VPN 或网络故障证据。
 
 ### SSH 认证后的通道打开边界
 
-普通终端的生产入口是 `AppModel.startSSH`：先等待 `SSHAuthenticationFlow` 完成，再在连接 owner 队列调用 `Transport.openSSHShell`。认证完成时会撤销认证计时器；传给下一阶段的只是 `SSHSession`，没有剩余 deadline。共享 `gt__ssh_shell_open` 为 channel-open → PTY → shell 新建一个 5000 ms 的准入预算，取消回调传 `NULL`。这不是从 DNS 开始贯穿到 shell 可输入的单一 60 秒预算，也不能用已建立会话的 `SessionController.stop()` 证据证明打开阶段可立即取消。
+普通终端的生产入口 `AppModel.startSSH` 在认证开始前创建打开作用域，DNS/主机验证/凭据和 ProxyJump 各跳共用截止时间，认证后把余额与同一取消令牌交给 `Transport.openSSHShell(timeoutMilliseconds:cancellation:)`。停止、关闭和重载可直接取消正在等待的 owner，不在其队列后面排队更新令牌。晚到成功不挂载 surface；仍存在的取消窗格显示“SSH 连接已取消”。旧完成按对象/代次移除，不撤销替代请求。
 
-关闭连接中的窗格时，`cancelledConnects` 和窗格 ID 检查会阻止成功返回的旧 transport 挂到已关闭窗格；这项结果归属保护不等于中断正在执行的 Core 通道请求。现有预算在非阻塞请求的 EAGAIN 等待中检查，锁等待和清理不能据此承诺严格的五秒端到端上界。此处为源码核对，没有新增停滞服务器实测。
-
-共享核心已有 `gt_transport_open_ssh_shell_controlled` 和 Swift 的带 timeout/cancellation 重载（Android 计划 §9.41）；Swift 真实 sshd 与三组绑定变异已验零预算、取消及 PTY 尺寸/回显。Android 产品已改用新入口，macOS `AppModel.startSSH` 仍走上文旧入口，不能把绑定可用记为桌面交互已修复。
-
-共享通道代码现仅把明确的 PTY/shell 请求拒绝映射为 UNSUPPORTED，断线保持 IO；原 exec/tmux 预算继续调用 `gt__command_expired`。最终 SSH 五组、exec 两组、真实 tmux SSH 六组及 C/Swift 绑定变异已通过；失败过程保留在[切片记录](../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。本轮没有新增完整 macOS 宿主或产品取消验收。
-
-macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，分别验证 channel-open、PTY 和 shell 三个阶段停滞、拒绝、超时及取消；取消后不得继续发后续请求或挂载晚到会话，并验证 owner 释放和正常真实 shell 对照。若修改公开 ABI，同步 Swift/JNI 与真实平台构建。SFTP 子系统和 tmux 管理/attach 各有入口，须独立验收，不能从普通 shell 的修复推定它们已完成。跨端计划见 [Android 网络收尾](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)及[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+共享 `gt_transport_open_ssh_shell_controlled` 与 Swift 绑定的历史三阶段/错误分类证据仍见 [§9.41](../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。新产品接线的 62 项本机 SSH 组合、二十组变异、真实 SFTP 协议停滞和旧跳板保护分别记在[普通打开](../docs/reference/macos-ssh-opening.md)；不是所有服务器/网络、后续关闭或完整宿主验收。C ABI/JNI 未变，tmux 专用命令和 attach 生命周期不借用本片结论。
 
 ### SFTP 打开与取消边界
 
-`AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用 `ssh.sftp(timeoutMilliseconds: 5000)`。已使用受控重载，但新建固定五秒预算，仍没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
+`AppModel.makeSFTPFileBackend` 认证和子系统打开共用作用域，在专用 owner 传递原余额与五秒上限的较小值及取消令牌。取消文件工厂 Task 或页面请求可打断实际 SFTP INIT 等待；原生成功后取消先到时，先在 owner 关闭子系统再返回取消。独立页和内嵌面板复用同一工厂，后续浏览仍独立于终端连接。
 
-`SSHSession.sftp(timeoutMilliseconds:cancellation:)` 与主机补丁 libssh2 已完成本机验收，默认 Core 和两个 SwiftPM 包消费同一版本。17 项协议用例、十组接口变异、十一组依赖守卫及既有打包变异通过；此前测试观测面错误已修正。完整证据与构建准备见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
+本片使用已验的 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 和同一主机补丁 libssh2；历史十七项协议、十组接口及十一组依赖保护见[主机依赖](../docs/reference/host-ssh2-build.md)。新产品证据、旧保护和前置失败见[打开说明](../docs/reference/macos-ssh-opening.md)，不与旧依赖数字相加冒充本轮全跑。
 
-macOS `makeSFTPFileBackend` 已接固定预算的 `sftp` 重载，剩余预算/取消尚未贯通；Android 后续已由 §9.51/§9.52 接入专用文件 owner/JNI 与页面，已传递预算和取消；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
+list/realpath/预览/任务/关闭仍有旧阻塞契约和主线程队列等待，后续 owner 迁移继续；打开可取消不代表整条文件连接已全面有界。Android 既有 §9.51/§9.52 证据和本端本机专项分开，不增加 Android 结果或修改其产品代码。
 
 ### 目录浏览与元数据接线边界
 
