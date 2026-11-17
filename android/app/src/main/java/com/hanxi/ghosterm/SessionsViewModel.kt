@@ -94,12 +94,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true,
     settings: AppSettings? = (application as? GhostermApplication)?.settings) : AndroidViewModel(application) {
     private var extensionController: ExtensionController? = null
+    private var extensionCleanup: (suspend () -> Unit)? = null
 
     /** The root AppModel supplies the same process-screen owner used by plugin
      * review, so SSH attempts and package review share one native worker. */
-    internal fun attachExtensionController(controller: ExtensionController?) {
+    internal fun attachExtensionController(controller: ExtensionController?, cleanup: (suspend () -> Unit)? = null) {
         check(extensionController == null || extensionController === controller) { "不能替换活动插件控制器" }
         extensionController = controller
+        if (cleanup != null) extensionCleanup = cleanup
     }
 
     private val processTerminals = monitorSessions && application is GhostermApplication
@@ -749,7 +751,9 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         background?.detached(this)
         if (!processTerminals) sessions.forEach { it.connection.close() }
         extensionController?.let { owner ->
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { owner.close() }
+            CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+                try { extensionCleanup?.invoke() } finally { owner.close(); extensionCleanup = null }
+            }
         }
         super.onCleared()
     }

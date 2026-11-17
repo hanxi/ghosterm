@@ -188,7 +188,7 @@ object ExtensionRelayBootstrap {
         }
     }
 
-    fun buildMultiplex(connection: String, scopes: List<ExtensionController.MultiplexScope>, requests: List<Request>, temporaryDirectory: String): String {
+    fun buildMultiplex(connection: String, scopes: List<ExtensionController.MultiplexScope>, requests: List<Request>, temporaryDirectory: String, live: Boolean = false): String {
         fun identity(value: String) = value.matches(Regex("[a-f0-9]{32}")) && value.any { it != '0' }
         require(identity(connection) && requests.size in 1..8 && scopes.size == requests.size &&
             scopes.map { it.instance }.distinct().size == scopes.size && scopes.map { it.epoch }.distinct().size == scopes.size &&
@@ -197,23 +197,12 @@ object ExtensionRelayBootstrap {
             requests.all { it.execution == null || it.execution.temporaryDirectory == temporaryDirectory }) {
             "启动组需要同一 gterm、明确临时目录与一至八个独立实例，不能包含已有前台附着"
         }
-        val hexDigits = "0123456789abcdef"
         val argv = buildList {
-            addAll(listOf(requests.first().executable, "relay", "--multiplex", "--connection", connection))
+            addAll(listOf(requests.first().executable, "relay", "--multiplex"))
+            if (live) add("--live")
+            addAll(listOf("--connection", connection))
             scopes.zip(requests).forEach { (scope, request) ->
-                val profile = arguments(request).drop(3)
-                require(profile.size in 1..256)
-                val encoded = java.io.ByteArrayOutputStream()
-                fun u16(value: Int) { encoded.write(value ushr 8); encoded.write(value and 255) }
-                encoded.write(1); u16(profile.size)
-                profile.forEach { value ->
-                    val bytes = value.toByteArray(Charsets.UTF_8); require(bytes.size <= 65535)
-                    u16(bytes.size); encoded.write(bytes)
-                }
-                val hex = buildString { encoded.toByteArray().forEach { byte ->
-                    val value = byte.toInt() and 255; append(hexDigits[value ushr 4]); append(hexDigits[value and 15])
-                } }
-                require(hex.length <= 4096) { "单个实例启动配置超过 Native 参数预算" }
+                val hex = multiplexProfile(request)
                 addAll(listOf("--instance", scope.instance, scope.epoch.toString(), hex))
             }
         }
@@ -221,6 +210,24 @@ object ExtensionRelayBootstrap {
         return ("TMPDIR=" + quote(temporaryDirectory) + " exec " + argv.joinToString(" ", transform = ::quote)).also {
             require(it.toByteArray().size <= 32768) { "连接启动命令超过 32 KiB" }
         }
+    }
+
+    fun multiplexProfile(request: Request): String {
+        val hexDigits = "0123456789abcdef"
+        val profile = arguments(request).drop(3)
+        require(profile.size in 1..256)
+        val encoded = java.io.ByteArrayOutputStream()
+        fun u16(value: Int) { encoded.write(value ushr 8); encoded.write(value and 255) }
+        encoded.write(1); u16(profile.size)
+        profile.forEach { value ->
+            val bytes = value.toByteArray(Charsets.UTF_8); require(bytes.size <= 65535)
+            u16(bytes.size); encoded.write(bytes)
+        }
+        val hex = buildString { encoded.toByteArray().forEach { byte ->
+            val value = byte.toInt() and 255; append(hexDigits[value ushr 4]); append(hexDigits[value and 15])
+        } }
+        require(hex.length <= 4096) { "单个实例启动配置超过 Native 参数预算" }
+        return hex
     }
 
     private fun arguments(request: Request): List<String> {

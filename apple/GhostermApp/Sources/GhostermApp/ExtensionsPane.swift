@@ -510,6 +510,13 @@ struct ExtensionsPane: View {
                         Spacer()
                         Button("移除") { pendingConnections.removeAll { $0.id == launch.id } }
                     }
+                    ForEach(model.extensionConnections.filter { $0.canAdd }) { connection in
+                        Button("添加到现有连接：" + connection.title + " · " + connection.targetDescription) {
+                            Task { @MainActor in
+                                if await connection.add(launch, app: model) { pendingConnections.removeAll { $0.id == launch.id }; SettingsWindow.close() }
+                            }
+                        }.accessibilityIdentifier("plugin-add-" + connection.id.uuidString + "-" + launch.id.uuidString)
+                    }
                     DisclosureGroup("查看配置") {
                         Text(verbatim: "目标：" + (launch.localLaunch == nil ? launch.sshAlias : "本机") + " · " + launch.request.executable)
                         Text(verbatim: "Client：" + launch.request.clientDigest + "\nExecutor：" + launch.request.executorDigest)
@@ -542,6 +549,8 @@ struct ExtensionsPane: View {
                     Button(connection.closed ? "已关闭" : "停止并关闭连接") { Task { _ = await connection.close() } }
                         .disabled(connection.closed)
                 }
+                Text(verbatim: "此连接实际目标：" + connection.targetDescription).font(DS.Font.caption).textSelection(.enabled)
+                if !connection.closed { Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标或本机授权范围请新建连接。").font(DS.Font.caption).foregroundStyle(.secondary) }
                 ForEach(connection.instances) { instance in
                     Button(instance.extensionRun?.command ?? "查看实例") { model.showExtensionWorkspace(instance); SettingsWindow.close() }
                 }

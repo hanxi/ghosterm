@@ -440,8 +440,30 @@ public actor ExtensionController {
     public func makeInvocationController() async throws -> ExtensionController {
         try await worker.makeInvocationController()
     }
-    public func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope]) async throws -> [ExtensionController] {
-        try await worker.adoptMultiplexConnection(connection: connection, scopes: scopes)
+    public func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope], live: Bool = false) async throws -> [ExtensionController] {
+        try await worker.adoptMultiplexConnection(connection: connection, scopes: scopes, live: live)
+    }
+    public func openMultiplexInstance(_ scope: MultiplexScope) async throws -> ExtensionController { try await worker.openMultiplexInstance(scope) }
+    public func stopMultiplexConnection() async { await worker.stopMultiplexConnection() }
+    public func multiplexTargetDescription() async throws -> String { try await worker.targetDescription() }
+    public func manageMultiplex(_ method: String, input: Data = Data("{}".utf8)) async throws -> Data {
+        try Task.checkCancellation()
+        let ticket = try await worker.beginNative(method, input: input)
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        do {
+            while true {
+                if let result = try await worker.pollNative(ticket) {
+                    try Task.checkCancellation()
+                    return result
+                }
+                guard ProcessInfo.processInfo.systemUptime < deadline else { throw GhostermError.failed("连接管理结果未确认；不会重放请求") }
+                // Preserve the one in-flight transaction through cancellation.
+                // A cancelled add closes only its pre-registered child owner.
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(10)) { continuation.resume() }
+                }
+            }
+        } catch { await worker.abandonNative(ticket); throw error }
     }
     public func stepMultiplexConnection() async throws -> MultiplexState {
         try await worker.stepMultiplexConnection()
@@ -727,6 +749,10 @@ public actor ExtensionController {
             var pump: DispatchSourceTimer?
             var drainDeadline: Double?
             var finalMultiplexState: MultiplexState?
+            var nativeConnection: String?
+            var nativePending: String?
+            var nativeAbandoned = false
+            var targetDescription = ""
             var closed: Bool = false
             var closeComplete: Bool = false
             var closeResult: Bool = false
@@ -825,7 +851,7 @@ public actor ExtensionController {
                 return ExtensionController(worker: Worker(state: self.state, run: run))
             }
         }
-        func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope]) async throws -> [ExtensionController] {
+        func adoptMultiplexConnection(connection: String, scopes: [MultiplexScope], live: Bool) async throws -> [ExtensionController] {
             try await perform {
                 try self.checkOpen()
                 guard self.run.parent == nil, self.run.multiplexer == nil,
@@ -833,8 +859,9 @@ public actor ExtensionController {
                       (1...8).contains(scopes.count), self.state.runs.count + scopes.count <= 145,
                       Set(scopes.map(\.instance)).count == scopes.count,
                       Set(scopes.map(\.epoch)).count == scopes.count else { throw ControllerError.channelUnavailable }
-                let mux = try ExtensionMultiplexer(channel: channel, connection: connection)
+                let mux = try ExtensionMultiplexer(channel: channel, connection: connection, frameBytes: live ? 8192 : 4096)
                 self.run.multiplexer = mux; self.channel = nil
+                if live { try mux.enableNativeControl(host: true); self.run.nativeConnection = connection }
                 var children: [ExtensionController] = []
                 for scope in scopes {
                     let child = Run(); child.parent = self.run; child.local = self.local
@@ -847,11 +874,68 @@ public actor ExtensionController {
                 timer.setEventHandler { [weak run = self.run] in
                     guard let run, let mux = run.multiplexer else { return }
                     _ = try? mux.step()
+                    if run.nativeAbandoned, (try? mux.takeNativeControl()) != nil {
+                        run.nativePending = nil; run.nativeAbandoned = false
+                    }
                     if (try? mux.info().error) != 0 { run.pump?.cancel(); run.pump = nil }
                 }
                 self.run.pump = timer; timer.resume()
                 return children
             }
+        }
+        func openMultiplexInstance(_ scope: MultiplexScope) async throws -> ExtensionController {
+            try await perform {
+                try self.checkOpen()
+                guard let mux = self.run.multiplexer, self.run.nativeConnection != nil,
+                      self.state.runs.count < 145 else { throw ControllerError.channelUnavailable }
+                let child = Run(); child.parent = self.run; child.local = self.local
+                child.channel = try mux.openChannel(instance: scope.instance, epoch: scope.epoch)
+                self.state.runs[child.id] = child
+                return ExtensionController(worker: Worker(state: self.state, run: child))
+            }
+        }
+        func stopMultiplexConnection() async { try? await perform { self.run.multiplexer?.stop() } }
+        func targetDescription() async throws -> String { try await perform { self.run.targetDescription } }
+        func beginNative(_ method: String, input: Data) async throws -> String {
+            try await perform {
+                try self.checkOpen()
+                guard ["hello", "open", "status", "finish"].contains(method), input.count <= 6144,
+                      let value = try JSONSerialization.jsonObject(with: input) as? [String: Any],
+                      let mux = self.run.multiplexer, let connection = self.run.nativeConnection,
+                      self.run.nativePending == nil else { throw GhostermError.failed("连接管理尚未就绪或仍有结果未确认") }
+                let ticket = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+                let sequence = try mux.nativeInfo().nextSend
+                let frame: [String: Any] = ["wireVersion": 1, "connectionId": connection, "instanceId": connection,
+                    "epoch": "1", "streamId": "rpc.request", "seq": String(sequence), "kind": "request",
+                    "payload": ["requestId": ticket, "method": "native.multiplex." + method, "timeoutMs": 10000, "input": value]]
+                try mux.sendNativeControl(JSONSerialization.data(withJSONObject: frame))
+                self.run.nativePending = ticket; self.run.nativeAbandoned = false
+                return ticket
+            }
+        }
+        func pollNative(_ ticket: String) async throws -> Data? {
+            try await perform {
+                try self.checkOpen()
+                guard self.run.nativePending == ticket, let mux = self.run.multiplexer else { throw ControllerError.channelUnavailable }
+                _ = try mux.step()
+                guard let data = try mux.takeNativeControl() else {
+                    guard try mux.info().error == 0 else { throw GhostermError.failed("连接中断；管理结果未确认") }
+                    return nil
+                }
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let payload = object["payload"] as? [String: Any], payload["requestId"] as? String == ticket,
+                      let outcome = payload["outcome"] as? [String: Any] else { throw GhostermError.failed("连接管理回执身份不匹配") }
+                self.run.nativePending = nil
+                if outcome["kind"] as? String != "success" {
+                    let error = outcome["error"] as? [String: Any]
+                    throw GhostermError.failed("连接管理拒绝：" + (error?["code"] as? String ?? "UNKNOWN"))
+                }
+                guard let value = outcome["value"] as? [String: Any] else { throw GhostermError.failed("连接管理回执无效") }
+                return try JSONSerialization.data(withJSONObject: value)
+            }
+        }
+        func abandonNative(_ ticket: String) async {
+            try? await perform { if self.run.nativePending == ticket { self.run.nativeAbandoned = true } }
         }
         func stepMultiplexConnection() async throws -> MultiplexState {
             try await perform {
@@ -1385,6 +1469,7 @@ public actor ExtensionController {
                       !bootstrap.utf8.contains(0), bootstrap.utf8.count <= 32768 else {
                     throw ControllerError.invalidHostProfile
                 }
+                self.run.targetDescription = input.map { "\($0.username)@\($0.host):\($0.port)" }.joined(separator: " → ")
                 let hops = try input.enumerated().map { index, hop -> ExtensionChannel.Hop in
                     guard !hop.host.isEmpty, !hop.username.isEmpty,
                           !hop.host.utf8.contains(0), !hop.username.utf8.contains(0),

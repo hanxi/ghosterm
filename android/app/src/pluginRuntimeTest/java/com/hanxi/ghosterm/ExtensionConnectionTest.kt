@@ -114,6 +114,39 @@ class ExtensionConnectionTest {
             }
             assertEquals(7, runBlocking { current.controller.stepMultiplexConnection().info.instances })
             assertNull(main { extensions.activeSession }) // Default singleton never owns a group scope.
+            val replacementRequest = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), review.digest, review.digest,
+                emptyList(), command = "table", arguments = listOf("--count", "33"))
+            main { extensions.enqueueGroup(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(),
+                target.alias, replacementRequest, null, payload.getString("temporary")) }
+            val candidate = main { extensions.pendingGroup.single() }
+            ui.onNodeWithTag("plugin-add-${current.id}-${candidate.id}").performScrollTo().performClick()
+            await("online consent") { main { current.instances.lastOrNull()?.id == candidate.id && current.instances.last().model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
+            val replacement = main { current.instances.last() }
+            assertEquals(9L, main { replacement.model.activeSession!!.info.epoch })
+            ui.onNodeWithText("允许并启动").performClick()
+            await("online runtime") { main { replacement.model.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } }
+            val freshTable = main { replacement.model.table!! }
+            await("online table idle") { main { !freshTable.state.value.busy } }
+            runBlocking { main { freshTable.load() }?.join() }
+            assertEquals(33, main { freshTable.state.value.descriptor?.total }); assertNull(main { freshTable.state.value.issue })
+            for (instance in main { current.instances.toList() }) {
+                val table = main { instance.model.table!! }; await("sibling stable after online add") { main { !table.state.value.busy } }
+                runBlocking { main { table.load() }?.join() }; assertNull(main { table.state.value.issue })
+            }
+            main { current.instances.toList().forEach { current.requestCloseInstance(it) } }
+            await("all instances closed") { main { current.instances.all { it.closed } } }
+            assertFalse(main { current.closed }); assertTrue(main { current.canAdd })
+            assertEquals(0, runBlocking { current.controller.stepMultiplexConnection().info.instances })
+            main { extensions.enqueueGroup(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(),
+                target.alias, replacementRequest.copy(arguments = listOf("--count", "34")), null, payload.getString("temporary")) }
+            val lastCandidate = main { extensions.pendingGroup.single() }
+            ui.onNodeWithTag("plugin-add-${current.id}-${lastCandidate.id}").performScrollTo().performClick()
+            await("empty connection reuse consent") { main { current.instances.lastOrNull()?.id == lastCandidate.id && current.instances.last().model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
+            ui.onNodeWithText("允许并启动").performClick()
+            val finalModel = main { current.instances.last().model }
+            await("empty connection reuse active") { main { finalModel.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } }
+            val finalTable = main { finalModel.table!! }; await("final table idle") { main { !finalTable.state.value.busy } }
+            runBlocking { main { finalTable.load() }?.join() }; assertEquals(34, main { finalTable.state.value.descriptor?.total })
             ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
             await("group release: ${main { current.issue }}") { main { current.closed } }
             assertFalse(main { current.cleanupPending }); assertTrue(main { current.state?.info?.released == true })

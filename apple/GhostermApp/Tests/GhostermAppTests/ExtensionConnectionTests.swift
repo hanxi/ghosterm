@@ -8,6 +8,14 @@ import XCTest
 @testable import GhostermApp
 
 @MainActor final class ExtensionConnectionTests: XCTestCase {
+    func testNativeManagementBooleansDoNotFoldNumbersOrUnknown() throws {
+        for source in ["0", "1", "null", "\"true\""] {
+            let value = try JSONSerialization.jsonObject(with: Data(source.utf8), options: .fragmentsAllowed)
+            XCTAssertNil(ExtensionConnectionModel.nativeBoolean(value), source)
+        }
+        XCTAssertEqual(ExtensionConnectionModel.nativeBoolean(true), true)
+        XCTAssertEqual(ExtensionConnectionModel.nativeBoolean(false), false)
+    }
     private func request(_ slot: Int) -> ExtensionRelayBootstrap.Request {
         .init(executable: "/selected/gterm", executorDirectory: "/selected/package", executorDigest: String(repeating: "a", count: 64),
             clientDigest: String(repeating: "b", count: 64), methods: ["fixture.echo"], command: "fixture", arguments: [String(slot), "中文", "", "'--"])
@@ -123,6 +131,38 @@ import XCTest
         let state = try await connection.controller.stepMultiplexConnection()
         XCTAssertEqual(state.instances, 7); XCTAssertFalse(state.stopping)
         XCTAssertTrue(app.extensionInstance.canDiscard)
+        XCTAssertTrue(connection.canAdd)
+        if route == "local" {
+            let original = invocations[3].request
+            let widened = ExtensionGroupInvocation(packageID: review.id,
+                request: .init(executable: binary, executorDirectory: directory, executorDigest: review.digest, clientDigest: review.digest,
+                    methods: [], processEnvironmentNames: ["GHOSTERM_UNGRANTED"],
+                    execution: .init(runtime: .exec, temporaryDirectory: stage.path, authorized: true), command: original.command, arguments: original.arguments),
+                sshAlias: "mux-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
+            let rejected = await connection.add(widened, app: app); XCTAssertFalse(rejected)
+            let unchanged = try await connection.controller.stepMultiplexConnection(); XCTAssertEqual(unchanged.instances, 7)
+        }
+        let added = await connection.add(invocations[3], app: app); XCTAssertTrue(added, connection.issue ?? "")
+        let replacement = try XCTUnwrap(connection.instances.last)
+        XCTAssertNotEqual(replacement.id, removed.id)
+        await replacement.decideExtensionConsent(allow: true)
+        try await until("replacement activation") { replacement.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
+        let replacementTable = try XCTUnwrap(replacement.extensionTable); await replacementTable.load()
+        XCTAssertNil(replacementTable.issue); XCTAssertEqual(replacementTable.descriptor?.total, 3)
+        for instance in connection.instances where instance.id != replacement.id {
+            let table = try XCTUnwrap(instance.extensionTable); await table.load(); XCTAssertNil(table.issue)
+        }
+        for instance in connection.instances { let done = await instance.requestClose(); XCTAssertTrue(done) }
+        let empty = try await connection.controller.stepMultiplexConnection(); XCTAssertEqual(empty.instances, 0)
+        XCTAssertFalse(connection.closed); XCTAssertTrue(connection.canAdd)
+        let hello = try await connection.controller.manageMultiplex("hello")
+        XCTAssertTrue(String(decoding: hello, as: UTF8.self).contains("nativeControl"))
+        let reopened = await connection.add(invocations[0], app: app); XCTAssertTrue(reopened, connection.issue ?? "")
+        let finalInstance = try XCTUnwrap(connection.instances.last)
+        await finalInstance.decideExtensionConsent(allow: true)
+        try await until("empty connection reuse activation") { finalInstance.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
+        let finalTable = try XCTUnwrap(finalInstance.extensionTable); await finalTable.load()
+        XCTAssertNil(finalTable.issue); XCTAssertEqual(finalTable.descriptor?.total, 0)
         let closed = await connection.close(); XCTAssertTrue(closed)
         XCTAssertTrue(connection.state?.released == true)
         XCTAssertTrue(connection.state?.peerEOF == true, "Graceful group close must observe EOF before stopping physical IO")

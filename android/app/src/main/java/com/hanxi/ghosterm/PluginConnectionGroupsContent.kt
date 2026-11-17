@@ -34,6 +34,12 @@ import org.json.JSONArray
                     }
                     Text("选定环境名称：${request.processEnvironmentNames.joinToString()}")
                 } }
+                model.connectionGroups.filter { it.canAdd }.forEach { group ->
+                    TextButton(onClick = { model.addToConnection(group, invocation) },
+                        modifier = Modifier.testTag("plugin-add-${group.id}-${invocation.id}")) {
+                        Text("添加到现有连接：${group.title} · ${group.targetDescription}")
+                    }
+                }
                 TextButton(onClick = { model.pendingGroup.remove(invocation) }) { Text("移除此项") }
             }
         }
@@ -47,6 +53,8 @@ import org.json.JSONArray
     model.connectionGroups.forEach { group ->
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("连接组：${group.title.ifEmpty { "正在准备" }} · ${group.state?.info?.instances ?: group.instances.size} 实例")
+            Text("此连接实际目标：${group.targetDescription}", style = MaterialTheme.typography.bodySmall)
+            if (!group.closed) Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
             group.issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (group.cleanupPending) Text("连接或资源仍待释放，请重试关闭。", color = MaterialTheme.colorScheme.error)
             group.instances.forEachIndexed { index, instance ->

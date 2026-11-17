@@ -212,6 +212,10 @@ class ExtensionController private constructor(private val shared: Shared, privat
     private var muxPump: Runnable? = null
     private var muxDrainDeadline = 0L
     private var finalMultiplexState: MultiplexState? = null
+    private var nativeConnection: String? = null
+    private var nativePending: String? = null
+    private var nativeAbandoned = false
+    private var connectedTarget = ""
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
     private var foregroundInspectionReader: Any? = null
     @Volatile private var session: ExtensionSession? = null
@@ -238,11 +242,12 @@ class ExtensionController private constructor(private val shared: Shared, privat
         check(shared.controllers.size < 145) { "插件运行 owner 数量已达上限" }
         ExtensionController(shared, false)
     }
-    suspend fun adoptMultiplexConnection(connection: String, scopes: List<MultiplexScope>): List<ExtensionController> = onWorker {
+    suspend fun adoptMultiplexConnection(connection: String, scopes: List<MultiplexScope>, live: Boolean = false): List<ExtensionController> = onWorker {
         require(scopes.size in 1..8 && scopes.map { it.instance }.distinct().size == scopes.size && scopes.map { it.epoch }.distinct().size == scopes.size)
         check(parent == null && multiplexer == null && session == null && runtime == null && shared.controllers.size + scopes.size <= 145)
-        val mux = ExtensionMultiplexer.adopt(checkNotNull(channel), connection)
+        val mux = ExtensionMultiplexer.adopt(checkNotNull(channel), connection, frameBytes = if (live) 8192 else 4096)
         channel = null; multiplexer = mux
+        if (live) { mux.enableNativeControl(true); nativeConnection = connection }
         val children = scopes.map { scope ->
             ExtensionController(shared, false, this).also { it.channel = mux.openChannel(scope.instance, scope.epoch) }
         }
@@ -250,11 +255,61 @@ class ExtensionController private constructor(private val shared: Shared, privat
             override fun run() {
                 if (multiplexer !== mux) return
                 try { if (mux.step() != 0) mux.stop() } catch (_: Exception) { mux.stop() }
+                if (nativeAbandoned && mux.takeNativeControl() != null) { nativePending = null; nativeAbandoned = false }
                 shared.handler.postDelayed(this, 2)
             }
         }
         muxPump = pump; shared.handler.post(pump)
         children
+    }
+    suspend fun openMultiplexInstance(scope: MultiplexScope): ExtensionController = onWorker {
+        check(nativeConnection != null && shared.controllers.size < 145)
+        val child = ExtensionController(shared, false, this)
+        try { child.channel = checkNotNull(multiplexer).openChannel(scope.instance, scope.epoch); child }
+        catch (failure: Exception) { shared.controllers.remove(child); throw failure }
+    }
+    suspend fun stopMultiplexConnection() = withContext(NonCancellable + dispatcher) { checkWorker(); multiplexer?.stop() }
+    suspend fun multiplexTargetDescription(): String = onWorker { connectedTarget }
+    suspend fun manageMultiplex(method: String, input: String = "{}"): String {
+        val caller = currentCoroutineContext()
+        caller.ensureActive()
+        val ticket = withContext(NonCancellable) { onWorker {
+            check(method in listOf("hello", "open", "status", "finish") && input.toByteArray().size <= 6144 && nativePending == null)
+            val value = JSONObject(input); val mux = checkNotNull(multiplexer); val connection = checkNotNull(nativeConnection)
+            val id = UUID.randomUUID().toString().replace("-", "")
+            val frame = JSONObject().put("wireVersion", 1).put("connectionId", connection).put("instanceId", connection)
+                .put("epoch", "1").put("streamId", "rpc.request").put("seq", mux.nativeInfo().nextSend.toString()).put("kind", "request")
+                .put("payload", JSONObject().put("requestId", id).put("method", "native.multiplex." + method).put("timeoutMs", 10000).put("input", value))
+            mux.sendNativeControl(frame.toString().toByteArray()); nativePending = id; nativeAbandoned = false; id
+        } }
+        try {
+            val result = withContext(NonCancellable) {
+                val deadline = SystemClock.elapsedRealtime() + 10000
+                var value: String? = null
+                while (value == null) {
+                    value = onWorker {
+                        check(nativePending == ticket)
+                        val mux = checkNotNull(multiplexer); mux.step()
+                        val data = mux.takeNativeControl()
+                        if (data == null) { check(mux.info().error == 0) { "连接中断；管理结果未确认" }; null }
+                        else {
+                            val payload = JSONObject(data.toString(Charsets.UTF_8)).getJSONObject("payload")
+                            check(payload.getString("requestId") == ticket)
+                            val outcome = payload.getJSONObject("outcome"); nativePending = null
+                            check(outcome.getString("kind") == "success") { "连接管理拒绝：${outcome.optJSONObject("error")?.optString("code") ?: "UNKNOWN"}" }
+                            outcome.getJSONObject("value").toString()
+                        }
+                    }
+                    check(value != null || SystemClock.elapsedRealtime() < deadline) { "连接管理结果未确认；不会重放请求" }
+                    if (value == null) delay(10)
+                }
+                value
+            }
+            caller.ensureActive(); return result
+        } catch (failure: Exception) {
+            withContext(NonCancellable) { onWorker { if (nativePending == ticket) nativeAbandoned = true } }
+            throw failure
+        }
     }
     private fun multiplexState(mux: ExtensionMultiplexer) = MultiplexState(mux.info(), mux.transportInfo())
     suspend fun stepMultiplexConnection(): MultiplexState = onWorker {
@@ -269,6 +324,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
     suspend fun openSSHChannel(hops: List<ExtensionChannel.Hop>, family: Int, address: ByteArray,
         scope: Int = 0, bootstrap: String): ChannelState = onWorker {
         check(parent == null && multiplexer == null && channel == null) { "已有插件通道占用此控制器" }
+        connectedTarget = hops.joinToString(" → ") { "${it.user}@${it.host}:${it.port}" }
         val opened = ExtensionChannel.ssh(hops, family, address.copyOf(), scope, bootstrap)
         channel = opened
         try {

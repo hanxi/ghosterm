@@ -183,7 +183,7 @@ public enum ExtensionRelayBootstrap {
     }
 
     public static func buildMultiplex(connection: String, scopes: [ExtensionController.MultiplexScope],
-                                      requests: [Request], local: Bool, temporaryDirectory: String) throws -> (argv: [String], command: String) {
+                                      requests: [Request], local: Bool, temporaryDirectory: String, live: Bool = false) throws -> (argv: [String], command: String) {
         func identity(_ id: String) -> Bool {
             id.utf8.count == 32 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } && id.contains { $0 != "0" }
         }
@@ -196,19 +196,11 @@ public enum ExtensionRelayBootstrap {
               requests.allSatisfy({ $0.execution == nil || $0.execution?.temporaryDirectory == temporaryDirectory }) else {
             throw invalid("启动组需要同一 gterm、明确临时目录与一至八个独立实例，不能包含已有前台附着")
         }
-        var argv = [first.executable, "relay", "--multiplex", "--connection", connection]
+        var argv = [first.executable, "relay", "--multiplex"]
+        if live { argv.append("--live") }
+        argv += ["--connection", connection]
         for (scope, request) in zip(scopes, requests) {
-            let profile = Array(try arguments(request, local: local).dropFirst(3))
-            guard (1...256).contains(profile.count) else { throw invalid("实例启动配置超过 256 项") }
-            var bytes = Data([1, UInt8(profile.count >> 8), UInt8(profile.count & 255)])
-            for value in profile {
-                let raw = Array(value.utf8)
-                guard raw.count <= 65535, !raw.contains(0) else { throw invalid("实例启动参数无效或超过编码预算") }
-                bytes.append(contentsOf: [UInt8(raw.count >> 8), UInt8(raw.count & 255)])
-                bytes.append(contentsOf: raw)
-            }
-            let hex = bytes.map { String(format: "%02x", $0) }.joined()
-            guard hex.utf8.count <= 4096 else { throw invalid("单个实例启动配置超过 Native 参数预算") }
+            let hex = try multiplexProfile(request, local: local)
             argv += ["--instance", scope.instance, String(scope.epoch), hex]
         }
         guard argv.count <= 64, argv.reduce(0, { $0 + $1.utf8.count + 1 }) <= 16384,
@@ -216,6 +208,21 @@ public enum ExtensionRelayBootstrap {
         let command = "TMPDIR=" + quote(temporaryDirectory) + " exec " + argv.map(quote).joined(separator: " ")
         guard command.utf8.count <= 32768 else { throw invalid("连接启动命令超过 32 KiB") }
         return (argv, command)
+    }
+
+    public static func multiplexProfile(_ request: Request, local: Bool) throws -> String {
+        let profile = Array(try arguments(request, local: local).dropFirst(3))
+        guard (1...256).contains(profile.count) else { throw invalid("实例启动配置超过 256 项") }
+        var bytes = Data([1, UInt8(profile.count >> 8), UInt8(profile.count & 255)])
+        for value in profile {
+            let raw = Array(value.utf8)
+            guard raw.count <= 65535, !raw.contains(0) else { throw invalid("实例启动参数无效或超过编码预算") }
+            bytes.append(contentsOf: [UInt8(raw.count >> 8), UInt8(raw.count & 255)])
+            bytes.append(contentsOf: raw)
+        }
+        let hex = bytes.map { String(format: "%02x", $0) }.joined()
+        guard hex.utf8.count <= 4096 else { throw invalid("单个实例启动配置超过 Native 参数预算") }
+        return hex
     }
 
     private static func arguments(_ request: Request, local: Bool) throws -> [String] {

@@ -334,6 +334,13 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
+    internal fun addToConnection(connection: ExtensionConnectionModel, invocation: ExtensionGroupInvocation) {
+        viewModelScope.launch {
+            val instance = connection.add(invocation)
+            if (instance != null) { pendingGroup.remove(invocation); selectedGroupInstance = instance.model }
+        }
+    }
+
     fun reportError(message: String) { error = message }
 
     fun editCodexMessage(value: String) { codex = codex.copy(messageDraft = value) }
@@ -927,6 +934,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 busy = false
             }
         }
+    }
+
+    internal suspend fun closeConnectionGroups() {
+        withContext(NonCancellable) { connectionGroups.toList().forEach { it.close() } }
     }
 
     override fun onCleared() {
