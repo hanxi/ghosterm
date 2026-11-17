@@ -33,7 +33,7 @@ if [ ! -d "$XCFW" ]; then
 fi
 
 echo "== 0/4 C ABI 绑定对拍（Apple 侧引用 ↔ 头文件声明） =="
-bash "$ROOT/scripts/check-abi-apple.sh"
+bash "$ROOT/scripts/check-abi-apple.sh" || exit $?
 
 PLUGIN_JS_PROFILE=0
 if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
@@ -187,9 +187,9 @@ if [ -n "$HTML_CAPTURE" ]; then
       exit 1
     fi
   done
-  GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE" bash "$ROOT/scripts/test-plugin-html-webkit.sh"
+  GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE" bash "$ROOT/scripts/test-plugin-html-webkit.sh" || exit $?
 else
-  bash "$ROOT/scripts/test-plugin-html-webkit.sh"
+  bash "$ROOT/scripts/test-plugin-html-webkit.sh" || exit $?
 fi
 
 echo "APPLE APP GATE PASS"

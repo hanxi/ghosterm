@@ -327,7 +327,7 @@ dev 的 main push 和 release 的 PR 都有路径过滤，连续 dev 运行还�
 
 当前 full workflow 尚未对 `apple-app-gate.sh` 的全部跳过输出统一判失败；sshd 启动失败时，该脚本可以只跑其余用例后返回成功。图标缺依赖失败及打包/认证变异的 SKIP 守卫不能替代这项检查，后续需按必跑项目收口。
 
-另一个独立缺口是失败传播：`apple-app-gate.sh` 使用 `set -uo pipefail`，没有 `-e`，调用 `check-abi-apple.sh` 后也没有检查返回值。因此 ABI 子检查失败本身不会终止这个脚本，后续构建/测试若成功，仍可能打印 `APPLE APP GATE PASS`。目前应单独核验上面的 ABI 命令结果；该源码结论不表示已复现某次 CI 假绿。修复需要隔离注入 ABI 失败并证明宿主闸门非零退出，保留正常本地构建对照，不能只补日志文字。
+子检查失败传播已于 2026-11-17 修复：ABI 或 HTML 子检查失败时，`apple-app-gate.sh` 保留其非零退出码并停止，不打印 `APPLE APP GATE PASS`。`python3 scripts/test-apple-app-gate.py -v` 使用工程 tmp 下的真实闸门副本及 shell 依赖桩，五项检查覆盖全成功、ABI/Core/Swift/HTML 失败；两组撤回修复各得到单条正常断言红、同夹具成功对照绿、恢复绿与源码 SHA256。此证据只针对脚本控制流，没有执行原生编译、SSH 或插件业务；SSH 必跑策略仍按上一段单独收口。
 
 构建 Core 与 App 时须使用一致的 Xcode 环境。此次文档核对中，系统 `xcode-select` 指向 Command Line Tools，默认 `gate.sh` 链接 Xcode 27 SDK 的 TBD 时失败（`unknown architecture`）；在同一命令设置完整 Xcode 的 `DEVELOPER_DIR` 后 46 项 Core 测试与 88 ABI 闸门通过。不能从脚本使用了 `xcrun` 推定编译器、链接器和缓存 SDK 已一致，也不固定假设 Xcode SDK 一定是 26.5。
 

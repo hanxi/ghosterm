@@ -24,7 +24,7 @@
 | 1 / P0 | SSH 配置保存事务与模型发布 | [ConfigStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) 忽略备份失败、先删后移；`AppModel.applyEdits/addHost` 先改内存后落盘 | 备份失败阻断，同目录原子替换，候选落盘成功后才发布；覆盖备份/替换/并发变化/提交后错误。可先做，不等表单重构 |
 | 2 / P0 | 主机表单保真 | [HostListModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/HostListModel.swift) 简化扫描，[HostEditorSheet.swift](../../apple/GhostermApp/Sources/GhostermApp/HostEditorSheet.swift) 提交全部字段、多条身份只回显最后一条 | 共享语法/来源与脏字段接线，未改保存不变；Include/重复块保持归属保护。别名改名依赖此片与事务片 |
 | 3 / P0 | 私钥安全存储生产接线 | [SSHCredentialSelector.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) 从受限磁盘文件读 PEM，Keychain 生产路径保存口令/密码 | 私钥导入→安全存储→解锁→认证，引用/取消/错误明确；不把 Android 容器引用当本端路径，不放宽铁律 #5 |
-| 4 / P1 | 宿主闸门失败传播与必跑项 | [apple-app-gate.sh](../../scripts/apple-app-gate.sh) 无 `set -e`，ABI 返回未检查，sshd 失败可 SKIP 后 PASS | 分别传播 ABI 失败、明确 full 档 SSH 必跑策略；隔离注入与独立本地对照。不删测试或把缺环境改成通过 |
+| 4 / P1 | 宿主闸门必跑项 | [apple-app-gate.sh](../../scripts/apple-app-gate.sh) 的 ABI/HTML 子检查失败传播已修；sshd 失败可 SKIP 后 PASS 的策略仍未收口 | 失败传播五项 shell 检查与两组撤回修复验证已通过，非原生业务证据。后续明确 full 档 SSH 必跑策略，独立验证缺环境会失败；不删测试或把缺环境改成通过 |
 | 5 / P1 | 文件导航/错误/缓存 | [FilesPanelModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 无导航代次，失败不回滚历史，刷新不失效树缓存，树错误折为空 | 可从导航代次与历史事务开始；覆盖快速 A/B、后退失败、树失败重试、刷新增删，随后独立收口搜索/递归权限错误 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
@@ -52,3 +52,8 @@
 Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/Finder/Quick Look 和实际 GitHub 更新迁移需对应环境。Android 的手机/OEM 输入法、实体键盘、移动网络切换、SD/USB 与 TalkBack 实际体验统一列为人工手测；仅在安排人工手测或收到相关问题时展开，不阻塞可在模拟器完成的自动化工作。provider/WAN 测试使用明确授权的对象。
 
 已入库的出包工作流、历史发行和本地实现分别保留；本轮没有把 2026-11-04 线上快照改称最新下载。无需证书也能做 ad-hoc 更新验收，不能把 Developer ID 作为该工作的前置条件。
+
+## 分批处理记录
+
+- 文档批 `06dee62a`：同步非插件现状与 Android 模拟器自动化/真机人工手测分工。
+- 闸门失败传播批：仅改 `apple-app-gate.sh` 的子检查返回值处理，保留现有入口、过滤器和 SSH 跳过策略；独立 shell 验证不执行插件。依赖桩最初遗漏 PATH 工具及误选系统 Bash 3.2 的失败未计有效红；修正夹具后，原实现只有 ABI/HTML 两条正常断言失败，Core/Swift 错误与全成功对照通过。最终 PATH Bash 5.3.20 五项通过；两组撤回修复分别正常断言红/对照绿/恢复绿及 SHA256。未运行完整原生宿主或 CI。系统 Bash 3.2 的空数组兼容另行处理。

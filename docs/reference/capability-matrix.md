@@ -234,7 +234,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误折为空、外部新建文件不报冲突、重复键编辑与回读不一致；引擎拒绝后的磁盘/恢复状态待修。full 引擎配置机制不能自动套用于 Android vt 自绘 |
 | 终端系统剪贴板 | `beffb49` 接通标准 `copy:` / `paste:`、真实选区与 NSPasteboard；专用测试覆盖显式 firstResponder 菜单快捷键、中文/多行 bracketed paste | OSC 52 标准文本读写及读授权已接（macOS/Android），见 [专项边界](osc52.md)；全局主菜单路由、菜单粘贴确认与选中自动复制仍待独立验收 |
 
-**宿主闸门失败传播**：`apple-app-gate.sh` 未启用 `set -e`，ABI 子检查也未显式检查返回值；后续成功可能掩盖该失败。它与 SSH e2e 可跳过的问题分别待修；单独 ABI 检查、实际测试结束状态及覆盖范围须分别核验，不以最后一行 PASS 代替。源码依据见 [Apple 构建说明](../../apple/README.md#构建与验证)，本次未新增故障注入或 CI 实测。
+**宿主闸门失败传播**：`apple-app-gate.sh` 已显式传播 ABI 与 HTML 子检查的非零状态，失败后不打印 PASS。`test-apple-app-gate.py` 五项隔离 shell 检查和两组撤回修复的正常断言红/独立成功对照/恢复/SHA256 通过；这不是原生或插件业务测试结果，不增加 CI 二十份覆盖。SSH e2e 必跑/允许跳过的策略仍独立待修，见 [Apple 构建说明](../../apple/README.md#构建与验证)。
 
 **CI 触发范围**：dev 的 main push 有忽略路径，release 的 PR 有路径白名单；仅 `docs/` 或 `android/` 的改动不触发两者，`terminal/android/` 则不同。Markdown 在 dev push 被忽略，但 `apple/README.md` 等白名单内文档的 PR 仍会触发 release。dev 旧运行还可能因后续 push 被取消。不能把“有出包工作流”表述为“每个提交都有发布包”；准确范围见 [CI 说明](../how-to/dev-build.md#ci-是怎么串起来的)，这些过滤不改变合并前应执行的闸门。
 

@@ -180,7 +180,7 @@ M4.6 的 S1–S7 历史切片与 macOS S6 正常路径已交付，队列 UI 已�
 | P1 | 统一工作区验收缺口 | 真 NSDraggingSession 起拖/图像、多选 Finder 导出、端点连接级活性、目录冲突 UI、跨标签最小尺寸仍不完整 | 按交接文档逐项补生产路径证据和有指向性的变异 |
 | P1 | macOS 15 CI | 本机 macOS 26 有证据，不能代替另一系统本轮 CI | 核验当前提交的 workflow 运行与原生结果，不只看配置已接入 |
 | P1 | CI 跳过审计 | 图标脚本缺依赖直接失败，workflow 显式拦截打包/认证变异的 SKIP；Apple 步骤检查 Swift，但 `apple-app-gate.sh` 可在 sshd 失败后跳过 SSH e2e 并成功退出 | 明确每个必跑项目和允许的资源跳过；缺 SSH 证据时 full 档必须失败，注入 sshd 启动失败证明目标红、独立本地对照绿；不能把所有跳过一概算通过 |
-| P1 | Apple 宿主闸门传播 ABI 失败 | `apple-app-gate.sh` 无 `set -e`，`check-abi-apple.sh` 返回值未检查；后续成功可能掩盖前序失败 | 显式传播 ABI 子检查失败；在隔离副本注入失败，宿主闸门必须非零退出且不报 PASS；正常构建独立对照、恢复绿及 SHA256。此项为源码发现，未声称已有 CI 失败复现 |
+| 已修 | Apple 宿主闸门子检查失败传播 | `apple-app-gate.sh` 已显式传播 ABI 及 HTML 子检查非零状态，不再继续打印 PASS | `python3 scripts/test-apple-app-gate.py -v` 五项隔离 shell 检查通过；两组撤回修复各单条正常断言红、独立成功对照绿、恢复绿及 SHA256。只验控制流，未运行原生构建/插件业务或本轮 CI；SSH 必跑/跳过策略仍是上一行独立待办 |
 | P1 | 应用内更新发行验收 | `RemoteBuild.decode` 已校验 40 位十六进制 commit、64 位十六进制摘要、GitHub 资产来源及 dev/release 基址；Sparkle 与 Ed25519 本地安装专项已接 | 核验带公钥实际 GitHub 包的检查→下载→验签→退出确认→替换重启及首次手装迁移；当前本地/配置证据见[更新说明](../how-to/macos-updates.md)。dev 只判断不同 commit，不声称 Git 祖先关系；保留权限/只读挂载与其它系统矩阵 |
 | P2 | 发行签名/系统下限 | dev 为 ad-hoc；`8e161e7` 云端清单记录最低 macOS 15.0，Homebrew cask 仍声明 macOS 26；本机依赖的 minos 与每轮实际包须分别核验，源码声明 macOS 13 不等于发行包可运行 | Developer ID/公证的实际包证据；按实际随包依赖核算 minos 并在目标系统验证，另行决定是否降低 cask 下限 |
 | P2 | 不可变版本 cask | 滚动 dev URL 使用 `:no_check` | 发布不可变资产后改真实 SHA256，并同步 cask 对拍规则 |
