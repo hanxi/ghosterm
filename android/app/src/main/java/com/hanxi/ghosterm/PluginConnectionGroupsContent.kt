@@ -28,6 +28,7 @@ import org.json.JSONArray
                     Text("Client：${request.clientDigest}\nExecutor：${request.executorDigest}")
                     Text("参数：${JSONArray(request.arguments)}\n只读根：${request.workspaceRootDirectory ?: "无"}")
                     request.execution?.let { Text(it.reviewDescription) }
+                    request.releaseEvidence?.let { Text(it.reviewDescription) }
                     launch.clientWorkspace?.let { Text(it.reviewDescription) }
                     request.processPrograms.forEach { program ->
                         Text("业务进程：${program.name} · ${program.executable} · ${program.sha256}\n固定参数：${JSONArray(program.prefixArguments)}")

@@ -4,6 +4,19 @@ import GhostermCore
 /// Builds validated raw local argv or an explicit POSIX SSH command for the
 /// reviewed Executor. Does not discover, install, or trust a gterm binary.
 public enum ExtensionRelayBootstrap {
+    /// Executor-side installed release and independently selected policy snapshot.
+    /// Native does not infer trust from the Client's signature or an SSH alias.
+    public struct ReleaseEvidence: Sendable, Equatable {
+        public let directory, policyPath, policySHA256: String
+        public let authorized: Bool
+        public init(directory: String, policyPath: String, policySHA256: String, authorized: Bool) {
+            self.directory = directory; self.policyPath = policyPath
+            self.policySHA256 = policySHA256; self.authorized = authorized
+        }
+        public var reviewDescription: String {
+            "执行端签名版本：\(directory)\n执行端策略：\(policyPath)\n策略 SHA-256：\(policySHA256)\n使用此策略：\(authorized ? "本次已明确允许" : "尚未允许")"
+        }
+    }
     public struct Attachment: Sendable, Equatable {
         public let directory, instance: String
         public let authorized, remoteProcesses, scopedFiles: Bool
@@ -86,6 +99,7 @@ public enum ExtensionRelayBootstrap {
         public let processEnvironmentNames: [String]
         public let execution: Execution?
         public let attachment: Attachment?
+        public let releaseEvidence: ReleaseEvidence?
         public let command: String
         public let arguments: [String]
 
@@ -97,6 +111,7 @@ public enum ExtensionRelayBootstrap {
                     processEnvironmentNames: [String] = [],
                     execution: Execution? = nil,
                     attachment: Attachment? = nil,
+                    releaseEvidence: ReleaseEvidence? = nil,
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
@@ -107,6 +122,7 @@ public enum ExtensionRelayBootstrap {
             self.processEnvironmentNames = processEnvironmentNames
             self.execution = execution
             self.attachment = attachment
+            self.releaseEvidence = releaseEvidence
             self.command = command; self.arguments = arguments
         }
     }
@@ -264,7 +280,8 @@ public enum ExtensionRelayBootstrap {
                   attachment.instance.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                   canonicalDirectory(attachment.directory), request.execution == nil,
                   request.executorDirectory.isEmpty, request.scopedRoots.isEmpty,
-                  request.processPrograms.isEmpty, request.processEnvironmentNames.isEmpty else {
+                  request.processPrograms.isEmpty, request.processEnvironmentNames.isEmpty,
+                  request.releaseEvidence == nil else {
                 throw invalid("已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程")
             }
             let argv = [request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command] + request.arguments
@@ -274,6 +291,13 @@ public enum ExtensionRelayBootstrap {
         // Keep each expression small for the Swift 6.1 compiler used by CI.
         var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
                               request.executorDigest, "--client-digest", request.clientDigest]
+        if let evidence = request.releaseEvidence {
+            guard evidence.authorized, canonicalDirectory(evidence.directory), canonicalDirectory(evidence.policyPath),
+                  isDigest(evidence.policySHA256) else {
+                throw invalid("签名版本需要规范绝对目录、策略路径、64 位小写策略摘要与本次明确允许")
+            }
+            argv += ["--release-evidence", evidence.directory, evidence.policyPath, evidence.policySHA256]
+        }
         if let execution = request.execution {
             guard execution.authorized else { throw invalid("Node / Exec 需要明确允许本次进程执行") }
             guard absolutePath(execution.temporaryDirectory) else { throw invalid("请指定远端已存在的绝对临时目录") }

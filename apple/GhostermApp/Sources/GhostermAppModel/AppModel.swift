@@ -1396,10 +1396,11 @@ public final class AppModel: ObservableObject {
                                      processEnvironmentNames: [String] = [],
                                      executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
+                                     executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
                                      localLaunch: ExtensionLocalLaunch? = nil) async {
         showExtensionWorkspace()
-        return await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, clientWorkspace: clientWorkspace, localLaunch: localLaunch)
+        return await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, clientWorkspace: clientWorkspace, localLaunch: localLaunch)
     }
 
     public func decideExtensionConsent(allow: Bool) async {

@@ -10,6 +10,10 @@ import java.nio.charset.CodingErrorAction
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
 object ExtensionRelayBootstrap {
+    /** Selected independently of Client signature approval and SSH authentication. */
+    data class ReleaseEvidence(val directory: String, val policyPath: String, val policySHA256: String, val authorized: Boolean) {
+        val reviewDescription get() = "执行端签名版本：$directory\n执行端策略：$policyPath\n策略 SHA-256：$policySHA256\n使用此策略：${if (authorized) "本次已明确允许" else "尚未允许"}"
+    }
     data class Attachment(val directory: String, val instance: String, val authorized: Boolean, val remoteProcesses: Boolean = false, val scopedFiles: Boolean = false) {
         val reviewDescription: String get() = "连接已有前台实例：$instance\n远端私有目录：$directory\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n已有只读文件范围：${if (scopedFiles) "明确允许沿用" else "未允许"}\n远端业务进程服务：${if (remoteProcesses) "明确允许沿用实例范围" else "未允许"}"
     }
@@ -55,6 +59,7 @@ object ExtensionRelayBootstrap {
         val execution: Execution? = null,
         val attachment: Attachment? = null,
         val clientCapabilities: List<String> = emptyList(),
+        val releaseEvidence: ReleaseEvidence? = null,
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -264,7 +269,7 @@ object ExtensionRelayBootstrap {
         request.attachment?.let { attachment ->
             require(attachment.authorized && attachment.instance.matches(Regex("[a-f0-9]{32}")) &&
                 canonicalDirectory(attachment.directory) && request.execution == null && request.executorDirectory.isEmpty() &&
-                request.workspaceRootDirectory == null && request.processPrograms.isEmpty() && request.processEnvironmentNames.isEmpty()) {
+                request.workspaceRootDirectory == null && request.processPrograms.isEmpty() && request.processEnvironmentNames.isEmpty() && request.releaseEvidence == null) {
                 "已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程"
             }
             val argv = listOf(request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command) + request.arguments
@@ -276,6 +281,13 @@ object ExtensionRelayBootstrap {
             add("relay"); add("--stdio")
             add("--trust-development-digest"); add(request.executorDigest)
             add("--client-digest"); add(request.clientDigest)
+            request.releaseEvidence?.let { evidence ->
+                require(evidence.authorized && canonicalDirectory(evidence.directory) && canonicalDirectory(evidence.policyPath) &&
+                    evidence.policySHA256.matches(Regex("[a-f0-9]{64}"))) {
+                    "签名版本需要规范绝对目录、策略路径、64 位小写策略摘要与本次明确允许"
+                }
+                add("--release-evidence"); add(evidence.directory); add(evidence.policyPath); add(evidence.policySHA256)
+            }
             request.execution?.let { execution ->
                 require(execution.authorized) { "Node / Exec 需要明确允许本次进程执行" }
                 require(absolutePath(execution.temporaryDirectory)) { "请指定远端已存在的绝对临时目录" }

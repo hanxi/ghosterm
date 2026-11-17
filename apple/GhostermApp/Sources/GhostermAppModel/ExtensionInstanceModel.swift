@@ -137,6 +137,7 @@ import GhostermCore
                                      processEnvironmentNames: [String] = [],
                                      executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
+                                     executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
                                      localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil) async {
         guard launchTask == nil, !extensionRunBusy, extensionRun == nil, !cleanupPending else {
@@ -150,7 +151,7 @@ import GhostermCore
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots,
                 processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames,
-                executorExecution: executorExecution, executorAttachment: executorAttachment,
+                executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence,
                 clientWorkspace: clientWorkspace, localLaunch: localLaunch, multiplexedConnectionCommand: multiplexedConnectionCommand)
         }
         launchTask = task
@@ -166,6 +167,7 @@ import GhostermCore
                              processPrograms: [ExtensionRelayBootstrap.ProcessProgram],
                              processEnvironmentNames: [String], executorExecution: ExtensionRelayBootstrap.Execution?,
                              executorAttachment: ExtensionRelayBootstrap.Attachment?,
+                             executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence?,
                              clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
@@ -191,7 +193,7 @@ import GhostermCore
                 clientDigest: packageDigest, methods: sessionMethods, hostMethods: hostMethods,
                 clientCapabilities: clientServices,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
-                processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment,
+                processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment, releaseEvidence: executorReleaseEvidence,
                 command: command, arguments: arguments)
             let argv = try localLaunch.flatMap { _ in multiplexedConnectionCommand == nil ? try ExtensionRelayBootstrap.buildLocal(request) : nil }
             let bootstrap = try multiplexedConnectionCommand ?? argv.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ExtensionRelayBootstrap.build(request)

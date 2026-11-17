@@ -29,6 +29,29 @@ class ExecutorExecutionTest {
         try { block() } catch (_: IllegalArgumentException) { failed = true }
         assertTrue("Invalid execution configuration must fail before SSH", failed)
     }
+    @Test fun productionSignedReleaseFormRequiresFreshPolicyApprovalAndPreservesSelection() {
+        var launched: ExtensionRelayBootstrap.Request? = null
+        form { launched = it }
+        fillCommon()
+        ui.onNodeWithTag("plugin-executor-release-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-executor-release-directory").performScrollTo().performTextInput("/installed/release")
+        ui.onNodeWithTag("plugin-executor-release-policy").performScrollTo().performTextInput("/selected/policy.json")
+        ui.onNodeWithTag("plugin-executor-release-policy-sha256").performScrollTo().performTextInput(digest)
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle { assertNull(launched) }
+        ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff().performClick()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle { assertEquals(ExtensionRelayBootstrap.ReleaseEvidence("/installed/release", "/selected/policy.json", digest, true), launched?.releaseEvidence) }
+        ui.onNodeWithTag("plugin-executor-release-policy").performScrollTo().performTextReplacement("/changed/policy.json")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff()
+        ui.runOnIdle { assertEquals("/selected/policy.json", launched?.releaseEvidence?.policyPath) }
+        ui.onNodeWithTag("plugin-executor-release-allow").performClick()
+        ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextReplacement("b".repeat(64))
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff()
+    }
     @Test fun portableDefaultHasNoProcessExecutionFlags() {
         assertNull(request().execution)
         assertEquals("exec 'gterm' 'relay' '--stdio' '--trust-development-digest' '$digest' '--client-digest' '$digest' '--' '/k' 'fixture'",
