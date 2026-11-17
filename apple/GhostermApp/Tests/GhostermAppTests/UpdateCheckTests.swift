@@ -169,7 +169,10 @@ final class UpdateCheckTests: XCTestCase {
     }
 
     func testReleaseUsesStableVersionAndIgnoresWorkflowNumbers() throws {
-        let release = try remote { $0["channel"] = "release"; $0["version"] = "1.10.0" }
+        let release = try remote {
+            $0["channel"] = "release"; $0["version"] = "1.10.0"
+            $0["download_base"] = "https://github.com/hanxi/ghosterm/releases/download/v1.10.0"
+        }
         XCTAssertEqual(UpdateCheck.compare(local: InstalledBuild(version: "1.9.0", build: 999999, channel: "release"),
                                            remote: release), .newer(release))
         for version in ["1.10.0", "2.0.0"] {
@@ -193,6 +196,8 @@ final class UpdateCheckTests: XCTestCase {
     func testMalformedSourceAndDownloadOriginAreRejected() {
         for punch: (inout [String: Any]) -> Void in [
             { $0["git_commit"] = "not a commit" },
+            { $0["download_base"] = "https://github.com/hanxi/ghosterm/releases/download/v1.0.0" },
+            { $0["channel"] = "release"; $0["version"] = "1.0.0" },
             { $0["download_base"] = "https://evil.invalid/payload" },
             { $0["download_base"] = "http://github.com/hanxi/ghosterm/releases/download/dev" },
             { $0["assets"] = ["dmg": "../Ghosterm.dmg"] },

@@ -134,6 +134,16 @@ public struct RemoteBuild: Equatable {
               let base = URL(string: downloadBase), base.scheme == "https", base.host == "github.com",
               downloadBase.hasPrefix("https://github.com/hanxi/ghosterm/releases/download/"),
               !dmg.contains("/"), !dmg.contains("\\") else { throw Self.missing("asset/source") }
+        if channel == "dev" {
+            guard downloadBase == "https://github.com/hanxi/ghosterm/releases/download/dev" else {
+                throw Self.missing("dev download_base")
+            }
+        } else if channel == "release" {
+            guard UpdateCheck.stableVersion(version),
+                  downloadBase == "https://github.com/hanxi/ghosterm/releases/download/v\(version)" else {
+                throw Self.missing("release download_base")
+            }
+        }
         assetSha256 = sum
     }
 

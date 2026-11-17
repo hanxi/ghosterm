@@ -216,6 +216,7 @@ ditto "$SPARKLE_FRAMEWORK" "$FW/Sparkle.framework"
 # Preserve the upstream helper signatures for ad-hoc builds; hardened runtime
 # distributions re-sign every nested component with their own identity below.
 cp "$ROOT/apple/GhostermApp/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+chmod 644 "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 # SwiftPM does not stage resource bundles into a hand-built .app automatically.
 FONT_BUNDLE_NAME="GhostermApp_GhostermAppModel.bundle"
 FONT_BUNDLE_SRC="$(dirname "$BIN")/$FONT_BUNDLE_NAME"
