@@ -242,7 +242,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 配置 GUI | Core 物理块快照、脏字段/逐行身份/来源展示、改名预览确认、候选落盘后发布；否定过滤与 ASCII 去重已接 | 🟡 定向原生控件、模型与变异证据见[分批实施](non-plugin-remainder.md)。Include 只读，重复未知标量/条件规则与歧义显式拒绝；安全存储和完整客户端验收另记 |
 | 配置来源与别名改名 | Swift 已有来源查询与改名绑定；共享契约与平台绑定分别验收 | macOS `HostEditorSheet` 未消费来源，也没有已有主机改名字段；Android 容器引用不是本端可读取的密钥路径，不因共享 API 或 Android 页面通过而标本端 GUI 完成 |
 | 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误、外部新建冲突、CRLF/重复键及显式重新读取已修，见[存储说明](macos-terminal-settings.md)；候选校验/保留对象应用与实际条件回显已有专项，提交后应用/恢复错误明确记账，见同一说明。full 引擎配置机制不能自动套用于 Android vt 自绘 |
-| 终端系统剪贴板 | `beffb49` 接通标准 `copy:` / `paste:`、真实选区与 NSPasteboard；专用测试覆盖显式 firstResponder 菜单快捷键、中文/多行 bracketed paste | OSC 52 标准文本读写及读授权已接（macOS/Android），见 [专项边界](osc52.md)；全局主菜单路由、菜单粘贴确认与选中自动复制仍待独立验收 |
+| 终端系统剪贴板 | 标准 copy、实际选区、OSC 52 与菜单引擎粘贴检查、原始快照/单次确认、窗格撤销和选中复制已接 | 终端 47 项、新十六组/旧 OSC 52 六组，原生 sheet 与注入窗口查询的进程主菜单、真实本地 PTY 证据见[说明](macos-clipboard.md)；系统前台键盘/跨应用激活与其它剪贴板表示另记 |
 
 **宿主闸门失败传播**：`apple-app-gate.sh` 已显式传播 ABI 与 HTML 子检查的非零状态，失败后不打印 PASS。`test-apple-app-gate.py` 五项隔离 shell 检查和两组撤回修复的正常断言红/独立成功对照/恢复/SHA256 通过；这不是原生或插件业务测试结果，不增加 CI 二十份覆盖。SSH e2e 必跑/允许跳过的策略仍独立待修，见 [Apple 构建说明](../../apple/README.md#构建与验证)。
 
@@ -256,7 +256,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 **设置页范围**：macOS 普通设置为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎；字号/重载、标题栏动作和普通/tmux 启停提示已于 2026-11-17 对齐实际实现。四个普通页像素判据通过，混合组合的插件页既有失败单列，未改该页或放宽断言。Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
 
-**引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。full 引擎的标准文本剪贴板回调与 OSC 52 已接，选中自动复制仍未独立验收，宿主关闭判据也不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
+**引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。full 引擎的标准文本剪贴板、OSC 52、菜单检查和选中自动复制已有[独立专项](macos-clipboard.md)，宿主关闭判据仍不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
 
 **复制原语与产品接线**：旧 `gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；新 `gt_sftp_create_controlled` 与 Swift/JNI/Kotlin 已提供从 fd 分块写入任务暂存路径的独占创建和结果状态（§9.54），§9.57 已补远端发布及绑定。Android §9.69/§9.70 已将这些接口接入复制执行器与任务页面，§9.71/§9.72 已接进程持有与 FIFO 队列；不同远端关系保持未知并由 §9.110 提供请求内显式确认；§9.73 已验只读记录，§9.98/§9.105/§9.121 已接安全重试及显式重新发起，不自动恢复执行。macOS 队列尚未迁移：旧 job 上传虽已按 §9.53 使用 WRITE|CREAT|TRUNC，不残留旧尾，失败仍可能留下部分内容，不保证原目标保留。“先检查冲突再传”不能保证并发时不覆盖，桌面迁移与覆盖/冲突回归见[路线图](roadmap.md)。
 

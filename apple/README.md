@@ -92,7 +92,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
 | 目录导航 | `FilesPanelModel.navigate` 不校验请求代次；后退/前进先改历史，失败不恢复；刷新不失效树缓存 | 仍需导航结果隔离、成功后提交历史与缓存失效；源码复核不作为交互验收 |
 | 冲突与重试 | `TransferManager.applyToAll` 仍是全局属性；目录重试重新展开整棵目录，重试端点为弱引用 | 请求内决策、仅失败项重试和重新认证尚未迁移；Android 队列不改变桌面行为 |
-| 引擎剪贴板 | `CGhostty/shim.c` 已接标准文本读写与确认；OSC 52 默认读询问、写允许 | 标准菜单与 OSC 52 已接；完整自动复制/菜单确认矩阵仍待验收 |
+| 引擎剪贴板 | `CGhostty/shim.c` 已接标准文本读写与确认；OSC 52 默认读询问、写允许 | 标准文本/原生确认、选中复制及进程菜单有[专项](../docs/reference/macos-clipboard.md)；其它表示和系统前台体验另记 |
 | 构建与宿主验收 | `124edb6` 已记录 Core 47 / ABI 89、Terminal 29 项、原生 release 与打包专项；本轮静态 Apple 绑定对拍为 87/2 | 最近完整宿主仍为 `4cbfcf4`，保留设置页像素失败；本轮未重跑完整宿主、原生构建或打包 |
 
 ## 共享文件接口与产品接线
@@ -127,11 +127,11 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 | 文件与传输 | [FilesPanelView](GhostermApp/Sources/GhostermApp/FilesPanelView.swift)、[TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
 | 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储/重复键和文案已分别修复，候选校验/应用和实际回显另有专项；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
 | 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 共享配置检查的拒绝原因随连接目标传递，在 DNS 前阻断；高级选项尚不执行 |
-| 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME、标准菜单 copy/paste 和 OSC 52 文本读写已接；全局菜单路由及菜单粘贴确认仍列 P1 |
+| 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME、标准 copy/OSC 52、菜单引擎粘贴检查与单次确认、选中复制已接；[菜单专项](../docs/reference/macos-clipboard.md)明确后台窗口查询范围 |
 
-**终端标准复制粘贴已接通，完整剪贴板能力仍有余项**：`beffb49` 为 `TerminalHostView` 增加 `copy:` / `paste:`，复制读取 full 引擎真实选区并写入 `NSPasteboard.general`；无选区时保留剪贴板。粘贴读取系统字符串并经 `TerminalSurface.sendText` 使用引擎的粘贴编码。专用 `TerminalClipboardTests` 驱动离屏真实窗口、鼠标选区和 NSMenu 快捷键，覆盖无选区、复制范围以及中文/多行 bracketed paste；测试显式将菜单 target 设为窗口 firstResponder，不能据此宣称全局主菜单自动查找目标已实测。四组变异脚本已入库，仍属手工闸门；本次文档复核未重跑它们。
+**终端标准复制粘贴与菜单检查已接通**：`beffb49` 的 copy/paste 与实际选区为历史基础；菜单粘贴现进入 `paste_from_clipboard`，保留引擎危险/多行检查、bracketed paste 编码与显式配置。批准使用捕获请求，不重新读剪贴板；拒绝、切换窗格、隐藏/销毁和旧回调不发送输入。选中自动复制有真实配置/鼠标选区证据，程序读取/写入/用户粘贴的确认意图分开。详见[菜单粘贴](../docs/reference/macos-clipboard.md)。
 
-`CGhostty/shim.c` 已接引擎标准文本剪贴板回调：OSC 52 写入系统剪贴板，读取按引擎策略默认逐次确认，确认使用原始快照，隐藏/销毁取消未决请求。大小沿用引擎与系统剪贴板边界；选区剪贴板和二进制表示不支持。该专项不证明全局菜单路由、选中自动复制或 Cocoa 菜单粘贴确认完整验收，见 [OSC 52 接线与验证](../docs/reference/osc52.md)。文件路径复制与文件传输也有各自的接线，不能互相替代验收。
+真实进程菜单仍使用 nil target，后台测试只注入 key/main-window 查询，保留菜单、窗口和第一响应者链；包含普通文本编辑器和实际本地 PTY。它不是系统前台热键/跨应用激活验证。OSC 52 既有超 1 MiB 文本与六组旧保护另行复验，历史范围见 [OSC 52](../docs/reference/osc52.md)；selection、二进制及其它剪贴板表示仍不由标准文本证据覆盖。文件路径复制与文件传输也分别验收。
 
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。`ConfigStore` 的强制备份/原子替换已有独立 native XCTest 与隔离故障验证；候选发布及原生表单已独立接线，私钥材料另有独立专项，不据定向证据宣布 M3 全部完成。
 
@@ -200,9 +200,9 @@ list/realpath/预览/任务/关闭仍有旧阻塞契约和主线程队列等待�
 
 `SettingsStore.terminalSettingKeys` 是配置元数据，生产 `SettingsView` 没有遍历它生成全部控件。该目录中的 `copy-on-select`、`confirm-close-surface` 不应被描述成现有产品已经兑现的两个开关。Ghostty 配置页可以提交引擎语法，但语法被接受不代表平台回调已接通。
 
-当前 `CGhostty/shim.c` 已接标准文本系统剪贴板读写及确认，OSC 52 专项独立验收；`copy-on-select` 仍需独立的配置/选区行为验收。`close_surface_cb` 也为空，`TerminalPane.closeNeedsConfirmation` 按状态与前台作业判断，`TerminalTab` 再汇总文件连接与传输；tmux 客户端关闭另行处理。宿主没有读取 `confirm-close-surface` 来改变这些判据。不要从引擎配置声明推断该键控制标签、窗格或窗口关闭。
+当前 `CGhostty/shim.c` 已接标准文本系统剪贴板读写及确认，OSC 52 与菜单检查/真实配置选区分别有[独立证据](../docs/reference/macos-clipboard.md)。`close_surface_cb` 也为空，`TerminalPane.closeNeedsConfirmation` 按状态与前台作业判断，`TerminalTab` 再汇总文件连接与传输；tmux 客户端关闭另行处理。宿主没有读取 `confirm-close-surface` 来改变这些判据。不要从引擎配置声明推断该键控制标签、窗格或窗口关闭。
 
-这是源码接线核对，未新增开关行为测试。标准菜单复制粘贴已经接通，但 `paste:` 当前直接发送，不显示危险/多行粘贴确认；OSC 52 请求及确认/取消已接，自动选中复制与菜单粘贴确认仍按路线图 P1 验收；若将来提供关闭策略偏好，需要先明确其与未知作业、传输及 tmux 的关系并独立验收。
+菜单 `paste:` 现走引擎检查与捕获请求，`copy-on-select=true` 的标准剪贴板消费者已专项验证；未新增专用偏好开关。若将来提供关闭策略偏好，仍须先明确其与未知作业、传输及 tmux 的关系并独立验收。
 
 ### 文件查询与线程边界
 

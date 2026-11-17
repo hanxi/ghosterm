@@ -67,6 +67,7 @@ public final class TerminalHostView: NSView, NSTextInputClient {
     public var paneFocused: Bool = false {
         didSet {
             guard paneFocused != oldValue else { return }
+            if !paneFocused { surface.cancelClipboardRequests() }
             applyFocus()
             claimFirstResponder()
         }
@@ -228,8 +229,7 @@ public final class TerminalHostView: NSView, NSTextInputClient {
     }
 
     @objc public func paste(_ sender: Any?) {
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
-        surface.sendText(text)
+        surface.pasteFromClipboard()
     }
 
     // MARK: - 鼠标事件追踪区域

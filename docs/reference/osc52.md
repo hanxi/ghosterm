@@ -111,3 +111,7 @@ Android Debug/测试 APK、未签名 Release/R8 与四模块 release lint 通过
 拉回并核验 SHA256，原件为 `marker-final-app.apk` / `marker-final-test.apk`，收据为
 `marker-final-receipt.txt`。并行构建会更新共享 APK 输出，本轮以实际安装快照为证据，
 不声称它与后来重建的共享输出相同。
+
+## macOS 菜单粘贴后续（2026-11-17）
+
+菜单用户粘贴现使用引擎安全检查和捕获请求；读、写、粘贴的确认类型分开，原 OSC 52 六组已复验，超过 1 MiB 的既有标准文本能力保留。新十六组、窗口查询注入与原生 sheet/本地 PTY 范围见[剪贴板说明](macos-clipboard.md)，不新增 Android 结果或扩大本文其它表示的边界。

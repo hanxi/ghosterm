@@ -30,7 +30,7 @@
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
 | 8 / 已交付专项 | 终端配置读写与应用 | 存储事务、内存候选预校验、提交后应用、条件状态回显及旧编辑器保护已接 | 证据/提交后应用错误与恢复边界见[设置说明](macos-terminal-settings.md)，不承诺多文件/全部 surface 原子事务 |
 | 9 / 部分完成 | SSH 多地址与打开取消 | 普通 shell/SFTP 原认证余额、独立取消和晚到交接已接；DNS 仍首个有效地址即结束 | 打开切片见[说明](macos-ssh-opening.md)；TCP 候选推进与原 hostname 身份仍待做，SSH/SFTP/tmux 和 ProxyJump 首跳各自验收，不能借打开接线关闭整个网络矩阵 |
-| 10 / P1 | 剪贴板收尾（设置文案已修） | 菜单 paste 仍直接输入；[SettingsView.swift](../../apple/GhostermApp/Sources/GhostermApp/SettingsView.swift) 的六处过时提示已独立修正 | 粘贴确认与全局菜单路由仍须单独实现/验证；文案修正不改变设置存储或关闭规则，像素/既有插件页失败范围见 Apple 说明 |
+| 10 / 已交付专项 | 剪贴板粘贴检查与确认 | 用户菜单进入引擎检查，捕获文本、单次授权、窗格撤销和实际选区复制已验；真实进程菜单 nil-target 响应链有后台夹具 | 终端 47 项/新十六组/旧 OSC 52 六组，原生确认和窗口查询注入范围见[说明](macos-clipboard.md)；系统前台热键/跨应用激活另记，非完整剪贴板协议矩阵 |
 
 共享事件队列终态保留/查询、旧 job 下载完整性、负深度 walk 硬护栏、递归权限链接处理仍有效，属于文件迁移的相关工作，不借新绑定或 Android 验收关闭。macOS 信任记录管理页也可接现有快照/事务 API；别名改名应排在配置事务/表单之后。
 

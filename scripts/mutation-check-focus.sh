@@ -29,6 +29,8 @@ TMP="$ROOT/tmp"
 # CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
 # 函数，所以这份日志永远是「刚那一次」的输出。
 RUN_LOG="$TMP/gt-mutfocus-run.log"
+FOCUS_LOG_INDEX=0
+EVIDENCE=""
 PKG="$ROOT/apple/GhostermApp"
 SURF="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"
 VIEW="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift"
@@ -38,6 +40,7 @@ PASS=0; FAIL=0
 BACKUP_SURF=""; BACKUP_VIEW=""; BACKUP_TEST=""
 
 mkdir -p "$TMP"
+EVIDENCE="$(mktemp -d "$TMP/gt-mutfocus-evidence-XXXXXX")"
 if ! command -v swift >/dev/null 2>&1; then
   echo "SKIP mutation-check-focus: 未找到 swift"; exit 0
 fi
@@ -73,6 +76,21 @@ run_other() { ( cd "$PKG" && gt_timeout 420 swift test --filter ProgramStatusSto
 
 expect() { # $1=期望 red|green $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi
+  FOCUS_LOG_INDEX=$((FOCUS_LOG_INDEX + 1))
+  if ! cp "$RUN_LOG" "$EVIDENCE/${FOCUS_LOG_INDEX}-${3}.log"; then
+    echo "  ✗ 无法保存本轮焦点证据" >&2; FAIL=$((FAIL+1)); return
+  fi
+  if [ "$actual" = red ] && [ "$1" = red ]; then
+    if ! grep -q 'Build complete!' "$RUN_LOG" ||
+       ! grep -Eq 'Executed [1-9][0-9]* tests?, with [1-9][0-9]* failures? \(0 unexpected\)' "$RUN_LOG" ||
+       ! grep -Eq 'XCTAssert|error: -\[.*\] : failed' "$RUN_LOG" ||
+       grep -Eq 'unexpected signal|Program crashed|AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:' "$RUN_LOG"; then
+      actual=invalid
+    fi
+  elif [ "$actual" = green ]; then
+    if ! grep -Eq 'Executed [1-9][0-9]* tests?, with 0 failures' "$RUN_LOG" ||
+       grep -Eq 'Test Case .* skipped' "$RUN_LOG"; then actual=invalid; fi
+  fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
   else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}";
     echo "      —— 最后一次运行的输出（尾 25 行，完整见 ${RUN_LOG}）"
@@ -114,8 +132,10 @@ python3 - "$VIEW" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
 old = ("        didSet {\n            guard paneFocused != oldValue else { return }\n"
+       "            if !paneFocused { surface.cancelClipboardRequests() }\n"
        "            applyFocus()\n            claimFirstResponder()\n        }")
 new = ("        didSet {\n            guard paneFocused != oldValue else { return }\n"
+       "            if !paneFocused { surface.cancelClipboardRequests() }\n"
        "            /* GT_MUTATION_MARK：切窗格不下发焦点 */\n"
        "            claimFirstResponder()\n        }")
 assert old in s, "F2 锚点缺失"
@@ -176,4 +196,5 @@ restore_all
 trap - INT TERM
 echo
 echo "mutation-check-focus: ${PASS} passed, ${FAIL} failed"
+echo "focus evidence: ${EVIDENCE}"
 [ "${FAIL}" -eq 0 ]

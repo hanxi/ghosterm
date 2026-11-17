@@ -41,7 +41,7 @@ import XCTest
         surface.onInput = { bytes in lock.lock(); reply.append(bytes); lock.unlock() }
         var permission: ((Bool) -> Void)?
         surface.clipboardConfirmation = { read, snapshot, decide in
-            XCTAssertTrue(read); XCTAssertEqual(snapshot, text); permission = decide
+            XCTAssertEqual(read, .read); XCTAssertEqual(snapshot, text); permission = decide
         }
         surface.feed(Data("\u{1b}]52;c;?\u{1b}\\".utf8))
         pump(app) { permission != nil }
@@ -72,7 +72,7 @@ import XCTest
         let lock = NSLock(); var reply = Data()
         surface.onInput = { data in lock.lock(); reply.append(data); lock.unlock() }
         surface.clipboardConfirmation = { read, snapshot, decide in
-            XCTAssertTrue(read); XCTAssertTrue(snapshot == text); decide(true)
+            XCTAssertEqual(read, .read); XCTAssertTrue(snapshot == text); decide(true)
         }
         surface.feed(Data("\u{1b}]52;c;?\u{7}".utf8))
         pump(app) { lock.lock(); defer { lock.unlock() }; return reply.count >= expected.count }

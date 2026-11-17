@@ -420,7 +420,7 @@ public final class TerminalSurface {
         self.box.clipboardConfirm = { [weak self] request, text, read in
             guard let self else { return }
             let raw = self.raw
-            self.confirmClipboard(text: text, read: read) { allowed in
+            self.confirmClipboard(text: text, operation: read ? .read : .paste) { allowed in
                 if allowed {
                     text.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, text.utf8.count, true) }
                 } else { gt_ghostty_surface_clipboard_deny(raw, request) }
@@ -432,18 +432,19 @@ public final class TerminalSurface {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
-            if confirm { self.confirmClipboard(text: text, read: false) { if $0 { write() } } }
+            if confirm { self.confirmClipboard(text: text, operation: .write) { if $0 { write() } } }
             else { write() }
         }
     }
 
     // One outstanding prompt per surface; no clipboard contents in logs or persistence.
-    internal var clipboardConfirmation: ((Bool, String, @escaping (Bool) -> Void) -> Void)?
+    internal enum ClipboardOperation { case paste, read, write }
+    internal var clipboardConfirmation: ((ClipboardOperation, String, @escaping (Bool) -> Void) -> Void)?
     private var clipboardGeneration = 0
     private var clipboardDecision: ((Bool) -> Void)?
     private var clipboardAlert: NSAlert?
 
-    private func confirmClipboard(text: String, read: Bool, completion: @escaping (Bool) -> Void) {
+    private func confirmClipboard(text: String, operation: ClipboardOperation, completion: @escaping (Bool) -> Void) {
         guard clipboardDecision == nil else { completion(false); return }
         clipboardGeneration += 1
         let generation = clipboardGeneration
@@ -453,15 +454,29 @@ public final class TerminalSurface {
             self.clipboardDecision = nil; self.clipboardAlert = nil
             pending(allowed)
         }
-        if let clipboardConfirmation { clipboardConfirmation(read, text, decide); return }
+        if let clipboardConfirmation { clipboardConfirmation(operation, text, decide); return }
         guard let window = view.window, window.isVisible, !window.isMiniaturized else { decide(false); return }
         let alert = NSAlert()
-        alert.messageText = read ? "允许终端程序读取剪贴板？" : "允许终端程序写入剪贴板？"
-        alert.informativeText = read ? "剪贴板文本将发送到当前终端程序。" : "当前剪贴板文本将被替换。"
+        switch operation {
+        case .paste:
+            alert.messageText = "确认粘贴到当前终端？"
+            let previewBytes = text.utf8.prefix(4096)
+            let preview = String(decoding: previewBytes, as: UTF8.self)
+            alert.informativeText = "这段文本包含换行或控制字符，可能执行命令。\n\n" + preview
+                + (previewBytes.count < text.utf8.count ? "\n（预览已截断，共 \(text.utf8.count) 字节）" : "")
+        case .read:
+            alert.messageText = "允许终端程序读取剪贴板？"
+            alert.informativeText = "剪贴板文本将发送到当前终端程序。"
+        case .write:
+            alert.messageText = "允许终端程序写入剪贴板？"
+            alert.informativeText = "当前剪贴板文本将被替换。"
+        }
         alert.addButton(withTitle: "拒绝"); alert.addButton(withTitle: "允许一次")
         clipboardAlert = alert
         alert.beginSheetModal(for: window) { decide($0 == .alertSecondButtonReturn) }
     }
+
+    public func cancelClipboardRequests() { cancelClipboard() }
 
     private func cancelClipboard() {
         let decision = clipboardDecision; clipboardDecision = nil
@@ -579,6 +594,11 @@ public final class TerminalSurface {
         defer { free(p) }
         return String(cString: p)
     }
+
+    /// User clipboard paste uses the engine's unsafe-paste check and captured
+    /// confirmation request, rather than the direct programmatic text API.
+    @discardableResult
+    public func pasteFromClipboard() -> Bool { gt_ghostty_surface_paste_clipboard(raw) }
 
     /// 以**粘贴语义**注入文本（走终端输入编码路径）。App 层用于
     /// 「粘贴到会话」；测试用它验证输入方向真的通到 transport。

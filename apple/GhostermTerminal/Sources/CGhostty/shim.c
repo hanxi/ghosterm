@@ -819,6 +819,11 @@ void gt_ghostty_surface_text(gt_ghostty_surface_t *s, const char *text, size_t l
     ghostty_surface_text(s->surface, text, len);
 }
 
+bool gt_ghostty_surface_paste_clipboard(gt_ghostty_surface_t *s) {
+    static const char action[] = "paste_from_clipboard";
+    return s && ghostty_surface_binding_action(s->surface, action, sizeof action - 1);
+}
+
 void gt_ghostty_surface_key_text(gt_ghostty_surface_t *s,
                                  uint32_t native_keycode,
                                  uint32_t codepoint,

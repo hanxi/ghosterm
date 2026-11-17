@@ -162,6 +162,8 @@ char *gt_ghostty_surface_read_text(gt_ghostty_surface_t *s);
  * 换行只是字面换行（这正是 bracketed paste 的意义）。要「敲命令并回车」请用
  * gt_ghostty_surface_key_press。 */
 void gt_ghostty_surface_text(gt_ghostty_surface_t *s, const char *text, size_t len);
+/* Standard clipboard paste through the engine's safety/confirmation path. */
+bool gt_ghostty_surface_paste_clipboard(gt_ghostty_surface_t *s);
 
 /*
  * 注入一次按键**按下**（键入语义，非粘贴）：libghostty 按物理键 + 当前终端模式
