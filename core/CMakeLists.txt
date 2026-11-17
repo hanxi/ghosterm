@@ -23,6 +23,7 @@ add_library(ghosterm_core STATIC
   src/extension/stream.c
   src/extension/fd-stream.c
   src/extension/frame.c
+  src/extension/multiplex.c
   src/extension/wire.c
   src/extension/package-snapshot.c
   src/extension/package-json.c
@@ -611,6 +612,14 @@ foreach(mode roundtrip full unknown denied missing-cap remote-invalid queued-can
   set_tests_properties(bridge_rpc_${mode} PROPERTIES TIMEOUT 10)
 endforeach()
 add_executable(test_bridge_session tests/test_bridge_session.c)
+add_executable(test_bridge_multiplex tests/test_bridge_multiplex.c)
+target_include_directories(test_bridge_multiplex PRIVATE src)
+target_link_libraries(test_bridge_multiplex PRIVATE ghosterm_core)
+target_compile_options(test_bridge_multiplex PRIVATE -Wall -Wextra -Werror)
+foreach(mode sessions reuse bounded isolation priority malformed allocation loss epochs retained)
+  add_test(NAME bridge_multiplex_${mode} COMMAND test_bridge_multiplex ${mode})
+  set_tests_properties(bridge_multiplex_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
 target_include_directories(test_bridge_session PRIVATE src ${SSH2_INCLUDE_DIRS})
 target_link_libraries(test_bridge_session PRIVATE ghosterm_core)
 target_compile_options(test_bridge_session PRIVATE -Wall -Wextra -Werror)

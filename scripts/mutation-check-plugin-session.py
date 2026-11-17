@@ -51,7 +51,7 @@ def main():
           ('host-nonce','        if (!string_equal(s, m.payload, "hostNonce", s->host_nonce) ||\n            !string_member(s, m.payload, "nonce", s->executor_nonce, 33) ||\n','        if (false || !string_member(s, m.payload, "nonce", s->executor_nonce, 33) ||\n','bad-nonce'),
           ('challenge','           (!challenge || string_equal(s, payload, "challenge", s->challenge));\n','           (!challenge || string_equal(s, payload, "hostNonce", s->host_nonce));\n','bad-accept'),
           ('instance-scope','    if (s->info.connection[0] &&\n        (strcmp(m.connection, s->info.connection) || strcmp(m.instance, s->info.instance))) {\n','    if (s->info.connection[0] && (strcmp(m.connection, s->info.connection))) {\n','bad-scope'),
-          ('epoch','    if (m.epoch != 1) {\n','    if (m.epoch == 0) {\n','old-epoch'),
+          ('epoch','    if (m.epoch != (s->info.epoch ? s->info.epoch : 1)) {\n','    if (m.epoch == 0) {\n','old-epoch'),
           ('sequence','    if (s->rx_exhausted || m.sequence != s->rx_sequence) {\n','    if (s->rx_exhausted || false) {\n','gap'),
           ('executor-digest','           string_equal(s, payload, "clientDigest", s->config.client_digest) &&\n           string_equal(s, payload, "executorDigest", s->config.executor_digest) &&\n','           string_equal(s, payload, "clientDigest", s->config.client_digest) && true &&\n','wrong-digest'),
           ('required-capabilities','            !string_equal(s, m.payload, "route", "direct-duplex") ||\n            !caps_equal(s, m.payload, "requires") || !read_budgets(s, m.payload, &budgets) ||\n','            !string_equal(s, m.payload, "route", "direct-duplex") || false ||\n            !read_budgets(s, m.payload, &budgets) ||\n','wrong-cap'),

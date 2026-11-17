@@ -1,4 +1,5 @@
-/* Private session: one selected instance on one admitted duplex stream.
+/* Private session: one selected instance on an admitted duplex stream or a
+ * native-bound multiplex branch.
  * Optional bounded requests/resources; no gateway, auto-reconnect
  * or public ABI. Caller supplies metadata from its verified package and
  * peer owners, not remote self-reported trust. One serial non-UI IO owner.
@@ -116,6 +117,14 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **,
                                     const gt_bridge_session_config_t *,
                                     const gt_allocator_t *,
                                     gt_bridge_session_t **);
+/* Requires a branch registered by the native multiplex owner. Its captured
+ * connection/instance/epoch is reused without changing wire v1. Ordinary open
+ * explicitly rejects branches; all metadata/consent/lease checks still apply. */
+gt_status_t gt__bridge_session_open_multiplexed(gt_bridge_stream_t **,
+                                                gt_bridge_role_t,
+                                                const gt_bridge_session_config_t *,
+                                                const gt_allocator_t *,
+                                                gt_bridge_session_t **);
 gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *, int ms);
 bool gt__bridge_session_info(const gt_bridge_session_t *, gt_bridge_session_info_t *);
 bool gt__bridge_session_runtime_admissible(const gt_bridge_session_t *);

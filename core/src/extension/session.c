@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/memory.h"
 #include "extension/session.h"
+#include "extension/multiplex.h"
 #include "extension/transfer.h"
 #include "base/secure-random.h"
 #include "extension/sdk-identity.h"
@@ -459,16 +460,18 @@ static bool frame_json(
     if (!payload_json(s, kind, payload, sizeof(payload))) {
         return false;
     }
-    int n =
-        snprintf(out,
-                 capacity,
-                 "{\"wireVersion\":1,\"connectionId\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"1\","
-                 "\"streamId\":\"control\",\"seq\":\"%" PRIu64 "\",\"kind\":\"%s\",\"payload\":%s}",
-                 s->info.connection[0] ? s->info.connection : zero_id,
-                 s->info.instance[0] ? s->info.instance : zero_id,
-                 s->tx_sequence,
-                 names[kind],
-                 payload);
+    int n = snprintf(
+        out,
+        capacity,
+        "{\"wireVersion\":1,\"connectionId\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"%" PRIu64
+        "\","
+        "\"streamId\":\"control\",\"seq\":\"%" PRIu64 "\",\"kind\":\"%s\",\"payload\":%s}",
+        s->info.connection[0] ? s->info.connection : zero_id,
+        s->info.instance[0] ? s->info.instance : zero_id,
+        s->info.epoch ? s->info.epoch : 1,
+        s->tx_sequence,
+        names[kind],
+        payload);
     if (n < 0 || (size_t)n >= capacity) {
         return false;
     }
@@ -525,7 +528,7 @@ static bool incoming(gt_bridge_session_t *s, const uint8_t *bytes, size_t size) 
         protocol(s);
         return false;
     }
-    if (m.epoch != 1) {
+    if (m.epoch != (s->info.epoch ? s->info.epoch : 1)) {
         protocol(s);
         return false;
     }
@@ -592,7 +595,7 @@ static bool incoming(gt_bridge_session_t *s, const uint8_t *bytes, size_t size) 
         s->consent_ms = (uint32_t)(consent < s->config.consent_ms ? consent : s->config.consent_ms);
         memcpy(s->info.connection, m.connection, 33);
         memcpy(s->info.instance, m.instance, 33);
-        s->info.epoch = 1;
+        s->info.epoch = m.epoch;
         return queue(s, GT_BRIDGE_OFFER, GT_BRIDGE_SESSION_WAIT_DECISION);
     }
     if (s->info.phase == GT_BRIDGE_SESSION_WAIT_OFFER && s->role == GT_BRIDGE_HOST &&
@@ -1023,11 +1026,12 @@ gt_status_t gt__bridge_session_destroy(gt_bridge_session_t *s) {
     return GT_OK;
 }
 
-gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
-                                    gt_bridge_role_t role,
-                                    const gt_bridge_session_config_t *config,
-                                    const gt_allocator_t *allocator,
-                                    gt_bridge_session_t **out) {
+static gt_status_t construct_session(gt_bridge_stream_t **owned,
+                                     gt_bridge_role_t role,
+                                     const gt_bridge_session_config_t *config,
+                                     const gt_allocator_t *allocator,
+                                     const gt_bridge_mux_identity_t *identity,
+                                     gt_bridge_session_t **out) {
     if (out) {
         *out = NULL;
     }
@@ -1100,6 +1104,11 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
     atomic_init(&s->stopping, false);
     s->info.budgets = config->budgets;
     s->info.peer = config->peer;
+    if (identity) {
+        memcpy(s->info.connection, identity->connection, 33);
+        memcpy(s->info.instance, identity->instance, 33);
+        s->info.epoch = identity->epoch;
+    }
     gt_status_t status = gt__bridge_wire_new(&a, &s->wire);
     if (status == GT_OK) {
         status = gt__bridge_decoder_new(GT_BRIDGE_FRAME_MAX, &a, &s->decoder);
@@ -1117,10 +1126,10 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
     if (status == GT_OK) {
         status = random_id(s->lease);
     }
-    if (status == GT_OK && role == GT_BRIDGE_HOST) {
+    if (status == GT_OK && role == GT_BRIDGE_HOST && !identity) {
         status = random_id(s->info.connection);
     }
-    if (status == GT_OK && role == GT_BRIDGE_HOST) {
+    if (status == GT_OK && role == GT_BRIDGE_HOST && !identity) {
         status = random_id(s->info.instance);
     }
     if (status == GT_OK) {
@@ -1144,7 +1153,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
         free_parts(s);
         return status;
     }
-    s->info.epoch = role == GT_BRIDGE_HOST ? 1 : 0;
+    s->info.epoch = identity ? identity->epoch : (role == GT_BRIDGE_HOST ? 1 : 0);
     if (role == GT_BRIDGE_HOST) {
         if (!queue(s, GT_BRIDGE_HELLO, GT_BRIDGE_SESSION_WAIT_OFFER)) {
             status = s->info.error;
@@ -1157,6 +1166,36 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
     *owned = NULL;
     *out = s;
     return GT_OK;
+}
+
+gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,
+                                    gt_bridge_role_t role,
+                                    const gt_bridge_session_config_t *config,
+                                    const gt_allocator_t *allocator,
+                                    gt_bridge_session_t **out) {
+    gt_bridge_mux_identity_t identity;
+    if (owned && gt__bridge_mux_branch_identity(*owned, &identity)) {
+        if (out) {
+            *out = NULL;
+        }
+        return GT_ERR_UNSUPPORTED;
+    }
+    return construct_session(owned, role, config, allocator, NULL, out);
+}
+
+gt_status_t gt__bridge_session_open_multiplexed(gt_bridge_stream_t **owned,
+                                                gt_bridge_role_t role,
+                                                const gt_bridge_session_config_t *config,
+                                                const gt_allocator_t *allocator,
+                                                gt_bridge_session_t **out) {
+    gt_bridge_mux_identity_t identity;
+    if (!owned || !gt__bridge_mux_branch_identity(*owned, &identity)) {
+        if (out) {
+            *out = NULL;
+        }
+        return GT_ERR_INVALID_ARG;
+    }
+    return construct_session(owned, role, config, allocator, &identity, out);
 }
 
 bool gt__bridge_session_package_matches(const gt_bridge_session_t *s,
