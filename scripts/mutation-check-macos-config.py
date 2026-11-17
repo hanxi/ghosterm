@@ -145,7 +145,52 @@ TARGET_SELECTION_CASES = [
     ('unicode-selection', 'return HostEntry.patternKey(a) == HostEntry.patternKey(b)', 'return a == b',
      'testTargetSelectionDoesNotFoldUnicodeNormalization'),
 ]
+
+PRIVATE_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/NativePrivateKeyStore.swift'
+PRIVATE_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/NativePrivateKeyStoreTests.swift'
+PRIVATE_CASES = [
+    ('private-cache', 'do {\n            let cached = try checked(access.get(path))\n            try checkCancellation(cancellation)\n            return cached\n        }',
+     'do { throw KeychainStoreError.notFound }', 'testFirstImportThenAuthenticationSurvivesRemovedSource'),
+    ('private-readback', 'let stored = try checked(access.get(path))\n        try checkCancellation(cancellation)',
+     'let stored = imported\n        try checkCancellation(cancellation)', 'testPostImportReadFailureCannotYieldFileMaterial'),
+    ('private-denial', 'catch KeychainStoreError.unexpectedStatus(let status) where status == errSecDuplicateItem {',
+     'catch KeychainStoreError.unexpectedStatus {', 'testKeychainWriteFailureCannotYieldFileMaterial'),
+    ('private-race', '// Another import won.', 'return imported // Another import won.', 'testConcurrentFirstImportUsesWinningKeychainRecord'),
+    ('private-source', 'same(before, after), same(after, current), after.st_size == bytes.count,',
+     'true, true, after.st_size == bytes.count,', 'testSourceReplacementDuringReadCannotBeImported'),
+    ('private-permission', 'before.st_mode & 0o077 == 0', 'true', 'testSourcePermissionsSymlinksAndMalformedBytesAreRefused'),
+    ('private-cancel', 'if cancellation?.isCancelled == true { throw GhostermError.status(8, "私钥读取已取消") }',
+     '// mutation: ignore cancellation', 'testCancelledLookupCannotReadOrImportTheFile'),
+    ('private-provider', 'if path.hasPrefix("ghosterm-identity:") {', 'if false {', 'testUnsupportedAndroidContainerReferenceIsExplicit'),
+]
+CREDENTIAL_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift'
+CREDENTIAL_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/SSHCredentialSelectorTests.swift'
+CREDENTIAL_CASES = [
+    ('private-failure-routing', 'if let materialError { self.finish(request, .failure(materialError)); return }',
+     'if let materialError { _ = materialError }', 'testKeychainFailureCannotBecomePasswordFallback'),
+    ('private-cancel-routing', 'material = try reader(path, request.cancellation)',
+     'material = try reader(path, SSHCancellation())', 'testStorageReceivesTheRequestCancellationToken'),
+]
+KEYCHAIN_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/KeychainStore.swift'
+KEYCHAIN_CASES = [
+    ('private-utf8', 'guard let text = String(data: d, encoding: .utf8), !text.utf8.contains(0)',
+     'guard let text = Optional(String(decoding: d, as: UTF8.self)), !text.utf8.contains(0)', 'testInvalidKeychainUTF8CannotBeReplacedByAFileFallback'),
+]
+PRIVATE_BINDING_CASES = [
+    ('private-production', 'keyWithCancellation: { try NativePrivateKeyStore.load($0, cancellation: $1) }',
+     'keyWithCancellation: { _, _ in nil }', 'testProductionSelectorUsesImportedMaterialAfterSourceRemoval'),
+]
+PRIVATE_UI_CASES = [
+    ('private-import-button', 'try await model.reimportPrivateKey(reference)', '_ = reference', 'testActualKeyImportButtonStoresMaterialWithoutSavingTheForm'),
+    ('private-import-error', '} catch { errorText = "\\(error)" }\n            importing = false',
+     '} catch { _ = error }\n            importing = false', 'testActualKeyImportFailureIsVisibleWithoutSaving'),
+]
 PHASES = {
+    'private-store': (PRIVATE_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', PRIVATE_CASES),
+    'private-credential': (CREDENTIAL_SOURCE, CREDENTIAL_TESTS, 'SSHCredentialSelectorTests', CREDENTIAL_CASES),
+    'private-binding': (CREDENTIAL_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', PRIVATE_BINDING_CASES),
+    'private-utf8': (KEYCHAIN_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', KEYCHAIN_CASES),
+    'private-ui': (UI_SOURCE, UI_TESTS, 'HostEditorUITests', PRIVATE_UI_CASES),
     'target-match': (HOST_LIST_SOURCE, TARGET_TESTS, 'HostTargetIdentityTests', TARGET_MATCH_CASES),
     'target-selection': (PUBLICATION_SOURCE, TARGET_TESTS, 'HostTargetIdentityTests', TARGET_SELECTION_CASES),
     'store': (SOURCE, TESTS, 'ConfigStoreTests', CASES),
@@ -187,6 +232,8 @@ def main():
     command = ['swift', 'test', '--package-path', str(checkout / 'apple/GhostermApp'),
                '--cache-path', str(scratch / 'spm-cache'), '--skip-update', '--filter']
     baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
+    if args.phase.startswith('private-'):
+        baseline += '|NativePrivateKeyStoreTests|SSHCredentialSelectorTests|KeychainStoreTests'
     records = []
 
     def run(label, selected, red=False):

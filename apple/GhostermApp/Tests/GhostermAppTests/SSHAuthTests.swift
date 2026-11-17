@@ -268,36 +268,46 @@ final class SSHAuthTests: XCTestCase {
         model.disconnectForTesting()
     }
 
-    /// 连一次之后**不该**往 Keychain 里塞「已解锁的 PEM」。
-    ///
-    /// 那一步（一个 generic-password 项被反复读）正是 macOS 弹
-    /// 「想要使用钥匙串」的来源——用户实测被问了。钥匙本来就在 `~/.ssh`
-    /// 里，多存一份副本既不增加安全（私钥不落我们的盘，铁律 #5 仍守），
-    /// 只换来一次授权弹框。
+    /// Current iron rule #5 makes Keychain the material owner. Retain the
+    /// no-passphrase-prompt assertion and prove real authentication after the
+    /// disposable import source is gone; never snapshot or print the key.
     @MainActor
-    func testConnectDoesNotStashUnlockedKeyInKeychain() throws {
+    func testConnectUsesKeychainMaterialAfterRemovingImportSource() throws {
         guard let e = try sshEnv() else { throw XCTSkip("未设置 GHOSTERM_SSH_* —— 跳过") }
-        // 先清掉这条路径可能残留的记录（删除幂等，不触发授权框）。
-        KeychainStore.removePrivateKeyPEM(forPath: e.keyPath)
-
-        let cfg = try writeConfig(host: e.host, port: e.port, user: e.user,
-                                  identity: e.keyPath)
+        let directory = sessionTestDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let source = directory.appendingPathComponent("identity")
+        let original = try Data(contentsOf: URL(fileURLWithPath: e.keyPath))
+        guard FileManager.default.createFile(atPath: source.path, contents: original, attributes: [.posixPermissions: 0o600]) else {
+            return XCTFail("owned SSH source fixture could not be created")
+        }
+        addTeardownBlock {
+            KeychainStore.removePrivateKeyPEM(forPath: source.path)
+            var missing = false
+            do { _ = try KeychainStore.privateKeyPEM(forPath: source.path) }
+            catch KeychainStoreError.notFound { missing = true }
+            catch { XCTFail("owned SSH Keychain fixture cleanup failed") }
+            XCTAssertTrue(missing)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let cfg = try writeConfig(host: e.host, port: e.port, user: e.user, identity: source.path)
         let model = isolatedAppModel(configPath: cfg, knownHostsPath: try isolatedKnownHosts())
         let interaction = RecordingInteraction()
-        model.interaction = interaction
-        interaction.hostKeyAnswer = .accept
-
+        model.interaction = interaction; interaction.hostKeyAnswer = .accept
+        defer { model.disconnectForTesting() }
         model.openSFTP(for: "gatehost")
-        XCTAssertTrue(waitUntil(model, timeout: 20) { $0.remoteFiles?.panel != nil },
-                      "应连上（状态: \(model.status)）")
-
-        XCTAssertThrowsError(try KeychainStore.privateKeyPEM(forPath: e.keyPath)) { error in
-            guard case KeychainStoreError.notFound = error else {
-                return XCTFail("连接后不该有已解锁的 PEM 存档"
-                               + "（读它正是弹「想要使用钥匙串」的来源）；得到 \(error)")
-            }
+        guard waitUntil(model, timeout: 20, { $0.remoteFiles?.panel != nil }) else {
+            return XCTFail("first imported-key SSH authentication failed: \(model.status)")
+        }
+        guard let stored = try? KeychainStore.privateKeyPEM(forPath: source.path),
+              Data(stored.utf8) == original else {
+            return XCTFail("authenticated material must be present in Keychain without a plaintext app cache")
         }
         model.disconnectForTesting()
+        try FileManager.default.removeItem(at: source)
+        model.openSFTP(for: "gatehost")
+        XCTAssertTrue(waitUntil(model, timeout: 20) { $0.remoteFiles?.panel != nil } && interaction.prompts.isEmpty,
+                      "a second real authentication must use Keychain after source removal, without a passphrase prompt")
     }
 
     /// 钥匙不被接受时：该问的是**登录密码**，不是私钥口令。

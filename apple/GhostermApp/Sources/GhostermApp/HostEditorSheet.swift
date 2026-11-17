@@ -11,6 +11,8 @@ struct HostEditorSheet: View {
     @State private var draft: HostEditorDraft?
     @State private var errorText: String?
     @State private var loaded = false
+    @State private var importing = false
+    @State private var importNotice: String?
     private struct PendingSave {
         let replacement: String
         let edits: [(String, [String]?)]
@@ -33,6 +35,25 @@ struct HostEditorSheet: View {
                         field(draft.user)
                         field(draft.port)
                         field(draft.identities, multiline: true)
+                        let references = Array(draft.wrappedValue.identities.value.components(separatedBy: "\n").filter { !$0.isEmpty }.prefix(64))
+                        Group {
+                            if references.count == 1 {
+                                Button("从文件更新钥匙串私钥…") { reimport(references[0]) }
+                            } else {
+                                Menu("从文件更新钥匙串私钥…") {
+                                    ForEach(Array(references.enumerated()), id: \.offset) { index, reference in
+                                        Button(reference) { reimport(reference) }
+                                            .accessibilityIdentifier("host-editor-import-key-\(index)")
+                                    }
+                                }
+                            }
+                        }
+                        .disabled(importing || references.isEmpty || !draft.wrappedValue.identities.enabled)
+                        .accessibilityIdentifier("host-editor-import-key")
+                        Text("首次使用会将文件导入钥匙串，之后从钥匙串认证。导入独立保存，取消登录或表单不删除；来源文件仍由你管理。此动作主动更新已存材料，一次最多显示前 64 条引用。")
+                            .font(DS.Font.callout).foregroundStyle(.secondary)
+                        if importing { ProgressView("正在更新钥匙串…").controlSize(.small) }
+                        if let importNotice { Text(importNotice).font(DS.Font.callout).foregroundStyle(.secondary).accessibilityIdentifier("host-editor-import-result") }
                         if !draft.wrappedValue.extras.isEmpty {
                             Text("其他指令").font(DS.Font.title)
                             ForEach(draft.extras) { extra in
@@ -42,7 +63,7 @@ struct HostEditorSheet: View {
                             }
                         }
                     }
-                    .disabled(draft.wrappedValue.readOnlyReason != nil || pendingSave != nil)
+                    .disabled(draft.wrappedValue.readOnlyReason != nil || pendingSave != nil || importing)
                 }
                 .frame(maxHeight: 480)
             }
@@ -54,16 +75,17 @@ struct HostEditorSheet: View {
                     Button("确认改名并保存") { commit(pendingSave) }.accessibilityIdentifier("host-editor-confirm-save")
                 }
             }
-            if let errorText { Text(errorText).foregroundStyle(.red).font(DS.Font.callout).textSelection(.enabled) }
+            if let errorText { Text(errorText).foregroundStyle(.red).font(DS.Font.callout).textSelection(.enabled).accessibilityIdentifier("host-editor-error") }
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }.accessibilityIdentifier("host-editor-cancel")
+                Button("取消") { dismiss() }.disabled(importing).accessibilityIdentifier("host-editor-cancel")
                 Button("保存") { save() }
-                    .disabled(draft == nil || draft?.readOnlyReason != nil || pendingSave != nil)
+                    .disabled(draft == nil || draft?.readOnlyReason != nil || pendingSave != nil || importing)
                     .keyboardShortcut(.defaultAction).accessibilityIdentifier("host-editor-save")
             }
         }
         .padding(20).frame(width: 550)
+        .interactiveDismissDisabled(importing)
         .onAppear {
             guard !loaded else { return }
             loaded = true
@@ -85,6 +107,18 @@ struct HostEditorSheet: View {
                     .disabled(!value.wrappedValue.enabled).accessibilityIdentifier("host-editor-\(value.wrappedValue.keyword)")
             }
             Text(value.wrappedValue.source).font(DS.Font.callout).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+    }
+
+    private func reimport(_ reference: String) {
+        guard !importing else { return }
+        importing = true; errorText = nil; importNotice = nil
+        Task { @MainActor in
+            do {
+                try await model.reimportPrivateKey(reference)
+                importNotice = "钥匙串已更新；来源文件未改写。"
+            } catch { errorText = "\(error)" }
+            importing = false
         }
     }
 

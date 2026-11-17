@@ -97,4 +97,34 @@ import XCTest
         release.signal()
         try await Task.sleep(nanoseconds: 30_000_000)
     }
+    func testKeychainFailureCannotBecomePasswordFallback() async throws {
+        var requests = 0, resultWasKeychainFailure = false, completed = false
+        let storage = SSHCredentialSelector.Storage(key: { _ in throw KeychainStoreError.timeout }, secret: { _, _ in requests += 1; return nil }, save: { _, _, _ in }, remove: { _, _ in })
+        let selector = SSHCredentialSelector(target: target, storage: storage, ask: { _ in requests += 1; return nil }, hostkey: { _, _ in .unknown }, notice: { _ in })
+        selector.prompts.methods(1, SSHAuthMethods.publicKey.rawValue | SSHAuthMethods.password.rawValue, 0)
+        selector.prompts.credential(1, 1) { result in
+            if case .failure(let error) = result, case KeychainStoreError.timeout = error { resultWasKeychainFailure = true }
+            completed = true
+        }
+        try await until { completed }
+        XCTAssertTrue(resultWasKeychainFailure && requests == 0, "a failed private-material store is explicit, never a silent switch to password")
+    }
+
+    func testStorageReceivesTheRequestCancellationToken() async throws {
+        let entered = expectation(description: "cancellable read entered"), finished = expectation(description: "cancellable read returned")
+        let release = DispatchSemaphore(value: 0)
+        var seen: SSHCancellation?, deliveries = 0
+        let storage = SSHCredentialSelector.Storage(key: { _ in nil }, secret: { _, _ in nil }, save: { _, _, _ in }, remove: { _, _ in }, keyWithCancellation: { _, token in
+            seen = token; entered.fulfill(); _ = release.wait(timeout: .now() + 3); finished.fulfill(); return nil
+        })
+        let selector = SSHCredentialSelector(target: target, storage: storage, ask: { _ in nil }, hostkey: { _, _ in .unknown }, notice: { _ in })
+        selector.prompts.methods(1, SSHAuthMethods.publicKey.rawValue, 0)
+        selector.prompts.credential(1, 1) { _ in deliveries += 1 }
+        await fulfillment(of: [entered], timeout: 2)
+        selector.prompts.cancelled(1); release.signal()
+        await fulfillment(of: [finished], timeout: 2)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertTrue(seen?.isCancelled == true && deliveries == 0)
+    }
+
 }

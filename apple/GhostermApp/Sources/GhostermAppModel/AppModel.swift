@@ -823,6 +823,19 @@ public final class AppModel: ObservableObject {
         return try configModel.directives(of: alias)
     }
 
+    private let privateKeyImportQueue = DispatchQueue(label: "dev.ghosterm.private-key-import")
+
+    /// Independent, explicit import action; cancelling a form does not undo it.
+    public func reimportPrivateKey(_ reference: String) async throws {
+        let path = expandTilde([reference])[0]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            privateKeyImportQueue.async {
+                do { try NativePrivateKeyStore.reimport(path); continuation.resume() }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
+    }
+
     // MARK: - 连接
 
     /// 打开一个新标签页连到 target（**不再**拆掉当前标签页——

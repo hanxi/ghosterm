@@ -12,7 +12,7 @@
 // 线程模型：SecItem* 是阻塞调用，通常毫秒级。但**读 secret**（kSecReturnData）
 // 走 securityd 的 CSSM 解密通道——在无签名进程 / 无授权 UI 的环境里（闸门、
 // 无头冒烟），securityd 的应答可能永远不来（实测：连接线程卡死在 mach_msg）。
-// 故所有调用都带超时闸：超时按「读不到」处理，绝不让连接线程被 Keychain 拖死。
+// 故所有调用都带超时闸：超时明确报告结果未确认，绝不让连接线程被 Keychain 拖死。
 // 代价：超时场景泄漏一条卡住的线程——只在异常环境发生，且进程本来就要退出。
 import Foundation
 import Security
@@ -29,7 +29,7 @@ public enum KeychainStoreError: Error, CustomStringConvertible {
         case .notFound:
             return "Keychain 中没有这条记录"
         case .timeout:
-            return "Keychain 无响应（无签名/无授权环境）"
+            return "Keychain 超时，操作结果未确认（请核对钥匙串状态）"
         }
     }
 }
@@ -70,20 +70,22 @@ public enum KeychainStore {
     // MARK: - 通用读写
 
     static func set(_ data: Data, account: String) throws {
-        // 先删后加：SecItemUpdate 对 kSecValueData 需要走 data 属性更新，
-        // 删-加两步在「不存在/已存在」两种初始状态下都幂等，且避免了
-        // errSecDuplicateItem 的分支处理。
+        // Atomic update preserves existing material if Security refuses a write.
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
         let status: OSStatus = try withTimeout("set") {
-            SecItemDelete(base as CFDictionary) // 不存在时 errSecItemNotFound，无害
+            let changes = [kSecValueData as String: data]
+            let updated = SecItemUpdate(base as CFDictionary, changes as CFDictionary)
+            if updated != errSecItemNotFound { return updated }
             var add = base
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            return SecItemAdd(add as CFDictionary, nil)
+            let inserted = SecItemAdd(add as CFDictionary, nil)
+            if inserted == errSecDuplicateItem { return SecItemUpdate(base as CFDictionary, changes as CFDictionary) }
+            return inserted
         }
         guard status == errSecSuccess else {
             throw KeychainStoreError.unexpectedStatus(status)
@@ -161,9 +163,23 @@ public enum KeychainStore {
         try set(Data(pem.utf8), account: keyAccount(path))
     }
 
+    /// First-use import never replaces another connection's committed material.
+    static func insertPrivateKeyPEM(_ pem: String, forPath path: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: keyAccount(path),
+            kSecAttrLabel as String: "Ghosterm SSH 私钥",
+            kSecValueData as String: Data(pem.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let status: OSStatus = try withTimeout("private-import") { SecItemAdd(query as CFDictionary, nil) }
+        guard status == errSecSuccess else { throw KeychainStoreError.unexpectedStatus(status) }
+    }
+
     public static func privateKeyPEM(forPath path: String) throws -> String {
         let d = try get(account: keyAccount(path))
-        return String(decoding: d, as: UTF8.self)
+        guard let text = String(data: d, encoding: .utf8), !text.utf8.contains(0) else {
+            throw KeychainStoreError.unexpectedStatus(errSecDecode)
+        }
+        return text
     }
 
     public static func removePrivateKeyPEM(forPath path: String) {

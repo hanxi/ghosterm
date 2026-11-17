@@ -49,7 +49,7 @@ apple/
 
 `7939ef8` 交付的 Bash/Zsh 提示符鼠标清理脚本仍可独立安装。当前 App 的普通本地 zsh 入口已自动加载随包钩子：系统 SSH 异常断开回到本地提示符时清理移动/点击残留，无需修改用户启动文件；`.direct`、其它 shell 及远端仍保留原启动方式，Bash/远端需手工集成。macOS 26.6.2 / tmux 3.6a 已有三层隔离 SSH 断线、真实 AppKit 点击及正常 TUI 字节对照；真实硬件休眠和用户远端另验。随包资源对拍、自动接线与包内检查见[鼠标残留恢复](../docs/how-to/mouse-report-recovery.md)。这项提示符钩子不提供远端 cwd 上报，也不补齐 OSC 133 集成。
 
-共享 `gt_config_edit` 保留非目标行；`ConfigStore` 的强制备份/原子提交与 `AppModel` 的候选落盘后发布已接，分别见[写盘事务](../docs/reference/macos-config-store.md)与[分批实施记录](../docs/reference/non-plugin-remainder.md)。私钥材料安全存储仍单独推进，不能据配置片关闭整个 M3。
+共享 `gt_config_edit` 保留非目标行；`ConfigStore` 的强制备份/原子提交与 `AppModel` 的候选落盘后发布已接，分别见[写盘事务](../docs/reference/macos-config-store.md)与[分批实施记录](../docs/reference/non-plugin-remainder.md)。私钥材料生产接线已独立交付，见[材料说明](../docs/reference/macos-private-keys.md)，不据这些专项关闭整个 M3。
 
 主机表单改用 Core 的物理块指令快照，正确解码 tab、等号和引号；重复标量取本块首值，多条 IdentityFile 逐行呈现，路径内逗号/空格不再充当分隔符。未改保存不生成补丁，修改一个字段不重写高级指令；可显式删除本块值以继承，展示字段有效来源和继承身份。多别名块提示共同影响，Include 来源只读，重复块/Match 显式报错；重复未知标量与 Include 路径仍要求到配置文件编辑。连接列表排除否定项并按 ASCII 大小写去重，配置原文及歧义保护保留；Unicode 规范等价不代替字节相等。
 
@@ -61,7 +61,7 @@ apple/
 
 `SSHConfig.identities(alias:)` 已绑定共享 `gt_config_identity_at`，复制 IdentityFile 的原序条目及显式/继承/Include 来源，遇到 Match 或相关非法参数明确抛错。Android 已在其主机编辑/认证/详情使用此来源查询；macOS 表单现已消费本块与继承来源，具体表单边界和新证据见[剩余实施记录](../docs/reference/non-plugin-remainder.md)。共享 8 C + 1 Swift 变异、Swift 7 项配置定向及两端构建证据见[§9.34](../docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。
 
-Android 主机关联写入的 `IdentityFile "ghosterm-identity:<UUID>"` 是该安装的加密容器引用。当前 `SSHCredentialSelector.Storage.readKey` 按文件路径读取，不解析这种引用；复制 Android 配置到 macOS 不会迁移密钥，不能承诺自动关联或直接登录。普通 IdentityFile 路径仍按现有 macOS 规则处理；后续跨端导入需明确重新关联及不支持提示，不把路径读取失败当成可用身份。Android 的选择、保存事务和引用列表验收见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)，不改变本端配置/私钥待办。
+Android 主机关联写入的 `IdentityFile "ghosterm-identity:<UUID>"` 是该安装的加密容器引用。当前材料选择器对这种引用显式 unsupported，要求重新导入/关联；复制 Android 配置不会迁移密钥。普通本机 IdentityFile 首次使用导入 Keychain，之后以安全存储为材料真相，可在表单主动重新导入；权限、错误与取消边界见[材料说明](../docs/reference/macos-private-keys.md)。Android 的选择、保存事务和引用列表验收见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)，该历史证据不替代本端[新材料专项](../docs/reference/macos-private-keys.md)。
 
 `KnownHosts.records` 新增只读绑定，复制原始字节范围、marker 与字段形态，保留畸形记录；两项 Swift 定向和一组绑定变异通过。只读接口本身不读取/写回文件，也未接本端管理页面；写盘随后由 §9.37 的共享事务实现。认证枚举与快照已共用词法读取，原有 ed25519/ECDSA sshd 的 20 组信任变异重跑通过，范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
 
@@ -133,7 +133,7 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 
 `CGhostty/shim.c` 已接引擎标准文本剪贴板回调：OSC 52 写入系统剪贴板，读取按引擎策略默认逐次确认，确认使用原始快照，隐藏/销毁取消未决请求。大小沿用引擎与系统剪贴板边界；选区剪贴板和二进制表示不支持。该专项不证明全局菜单路由、选中自动复制或 Cocoa 菜单粘贴确认完整验收，见 [OSC 52 接线与验证](../docs/reference/osc52.md)。文件路径复制与文件传输也有各自的接线，不能互相替代验收。
 
-修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。`ConfigStore` 的强制备份/原子替换已有独立 native XCTest 与隔离故障验证；候选发布及原生表单已独立接线，不据这些专项宣布私钥安全存储或 M3 全部完成。
+修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。`ConfigStore` 的强制备份/原子替换已有独立 native XCTest 与隔离故障验证；候选发布及原生表单已独立接线，私钥材料另有独立专项，不据定向证据宣布 M3 全部完成。
 
 **配置求值不等于连接执行**：共享 `gt_config_check_connection` 检查当前普通 SSH 档位可执行的显式指令，并返回关键词及来源；`HostListModel` 在求值同一份配置时复制结果，`SSHConnectionTarget` / `RemoteTarget` 携带该快照。`SSHAuthenticationFlow.start` 在创建定时器及解析器前拒绝不支持项，普通 SSH、独立/内嵌 SFTP 和 tmux 共用。macOS 普通终端、独立/内嵌 SFTP 另由 `SSHConfiguredRoute` 和 `SSHRouteAuthenticationFlow` 消费 ProxyJump：每跳独立身份、信任和凭据，只有首跳本机 DNS，目标复核后交接受管路线。原单跳底层仍拒绝 ProxyJump；tmux 管理和 attach 同样通过独立的受管路线认证；探测/列举不创建服务器，创建/attach 仍需显式选择。转发、环境注入等其它未实现项仍拒绝。
 

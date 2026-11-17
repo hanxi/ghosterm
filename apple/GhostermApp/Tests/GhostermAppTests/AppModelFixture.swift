@@ -25,6 +25,28 @@ import XCTest
         } catch { XCTFail("owned application session fixture failed: \(error)") }
         XCTestObservationCenter.shared.addTestObserver(self)
     }
+    // Only the gate's explicit disposable key may be retired. Never infer
+    // permission from an arbitrary GHOSTERM_SSH_KEY or scan the user's Keychain.
+    nonisolated func testCaseDidFinish(_ testCase: XCTestCase) {
+        guard let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE"],
+              path == ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"] else { return }
+        var project = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { project.deleteLastPathComponent() }
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        let expectedRoot = project.appendingPathComponent("tmp").standardizedFileURL.path + "/"
+        guard file.path.hasPrefix(expectedRoot), file.lastPathComponent == "clientkey",
+              file.deletingLastPathComponent().lastPathComponent.hasPrefix("apple-app-") else {
+            XCTFail("owned Keychain fixture reference is outside the gate's disposable directory")
+            return
+        }
+        KeychainStore.removePrivateKeyPEM(forPath: path)
+        do {
+            _ = try KeychainStore.privateKeyPEM(forPath: path)
+            XCTFail("owned Keychain fixture record was not retired")
+        } catch KeychainStoreError.notFound { }
+        catch { XCTFail("owned Keychain fixture cleanup was not confirmed: \(error)") }
+    }
+
     nonisolated func testBundleDidFinish(_ testBundle: Bundle) {
         MainActor.assumeIsolated {
             for suite in defaultsSuites {

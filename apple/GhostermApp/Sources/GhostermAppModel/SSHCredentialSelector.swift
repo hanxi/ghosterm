@@ -12,8 +12,9 @@ import Security
         var secret: (Reference, SSHConnectionTarget) throws -> String?
         var save: (Reference, SSHConnectionTarget, String) throws -> Void
         var remove: (Reference, SSHConnectionTarget) throws -> Void
+        var keyWithCancellation: ((String, SSHCancellation) throws -> String?)? = nil
         static var platform: Storage {
-            Storage(key: readKey, secret: { ref, target in
+            Storage(key: { try NativePrivateKeyStore.load($0) }, secret: { ref, target in
                 do {
                     let bytes = try KeychainStore.get(account: account(ref, target))
                     guard let text = String(data: bytes, encoding: .utf8) else { throw GhostermError.failed("钥匙串凭据格式无效") }
@@ -23,7 +24,7 @@ import Security
                 let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: KeychainStore.service, kSecAttrAccount as String: account(ref, target)]
                 let status: OSStatus = try KeychainStore.withTimeout("native-remove") { SecItemDelete(query as CFDictionary) }
                 guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainStoreError.unexpectedStatus(status) }
-            })
+            }, keyWithCancellation: { try NativePrivateKeyStore.load($0, cancellation: $1) })
         }
         private static func account(_ ref: Reference, _ target: SSHConnectionTarget) -> String {
             switch ref {
@@ -35,27 +36,8 @@ import Security
                 return "native-password/v1/" + bytes.base64EncodedString()
             }
         }
-        private static func readKey(_ path: String) throws -> String? {
-            let fd = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOFOLLOW)
-            if fd < 0, errno == ENOENT { return nil }
-            guard fd >= 0 else { throw GhostermError.failed("无法读取私钥文件") }; defer { Darwin.close(fd) }
-            var info = stat()
-            guard fstat(fd, &info) == 0, info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG), info.st_size > 0,
-                  info.st_size <= 1_048_576, info.st_uid == geteuid(), info.st_mode & 0o077 == 0 else {
-                throw GhostermError.failed("私钥必须是当前用户的私有常规文件，且不超过 1 MiB")
-            }
-            var bytes = Data(), chunk = [UInt8](repeating: 0, count: 8192)
-            while true {
-                let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
-                if count < 0 { if errno == EINTR { continue }; throw GhostermError.failed("私钥读取失败") }
-                if count == 0 { break }
-                guard bytes.count + count <= 1_048_576 else { throw GhostermError.failed("私钥超过大小限制") }
-                bytes.append(contentsOf: chunk.prefix(count))
-            }
-            guard let text = String(data: bytes, encoding: .utf8), !text.utf8.contains(0) else { throw GhostermError.failed("私钥文本格式无效") }
-            return text
-        }
     }
+
     private final class Request {
         let id: UInt64
         let cancellation = SSHCancellation()
@@ -118,16 +100,22 @@ import Security
         io.async { [weak self] in
             var warning: String?
             let value: (String, PrivateKeyPassphraseRequirement, String?)?
+            var materialError: Error?
             do {
-                if let pem = try storage.key(path) {
+                guard !request.cancellation.isCancelled else { return }
+                let material: String?
+                if let reader = storage.keyWithCancellation { material = try reader(path, request.cancellation) }
+                else { material = try storage.key(path) }
+                if let pem = material {
                     let requirement = Ghosterm.keyPassphraseRequirement(pem)
                     var cached: String?
                     if requirement == .needed { do { cached = try storage.secret(.identity(path), target) } catch { warning = "无法读取私钥口令缓存，可手动解锁" } }
                     value = (pem, requirement, cached)
                 } else { value = nil }
-            } catch { value = nil; warning = "私钥 \((path as NSString).lastPathComponent) 无法读取或权限不符合要求" }
+            } catch { value = nil; materialError = error }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.active(request) else { return }
+                if let materialError { self.finish(request, .failure(materialError)); return }
                 if let warning { self.notice(warning) }
                 guard let (pem, requirement, cached) = value else { self.tryKey(request, methods: methods); return }
                 if requirement == .unknown { self.notice("不支持的私钥格式：\((path as NSString).lastPathComponent)"); self.tryKey(request, methods: methods); return }

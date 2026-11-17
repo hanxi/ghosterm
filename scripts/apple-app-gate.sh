@@ -112,6 +112,7 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
              GHOSTERM_SSH_PORT="$PORT"
              GHOSTERM_SSH_USER="$(id -un)"
              GHOSTERM_SSH_KEY="$WORK/clientkey"
+             GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE="$WORK/clientkey"
              GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts")
     if [ "${GHOSTERM_TEST_SSH_JUMP:-${GHOSTERM_TEST_CODEX_JUMP:-0}}" = 1 ]; then
       JUMP_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"

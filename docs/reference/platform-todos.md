@@ -23,7 +23,7 @@
 |---|---|---|---|
 | 1 / 已修 | SSH 配置候选模型发布 | ConfigStore 存储事务与 AppModel 候选发布均已接；失败不污染已发布 AST/列表，已提交后错误重载磁盘并明确报告 | 50 项原生组合、六组实际编译变异和 arm64 Release 通过；主机表单/来源与改名另见批 3，不扩大为 M3 全完成 |
 | 2 / 已交付专项 | 主机表单保真与改名 | Core 物理块快照替换 Swift 解析；脏字段、逐行身份、继承来源、多别名提示、只读/歧义保护；改名预览确认及旧表单冲突 | 结果逐项记入[剩余实施记录](non-plugin-remainder.md)；重复未知标量及 Include 仍显式转来源文件编辑，不声称全指令表单支持 |
-| 3 / P0 | 私钥安全存储生产接线 | [SSHCredentialSelector.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) 从受限磁盘文件读 PEM，Keychain 生产路径保存口令/密码 | 私钥导入→安全存储→解锁→认证，引用/取消/错误明确；不把 Android 容器引用当本端路径，不放宽铁律 #5 |
+| 3 / 已交付专项 | 私钥安全存储生产接线 | IdentityFile 首次导入后从 Keychain 回读认证，表单可主动重新导入；写/读失败明确终止，取消隔离，来源文件仍由用户管理 | 46/105 项组合分轮、十八项真实 SSH、十四组变异和 Release，见[材料说明](macos-private-keys.md)；Android 引用不自动迁移 |
 | 4 / 已交付 | 宿主闸门必跑项 | full CI 两个 Apple 闸门显式 required；缺 Swift/SSH、启动失败、空测试、必跑项无 passed 收据均失败；optional 缺证据报 PARTIAL | Bash 3.2/5 各 18 项、六组 shell 故障断言及自有 sshd 原生专项通过；其它条件跳过仍单列，见[分批实施](non-plugin-remainder.md) |
 | 5 / P1 | 文件导航/错误/缓存 | [FilesPanelModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 无导航代次，失败不回滚历史，刷新不失效树缓存，树错误折为空 | 可从导航代次与历史事务开始；覆盖快速 A/B、后退失败、树失败重试、刷新增删，随后独立收口搜索/递归权限错误 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |

@@ -1,4 +1,6 @@
 import AppKit
+import CryptoKit
+import Darwin
 import Foundation
 import SwiftUI
 import XCTest
@@ -88,4 +90,55 @@ final class HostEditorUITests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: file), Data(text.utf8))
         }
     }
+    private func ownedImportSource(mode: mode_t = 0o600) throws -> (String, Data) {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("key-ui-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let file = directory.appendingPathComponent("identity")
+        let bytes = Data("-----BEGIN RSA PRIVATE KEY-----\nNOT_A_CRYPTOGRAPHIC_KEY\n-----END RSA PRIVATE KEY-----\n".utf8)
+        try bytes.write(to: file); XCTAssertEqual(chmod(file.path, mode), 0)
+        addTeardownBlock {
+            KeychainStore.removePrivateKeyPEM(forPath: file.path)
+            var missing = false
+            do { _ = try KeychainStore.privateKeyPEM(forPath: file.path) }
+            catch KeychainStoreError.notFound { missing = true }
+            catch { XCTFail("owned Keychain UI fixture cleanup failed") }
+            XCTAssertTrue(missing)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        return (file.path, bytes)
+    }
+
+    func testActualKeyImportButtonStoresMaterialWithoutSavingTheForm() async throws {
+        let (path, bytes) = try ownedImportSource()
+        let original = "Host demo\n IdentityFile \"\(path)\"\n"
+        try await runForm(original: original) { view, _, file in
+            XCTAssertTrue(self.press(try XCTUnwrap(self.node(view, "host-editor-import-key"))))
+            for _ in 0..<250 {
+                if self.node(view, "host-editor-import-result") != nil || self.node(view, "host-editor-error") != nil { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertNotNil(self.node(view, "host-editor-import-result"))
+            XCTAssertTrue(self.press(try XCTUnwrap(self.node(view, "host-editor-cancel"))))
+            let stored = try? KeychainStore.privateKeyPEM(forPath: path)
+            XCTAssertTrue(Data(SHA256.hash(data: Data((stored ?? "").utf8))) == Data(SHA256.hash(data: bytes)) &&
+                (try? Data(contentsOf: file)) == Data(original.utf8) &&
+                (try? Data(contentsOf: URL(fileURLWithPath: path))) == bytes,
+                "import independently persists to Keychain; cancelling config editing must not write either file")
+        }
+    }
+
+    func testActualKeyImportFailureIsVisibleWithoutSaving() async throws {
+        let (path, _) = try ownedImportSource(mode: 0o644)
+        let original = "Host demo\n IdentityFile \"\(path)\"\n"
+        try await runForm(original: original) { view, _, file in
+            XCTAssertTrue(self.press(try XCTUnwrap(self.node(view, "host-editor-import-key"))))
+            for _ in 0..<250 {
+                if self.node(view, "host-editor-error") != nil { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertTrue(self.node(view, "host-editor-error") != nil && (try? Data(contentsOf: file)) == Data(original.utf8),
+                          "a failed private source import must remain visible and leave the form uncommitted")
+        }
+    }
+
 }

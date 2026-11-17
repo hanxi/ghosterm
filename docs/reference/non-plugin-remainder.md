@@ -11,7 +11,8 @@
 | 3 | 主机表单来源/保真/改名 | 73 项原生组合、16 个新保护与发布旧六组分轮通过；arm64 Release 通过 |
 | 4 | 主机别名字节身份 | 所有普通 SSH/SFTP/tmux/分屏查找及选择器改为 ASCII 折叠、UTF-8 字节身份；50 项连接组合、76 项配置组合分轮、两组新变异和 Release 通过 |
 | 5 | Apple full 闸门必跑策略 | 两版 Bash 各 18 项、六组 shell 正常单断言故障；Core 12 个真实 SSH/SFTP 必跑收据及 App 4 项组合通过；其它条件跳过保留 |
-| 后续 | 安全存储、终端设置、SSH 网络/取消、文件与传输、保活及模拟器回归 | 顺序推进；未完成项不提前勾选 |
+| 6 | macOS 私钥安全存储生产接线 | 首次导入后认证只经 Keychain 回读、主动重新导入及取消隔离；46/105 项组合分轮、18 项真实 SSH、十四组变异与 Release 通过，见[材料说明](macos-private-keys.md) |
+| 后续 | 终端设置、SSH 网络/取消、文件与传输、保活及模拟器回归 | 顺序推进；未完成项不提前勾选 |
 
 批 1 的六组均为隔离源真实编译后指定单条正常断言红、同构件独立配置读取绿、复原重编绿与 SHA256。成功操作保留连接快照/UUID，不通过刷新关闭连接；这不是外部 SSH 或整客户端回归结论。
 
@@ -34,3 +35,5 @@
 `python3 scripts/test-apple-app-gate.py --shell /bin/bash` 与默认 Bash 5 各十八项；`python3 scripts/mutation-check-apple-gate-profile.py --checkout tmp/rem18` 六组为 shell 语法通过后的正常单 unittest 断言红、同夹具独立 ABI 失败传播绿、恢复绿及 SHA256，原件 `apple-profile-mutations-yp2oj_4j/receipt.json`。它们使用 shell 依赖桩，不冒充原生编译或认证变异。初轮 Python 字符串语法失败未计红；手工探针导入生成的单份字节码缓存已清除，测试禁止旁写字节码后重新完成上述六组和 Bash 5 十八项。工作流 YAML 语法通过。
 
 实际原生证据位于 `tmp/rem18/tmp/apple-profile-core-native2.log` / `apple-profile-app-native.log`。Core 离线 90 项含 29 条件跳过；真实本机 sshd 档 90 项含 17 条件跳过、零失败，十二必跑方法逐项 passed。App 定向 4 项零失败，三必跑方法逐项 passed；既有 WebKit 子资源夹具检查通过。只证明本机 arm64 定向与必跑策略，非完整宿主/云端 CI/全部条件项完成。首次工作目录拷贝错误导致执行旧 gate 的结果未计为新 required 证据。
+
+批 6：材料错误不得静默切密码，Android 容器与相对路径显式 unsupported；首轮旧“不存材料”断言和未杀死的冗余检查探针不计绿，完整说明/原件见[macOS 私钥材料](macos-private-keys.md)。导入独立保存，取消不删除已完成的材料；在途读取取消后不得交付凭据。测试仅清理明确声明的自有 Keychain 账户，不处理插件计划或产品。

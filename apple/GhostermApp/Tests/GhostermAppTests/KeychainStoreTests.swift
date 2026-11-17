@@ -1,7 +1,7 @@
 // KeychainStoreTests — 平台安全存储的真实行为断言（真 Keychain）。
 //
 // 隔离纪律（铁律 #5：密钥材料不进测试快照）：
-//   - 每条用例用**一次性随机 service**（非生产 service），测完删净；
+//   - 每条用例用**一次性随机 account**（同一 service 内独立 account），测完删净；
 //   - 断言的是 API 行为（存/取/删/不存在），材料本体不落任何日志。
 //
 // 跑在无签名 SPM 二进制里也可用（本机已验证：SecItemAdd/Copy/Delete
@@ -10,7 +10,7 @@ import GhostermAppModel
 import XCTest
 
 final class KeychainStoreTests: XCTestCase {
-    /// 生产 service 之外的隔离入口：直接操作底层 set/get/delete，
+    /// 生产 account 之外的隔离入口：直接操作底层 set/get/delete，
     /// account 前缀随机，避免污染任何真实记录。
     private func withIsolatedAccount<T>(_ body: (String) throws -> T) rethrows -> T {
         let account = "test-\(UUID().uuidString)"
