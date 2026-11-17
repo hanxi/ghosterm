@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Real macOS App-owned mixed groups over local/direct/two-hop owned channels.
+"""Real Native App mixed groups over local/direct/two-hop owned channels.
 
 Fixtures, packages and logs stay in project tmp. SSH/signing private material
-stays in memory; no user service, account, device or foreground window is used.
+stays in memory; macOS runs offscreen and Android uses an owned no-window AVD.
+No user service, account or physical device is used.
 """
 import argparse
 import base64
@@ -49,7 +50,10 @@ def main():
     parser.add_argument('--route', action='append', choices=('local', 'direct', 'jump'))
     parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
     parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
+    parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
     args = parser.parse_args()
+    if args.android_api and 'local' in (args.route or ()):
+        parser.error('Android uses direct/jump routes')
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')
@@ -62,13 +66,18 @@ def main():
     crypto = next(Path(line.split('=', 1)[1]) for line in cache.splitlines() if line.startswith('OPENSSL_CRYPTO_LIBRARY:FILEPATH='))
     if not crypto.is_file():
         parser.error('enabled build must identify its actual OpenSSL crypto library')
-    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal',
+    platform_inputs = ('android', 'terminal/android') if args.android_api else ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal')
+    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in (*platform_inputs,
         'core/include', 'core/src', 'core/tests', 'cli/gterm', 'packages/plugin-sdk') for p in (ROOT / folder).rglob('*')
-        if p.is_file() and not any(part in ('.build', '.swiftpm', '__pycache__') for part in p.parts)}
+        if p.is_file() and p.name != 'local.properties' and not any(part in ('.build', '.swiftpm', '__pycache__', 'build', '.gradle', '.kotlin', '.cxx')
+            for part in p.relative_to(ROOT / folder).parts)}
     for filename in ('test-plugin-mixed-native.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py', 'test-plugin-route.py',
         'test-plugin-release.py', 'fixtures/plugin-dev-executor.c', 'fixtures/plugin-release-agent.mjs'):
         inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
-    source = args.project.absolute() if args.project else out / 'project'
+    if args.android_api:
+        for filename in ('lib/plugin-mixed-android.py', 'test-plugin-codex-patch-android.py', 'test-plugin-channel.py'):
+            inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
+    source = args.project.absolute() if args.project else out / ('android-project' if args.android_api else 'project')
     marker = source / '.mixed-fixture-project.json'
     if not source.is_relative_to(ROOT / 'tmp') or source.is_symlink():
         parser.error('copied project must be in project tmp')
@@ -192,6 +201,21 @@ export function activate(ctx){
         if not result.get('installed') or not result.get('committed'):
             raise RuntimeError('fixture signed version was not installed and registered')
         installed = store / sha(descriptor)
+        if args.android_api:
+            backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
+            report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
+                policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source)
+            if any(sha(ROOT / name) != digest for name, digest in inputs.items()):
+                raise RuntimeError('root input changed')
+            for path in logs.iterdir():
+                if b'PRIVATE KEY-----' in path.read_bytes(): raise RuntimeError('fixture private material leaked to a log')
+            receipt = dict(accepted=True, inputs=inputs, commands=commands, **report,
+                binaries={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
+                logs={path.name: sha(path) for path in logs.iterdir()},
+                scope='owned no-window Android Native mixed direct/two-hop groups; per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; not a physical device/full client/fault/performance matrix')
+            (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+            return
+
         for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal'):
             # Refresh only fixture-source links; leave compiled-cache links alone.
             copied = source / folder
@@ -288,7 +312,7 @@ export function activate(ctx){
     receipt = dict(accepted=True, inputs=inputs, commands=commands, routes=completed, mutations=mutations,
         artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
         logs={path.name: sha(path) for path in logs.iterdir()},
-        scope='macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; no Android, system picker, mutations, model, fault/performance/device matrix')
+        scope='macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; selected worker mutation only when requested; no Android, system picker, model or full fault/performance/device matrix')
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
 
 
