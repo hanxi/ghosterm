@@ -29,6 +29,9 @@ static int usage(void) {
         "DIGEST [DIRECTORY DIGEST]...\n"
         "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
         "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
+        "       gterm plugin review-policy --catalog DIRECTORY --policy JSON\n"
+        "       gterm plugin disable-denied --catalog DIRECTORY --policy JSON "
+        "--expect-revision N --expect-policy-digest SHA256 --review-digest SHA256\n"
         "       gterm plugin install --catalog DIRECTORY --expect-revision N --store DIRECTORY "
         "--artifact ZIP --descriptor JSON --signature FILE --policy JSON --host-json FILE "
         "[--expect-digest OLD] -- [stdio profile options...]\n"
@@ -518,6 +521,9 @@ int main(int argc, char **argv) {
                available ? "available" : "unsupported",
                available ? "explicit-catalog-stdio-or-ipc" : "unsupported");
         result = available ? 0 : 4;
+    } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
+               (!strcmp(argv[2], "review-policy") || !strcmp(argv[2], "disable-denied"))) {
+        result = gterm_catalog_review_policy(argv[2], argc - 3, argv + 3, &interrupted);
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
                (!strcmp(argv[2], "register-development") || !strcmp(argv[2], "register-signed") ||
                 !strcmp(argv[2], "install") || !strcmp(argv[2], "unregister") ||

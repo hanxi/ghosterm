@@ -173,18 +173,22 @@ field(JSContext *context, JSValueConst object, const char *name, char *out, size
 }
 #endif
 
-int gterm_release_authenticate(const char *descriptor_path,
-                               const char *signature_path,
-                               const char *policy_path,
-                               const char *expected_policy,
-                               gterm_release_t *out,
-                               volatile sig_atomic_t *cancelled) {
+static int authenticate(const char *descriptor_path,
+                        const char *signature_path,
+                        const char *policy_path,
+                        const char *expected_policy,
+                        const char *expected_descriptor,
+                        const char *expected_signature,
+                        gterm_release_t *out,
+                        volatile sig_atomic_t *cancelled) {
     memset(out, 0, sizeof(*out));
 #ifndef GTERM_HAVE_RELEASE
     (void)descriptor_path;
     (void)signature_path;
     (void)policy_path;
     (void)expected_policy;
+    (void)expected_descriptor;
+    (void)expected_signature;
     (void)cancelled;
     return 4;
 #else
@@ -207,7 +211,14 @@ int gterm_release_authenticate(const char *descriptor_path,
         !gterm_release_hash(out->descriptor, out->descriptor_size, out->descriptor_digest)) {
         goto done;
     }
-    if (expected_policy && strcmp(expected_policy, out->policy_digest)) {
+    char signature_digest[65];
+    if ((expected_signature &&
+         !gterm_release_hash(out->signature, signature_size, signature_digest))) {
+        goto done;
+    }
+    if ((expected_policy && strcmp(expected_policy, out->policy_digest)) ||
+        (expected_descriptor && strcmp(expected_descriptor, out->descriptor_digest)) ||
+        (expected_signature && strcmp(expected_signature, signature_digest))) {
         result = 9;
         goto done;
     }
@@ -316,6 +327,33 @@ done:
     }
     return result;
 #endif
+}
+
+int gterm_release_authenticate(const char *descriptor,
+                               const char *signature,
+                               const char *policy,
+                               const char *expected_policy,
+                               gterm_release_t *out,
+                               volatile sig_atomic_t *cancelled) {
+    return authenticate(descriptor, signature, policy, expected_policy, NULL, NULL, out, cancelled);
+}
+
+int gterm_release_authenticate_snapshot(const char *descriptor,
+                                        const char *signature,
+                                        const char *policy,
+                                        const char *expected_policy,
+                                        const char *expected_descriptor,
+                                        const char *expected_signature,
+                                        gterm_release_t *out,
+                                        volatile sig_atomic_t *cancelled) {
+    return authenticate(descriptor,
+                        signature,
+                        policy,
+                        expected_policy,
+                        expected_descriptor,
+                        expected_signature,
+                        out,
+                        cancelled);
 }
 
 int gterm_release_installed(const char *directory,

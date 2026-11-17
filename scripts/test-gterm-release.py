@@ -38,12 +38,93 @@ CASES = ['roundtrip', 'deflate', 'bad-signature', 'revoked', 'scope', 'duplicate
 CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 'node-deny',
           'node-active-cancel', 'exec-roundtrip', 'exec-deny', 'exec-active-cancel',
           'node-development', 'exec-development']
-CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch']
+CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review']
 
 
 def require(value, label):
     if not value:
         raise AssertionError(label)
+
+
+
+def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_version, package, host, profile):
+    catalog_file = catalog / 'executor-catalog-v1'
+    original_catalog = catalog_file.read_bytes()
+    original_policy = policy.read_bytes()
+    def review(selected=policy):
+        result = run(['plugin', 'review-policy', '--catalog', catalog, '--policy', selected])
+        require(not result['authorizationGranted'] and not result['publisherAuthenticated'], 'review is not a grant')
+        return result
+    def apply(observation, expected=0, selected=policy):
+        return run(['plugin', 'disable-denied', '--catalog', catalog, '--policy', selected,
+                    '--expect-revision', observation['revision'], '--expect-policy-digest', observation['policyDigest'],
+                    '--review-digest', observation['reviewDigest']], expected)
+    healthy = review()
+    require(healthy['entries'][0]['state'] == 'allowed' and healthy['entries'][0]['policyBindingCurrent'] and
+            healthy['deniedCount'] == 0, 'current policy validates actual package')
+    require(review()['reviewDigest'] == healthy['reviewDigest'], 'stable observation digest')
+    unchanged = apply(healthy)
+    require(unchanged['result'] == 'unchanged' and not unchanged['committed'] and not unchanged['durabilityConfirmed'] and unchanged['revision'] == '1' and
+            catalog_file.read_bytes() == original_catalog, 'no denial does not rewrite catalog')
+    alternate = work / 'alternate-policy.json'; alternate.write_bytes(original_policy)
+    other = review(alternate)
+    require(other['entries'][0]['state'] == 'other-policy' and not other['deniedCount'], 'other policy path is untouched')
+    apply(other, selected=alternate)
+    policy.write_bytes(original_policy + b'\n')
+    apply(healthy, 9)
+    changed = review()
+    require(changed['entries'][0]['state'] == 'allowed' and not changed['entries'][0]['policyBindingCurrent'],
+            'allowed current evidence does not silently migrate a pinned binding')
+    apply(changed)
+    require(catalog_file.read_bytes() == original_catalog, 'valid policy change needs explicit reregistration')
+    policy.write_text('{invalid')
+    invalid = review()
+    require(invalid['entries'][0]['state'] == 'invalid-evidence' and not invalid['deniedCount'], 'malformed policy is not a denial')
+    apply(invalid)
+    policy.write_bytes(original_policy)
+    installed_signature = installed_version / 'release.sig'
+    original_signature = installed_signature.read_bytes()
+    installed_version.chmod(0o700)
+    installed_signature.unlink(); installed_signature.symlink_to(work / 'release.sig')
+    missing = review()
+    require(missing['entries'][0]['state'] == 'evidence-unavailable' and not missing['deniedCount'], 'unreadable signature is not a denial')
+    apply(missing)
+    installed_signature.unlink(); installed_signature.write_bytes(original_signature); installed_signature.chmod(0o400)
+    installed_version.chmod(0o500)
+    trusted['revokedKeyIds'] = [key_id]; policy.write_text(json.dumps(trusted))
+    revoked = review()
+    require(revoked['deniedCount'] == 1 and revoked['entries'][0]['eligibleToDisable'], 'confirmed revocation is eligible')
+    # A different invalid signature remains denied, but must invalidate the exact
+    # reviewed material before any catalog update.
+    installed_signature.chmod(0o600)
+    installed_signature.write_bytes(bytes([original_signature[0] ^ 1]) + original_signature[1:]); installed_signature.chmod(0o400)
+    apply(revoked, 9)
+    require(catalog_file.read_bytes() == original_catalog, 'changed evidence cannot reuse a review token')
+    installed_signature.chmod(0o600); installed_signature.write_bytes(original_signature); installed_signature.chmod(0o400)
+    local_root = work / 'development'; local_root.mkdir()
+    local, _ = ipc.package(local_root)
+    manifest = json.loads((local / 'plugin.json').read_text()); manifest['id'] = 'org.ghosterm.local-fixture'
+    (local / 'plugin.json').write_text(json.dumps(manifest))
+    integrity = json.loads((local / 'integrity.json').read_text())
+    for item in integrity['members']:
+        member = local / item['path']; item.update(bytes=member.stat().st_size, sha256=release.sha(member.read_bytes()))
+    (local / 'integrity.json').write_text(json.dumps(integrity))
+    run(['plugin', 'register-development', '--catalog', catalog, '--expect-revision', '1',
+         '--host-json', host, '--trust-development-digest', release.sha((local / 'integrity.json').read_bytes()), '--', local, *profile])
+    apply(revoked, 9)
+    mixed = review()
+    require(mixed['revision'] == '2' and mixed['deniedCount'] == 1 and
+            {item['state'] for item in mixed['entries']} == {'development', 'denied'}, 'mixed source review')
+    before = run(['plugin', 'list', '--catalog', catalog])['entries'][-1]
+    applied = apply(mixed)
+    require(applied['disabledCount'] == 1 and applied['committed'] and applied['durabilityConfirmed'] and applied['revision'] == '3',
+            'one durable catalog transaction removes exactly confirmed denied selection')
+    after = run(['plugin', 'list', '--catalog', catalog])
+    require(after['entries'] == [before] and installed_version.is_dir() and package.is_dir(), 'other records and all installed bytes retained')
+    apply(mixed, 9)
+    final = review()
+    require(not final['deniedCount'] and apply(final)['result'] == 'unchanged', 'explicit second review has no replay')
+    print('PASS policy workflow: allowed/current and stale bindings, other policy, invalid/unavailable, evidence/policy/catalog CAS, mixed atomic disable', flush=True)
 
 
 def exercise(build, node, sdk, case, work):
@@ -197,6 +278,9 @@ def exercise(build, node, sdk, case, work):
             require(result['committed'] and result['durabilityConfirmed'] and result['publisherAuthenticated'] != development, 'authenticated durable registration')
         listing = run(['plugin', 'list', '--catalog', catalog])
         require(listing['entries'][0]['source'] == ('explicit-development-digest' if development else 'signed-release-record') and not listing['publisherAuthenticated'], 'listing is a declaration, not current authentication')
+        if case == 'policy-review':
+            policy_workflow(run, work, catalog, policy, trusted, key_id, installed_version, package, host, profile)
+            return
         if case == 'conflict':
             options[options.index('--expect-revision') + 1] = '1'
             run(['plugin', 'install', *options, '--', *profile], 8)

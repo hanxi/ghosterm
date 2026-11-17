@@ -13,7 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static int report(int status, const char *code, const gterm_catalog_t *catalog) {
+int gterm_catalog_report(int status, const char *code, const gterm_catalog_t *catalog) {
     if (!status) {
         return 0;
     }
@@ -40,7 +40,7 @@ static int report(int status, const char *code, const gterm_catalog_t *catalog) 
     return status;
 }
 
-static bool revision(const char *s, uint64_t *out) {
+bool gterm_catalog_revision(const char *s, uint64_t *out) {
     if (!s || !*s || (s[0] == '0' && s[1])) {
         return false;
     }
@@ -92,10 +92,11 @@ static char *read_host(const char *path) {
     return text;
 }
 
-static int capture(const gterm_catalog_entry_t *entry,
-                   gt_ext_package_t **out,
-                   gt_ext_package_metadata_t *metadata,
-                   volatile sig_atomic_t *cancelled) {
+int gterm_catalog_capture(const gterm_catalog_entry_t *entry,
+                          gt_ext_package_t **out,
+                          gt_ext_package_metadata_t *metadata,
+                          bool authenticate,
+                          volatile sig_atomic_t *cancelled) {
     int fd = open(entry->directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) {
         return 5;
@@ -143,8 +144,9 @@ static int capture(const gterm_catalog_entry_t *entry,
         (strcmp(metadata->id, entry->id) || strcmp(metadata->version, entry->version))) {
         return 9;
     }
-    return *cancelled
-               ? 130
+    return *cancelled ? 130
+           : !authenticate
+               ? 0
                : gterm_release_profile(
                      (int)entry->profile_count, entry->profile, entry->digest, metadata, cancelled);
 }
@@ -295,7 +297,7 @@ int gterm_catalog_manage(const char *operation,
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--"); at += 2) {
         if (at + 1 >= argc) {
-            return report(2, "CATALOG_OPTIONS", NULL);
+            return gterm_catalog_report(2, "CATALOG_OPTIONS", NULL);
         }
         const char **value = !strcmp(argv[at], "--catalog")                    ? &path
                              : !strcmp(argv[at], "--expect-revision")          ? &expected_text
@@ -310,7 +312,7 @@ int gterm_catalog_manage(const char *operation,
                              : !strcmp(argv[at], "--signature")                ? &signature
                                                                                : NULL;
         if (!value || *value) {
-            return report(2, "CATALOG_OPTIONS", NULL);
+            return gterm_catalog_report(2, "CATALOG_OPTIONS", NULL);
         }
         *value = argv[at + 1];
     }
@@ -322,8 +324,8 @@ int gterm_catalog_manage(const char *operation,
     if (!gterm_catalog_path(path) ||
         (listing ? (at != argc || expected_text || host || trusted || expected_digest || id ||
                     policy || store || artifact || descriptor || signature)
-                 : !revision(expected_text, &expected))) {
-        return report(2, "CATALOG_OPTIONS", NULL);
+                 : !gterm_catalog_revision(expected_text, &expected))) {
+        return gterm_catalog_report(2, "CATALOG_OPTIONS", NULL);
     }
     if (!listing &&
         (removing ? (at != argc || host || trusted || policy || store || artifact || descriptor ||
@@ -339,13 +341,13 @@ int gterm_catalog_manage(const char *operation,
                      (expected_digest && !gterm_catalog_digest(expected_digest)) ||
                      argc - at - (installing ? 1 : 2) + (signed_source ? 4 : 0) >
                          (int)GTERM_CATALOG_ARGUMENTS))) {
-        return report(2, "CATALOG_OPTIONS", NULL);
+        return gterm_catalog_report(2, "CATALOG_OPTIONS", NULL);
     }
     if (gt_ext_runtime_support() != GT_OK) {
-        return report(4, "PLUGIN_JS_DISABLED", NULL);
+        return gterm_catalog_report(4, "PLUGIN_JS_DISABLED", NULL);
     }
     if (signed_source && !gterm_release_supported()) {
-        return report(4, "RELEASE_VERIFY_UNAVAILABLE", NULL);
+        return gterm_catalog_report(4, "RELEASE_VERIFY_UNAVAILABLE", NULL);
     }
     gterm_catalog_t c;
     int status = gterm_catalog_open(&c, path, !listing);
@@ -484,7 +486,7 @@ int gterm_catalog_manage(const char *operation,
             }
             fresh.profile[fresh.profile_count++] = copy;
         }
-        status = capture(&fresh, &package, &metadata, cancelled);
+        status = gterm_catalog_capture(&fresh, &package, &metadata, true, cancelled);
         code = "CATALOG_PACKAGE";
         if (status) {
             goto done;
@@ -574,7 +576,7 @@ done:
         }
     }
     gterm_catalog_close(&c);
-    return report(status, code, &c);
+    return gterm_catalog_report(status, code, &c);
 }
 
 static int registry_status(gt_ext_registry_status_t status) {
@@ -646,17 +648,17 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
         }
     }
     if (!path || !*path) {
-        return report(4, "COMMAND_ACTIVATION_UNAVAILABLE", NULL);
+        return gterm_catalog_report(4, "COMMAND_ACTIVATION_UNAVAILABLE", NULL);
     }
     if (at < argc && !strcmp(argv[at], "--")) {
         at++;
     }
     if (at == argc || !gterm_catalog_path(path) ||
         (id && (!*id || !gterm_catalog_digest(digest)))) {
-        return report(2, "COMMAND_OPTIONS", NULL);
+        return gterm_catalog_report(2, "COMMAND_OPTIONS", NULL);
     }
     if (gt_ext_runtime_support() != GT_OK) {
-        return report(4, "PLUGIN_JS_DISABLED", NULL);
+        return gterm_catalog_report(4, "PLUGIN_JS_DISABLED", NULL);
     }
     gterm_catalog_t c;
     int status = gterm_catalog_open(&c, path, false);
@@ -681,7 +683,7 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
     }
     for (uint32_t i = 0; i < c.count; i++) {
         gterm_catalog_entry_t *e = &c.entries[i];
-        status = capture(e, &package, &metadata, cancelled);
+        status = gterm_catalog_capture(e, &package, &metadata, true, cancelled);
         code = "CATALOG_PACKAGE";
         if (status) {
             goto done;
@@ -809,5 +811,5 @@ done:
     if (!gterm_catalog_close(&c)) {
         status = 5;
     }
-    return report(status, code, &c);
+    return gterm_catalog_report(status, code, &c);
 }

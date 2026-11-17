@@ -1,5 +1,6 @@
 #ifndef GTERM_CATALOG_H
 #define GTERM_CATALOG_H
+#include "ghosterm.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <signal.h>
@@ -34,5 +35,14 @@ bool gterm_catalog_release(gterm_catalog_t *);
 bool gterm_catalog_close(gterm_catalog_t *);
 int gterm_catalog_manage(const char *, int, char **, volatile sig_atomic_t *);
 int gterm_catalog_dispatch(int, char **, volatile sig_atomic_t *);
+int gterm_catalog_review_policy(const char *, int, char **, volatile sig_atomic_t *);
+int gterm_catalog_report(int, const char *, const gterm_catalog_t *);
+bool gterm_catalog_revision(const char *, uint64_t *);
+/* false is metadata-only review; every activation path passes true. */
+int gterm_catalog_capture(const gterm_catalog_entry_t *,
+                          gt_ext_package_t **,
+                          gt_ext_package_metadata_t *,
+                          bool,
+                          volatile sig_atomic_t *);
 void gterm_json_string(const char *);
 #endif

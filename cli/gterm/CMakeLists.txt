@@ -9,7 +9,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/plugin-sdk/sdk-version.json" sdk_identity)
 string(JSON sdk_version GET "${sdk_identity}" sdkApiVersion)
 string(JSON sdk_protocol GET "${sdk_identity}" bridgeProtocol)
-add_executable(gterm main.c stdio.c ipc.c foreground.c catalog.c catalog-store.c release-auth.c release-install.c)
+add_executable(gterm main.c stdio.c ipc.c foreground.c catalog.c catalog-store.c catalog-policy.c release-auth.c release-install.c)
 if(GHOSTERM_WITH_PLUGIN_JS AND GHOSTERM_WITH_RELEASE_SIGNATURE)
   find_package(ZLIB REQUIRED)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/release-policy.js")

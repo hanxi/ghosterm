@@ -24,6 +24,15 @@ int gterm_release_authenticate(const char *,
                                const char *,
                                gterm_release_t *,
                                volatile sig_atomic_t *);
+/* Review binds the exact material actually parsed, including denied evidence. */
+int gterm_release_authenticate_snapshot(const char *,
+                                        const char *,
+                                        const char *,
+                                        const char *,
+                                        const char *,
+                                        const char *,
+                                        gterm_release_t *,
+                                        volatile sig_atomic_t *);
 int gterm_release_installed(const char *,
                             const char *,
                             const char *,

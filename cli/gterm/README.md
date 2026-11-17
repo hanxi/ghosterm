@@ -386,6 +386,48 @@ python3 -B scripts/test-gterm-release.py --build tmp/gterm-build \
 多 variant、拒绝及 attacher 中断。attacher 的本地取消 130 不证明原前台取消；后者
 保留断流结果不明 7。不是 App 点击、Linux 或完整 IO / 取消 / 崩溃 / 发行证据。
 
+
+### 执行端当前策略复核与显式批量禁用
+
+签名构建可只读复核一个已登记目录与明确选定的独立策略：
+
+```text
+gterm plugin review-policy --catalog ABSOLUTE_CATALOG --policy ABSOLUTE_TRUSTED_POLICY
+```
+
+输出每条记录的状态、是否可禁用、旧策略绑定是否仍匹配，以及 `revision`、
+`policyDigest` 和本次完整 `reviewDigest`。只复核记录中策略路径与选定路径完全相同的
+签名来源；其它策略和开发来源分别保留。`allowed` 表示当前策略签名及实际 Core 包
+检查通过，不授予运行权限；`policyBindingCurrent=false` 的允许项仍须显式重新登记，
+不会自动采用新策略。
+
+`denied` 才是当前策略明确拒绝，包含撤销、范围或签名验证失败。材料打不开、无效
+策略 / 描述、包检查失败和记录不匹配独立显示，不当作明确拒绝。查看完整结果后，
+带上这三项精确确认值执行：
+
+```text
+gterm plugin disable-denied --catalog ABSOLUTE_CATALOG --policy ABSOLUTE_TRUSTED_POLICY \
+  --expect-revision REVIEW_REVISION --expect-policy-digest REVIEW_POLICY_SHA256 \
+  --review-digest REVIEW_SHA256
+```
+
+确认摘要绑定目录身份 / 修订、所有登记字段、当前策略以及实际解析的描述 / 签名。
+提交前在目录排他锁内重新复核，变化退出 9，不套用旧确认。仅将明确拒绝的登记从目录
+移除，一次原子事务；其它记录原样保留。没有拒绝时返回 `unchanged`，不递增修订，
+`committed=false` / `durabilityConfirmed=false` 表示没有新提交。提交后同步失败会保留
+`committed=true` / `durabilityConfirmed=false` 并返回非零，不伪称回滚。
+
+此操作禁止这些登记的后续普通命令选择，不删除安装版本、凭据或包文件，也不结束
+正在运行的实例。恢复需用户明确选择可验证版本重新登记。不获取联网策略，不承诺
+策略新鲜度 / 全局撤销传播、跨进程即时停止或版本 GC。复核摘要不是秘密或运行许可。
+
+定向的工程内隔离复核 / 混合来源事务和普通调用冒烟：
+
+```sh
+python3 -B scripts/test-gterm-release.py --build tmp/gterm-build \
+  --node 已安装Node路径 --case policy-review --case roundtrip
+```
+
 ### App 中选择远端 Executor 运行档
 
 实验 JS-enabled 的 macOS / Android 插件页面在来源审查批准后，提供显式的
