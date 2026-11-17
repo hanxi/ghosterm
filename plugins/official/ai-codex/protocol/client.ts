@@ -16,6 +16,8 @@ export interface ThreadStartParams {
   readonly cwd?: string | null;
   readonly approvalPolicy?: string | null;
   readonly sandbox?: string | null;
+  readonly ephemeral?: boolean | null;
+  readonly approvalsReviewer?: "user" | null;
 }
 
 export interface TurnStartParams {
@@ -325,6 +327,11 @@ export class CodexAppServerClient {
   }
 
   private receiveServerRequest(key: string, message: Record<string, unknown>): void {
+    if (this.phase === "active" && typeof message.method === "string" && !SERVER_REQUESTS.has(message.method)) {
+      const method = /^[A-Za-z0-9/_-]{1,128}$/.test(message.method) ? message.method : "invalid-method";
+      this.protocolFailure(`unsupported app-server request: ${method}`);
+      return;
+    }
     if (this.phase !== "active" || !SERVER_REQUESTS.has(message.method as string) || !isRecord(message.params)) {
       this.protocolFailure("unsupported or malformed app-server request");
       return;

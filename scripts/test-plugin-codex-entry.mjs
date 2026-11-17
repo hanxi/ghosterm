@@ -34,7 +34,8 @@ class FakeCodexChild {
     if (message.method === "initialize") {
       this.line({ id: message.id, result: { userAgent: "codex/0.166.0 (fake executor)" } });
     } else if (message.method === "thread/start") {
-      this.line({ id: message.id, result: { thread: { id: "thread-test" } } });
+      this.line({ id: message.id, result: { thread: { id: "thread-test" },
+        ...(message.params.sandbox ? { sandbox: { type: this.sandboxType ?? "readOnly" }, approvalsReviewer: "user", approvalPolicy: "on-request" } : {}) } });
     } else if (message.method === "turn/start") {
       this.line({ method: "turn/started", params: { threadId: "thread-test",
         turn: turnFixture("inProgress") } });
@@ -78,14 +79,14 @@ function turnFixture(status) {
     error: null, startedAt: 1, completedAt: status === "inProgress" ? null : 2, durationMs: 1 };
 }
 
-function fixtureContext({ side = "executor", command = "ai codex", allowed = true } = {}) {
+function fixtureContext({ side = "executor", command = "ai codex", allowed = true, arguments: invocationArguments = [] } = {}) {
   const handlers = new Map();
   const events = [];
   const child = new FakeCodexChild();
   let spawnCount = 0;
   const context = {
     side,
-    invocation: { command, workspaceHandle: { id: "workspace" } },
+    invocation: { command, arguments: invocationArguments, workspaceHandle: { id: "workspace" } },
     instanceId: "fixture-instance",
     epoch: "1",
     cancellation: { get cancelled() { return false; } },
@@ -136,6 +137,37 @@ start.then(value => { startResult = value; });
 await driveUntil(disposable, () => startResult !== undefined, "initialize and thread/start");
 assert.deepEqual(startResult, { threadID: "thread-test" });
 assert.equal(fixture.child.writes.filter(value => value.method === "thread/start").length, 1);
+assert.deepEqual(fixture.child.writes.find(value => value.method === "thread/start").params, {}, "ordinary mode keeps backend defaults");
+
+const temporary = fixtureContext({ arguments: ["--ephemeral", "--read-only"] });
+const temporaryDisposable = activate(temporary.context);
+let temporaryStarted = false;
+temporary.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { temporaryStarted = true; });
+await driveUntil(temporaryDisposable, () => temporaryStarted, "explicit temporary read-only thread");
+assert.deepEqual(temporary.child.writes.find(value => value.method === "thread/start").params,
+  { ephemeral: true, sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user" });
+await temporaryDisposable.dispose();
+const malformedOptions = fixtureContext({ arguments: ["--not-supported"] });
+assert.throws(() => activate(malformedOptions.context));
+assert.equal(malformedOptions.spawnCount, 0, "invalid options cannot spawn a backend");
+const wrongPolicy = fixtureContext({ arguments: ["--read-only"] });
+wrongPolicy.child.sandboxType = "dangerFullAccess";
+const wrongPolicyDisposable = activate(wrongPolicy.context);
+let wrongPolicyError;
+wrongPolicy.handlers.get("codex.thread.start")({}, { check() {} }).catch(error => { wrongPolicyError = error; });
+await driveUntil(wrongPolicyDisposable, () => wrongPolicyError !== undefined, "backend policy confirmation");
+assert.match(wrongPolicyError.message, /did not confirm.*read-only/);
+assert.equal(wrongPolicy.child.reaped, true);
+const unsupported = fixtureContext();
+const unsupportedDisposable = activate(unsupported.context);
+let unsupportedStarted = false;
+unsupported.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { unsupportedStarted = true; });
+await driveUntil(unsupportedDisposable, () => unsupportedStarted, "unsupported request thread");
+unsupported.child.line({ id: "unsupported-1", method: "item/permissions/requestApproval", params: {} });
+await driveUntil(unsupportedDisposable, () => unsupported.child.reaped, "unsupported backend request must notify and stop");
+const terminalErrors = unsupported.events.map(event => JSON.parse(event.input)).filter(event => event.kind === "protocol-error");
+assert.equal(terminalErrors.length, 1, "Native must receive one terminal protocol observation before close");
+assert.match(terminalErrors[0].message, /unsupported.*item\/permissions\/requestApproval/);
 
 const turn = fixture.handlers.get("codex.turn.send")({ text: "hello" }, { check() {} });
 let turnResult;

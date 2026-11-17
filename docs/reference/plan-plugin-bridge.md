@@ -11697,3 +11697,68 @@ execution cleanup unknown 仍可见。修正断言以保留该语义，不把它
 - `off-install-final.json`：`06fbadf21b0b2b76cfa1021467f5085d8cde135d9b4513d93540e9adb6c2ade1`
 - `format-final.log`：`e8c3c16d4574f97494555172502225ec08148951f831c05a2ae2cef69ce368ef`
 - `sdk.log`：`735b9852d115711ff04816c306ffca22445f8cb86ffd8c39fd0a3015c300f9e2`
+
+
+### P3 实施第四十九批：真实账号聊天、策略确认与终态错误（2026-11-17）
+
+按用户加速要求，按完整功能批次实现，仅保留编译 / 定向协议与真实链路冒烟；
+完整平台矩阵、变异与资源故障集中收口，不把延后验收写成已通过。
+Codex 构建新增显式 `--tools`，复用与锁定清单 / TypeScript 版本一致的开发工具，
+跳过重复 npm ci；默认构建入口保留。普通 App / 根 Core 仍 JS-off / tests-on。
+
+`ai codex` 新增可选 `--ephemeral` 与 `--read-only`，空参数仍沿用后端默认；
+未知选项在 spawn 前拒绝。只读档要求 thread/start 实际确认 readOnly、on-request、
+user reviewer，失败则回收子进程，不把请求值冒充实际生效策略。确认值经现有
+notification 事件发送，不改业务 RPC / C ABI。锁版官方生成类型对拍通过。
+临时线程是后端请求，不承诺服务或 CLI 零日志留存。
+
+修复 Executor 发现后端协议失败后立即 close 清空错误事件的问题：现在先发送一次
+有序终态 protocol-error，再结束 owned child，避免 Native 对话一直忙。未知请求仍
+显式失败；没有偷偷接受 permissions 请求或扩大批准范围。编译后入口夹具验证普通
+参数不变、显式参数、spawn 前拒绝、后端策略不符回收，以及未知请求的单次错误 / 回收。
+协议 31 项、实际包 schema / 完整性 / 编译入口检查、CLI C 严格构建和 C 格式 286 文件
+通过；Python 三脚本语法与 diff 检查通过。没有重跑完整 gate.sh 或变异矩阵。
+
+新增两个需显式 --live 的真实账号 runner。保留实际 HOME / CODEX_HOME，不复制凭据
+文件，不输出 token / 账号 / 原始配置；工作目录、日志和收据在工程 tmp。Codex 明确
+关闭已配置 MCP、hooks / plugins 等可选集成，模型前核对实际策略；Claude 明确空设置
+来源、工具白名单，只把选中的 provider 环境名传到 Node。可显式选择用户认证配置，
+只在内存读取允许的认证 / 模型环境，不导入 hooks / MCP / 插件设置。认证存在与真实
+请求成功分开记账，不降低 TLS 验证。
+
+本机 macOS / arm64、锁定 codex-cli 0.166.0 的最终实际链路为 Native Client Runtime →
+真实 Session / gterm → 官方编译 Executor → app-server → 已选服务真实模型。
+最终 chat 一项通过：实际只读 / 人工审阅策略、nonce 回复与 thread / turn 关联、完成
+状态、零审批 / 无目标文件及显式停止 / 回收。它不是 App 点击、SSH、Android 或工具
+审批证据。文件 / 命令探针要求真实审批与精确文件内容，不因模型完成就过关：先前
+只读探针与最终 workspace-write / 所属 sibling 目标探针均没有审批 / 没有文件，后者
+完成了模型回复但断言失败，仍未通过。停止重复尝试，不按假回包补成真实工具成功。
+
+Claude 使用锁定 SDK 0.3.323 / 独立 CLI 2.1.323，系统现有 CLI 不替换。已选认证状态
+可读，但首次未选 provider 环境的会话失败；显式选定配置后真实调用到 180 秒仍没有
+确认结果。只读连接诊断观察到所选服务 TCP 建立后 TLS 被对端关闭，保留为连接失败，
+不称认证拒绝或模型成功；已停止重试，等待可用服务 / 配置。该 runner 当前是 Native
+Session owner，不冒充 Claude Native Client Runtime / App 端到端结果。
+
+前置编译 / 夹具失败单记：缺 O_NOFOLLOW feature 宏、normalized schema 的必填默认
+字段遗漏、单帧 15 秒观察窗误用、固定前缀超过既有 16 argv 预算，均未当目标红或业务
+通过。修正前缀为 --config=VALUE 单项传递，未扩大生产预算。所有自动测试无前台窗口。
+
+尚待集中验收：Codex 真实工具 / 审批与原生交互；Claude 可用服务上的真实认证 / 模型 /
+工具及两端交互；完整中断 / unknown / 生命周期 / 压力 / 内存故障及 P1–P6 其它缺口。
+本批不改公共 ABI / 原生平台源码，不增加 CI 二十份，不表示完整插件或发行完成；仅
+本地分批提交。依赖与工具留在忽略的 build 缓存复用；本批 tmp 原件用后清理。
+
+最终收据 SHA256（原件清理后仅保留身份，不冒充可审阅日志）：
+
+- `codex-package-final-current.log`：`00380d5f5f7d82f6171bd6b3788180ffe22e8136874ba28bd5d57f5b7f41ad5f`
+
+- `codex-lock.log`：`436636521abc2a22c5d6f36fce636d22df4bcdbbe30649921aa8ed36b226986a`
+
+- `protocol-final.log`：`bcf253a1ac5d36fe9645462cf7c015a11881534b895e0a8f5c73fda0107726d2`
+
+- `codex-live-chat-final.json`：`c9cc2efe425a990b0557553a67fe6e19f9a0ea40ae4ae0882f6f9c3c8628a2ae`
+
+- `codex-live-file-final.failure.json`：`c1b0cd874e50be7a36c6d6f0ab4fd8f45498a05b25b8cc702ba9f13140e490c0`
+
+- `format-final.log`：`d4c6258288b9162f5081e9d319be680191ed4054e1b79d88ab7988629ce88b46`

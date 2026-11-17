@@ -80,9 +80,24 @@ export class CodexConversation {
       if (!thread || typeof thread.id !== "string" || !thread.id) {
         throw new CodexProtocolError("Codex thread/start returned no thread id");
       }
+      if (params.sandbox === "read-only" && (!isRecord(result) || !isRecord(result.sandbox) || result.sandbox.type !== "readOnly")) {
+        throw new CodexProtocolError("Codex did not confirm the requested read-only sandbox");
+      }
+      if (params.approvalsReviewer === "user" && (!isRecord(result) || result.approvalsReviewer !== "user")) {
+        throw new CodexProtocolError("Codex did not confirm the requested user approval reviewer");
+      }
+      if (params.approvalPolicy === "on-request" && (!isRecord(result) || result.approvalPolicy !== "on-request")) {
+        throw new CodexProtocolError("Codex did not confirm the requested approval policy");
+      }
       if (this.isClosed()) throw new CodexOutcomeUnknownError("thread/start");
       this.threadID = thread.id;
       this.stateValue = "ready";
+      if (isRecord(result) && typeof result.approvalPolicy === "string" && typeof result.approvalsReviewer === "string" && isRecord(result.sandbox)) {
+        this.emit({ kind: "notification", notification: { method: "ghosterm/threadConfigured", params: {
+          threadId: thread.id, approvalPolicy: result.approvalPolicy, approvalsReviewer: result.approvalsReviewer,
+          sandboxType: result.sandbox.type,
+        } } });
+      }
       return thread.id;
     } catch (error) {
       this.threadStartPending = false;

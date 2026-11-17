@@ -51,7 +51,7 @@ static void cleanup(void) {
 }
 
 int main(int argc, char **argv) {
-    CHECK(argc == 10 && !atexit(cleanup));
+    CHECK(argc >= 10 && argc <= 32 && !atexit(cleanup));
     struct sigaction action = {0};
     action.sa_handler = cancel;
     CHECK(!sigaction(SIGINT, &action, NULL) && !sigaction(SIGTERM, &action, NULL));
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
         close(up[1]);
         close(down[0]);
         close(down[1]);
-        char *args[80];
+        char *args[160];
         size_t n = 0;
 #define ARG(value) args[n++] = (char *)(value)
         ARG(argv[1]);
@@ -96,6 +96,10 @@ int main(int argc, char **argv) {
         ARG("CLAUDE_CONFIG_DIR");
         ARG("--process-environment");
         ARG("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC");
+        for (int i = 10; i < argc; i++) {
+            ARG("--process-environment");
+            ARG(argv[i]);
+        }
         const char *methods[] = {"claude.input.open",
                                  "claude.input.append",
                                  "claude.input.seal",

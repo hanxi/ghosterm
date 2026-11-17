@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--fetch', action='store_true', help='fetch integrity-locked developer tools')
     parser.add_argument('--check', action='store_true', help='compare the rebuilt package to the existing output')
     parser.add_argument('--out', type=Path, default=ROOT / 'build/plugins/ai-codex')
+    parser.add_argument('--tools', type=Path, help='explicit preinstalled locked developer tools; skip npm installation')
     args = parser.parse_args()
     output = args.out.resolve()
     if output == SOURCE or SOURCE in output.parents or output in SOURCE.parents:
@@ -43,15 +44,23 @@ def main():
     with tempfile.TemporaryDirectory(prefix='codex-package-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
-        tools = work / 'tools'
-        tools.mkdir()
-        for name in ('package.json', 'package-lock.json'):
-            shutil.copyfile(ROOT / 'scripts/fixtures/plugin-sdk-tools' / name, tools / name)
-        install = ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund',
-                   '--cache', ROOT / 'tmp/plugin-codex-npm-cache', '--registry', 'https://registry.npmjs.org']
-        if not args.fetch:
-            install.append('--offline')
-        run(install, env)
+        tools = args.tools.resolve(strict=True) if args.tools else work / 'tools'
+        if args.tools:
+            for name in ('package.json', 'package-lock.json'):
+                if (tools / name).read_bytes() != (ROOT / 'scripts/fixtures/plugin-sdk-tools' / name).read_bytes():
+                    raise SystemExit('selected developer tools do not match the locked manifest')
+            observed = subprocess.check_output(['node', '-p', 'require(process.argv[1]).version',
+                str(tools / 'node_modules/typescript/package.json')], env=env, text=True).strip()
+            if observed != '5.9.3': raise SystemExit('selected TypeScript version differs from lock')
+        else:
+            tools.mkdir()
+            for name in ('package.json', 'package-lock.json'):
+                shutil.copyfile(ROOT / 'scripts/fixtures/plugin-sdk-tools' / name, tools / name)
+            install = ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund',
+                       '--cache', ROOT / 'tmp/plugin-codex-npm-cache', '--registry', 'https://registry.npmjs.org']
+            if not args.fetch:
+                install.append('--offline')
+            run(install, env)
         emitted = work / 'emitted'
         run(['node', tools / 'node_modules/typescript/bin/tsc', '-p', SOURCE / 'tsconfig.json',
              '--noEmit', 'false', '--rewriteRelativeImportExtensions', 'true', '--rootDir', ROOT,

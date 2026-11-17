@@ -194,6 +194,12 @@
       "path:string",
       "kind:PatchChangeKind",
       "diff:string"
+    ],
+    "ThreadStartParams": [
+      "ephemeral?:boolean|null",
+      "approvalsReviewer?:ApprovalsReviewer|null",
+      "sandbox?:SandboxMode|null",
+      "approvalPolicy?:AskForApproval|null"
     ]
   },
   "lockedTypeFragments": {

@@ -7,12 +7,19 @@ It does not install Codex, copy credentials, or select an executable via PATH.
 Import this directory with the Ghosterm plugin package review flow. Review its
 SHA-256 and explicitly approve the Client package. Place the same checked package
 on the selected Executor host and select its integrity digest separately. Launch
-`ai codex` with no arguments, an explicit workspace root, and a `codex` process
+`ai codex` with an explicit workspace root and a `codex` process
 mapping containing the absolute executable path, expected version
 `codex-cli 0.166.0`, and executable SHA-256. Consent grants session.rpc to the
 Client and Executor and process.spawn / process.pipes to the Executor only.
 The adapter verifies both the Host version declaration and initialize userAgent.
 Missing mappings or a version mismatch fail explicitly.
+
+Optional flags are `--ephemeral` (ask the backend not to persist this thread) and
+`--read-only` (request a read-only sandbox with on-request decisions reviewed by
+the user). With no flags the backend retains its configured defaults. The
+read-only mode requires the actual thread/start response to confirm all three
+policy fields before accepting a turn. Ephemeral mode does not promise that the
+CLI or provider retains no operational logs. Unknown flags fail before spawning.
 
 Include these Executor methods in the reviewed RPC allowlist:
 `codex.thread.start`, `codex.turn.send`, `codex.turn.interrupt`,
@@ -40,6 +47,8 @@ Revision mismatches return `accepted: false`: the RPC reply is confirmed, but no
 approval was written. Unclassified handler exceptions and transport loss still
 remain unknown; this does not turn interrupted work into a rejection.
 Stopping the Runtime closes the protocol and terminates/reaps the owned child.
+Unsupported backend requests produce a terminal protocol error before the owned
+child closes; they do not leave the native conversation silently busy.
 
 This is an unsigned candidate package. Integrity detects changed content; it does
 not authenticate its publisher or authorize execution. Compiled-package fixture

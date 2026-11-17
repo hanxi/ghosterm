@@ -250,3 +250,23 @@ profile, completes SDK initialization, sends no user prompt, and observes exit.
 HOME/config/cwd are owned temporary directories; no personal login is selected.
 It does not establish a model turn, real tool execution, vendor sandbox coverage,
 SSH transport, Native approval UI, session resume or a shippable Node plugin.
+
+
+A separate opt-in runner can use an explicitly selected authenticated account:
+
+```sh
+python3 -B scripts/test-plugin-claude-live.py --live --build tmp/claude-gterm --component build/claude-node-runtime --mode chat
+```
+
+The component must already contain the compiled locked Node sources, SDK and
+matching native CLI. The runner never installs or replaces the user's CLI. HOME
+and CODEX_HOME remain unchanged. `--auth-settings PATH` selects only provider
+auth/model environment from that file in memory; hooks, plugins and MCP settings
+are not inherited. Receipts contain counts and correlation results, not account
+or credential values. Workspaces and receipts belong under project tmp. The
+runner uses a Native Session owner through gterm and the real SDK; it does not
+exercise App controls or a Claude Native Client Runtime. Logged-in status alone
+is insufficient: a matching successful model result is required. `--mode file`
+also requires a real approval and exact owned-file contents. Current provider
+TLS failure leaves real model/tool acceptance pending; see P3 batch 49 in the
+[implementation plan](../../../docs/reference/plan-plugin-bridge.md).

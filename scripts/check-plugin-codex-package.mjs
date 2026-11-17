@@ -28,9 +28,11 @@ for (const member of load(path.join(directory, "integrity.json")).members) {
   assert.equal(createHash("sha256").update(bytes).digest("hex"), member.sha256);
 }
 const argumentSchema = load(path.join(directory, "schemas/command.json"));
-assert.deepEqual(argumentSchema.required, [], "Native CLI argument schema requires an explicit required list");
+assert.deepEqual(argumentSchema.required, ["ephemeral", "readOnly"], "normalized CLI flags must be present after defaults");
 const args = ajv.compile(argumentSchema);
-assert(args({}));
+assert(args({ ephemeral: false, readOnly: false }));
+assert(args({ ephemeral: true, readOnly: true }));
+assert(!args({}));
 assert(!args({ path: "/unexpected" }));
 const { activate } = await import(pathToFileURL(path.join(directory, "client/index.js")));
 const client = activate({ side: "client", invocation: { command: "ai codex" } });

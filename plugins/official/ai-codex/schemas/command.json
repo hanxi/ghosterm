@@ -1,10 +1,16 @@
 {
   "type": "object",
-  "properties": {},
-  "required": [],
+  "properties": {
+    "ephemeral": { "type": "boolean" },
+    "readOnly": { "type": "boolean" }
+  },
+  "required": ["ephemeral", "readOnly"],
   "additionalProperties": false,
   "x-ghosterm-cli": {
     "version": 1,
-    "fields": {}
+    "fields": {
+      "ephemeral": { "option": "ephemeral", "default": false },
+      "readOnly": { "option": "read-only", "default": false }
+    }
   }
 }

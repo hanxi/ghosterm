@@ -1,4 +1,4 @@
-import { BoundaryError, boolean, encode, integer, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
+import { BoundaryError, boolean, commandArguments, option, encode, integer, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
   type RequestContext } from "@ghosterm/plugin-sdk";
 import type { ApprovalDecision, RequestID, ServerRequest } from "../protocol/client.ts";
 import { CodexProtocolError } from "../protocol/client.ts";
@@ -7,6 +7,10 @@ import { spawnCodexAppServer, type CodexAppServerProcess } from "../protocol/pro
 import { CODEX_CHANGE_MAX_BYTES, CodexChangeStore } from "./changes.ts";
 
 const empty = object({});
+const commandOptions = commandArguments({
+  ephemeral: option(boolean(), "ephemeral", false),
+  readOnly: option(boolean(), "read-only", false),
+});
 const threadResult = object({ threadID: text(128) });
 const messageInput = object({ text: text(2048) });
 const turnResult = object({ turnID: text(128) });
@@ -157,6 +161,7 @@ export function activate(context: PluginContext): Disposable {
   if (context.side !== "executor" || context.invocation?.command !== "ai codex") {
     throw new CodexProtocolError("Codex requires the ai codex Executor command");
   }
+  const options = commandOptions.parse(context.invocation?.arguments ?? []);
 
   let child: CodexAppServerProcess | undefined;
   let unsubscribe: (() => void) | undefined;
@@ -164,6 +169,7 @@ export function activate(context: PluginContext): Disposable {
   let closing = false;
   let closePromise: Promise<void> | undefined;
   let failure: Error | undefined;
+  let lastEventSequence = 0, failureReported = false;
   let flight: Call<{ readonly accepted: boolean }> | undefined;
   let startRequest: RequestContext | undefined;
   let activeTurnRequest: RequestContext | undefined;
@@ -222,6 +228,7 @@ export function activate(context: PluginContext): Disposable {
       request.check();
       conversation = process.createConversation();
       unsubscribe = conversation.onEvent(event => {
+        lastEventSequence = Math.max(lastEventSequence, event.sequence);
         try {
           if (event.kind === "approval-request") {
             approvals.set(requestKey(event.request.id), event.request);
@@ -238,7 +245,10 @@ export function activate(context: PluginContext): Disposable {
           failure = error instanceof Error ? error : new Error(String(error));
         }
       });
-      const id = await conversation.startThread({});
+      const id = await conversation.startThread({
+        ...(options.ephemeral ? { ephemeral: true } : {}),
+        ...(options.readOnly ? { sandbox: "read-only", approvalPolicy: "on-request", approvalsReviewer: "user" as const } : {}),
+      });
       request.check();
       return { threadID: id };
     } catch (error) {
@@ -307,7 +317,19 @@ export function activate(context: PluginContext): Disposable {
   const disposable: Disposable = {
     step(): void {
       if (closing) return;
-      if (failure) { void close().catch(() => {}); return; }
+      if (failure) {
+        // Deliver one terminal observation before closing the child. Previously
+        // close() discarded the queued protocol-error and left Native chat busy.
+        if (flight || failureReported) return;
+        failureReported = true;
+        events.length = 0;
+        try {
+          const payload = eventPayload({ sequence: ++lastEventSequence, kind: "protocol-error", error: failure }, changes);
+          const terminal = context.session.request(eventMethod, { event: payload }, 5000);
+          void terminal.outcome.then(() => close(), () => close()).catch(() => {});
+        } catch { void close().catch(() => {}); }
+        return;
+      }
       if (startRequest?.cancelled) { void close().catch(() => {}); return; }
       try {
         child?.step();
@@ -316,7 +338,6 @@ export function activate(context: PluginContext): Disposable {
         interruptCancelledTurn();
       } catch (error) {
         failure = error instanceof Error ? error : new Error(String(error));
-        void close().catch(() => {});
         return;
       }
       if (flight || events.length === 0) return;
