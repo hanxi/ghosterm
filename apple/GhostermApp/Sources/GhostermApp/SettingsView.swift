@@ -647,18 +647,22 @@ private struct ConfigurationPane: View {
                 if let statusText {
                     Text(statusText).font(DS.Font.detail).foregroundStyle(.secondary)
                 }
+                Button("重新读取") { reload() }
+                    .accessibilityIdentifier("settings-config-reload")
                 Button("保存") { save() }
+                    .accessibilityIdentifier("settings-config-save")
                     .disabled(!loaded)
             }
             if let errorText {
                 Text(errorText).font(DS.Font.detail).foregroundStyle(.red)
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("settings-config-error")
             }
 
             Divider()
 
-            Text("当前生效的配置").font(DS.Font.labelEmphasis)
-            SettingsNote("这是当前终端配置文件的内容。")
+            Text("已加载的配置文件").font(DS.Font.labelEmphasis)
+            SettingsNote("保存成功后应用；重新读取只更新文件快照。")
             ConfigurationFileView(contents: model.terminalConfigText)
         }
         .onAppear(perform: load)
@@ -688,8 +692,21 @@ private struct ConfigurationPane: View {
     }
 
     private func load() {
-        customLines = model.terminalConfigText
-        loaded = true
+        do {
+            customLines = try model.settings.rawConfig()
+            errorText = nil; loaded = true
+        } catch {
+            errorText = "\(error)"; loaded = false
+        }
+    }
+
+    private func reload() {
+        do {
+            try model.readTerminalConfigFromDisk()
+            load(); statusText = "已重新读取"
+        } catch {
+            errorText = "\(error)"; loaded = false; statusText = nil
+        }
     }
 
     /// 保存：整份文本原样写回（**不做增量补丁**——用户在这块里写的任何

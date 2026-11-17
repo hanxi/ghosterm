@@ -296,11 +296,11 @@ public final class AppModel: ObservableObject {
         // 问题会以最难看懂的形式出现。
         try? TerminalFonts.prepare()
         self.terminalFontError = TerminalFonts.issue
-        self.terminalConfigError = nil
+        self.terminalConfigError = self.settings.loadError
         do {
             let app = try TerminalApp.shared()
             let path = self.settings.terminalConfigPath
-            if FileManager.default.fileExists(atPath: path),
+            if self.settings.loadError == nil, FileManager.default.fileExists(atPath: path),
                let err = app.reloadConfig(path: path) {
                 // 配置无效：报错，但**不丢 app**（继续用引擎默认配置）。
                 self.terminalApp = app
@@ -647,7 +647,7 @@ public final class AppModel: ObservableObject {
     /// 三步都不许静默：写文件失败抛错；libghostty 不接受这份配置也抛错
     /// （用户看到的就是「字体没变」——得告诉他为什么）。
     public func applyTerminalSettings(_ edits: [(String, String?)]) throws {
-        let text = SettingsStore.merging(settings.rawConfig(), edits: edits)
+        let text = SettingsStore.merging(try settings.rawConfig(), edits: edits)
         try settings.saveTerminalConfig(text)
 
         guard let app = terminalApp else {
@@ -662,8 +662,14 @@ public final class AppModel: ObservableObject {
         terminalConfigRevision += 1
     }
 
-    /// 当前生效的终端配置文本（设置页回显用）。
-    public var terminalConfigText: String { settings.rawConfig() }
+    /// 已加载的终端配置文件快照（读取不代表引擎已经应用）。
+    public var terminalConfigText: String { settings.loadedText ?? "" }
+
+    /// Read a new disk snapshot without implying that the engine applied it.
+    public func readTerminalConfigFromDisk() throws {
+        defer { terminalConfigRevision += 1 }
+        _ = try settings.reload()
+    }
 
     /// 终端配置文件被写回过一次（每次写回成功 +1）。
     ///
@@ -682,7 +688,7 @@ public final class AppModel: ObservableObject {
     /// 并把**旧配置**留在原地（`saveTerminalConfig` 是先写文件，所以这里
     /// 要先把文件恢复回去，不能让一个坏配置落了盘）。
     public func replaceTerminalConfig(_ text: String) throws {
-        let before = settings.rawConfig()
+        let before = try settings.rawConfig()
         try settings.saveTerminalConfig(text)
         guard let app = terminalApp else {
             // 连 app 都没有：说明本来就没在跑配置，写文件即完成。
@@ -717,7 +723,7 @@ public final class AppModel: ObservableObject {
 
     /// 读一个终端配置项的当前值（有文件读文件；否则问 libghostty 的默认值）。
     public func terminalSetting(_ key: String) -> String? {
-        let text = settings.rawConfig()
+        guard let text = settings.loadedText else { return nil }
         if let v = SettingsStore.value(of: key, in: text) { return v }
         // 文件里没写 → 回落到 libghostty 的默认值（按键的 C 类型问：
         // f32 与 f64 是不同的入口，用错类型只会拿到 0/false）。

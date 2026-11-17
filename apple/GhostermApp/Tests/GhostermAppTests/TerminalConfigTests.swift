@@ -329,7 +329,7 @@ final class TerminalConfigTests: XCTestCase {
         try store.saveTerminalConfig("font-size = 16\n")
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".bak"),
                       "写回前应留一份备份")
-        XCTAssertEqual(SettingsStore.value(of: "font-size", in: store.rawConfig()),
+        XCTAssertEqual(SettingsStore.value(of: "font-size", in: try store.rawConfig()),
                        "16", "新值应已落盘")
         XCTAssertFalse(store.isExternallyModified(), "自己写的不算外部修改")
 

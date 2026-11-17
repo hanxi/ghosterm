@@ -86,13 +86,45 @@ public final class SettingsStore {
     /// Ghostty 资源目录（`<...>/Resources/ghostty`）。主题等资源在这里；
     /// nil = 当前进程没有资源目录（开发态直接跑可执行文件时会出现）。
     public let resourcesPath: String?
-    private var loadedStat: (mtime: TimeInterval, size: Int)?
+    private var transaction: ConfigStore
+    private var content: Result<String, Error>
+    private let operations: ConfigStore.FileOperations
 
-    public init(terminalConfigPath: String, resourcesPath: String? = nil) {
+    /// Text for presentation only. Failed reads remain a separate error and
+    /// cannot be saved until an explicit reload succeeds.
+    public var loadedText: String? { try? content.get() }
+    public var loadError: String? {
+        if case .failure(let error) = content { return String(describing: error) }
+        return nil
+    }
+
+    public convenience init(terminalConfigPath: String, resourcesPath: String? = nil) {
+        self.init(terminalConfigPath: terminalConfigPath, resourcesPath: resourcesPath, operations: ConfigStore.FileOperations())
+    }
+
+    init(terminalConfigPath: String, resourcesPath: String? = nil, operations: ConfigStore.FileOperations) {
         self.terminalConfigPath = terminalConfigPath
-        self.resourcesPath = resourcesPath
-            ?? SettingsStore.detectResourcesPath()
-        loadedStat = SettingsStore.statOf(terminalConfigPath)
+        self.resourcesPath = resourcesPath ?? SettingsStore.detectResourcesPath()
+        self.operations = operations
+        let transaction = ConfigStore(path: terminalConfigPath, operations: operations, backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak")
+        self.transaction = transaction
+        content = Result { try Self.text(in: transaction) }
+    }
+
+    private static func text(in transaction: ConfigStore) throws -> String {
+        guard let bytes = try transaction.loadedBytes() else { return "" }
+        guard let text = String(data: bytes, encoding: .utf8), !bytes.contains(0) else {
+            throw SettingsStoreError.invalid("终端配置必须是无 NUL 的 UTF-8 文本")
+        }
+        return text
+    }
+
+    /// Reload is explicit: a previous failed read must never become permission
+    /// to overwrite a subsequently replaced file with an empty editor buffer.
+    @discardableResult public func reload() throws -> String {
+        transaction = ConfigStore(path: terminalConfigPath, operations: operations, backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak")
+        content = Result { try Self.text(in: transaction) }
+        return try rawConfig()
     }
 
     /// 推导资源目录：与 CGhostty shim 同一套逻辑（沿可执行文件向上找
@@ -147,56 +179,26 @@ public final class SettingsStore {
         return base.appendingPathComponent("Ghosterm/ghostty.conf").path
     }
 
-    private static func statOf(_ path: String) -> (mtime: TimeInterval, size: Int)? {
-        guard let a = try? FileManager.default.attributesOfItem(atPath: path),
-              let m = a[.modificationDate] as? Date,
-              let s = a[.size] as? Int else { return nil }
-        return (m.timeIntervalSince1970, s)
-    }
+    public func isExternallyModified() -> Bool { transaction.isExternallyModified() }
 
-    /// 文件自加载后是否被外部改过。文件**不存在**时不算冲突（首次保存）。
-    public func isExternallyModified() -> Bool {
-        guard let loaded = loadedStat else { return false }
-        guard let now = SettingsStore.statOf(terminalConfigPath) else { return true }
-        return now.mtime != loaded.mtime || now.size != loaded.size
-    }
+    /// The exact loaded snapshot. Missing is empty; failed reads throw.
+    public func rawConfig() throws -> String { try content.get() }
 
-    /// 当前配置原文（文件不存在 = 空）。
-    public func rawConfig() -> String {
-        (try? String(contentsOfFile: terminalConfigPath, encoding: .utf8)) ?? ""
-    }
-
-    /// 保存配置：备份 → 冲突检测 → 原子写。
-    ///
-    /// `text` 是**整份**终端配置文本（UI 改一行也要给全文——保持
-    /// 「文件即真相」，不做增量补丁：用户手写的注释与未知键必须原样留着）。
+    /// Mandatory backup, exact byte/identity conflict checks, stable writer lock
+    /// and same-directory atomic replacement are shared with SSH configuration.
     public func saveTerminalConfig(_ text: String) throws {
-        if isExternallyModified() {
-            throw SettingsStoreError.conflict("mtime/size 与加载时不一致")
-        }
-        let fm = FileManager.default
-        let dir = (terminalConfigPath as NSString).deletingLastPathComponent
-        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-
-        // 1) 备份（仅在原文件存在时；首次保存没什么可备份的）。
-        if fm.fileExists(atPath: terminalConfigPath) {
-            let backup = terminalConfigPath + ".bak"
-            try? fm.removeItem(atPath: backup)
-            do { try fm.copyItem(atPath: terminalConfigPath, toPath: backup) }
-            catch { throw SettingsStoreError.io("备份失败：\(error)") }
-        }
-
-        // 2) 原子写：同目录临时文件 + rename（半份配置永不落盘）。
-        let tmp = dir + "/.ghostty.conf.\(UUID().uuidString).tmp"
+        _ = try rawConfig()
+        guard !text.utf8.contains(0) else { throw SettingsStoreError.invalid("配置不能包含 NUL") }
+        let directory = URL(fileURLWithPath: terminalConfigPath).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
         do {
-            try text.write(toFile: tmp, atomically: false, encoding: .utf8)
-            _ = try fm.replaceItemAt(URL(fileURLWithPath: terminalConfigPath),
-                                     withItemAt: URL(fileURLWithPath: tmp))
+            try transaction.save(text)
+            content = .success(try Self.text(in: transaction))
         } catch {
-            try? fm.removeItem(atPath: tmp)
-            throw SettingsStoreError.io("\(error)")
+            if case ConfigStoreError.committed = error { content = .failure(error) }
+            throw error
         }
-        loadedStat = SettingsStore.statOf(terminalConfigPath)
     }
 
     /// 把一组「键 = 值」合并进现有配置文本（**逐行保真**：未知键、注释、
@@ -205,42 +207,30 @@ public final class SettingsStore {
     /// 键不存在 → 追加到末尾；值传 nil → 删除该行。这是唯一改配置文本的
     /// 入口，UI 不自己拼字符串。
     public static func merging(_ text: String, edits: [(String, String?)]) -> String {
-        // 保留原样的换行结构：只摘掉**末尾**那一个空串（它是「以 \n 结尾」
-        // 的痕迹，不是一行内容）。中途的空行是用户排版，必须留着。
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-        var hadTrailingNewline = false
-        if lines.last == "" {
-            hadTrailingNewline = true
-            lines.removeLast()
-        }
-
+        var lines = text.components(separatedBy: "\n")
+        let trailing = text.isEmpty || text.utf8.last == 10
+        if lines.last == "" { lines.removeLast() }
         for (key, value) in edits {
-            let lowerKey = key.lowercased()
-            var found = false
-            var out: [String] = []
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                // 注释行不动（哪怕是注释掉的同名键——那是用户的笔记）。
-                if trimmed.hasPrefix("#") || trimmed.isEmpty {
-                    out.append(line); continue
-                }
-                let parts = trimmed.split(separator: "=", maxSplits: 1)
-                let name = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
-                if name == lowerKey && !found {
-                    found = true
-                    if let v = value { out.append("\(key) = \(v)") }
-                    // value == nil 且 found：这一行被丢掉（删除语义）。
-                    continue
-                }
-                out.append(line)
+            let matching = lines.indices.filter { index in
+                let line = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.hasPrefix("#"), let equal = line.firstIndex(of: "=") else { return false }
+                return line[..<equal].trimmingCharacters(in: .whitespaces).lowercased() == key.lowercased()
             }
-            lines = out
-            if !found, let v = value { lines.append("\(key) = \(v)") }
+            if let value {
+                if let last = matching.last {
+                    let ending = lines[last].hasSuffix("\r") ? "\r" : ""
+                    lines[last] = "\(key) = \(value)" + ending
+                } else {
+                    let ending = text.contains("\r\n") ? "\r" : ""
+                    lines.append("\(key) = \(value)" + ending)
+                }
+            } else {
+                let removed = Set(matching)
+                lines = lines.enumerated().filter { !removed.contains($0.offset) }.map(\.element)
+            }
         }
-
         guard !lines.isEmpty else { return "" }
-        return lines.joined(separator: "\n") + (hadTrailingNewline ? "\n" : "")
+        return lines.joined(separator: "\n") + (trailing ? "\n" : "")
     }
 
     /// 从配置文本里读一个键的值（最后一次出现的胜出——与 libghostty 的
@@ -248,10 +238,10 @@ public final class SettingsStore {
     public static func value(of key: String, in text: String) -> String? {
         let lowerKey = key.lowercased()
         var result: String?
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.count == 2 else { continue }
             if parts[0].trimmingCharacters(in: .whitespaces).lowercased() == lowerKey {
                 result = parts[1].trimmingCharacters(in: .whitespaces)

@@ -256,7 +256,34 @@ SEARCH_UI_CASES = [
     ('search-ui-retry', 'Button("重试搜索") { panel.retrySearch() }',
      'Button("重试搜索") { panel.cancelSearch() }', 'testActualSearchCancelAndFailureRetryButtons'),
 ]
+SETTINGS_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/SettingsStore.swift'
+SETTINGS_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/SettingsStoreTests.swift'
+SETTINGS_CASES = [
+    ('settings-read-error', 'guard let bytes = try transaction.loadedBytes() else',
+     'guard let bytes = try? transaction.loadedBytes() else', 'testFailedReadsNeverBecomeMissingOrWritableUntilExplicitReload'),
+    ('settings-utf8', 'let text = String(data: bytes, encoding: .utf8)',
+     'let text = Optional(String(decoding: bytes, as: UTF8.self))', 'testInvalidUtf8AndNulCannotBeDisplayedAsSuccessfulEmptyFilesOrOverwritten'),
+    ('settings-nul', '!bytes.contains(0)', 'true', 'testInvalidUtf8AndNulCannotBeDisplayedAsSuccessfulEmptyFilesOrOverwritten'),
+    ('settings-read-save', '_ = try rawConfig()', '_ = loadedText', 'testInvalidUtf8AndNulCannotBeDisplayedAsSuccessfulEmptyFilesOrOverwritten'),
+    ('settings-committed', 'if case ConfigStoreError.committed = error { content = .failure(error) }',
+     '// mutation: keep old successful content', 'testPostCommitFailureInvalidatesSettingsAndRequiresReload'),
+    ('settings-backup-name', 'let transaction = ConfigStore(path: terminalConfigPath, operations: operations, backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak")',
+     'let transaction = ConfigStore(path: terminalConfigPath, operations: operations)', 'testFirstSaveCreatesMissingParentsAndPrivateFileThenPreservesExactBackup'),
+    ('settings-scalar-last', 'if let last = matching.last {', 'if let last = matching.first {', 'testScalarUpdatesLastDeclarationAndDeletingRemovesEveryLocalOverride'),
+    ('settings-delete-all', 'let removed = Set(matching)', 'let removed = Set(matching.prefix(1))', 'testScalarUpdatesLastDeclarationAndDeletingRemovesEveryLocalOverride'),
+    ('settings-crlf', 'var lines = text.components(separatedBy: "\\n")',
+     'var lines = text.split(separator: "\\n", omittingEmptySubsequences: false).map(String.init)', 'testScalarUpdatesLastDeclarationAndDeletingRemovesEveryLocalOverride'),
+    ('settings-empty-value', 'trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)',
+     'trimmed.split(separator: "=", maxSplits: 1)', 'testEmptyRepeatableDeclarationIsRecognizedAndFontReplacementRemovesLocalFallbacks'),
+    ('settings-reload', '\n        transaction = ConfigStore(path: terminalConfigPath, operations: operations, backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak")',
+     '\n        _ = ConfigStore(path: terminalConfigPath, operations: operations, backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak")', 'testFailedReadsNeverBecomeMissingOrWritableUntilExplicitReload'),
+]
+SETTINGS_UI_CASES = [
+    ('settings-ui-reload', 'try model.readTerminalConfigFromDisk()', '()', 'testActualConfigurationReadErrorAndExplicitReloadProtectTheFile'),
+]
 PHASES = {
+    'settings-store': (SETTINGS_SOURCE, SETTINGS_TESTS, 'SettingsStoreTests', SETTINGS_CASES),
+    'settings-ui': ('apple/GhostermApp/Sources/GhostermApp/SettingsView.swift', 'apple/GhostermApp/Tests/GhostermAppTests/SettingsStorageUITests.swift', 'SettingsStorageUITests', SETTINGS_UI_CASES),
     'search-model': (FILES_SOURCE, SEARCH_TESTS, 'FileSearchTests', SEARCH_CASES),
     'search-state': (SEARCH_STATE_SOURCE, SEARCH_TESTS, 'FileSearchTests', SEARCH_STATE_CASES),
     'search-reader': (SEARCH_READER_SOURCE, SEARCH_TESTS, 'RemoteFindReaderTests', SEARCH_READER_CASES),
@@ -312,6 +339,8 @@ def main():
     baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
     if args.phase.startswith('private-'):
         baseline += '|NativePrivateKeyStoreTests|SSHCredentialSelectorTests|KeychainStoreTests'
+    if args.phase.startswith('settings-'):
+        baseline = 'SettingsStoreTests|SettingsStorageUITests|TerminalFontTests|ConfigStoreTests|ConfigEditTests|HostListTests'
     if args.phase.startswith('search-'):
         baseline = 'FileSearchTests|FileSearchUITests|RemoteFindReaderTests|FileNavigationTests|FileTreeUITests|FilesPanelTests|FilesDragDropTests|HostListTests|TransferManagerTests'
     if args.phase.startswith('files-'):

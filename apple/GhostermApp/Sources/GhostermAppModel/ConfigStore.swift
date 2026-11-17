@@ -60,6 +60,7 @@ public final class ConfigStore {
     }
 
     private let path: String
+    private let backupName: String
     private let operations: FileOperations
     private var loaded: Result<Snapshot, Error>
 
@@ -67,8 +68,9 @@ public final class ConfigStore {
         self.init(path: path, operations: FileOperations())
     }
 
-    init(path: String, operations: FileOperations) {
+    init(path: String, operations: FileOperations, backupName: String? = nil) {
         self.path = path
+        self.backupName = backupName ?? ((URL(fileURLWithPath: path).lastPathComponent as NSString).deletingPathExtension + ".bak")
         self.operations = operations
         // Preserve read errors: an unreadable/nonregular file is not missing.
         loaded = Result { try Self.snapshot(directory: AT_FDCWD, name: path) }
@@ -104,6 +106,15 @@ public final class ConfigStore {
             throw ConfigStoreError.conflict("读取期间文件发生变化")
         }
         return .file(bytes, Identity(after))
+    }
+
+    /// Consumers of other native text configurations share the same captured
+    /// identity/bytes transaction; nil means ENOENT, while every read error throws.
+    func loadedBytes() throws -> Data? {
+        switch try loaded.get() {
+        case .missing: return nil
+        case .file(let bytes, _): return bytes
+        }
     }
 
     public func isExternallyModified() -> Bool {
@@ -193,7 +204,7 @@ public final class ConfigStore {
             var identity: Identity?
             if case .file(let original, let info) = expected {
                 identity = info
-                let backup = (name as NSString).deletingPathExtension + ".bak"
+                let backup = backupName
                 let stagedBackup = try stage(original, identity: nil)
                 guard operations.rename(directory, stagedBackup, backup, true) == 0,
                       operations.sync(directory) == 0 else { throw Self.ioError() }

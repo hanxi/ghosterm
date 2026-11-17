@@ -237,14 +237,14 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 远端预览生命周期 | 临时下载成功后打开 Quick Look 已接；现有测试覆盖路径形状 | 没有请求代次、大小预算或应用层副本回收；关闭窗格后回调仍可能打开预览。真实 QLPreviewPanel 与缓存生命周期须另验，见 [Apple 说明](../../apple/README.md#quick-look-预览边界) |
 | 配置 GUI | Core 物理块快照、脏字段/逐行身份/来源展示、改名预览确认、候选落盘后发布；否定过滤与 ASCII 去重已接 | 🟡 定向原生控件、模型与变异证据见[分批实施](non-plugin-remainder.md)。Include 只读，重复未知标量/条件规则与歧义显式拒绝；安全存储和完整客户端验收另记 |
 | 配置来源与别名改名 | Swift 已有来源查询与改名绑定；共享契约与平台绑定分别验收 | macOS `HostEditorSheet` 未消费来源，也没有已有主机改名字段；Android 容器引用不是本端可读取的密钥路径，不因共享 API 或 Android 页面通过而标本端 GUI 完成 |
-| 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误折为空、外部新建文件不报冲突、重复键编辑与回读不一致；引擎拒绝后的磁盘/恢复状态待修。full 引擎配置机制不能自动套用于 Android vt 自绘 |
+| 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误、外部新建冲突、CRLF/重复键及显式重新读取已修，见[存储说明](macos-terminal-settings.md)；引擎候选校验与拒绝后的磁盘/恢复状态待修。full 引擎配置机制不能自动套用于 Android vt 自绘 |
 | 终端系统剪贴板 | `beffb49` 接通标准 `copy:` / `paste:`、真实选区与 NSPasteboard；专用测试覆盖显式 firstResponder 菜单快捷键、中文/多行 bracketed paste | OSC 52 标准文本读写及读授权已接（macOS/Android），见 [专项边界](osc52.md)；全局主菜单路由、菜单粘贴确认与选中自动复制仍待独立验收 |
 
 **宿主闸门失败传播**：`apple-app-gate.sh` 已显式传播 ABI 与 HTML 子检查的非零状态，失败后不打印 PASS。`test-apple-app-gate.py` 五项隔离 shell 检查和两组撤回修复的正常断言红/独立成功对照/恢复/SHA256 通过；这不是原生或插件业务测试结果，不增加 CI 二十份覆盖。SSH e2e 必跑/允许跳过的策略仍独立待修，见 [Apple 构建说明](../../apple/README.md#构建与验证)。
 
 **CI 触发范围**：dev 的 main push 有忽略路径，release 的 PR 有路径白名单；仅 `docs/` 或 `android/` 的改动不触发两者，`terminal/android/` 则不同。Markdown 在 dev push 被忽略，但 `apple/README.md` 等白名单内文档的 PR 仍会触发 release。dev 旧运行还可能因后续 push 被取消。不能把“有出包工作流”表述为“每个提交都有发布包”；准确范围见 [CI 说明](../how-to/dev-build.md#ci-是怎么串起来的)，这些过滤不改变合并前应执行的闸门。
 
-**三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 已独立接强制备份、字节/身份快照、稳定锁、原子替换与提交结果，见[写盘事务](macos-config-store.md)，`AppModel` 已经候选写盘后发布，见[分批实施](non-plugin-remainder.md)；终端 `SettingsStore` 使用备份与 `replaceItemAt`，仍有重复键、读取错误、冲突和引擎恢复缺口。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
+**三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 已独立接强制备份、字节/身份快照、稳定锁、原子替换与提交结果，见[写盘事务](macos-config-store.md)，`AppModel` 已经候选写盘后发布，见[分批实施](non-plugin-remainder.md)；终端 `SettingsStore` 已复用同一事务并单独验读取、冲突和重复键，保留 `ghostty.conf.bak`；引擎候选校验/恢复仍待下一片，见[设置说明](macos-terminal-settings.md)。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
 
 **SSH 地址选择**：macOS 的异步 DNS 仅在所选族缺记录时换族，首个有效地址即完成解析；Android 已按 §9.40 传递全部候选，在同一 native owner 内顺序尝试，2 秒 TCP 宽限且共用总预算；协商开始后不换地址。12 项定向与 14 组变异证明设备回环双栈 SSH、丢包与取消，不扩大为公网或真实 DNS 矩阵。实现边界与后续条件见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)和路线图 P1；macOS 网络路径没有本轮新增实测。
 

@@ -28,7 +28,7 @@
 | 5 / 部分完成 | 文件导航/错误/缓存 | 最新导航身份、历史成功提交、刷新 epoch、树失败可重试及 cwd 同目标去重已接 | 最终 34 项/十组变异/33 项真实 SSH 与 Release，见[导航说明](macos-files-navigation.md)；搜索取消/部分失败另见[搜索专项](macos-file-search.md)，递归权限仍待做 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
-| 8 / P1 | 终端配置读写 | [SettingsStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SettingsStore.swift) 读取失败当空，外部新建不冲突，重复键读改不一致；引擎校验/恢复顺序待修 | 不存在/失败分开，候选先验证，提交后才发布；实际已开 surface 字号/配色与磁盘一致。此存储与 SSH ConfigStore 分开实施 |
+| 8 / 部分完成 | 终端配置读写 | SettingsStore 读取、冲突、备份/提交及 CRLF/重复键已接共享事务，页面显式重新读取 | 存储专项见[说明](macos-terminal-settings.md)；候选引擎校验、提交后发布与 surface/磁盘一致性仍待下一片 |
 | 9 / P1 | SSH 多地址与 shell 打开取消 | [SSHAddressResolver.swift](../../apple/GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 首个有效地址即结束；`AppModel.startSSH` 用旧 shell opener | 两片分别做：TCP 阶段候选推进；认证剩余 deadline/取消贯通 channel→PTY→shell。SSH/SFTP/tmux 各入口验证，ProxyJump 首跳也不能沿用新能力的假定 |
 | 10 / P1 | 剪贴板收尾（设置文案已修） | 菜单 paste 仍直接输入；[SettingsView.swift](../../apple/GhostermApp/Sources/GhostermApp/SettingsView.swift) 的六处过时提示已独立修正 | 粘贴确认与全局菜单路由仍须单独实现/验证；文案修正不改变设置存储或关闭规则，像素/既有插件页失败范围见 Apple 说明 |
 
@@ -72,3 +72,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 5：full CI 必跑 Swift/SSH 收据，optional 缺证据只报 PARTIAL；两版 Bash 各 18 项、六组 shell 断言故障与真实本机 SSH 原生专项通过，详见[分批实施](non-plugin-remainder.md)，没有把其它条件跳过记为完成。
 
 - 剩余批 8：文件搜索取消/部分结果、明确 exec 回退、范围与输出预算已接；最终 68 项、21 组变异、26 项真实本机 SSH 组合与 Release 通过，范围及前置失败见[搜索说明](macos-file-search.md)。递归权限/传输 owner 仍分批推进。
+
+- 剩余批 9：终端设置存储/读取/CRLF/重复声明及真实重新读取入口完成；80 项与真实本机 SSH 85 项分轮、十二个新保护/旧事务二十二组、Release 通过，见[设置说明](macos-terminal-settings.md)。引擎候选校验/应用下一片处理。
