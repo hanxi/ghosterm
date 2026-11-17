@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import GhostermAppModel
 import WebKit
 
@@ -22,35 +23,55 @@ private enum PluginResourcePath {
     }
 }
 
-struct PluginResourceHTMLAssetResolver {
-    struct Asset {
+struct PluginResourceHTMLAssetResolver: Sendable {
+    struct Asset: Sendable {
         let data: Data
         let mime: String
     }
 
     private let directory: Data?
     private let assets: [Data: Asset]
+    let omittedAttachments: Bool
+
+    var fingerprint: Data {
+        var digest = SHA256()
+        for key in assets.keys.sorted(by: { $0.lexicographicallyPrecedes($1) }) {
+            guard let asset = assets[key] else { continue }
+            for bytes in [key, Data(asset.mime.utf8), asset.data] {
+                var length = UInt64(bytes.count).bigEndian
+                withUnsafeBytes(of: &length) { digest.update(bufferPointer: $0) }
+                digest.update(data: bytes)
+            }
+        }
+        return Data(digest.finalize())
+    }
 
     init(document: ExtensionController.ReceivedResource,
-         resources: [ExtensionController.ReceivedResource]) {
+         resources: [ExtensionController.ReceivedResource],
+         transform: ((ExtensionController.ReceivedResource) -> Asset?)? = nil) {
         directory = PluginResourcePath.parentPrefix(document.displayName)
         var candidates: [Data: Asset] = [:]
-        var duplicatePaths = Set<Data>()
+        var seen = Set<Data>()
+        var omitted = false
         let attached = PluginResourcePreviewAssets.after(document, in: resources)
         for resource in attached {
             let key = Data(resource.displayName.utf8)
-            guard let directory, PluginResourcePath.canonical(key), key.starts(with: directory),
-                  Self.isAllowedMime(resource.mime), resource.size <= 1_048_576,
-                  UInt64(resource.bytes.count) == resource.size else { continue }
-            guard candidates[key] == nil else {
-                candidates.removeValue(forKey: key)
-                duplicatePaths.insert(key)
-                continue
+            guard let directory, PluginResourcePath.canonical(key), key.starts(with: directory) else {
+                omitted = true; continue
             }
-            guard !duplicatePaths.contains(key) else { continue }
-            candidates[key] = Asset(data: resource.bytes, mime: Self.normalizedMime(resource.mime))
+            guard seen.insert(key).inserted else {
+                candidates.removeValue(forKey: key)
+                omitted = true; continue
+            }
+            guard Self.isAllowedMime(resource.mime), resource.size <= 1_048_576,
+                  UInt64(resource.bytes.count) == resource.size else { omitted = true; continue }
+            if let transform {
+                guard let asset = transform(resource) else { omitted = true; continue }
+                candidates[key] = asset
+            } else { candidates[key] = Asset(data: resource.bytes, mime: Self.normalizedMime(resource.mime)) }
         }
         assets = candidates
+        omittedAttachments = omitted
     }
 
     func resolve(_ url: URL) -> Asset? {
@@ -141,33 +162,23 @@ enum PluginResourceHTMLWebViewConfiguration {
 @MainActor
 final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var closed = false
-    private var loadedDocument: String?
-    private var resourceFingerprint = ""
+    private var resourceFingerprint: Data?
     private var baseURL: URL?
     let schemeHandler: PluginResourceHTMLSchemeHandler
 
-    init(resource: ExtensionController.ReceivedResource,
-         resources: [ExtensionController.ReceivedResource]) {
-        schemeHandler = PluginResourceHTMLSchemeHandler(document: resource, resources: resources)
+    init(snapshot: PluginResourceHTMLSnapshot) {
+        schemeHandler = PluginResourceHTMLSchemeHandler(snapshot: snapshot)
         super.init()
     }
 
-    func update(document: String, resource: ExtensionController.ReceivedResource,
-                resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {
+    func update(snapshot: PluginResourceHTMLSnapshot, in webView: WKWebView) {
         guard !closed else { return }
-        let fingerprint = resources.map { "\($0.resourceID):\($0.sha256)" }.joined(separator: ",")
-        if fingerprint != resourceFingerprint {
-            resourceFingerprint = fingerprint
-            schemeHandler.update(document: resource, resources: resources)
-            if let loadedDocument, let baseURL {
-                webView.loadHTMLString(loadedDocument, baseURL: baseURL)
-            }
-        }
-        let target = PluginResourceHTMLAssetResolver.documentURL(resource.displayName)
-        guard loadedDocument != document || baseURL != target, let target else { return }
-        loadedDocument = document
+        let target = PluginResourceHTMLAssetResolver.documentURL(snapshot.resource.displayName)
+        guard resourceFingerprint != snapshot.fingerprint, let target else { return }
+        resourceFingerprint = snapshot.fingerprint
+        schemeHandler.update(snapshot: snapshot)
         baseURL = target
-        webView.loadHTMLString(document, baseURL: target)
+        webView.loadHTMLString(snapshot.document, baseURL: target)
     }
 
     func close(in webView: WKWebView) {
@@ -177,8 +188,7 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         schemeHandler.close()
-        loadedDocument = nil
-        resourceFingerprint = ""
+        resourceFingerprint = nil
         baseURL = nil
     }
 
@@ -210,18 +220,16 @@ final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unch
     private let lock = NSLock()
     private var resolver: PluginResourceHTMLAssetResolver?
 
-    init(document: ExtensionController.ReceivedResource,
-         resources: [ExtensionController.ReceivedResource]) {
-        resolver = PluginResourceHTMLAssetResolver(document: document, resources: resources)
+    init(snapshot: PluginResourceHTMLSnapshot) {
+        resolver = snapshot.resolver
         super.init()
     }
 
-    func update(document: ExtensionController.ReceivedResource,
-                resources: [ExtensionController.ReceivedResource]) {
+    func update(snapshot: PluginResourceHTMLSnapshot) {
         lock.lock()
         defer { lock.unlock() }
         guard resolver != nil else { return }
-        resolver = PluginResourceHTMLAssetResolver(document: document, resources: resources)
+        resolver = snapshot.resolver
     }
 
     func close() {

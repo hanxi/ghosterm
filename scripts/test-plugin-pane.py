@@ -18,6 +18,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'
 HTML = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLAssets.swift'
+SNAPSHOT = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLSnapshot.swift'
 TEST = 'PluginPaneFlowTests.testPreviewThroughPackageApprovalLaunchConsentAndStopControls'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 
@@ -42,12 +43,12 @@ def main():
     selected_html = 'PluginPaneFlowTests.testHTMLAttachmentsThrough' + ('DirectControls' if args.route == 'direct' else 'ProxyJumpControls')
     selected_image = 'PluginPaneFlowTests.testImageThrough' + ('ProxyJumpControls' if args.route == 'jump' else 'DirectControls')
     baseline = ('PluginPaneFlowTests.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|'
-                'MarkdownAttachmentsThroughProxyJumpControls|(UnicodeHTMLAttachments|HTMLAttachments|Image)Through(Direct|ProxyJump)Controls)$')
+                'MarkdownAttachmentsThroughProxyJumpControls|(AnimatedHTMLAttachments|UnicodeHTMLAttachments|HTMLAttachments|Image)Through(Direct|ProxyJump)Controls)$')
     if args.route == 'direct':
-        baseline = 'PluginPaneFlowTests.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|(UnicodeHTMLAttachments|HTMLAttachments|Image)ThroughDirectControls)$'
+        baseline = 'PluginPaneFlowTests.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|(AnimatedHTMLAttachments|UnicodeHTMLAttachments|HTMLAttachments|Image)ThroughDirectControls)$'
     elif args.route == 'jump':
         baseline = 'PluginPaneFlowTests.test.*ThroughProxyJumpControls$'
-    baseline_count = 8 if args.route == 'both' else 4
+    baseline_count = 10 if args.route == 'both' else 5
     cases = [
         ('digest', 'Text("摘要：\\(entry.review.digest)")', 'Text("摘要：unverified")',
          'review must display the exact immutable package digest'),
@@ -65,9 +66,9 @@ def main():
          'Markdown attachment did not draw actual red pixels', selected_markdown),
         ('standalone-image', 'PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)', 'Text("disabled image")',
          'standalone image did not draw actual red pixels', selected_image),
-        ('html-assets', 'PluginResourceHTMLWebView(document: document, resource: resource, resources: resources)',
-         'PluginResourceHTMLWebView(document: document, resource: resource, resources: [])',
-         'embedded HTML did not draw received CSS and PNG', selected_html),
+        ('html-assets', 'PluginResourceHTMLAssetResolver(document: resource, resources: resources) { item in',
+         'PluginResourceHTMLAssetResolver(document: resource, resources: [resource]) { item in',
+         'embedded HTML did not draw received CSS and PNG', selected_html, SNAPSHOT),
         ('selection', 'selection.select(resource.resourceID, available: identifiers)', '_ = resource.resourceID',
          'resource selection did not replace embedded HTML with the selected image', selected_html),
     ])
@@ -82,7 +83,7 @@ def main():
     lifetime = 'PluginResourceUITests.testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates'
     handler = 'PluginResourceUITests.testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest'
     close_header = 'func close(in webView: WKWebView) {\n        guard !closed else { return }'
-    update_header = 'resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {\n        guard !closed else { return }'
+    update_header = 'func update(snapshot: PluginResourceHTMLSnapshot, in webView: WKWebView) {\n        guard !closed else { return }'
     view_creation = 'let webView = WKWebView(frame: .zero, configuration: configuration)'
     cases.extend([
         ('privacy-persistent', 'configuration.websiteDataStore = .nonPersistent()', 'configuration.websiteDataStore = .default()',
@@ -130,13 +131,46 @@ def main():
         ('path-leading-slash', 'let relative = Data(bytes.dropFirst())', 'let relative = Data(path.dropFirst().utf8)',
          'valid combining marks after slash bytes must retain their exact path and attachment', valid_path, HTML),
     ])
+    budget = 'PluginHTMLImageBudgetTests.'
+    consumer = budget + 'testPNGConsumerRefusesGrowthBeforeTheLimitAndKeepsFailureSticky'
+    cases.extend([
+        ('image-width', 'width <= UInt64(maximumDimension), ', '',
+         'HTML must reject source dimensions beyond the raster preview limit',
+         budget + 'testHTMLRejectsOversizedRasterBeforeServingItToWebKit', SNAPSHOT),
+        ('image-height', 'height <= UInt64(maximumDimension),', '',
+         'HTML must reject raster height beyond the preview limit',
+         budget + 'testHTMLRejectsOversizedRasterHeightBeforeServingItToWebKit', SNAPSHOT),
+        ('image-total-pixels', 'remaining -= width * height', '_ = width * height',
+         'HTML attachments must share one decoded pixel budget',
+         budget + 'testHTMLAppliesOneDecodedPixelBudgetToTheWholeBundle', SNAPSHOT),
+        ('image-static-frame', 'return .init(data: bytes, mime: "image/png")',
+         'return .init(data: item.bytes, mime: mime)',
+         'HTML must receive a bounded static PNG instead of the original animation',
+         budget + 'testHTMLServesOnlyTheFirstStaticFrameOfAnAnimatedRaster', SNAPSHOT),
+        ('image-container', 'actual.conforms(to: expected)', 'true',
+         'HTML must reject an undeclared raster container',
+         budget + 'testHTMLRejectsImageBytesWhoseTypeDoesNotMatchTheDeclaredMime', SNAPSHOT),
+        ('image-derived-budget', 'maximumEncodedBytes = 16_842_752', 'maximumEncodedBytes = 1_048_576',
+         'source and derived byte budgets must stay separate without dropping a valid JPEG',
+         budget + 'testHTMLKeepsLegitimateJpegAndItsOriginalReceiptWhenDerivedPngIsLarger', SNAPSHOT),
+        ('image-encode-cap', ', count <= limit - data.count', '',
+         'PNG consumer must stop before growing beyond its budget and stay failed', consumer, SNAPSHOT),
+        ('image-encode-sticky', '!exceeded, ', '',
+         'PNG consumer must stop before growing beyond its budget and stay failed', consumer, SNAPSHOT),
+        ('image-duplicate-path', 'guard seen.insert(key).inserted else', 'guard candidates[key] == nil else',
+         'a rejected raster must not release its duplicate path for another attachment',
+         budget + 'testHTMLDuplicatePathStaysUnavailableWhenTheFirstRasterWasRejected', HTML),
+        ('image-attachment-arrival', '.task(id: identity)', '.task(id: resource.sha256)',
+         'prepared attachment changes must replace and revoke the previous HTML view',
+         'PluginResourceUITests.testHTMLPreparedAttachmentArrivalRebuildsAndRevokesTheOldView'),
+    ])
     if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
         parser.error('--mutation-case requires --mutate and a known case name')
-    originals = {name: (ROOT / name).read_bytes() for name in [PANE, HTML]}
+    originals = {name: (ROOT / name).read_bytes() for name in [PANE, HTML, SNAPSHOT]}
     for label, old, _new, _expected, *options in cases:
         filename = options[1] if len(options) > 1 else PANE
         assert originals[filename].count(old.encode()) == 1, label
-    tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+    tracked = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
     names = {p for p in tracked if p.startswith(('core/', 'apple/', 'packages/plugin-sdk/', 'plugins/official/preview/'))
              and (ROOT / p).is_file()}
     names.update([PANE, 'scripts/test-plugin-pane.py', 'scripts/apple-app-gate.sh',
@@ -207,7 +241,7 @@ def main():
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
-        run('html-lifetime-baseline', selected='PluginResourceUITests', count=19)
+        run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=28)
         for recipe in cases if args.mutate else []:
             label, old, new, expected, *selected_case = recipe
             if args.mutation_case and label not in args.mutation_case:
@@ -235,7 +269,7 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
     assert all((ROOT / name).read_bytes() == value for name, value in originals.items()), 'original checkout changed'
-    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=19,
+    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML/static raster budgets', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=28,
                    inputs=inputs, linkedArchives=linked, gtermSHA256=executable_sha, xctestSHA256=binary_sha,
                    commands=commands, mutations=groups)
     out.parent.mkdir(parents=True, exist_ok=True)

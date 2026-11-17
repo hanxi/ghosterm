@@ -11265,3 +11265,100 @@ SHA256 不变。清理后重枚举 1636 份指定源仍为
 `426197b31db6cd7ba08a9d1bec1977b1b70d73be4029b02477416335c76779ed`。
 本轮原始日志 / 收据 / 临时工具已清理，本文摘要为历史记录；默认 JS-off / tests-on，
 仅本地分批提交，不推送或发行。
+
+### P2 实施第六十三批：macOS HTML 静态首帧与整包图片预算（2026-11-17）
+
+本批落实 P2 的压缩字节 / 解码像素分离：原 HTML scheme handler 会把已收到的原始
+图片直接交给 WebKit，绕过有界图片解码器。原实现对宽度超限、整包像素耗尽及动画
+原件三条新增组件断言正常失败；逐条同一 XCTest 独立主机配置读取通过，生产源摘要
+保持不变。编译失败、崩溃或 sanitizer 未作目标红。
+
+新增 `PluginResourceHTMLSnapshot`：先在 utility worker 验证 HTML 与显式同目录附件，
+再生成不可变快照；Coordinator / scheme handler 只接受准备好的类型。原始图片
+继续最多 1 MiB，实际容器须与声明 MIME 相符；两轴各最多 2048，整包共用
+4,194,304 个解码像素，尝试解码前计费。只取首帧，绘制为 8-bit sRGB PNG，避免
+WebKit 再读取原动画。派生缓冲独立限制为 16,842,752 字节，CGDataConsumer 在增长
+前拒绝超限，失败后保持拒绝；合法 JPEG 的派生 PNG 可大于 1 MiB，不因此丢弃合法
+原始收件。CSS 保留既有 1 MiB，未提高 ResourceStore 或 SFTP preview 上限。
+
+同字节重复路径在类型 / 解码拒绝前即占位；首个图片被拒绝也不允许后一个同名项
+取得路径。附件变化重新准备，旧快照身份不再显示，移除时沿已有 Coordinator 终态
+撤销读；晚到准备结果受取消约束。拒绝附件在页面显示提示。预算覆盖明确的输入 /
+像素 / 输出缓冲，不宣称 ImageIO 或 WebKit 的进程 RSS 硬限制或物理缓存擦除。
+
+前置记录：CGDataConsumer 回调参数的可选性写错曾导致编译失败，修正后组件组合
+28 项通过，未把该编译失败算变异红。新增 GIF 真实 SSH 夹具首次以 AppKit 颜色空间
+写图，出现颜色空间警告及直连 / ProxyJump 两条红色像素失败，其余八条通过，整轮
+不记绿。改为明确 RGBA 字节 / CGImage 编码后，十条实际页面链与 28 项组件基线
+通过。GIF 仍是两帧原件；实际 scheme 返回单帧 PNG，并核对生产 WKWebView 红色
+首帧 / CSS 蓝背景、资源选择、返回及停止；目录选择仍为注入夹具，窗口透明离屏。
+
+完整 **36 组**变异已通过，含原二十六＋新十组：每组实际重编译生产对象，指定单条
+正常断言红、同变异独立 HostList 配置读取绿、恢复重编绿及 SHA256。新十组保护
+两轴、整包像素、静态首帧、实际容器、独立派生预算、输出增长与失败终态、拒绝后
+重复路径和附件到达后的视图替换 / 旧 handler 撤销。默认基线显式选择十条页面链，
+另跑二十八项组件，不混入四条需要签名版本夹具的测试后跳过；不增加 CI 二十份。
+
+收据共 110 条执行记录，冻结 582 份指定 Core / Apple / SDK / 官方包及辅助脚本，
+包括新增未跟踪的生产 / 测试文件；结束时与最终工作区逐项一致。更广指定源码集
+共 1638 份，SHA256 `242ab80792da2b7384346b360a77a755071226731673ef53f7632900e844eccc`。
+隔离 XCTest 为 `dc5ff74b4e6aa8bffab8aed903971ff2537bcf59d937a5e2564195a5a3ee6581`，
+实际 gterm 为 `1779a3c6ec2ce8de5f7e38c157b4afccab2e7f01a3123d4c0aa9478eb6c49b7f`。
+JS-enabled Core / QuickJS / libssh2 archive 分别为
+`1b6f3cae4b3de793c3e5a7b9d3d9cf525ccce96a872a10658773816927a3d3b5`、
+`76e12968a35462ddb114a9fc6e6437793da4700610f27aec3172f6eb5514c548`、
+`8f2092d2e1676b88861df85c47be269cc3fb926d1b3597cb3bc23964eaa0d4f5`，运行期间均未变。
+来源为本地 `5b557046` 加本批 dirty，不冒充 clean 包、云端或发行证据。
+
+本机 Xcode Swift 6.4 / macOS arm64 JS-enabled Release 已编译链接通过；未改 C ABI /
+Android 生产源，不借旧 Android 运行为本批新证据。普通 JS-off 构建及 Core 闸门
+在完整变异结束后恢复并核验，最终结果见本批收尾。
+
+旧 `html-assets` 变异最初修改整个准备函数的资源参数，被新的完整输入身份约束先
+挡住，实际是单条「WebKit 缺失」断言，未命中指定像素断言，runner 拒收，未算该组
+通过。变异改到生产 resolver 的附件输入，保留准备快照身份，使其直接验证实际 CSS /
+图片映射；生产保护与测试断言均未放宽，完整组重新执行。
+
+最终普通 Core **JS-off / tests-on / SSH-on：589/589 CTest、185 公共 ABI** 及未实现
+入口检查通过；Apple **182 引用 / 3 登记未用**、JNI **148 / 37**、clang-format
+**19.1.7 / 272 文件**、Python / shell 语法与 diff 检查通过。恢复时首次沿用了
+tests=OFF 的缓存，该轮未记最终闸门；显式改为 ON、重新构建测试后执行上述完整
+589 项，耗时 136.13 秒。tests 开关变化未改变普通 Core archive 摘要。
+
+两档 arm64 Release 均实际编译链接通过，仍有既有 Swift 并发警告，不宣称零警告。
+JS-enabled 可执行文件 SHA256 为
+`9895ef2bbdf0a9093c3a59f4be2ea299162b88454ecf2e69946b5ee21bb4d9eb`，普通 JS-off 为
+`247b602fc1eefcf42dc3fff7875fd1e9b388847c2ad7c0ea83e7ddc309a3ffa2`；普通 Core archive 为
+`912804fcdd71f3c2bf99cbf45c172856e29da63a3630d96ba09af3c5f89df289`，结束时对应实际
+普通构件。独立 headless WebKit 探针的初始 CSS 蓝 / 刷新绿和红色图片像素亦通过。
+未跑完整宿主、系统文件面板、VoiceOver、全格式 / 性能 / 设备或新云端构建，不以
+定向证据关闭 P2 / P1–P6。其它未完成条件仍按 §11 验收，普通业务命令分派与真实
+Agent 模型 / 工具批准等继续；本批仅本地提交，不推送 / 发行。
+
+以下摘要保留原始材料的历史身份；临时内容核对后清理，重验需重新生成。
+
+| 材料 | SHA256 |
+|---|---|
+| baseline-inputs.json | `86cba7f0e261d649fffa9b5ba0e5a17165ffba24529a8ef38350b0a49c138060` |
+| baseline-device.log | `7663ff2089bd565943ec7bd7def48f59dd769b508e92d06b5ccc3819729f9730` |
+| baseline.log | `fca16c7e616cb764460fa2c4300cc99067bb1bff455bbd6d1a26a61272077b0c` |
+| component-final.log | `a615f7012b7306bbf57cade6bebfacac3e6c849887a37502cf96348882e8072b` |
+| animated-fixture-before.log | `fd9b72187247ac83ed81ccb45c34030ca6ad065f2bd8289411d3a984ac421dbd` |
+| html-assets-mutation-before.log | `8c636dcd00af35079adb34577f18b1e98a826438c78e4aad580698aa8e3934dc` |
+| pane-receipt.json | `c9478a60d30e5bc3f48a3301be0a066e213db464bcebd90160d4440be251d9d8` |
+| pane-driver.log | `352101628078b3ca8adcaf022b0032182ee1df855c1d280e7016dad1a25950fd` |
+| core-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| ctest.log | `f1dc72ae16999cf70f1fc761f57906034b9fbc910bff3fbbbe8c1175a934f4fa` |
+| release-js-on.log | `9cbbb7fb458f2ae3144ac95f0d56b2cc4b524b59a8c408413dbd29ed4e7fd9f0` |
+| release-js-off.log | `11f2812232e41e706a773bee212db0248f35b8844e344a4ff3f4a1513df32b09` |
+| c-format.log | `6e72b64e4d86057a2401b1d07a516ee12b12de75a7b4cc9aaf8a7a4f359e3c66` |
+| probe.log | `c67bc44a939a0510d3430e9d7746d116969ad043fb144110f24cdfc0dcbaa92b` |
+
+收尾：本轮验证进程、原生 XCTest / WebKit probe 与自有 SSH 夹具均已结束，未操作
+原 65439 / 2637。runner 已回收约 519 MiB 的隔离构建副本；其后清理本轮 / 闸门
+814 个 tmp 顶层项、1230 目录、3445 普通文件、29,309,435 逻辑字节及四个符号链接，
+无特殊文件，不把逻辑大小称作 APFS 实际释放量。只保留 tmp 根与原 eq 三件，
+SHA256 不变。清理后重枚举 1638 份指定源仍为
+`242ab80792da2b7384346b360a77a755071226731673ef53f7632900e844eccc`。
+本轮原始日志 / 收据 / 临时工具均已清理，本文为历史身份记录；默认 Core JS-off /
+tests-on，普通 App 已重新链接默认 archive，仅本地分批提交，不推送或发行。

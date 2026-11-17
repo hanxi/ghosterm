@@ -46,11 +46,14 @@ TMPDIR="${BUILD_DIR}/tool-tmp" swiftc -emit-library -static -emit-module \
   -o "${BUILD_DIR}/libGhostermAppModel.a" \
   "${BUILD_DIR}/ModelStubs.swift" \
   apple/GhostermApp/Sources/GhostermAppModel/PluginResourceHTMLDecoder.swift \
+  apple/GhostermApp/Sources/GhostermAppModel/PluginResourceImageDecoder.swift \
   apple/GhostermApp/Sources/GhostermAppModel/PluginResourceMarkdownDecoder.swift
 TMPDIR="${BUILD_DIR}/tool-tmp" swiftc -parse-as-library \
   -I "${BUILD_DIR}" -L "${BUILD_DIR}" -lGhostermAppModel \
   -framework AppKit -framework WebKit -framework ImageIO \
   -o "${BUILD_DIR}/probe" \
   apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLAssets.swift \
+  apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLSnapshot.swift \
+  apple/GhostermApp/Sources/GhostermApp/PluginResourceDecodeTask.swift \
   scripts/plugin-html-webkit-probe.swift
 DYLD_LIBRARY_PATH="${BUILD_DIR}" TMPDIR="${BUILD_DIR}/tool-tmp" "${BUILD_DIR}/probe"

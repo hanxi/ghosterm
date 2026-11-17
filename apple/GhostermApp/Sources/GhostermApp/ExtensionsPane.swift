@@ -822,45 +822,45 @@ private struct PluginResourceMarkdownPreview: View {
 private struct PluginResourceHTMLPreview: View {
     let resource: ExtensionController.ReceivedResource
     let resources: [ExtensionController.ReceivedResource]
-    @State private var document: String?
-    @State private var rejected = false
+    @State private var snapshot: PluginResourceHTMLSnapshot?
+    @State private var completed: [PluginResourceHTMLSnapshot.Input]?
 
     var body: some View {
+        let identity = PluginResourceHTMLSnapshot.identity(document: resource, resources: resources)
         Group {
-            if let document, PluginResourceHTMLAssetResolver.documentURL(resource.displayName) != nil {
-                PluginResourceHTMLWebView(document: document, resource: resource, resources: resources)
-                    .frame(minHeight: 180, maxHeight: 420)
-            } else if rejected {
+            if let snapshot, snapshot.inputs == identity {
+                VStack(alignment: .leading, spacing: 6) {
+                    PluginResourceHTMLWebView(snapshot: snapshot)
+                        .id(snapshot.fingerprint)
+                        .frame(minHeight: 180, maxHeight: 420)
+                    if snapshot.resolver.omittedAttachments {
+                        Text("部分 HTML 附件未通过校验或超过预览预算。")
+                            .font(DS.Font.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else if completed == identity {
                 Text("HTML 无法解析、路径无效或超过 256 KiB 预览上限。脚本和网络请求禁止；只加载本次显式收到的同目录 CSS / 图片。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
             } else {
                 ProgressView("检查 HTML…").controlSize(.small)
             }
         }
-        .task(id: resource.sha256) {
-            let bytes = resource.bytes
-            let mime = resource.mime
-            guard PluginResourceHTMLAssetResolver.documentURL(resource.displayName) != nil else {
-                document = nil
-                rejected = true
-                return
-            }
-            guard let decoded = await PluginResourceDecodeTask.run({
-                PluginResourceHTMLDecoder.document(bytes, mime: mime)
-            }) else { return }
-            document = decoded
-            rejected = decoded == nil
+        .task(id: identity) {
+            snapshot = nil
+            completed = nil
+            let prepared = await PluginResourceHTMLSnapshot.prepare(document: resource, resources: resources)
+            guard !Task.isCancelled else { return }
+            snapshot = prepared
+            completed = identity
         }
     }
 }
 
 private struct PluginResourceHTMLWebView: NSViewRepresentable {
-    let document: String
-    let resource: ExtensionController.ReceivedResource
-    let resources: [ExtensionController.ReceivedResource]
+    let snapshot: PluginResourceHTMLSnapshot
 
     func makeCoordinator() -> PluginResourceHTMLCoordinator {
-        PluginResourceHTMLCoordinator(resource: resource, resources: resources)
+        PluginResourceHTMLCoordinator(snapshot: snapshot)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -870,14 +870,12 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
-        context.coordinator.update(document: document, resource: resource, resources: resources,
-                                   in: webView)
+        context.coordinator.update(snapshot: snapshot, in: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.update(document: document, resource: resource, resources: resources,
-                                   in: webView)
+        context.coordinator.update(snapshot: snapshot, in: webView)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: PluginResourceHTMLCoordinator) {

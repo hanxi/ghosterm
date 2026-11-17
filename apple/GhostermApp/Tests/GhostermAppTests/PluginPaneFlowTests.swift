@@ -38,6 +38,12 @@ final class PluginPaneFlowTests: XCTestCase {
     func testUnicodeHTMLAttachmentsThroughProxyJumpControls() async throws {
         try await runPreview(.htmlUnicode, jump: true)
     }
+    func testAnimatedHTMLAttachmentsThroughDirectControls() async throws {
+        try await runPreview(.htmlAnimated, jump: false)
+    }
+    func testAnimatedHTMLAttachmentsThroughProxyJumpControls() async throws {
+        try await runPreview(.htmlAnimated, jump: true)
+    }
     func testImageThroughDirectControls() async throws {
         try await runPreview(.image, jump: false)
     }
@@ -63,7 +69,7 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true, versionSelectionReview: true)
     }
 
-    private enum Format { case markdown, html, htmlUnicode, image }
+    private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
     private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
@@ -91,15 +97,17 @@ final class PluginPaneFlowTests: XCTestCase {
         let png = try redPNG()
         let markdown = Data("# Preview controls\n\n![red sample](image.png)\n\nOwned SSH pane flow token\n".utf8)
         let unicodeHTML = format == .htmlUnicode
+        let animatedHTML = format == .htmlAnimated
         let directory = unicodeHTML ? "site/cafe\u{301}" : "site"
         let htmlPath = unicodeHTML ? directory + "/页面 #?%.html" : "site/index.html"
         let cssPath = unicodeHTML ? directory + "/主 题%.css" : "site/style.css"
-        let imagePath = unicodeHTML ? directory + "/图😀.png" : "site/image.png"
+        let imagePath = unicodeHTML ? directory + "/图😀.png" : animatedHTML ? "site/animation.gif" : "site/image.png"
         let cssLink = unicodeHTML ? "%E4%B8%BB%20%E9%A2%98%25.css" : "style.css"
-        let imageLink = unicodeHTML ? "%E5%9B%BE%F0%9F%98%80.png" : "image.png"
+        let imageLink = unicodeHTML ? "%E5%9B%BE%F0%9F%98%80.png" : animatedHTML ? "animation.gif" : "image.png"
         let html = Data("<html><head><link rel='stylesheet' href='\(cssLink)'></head><body><img width='64' height='64' src='\(imageLink)'></body></html>".utf8)
         let css = Data("body { margin: 0; background: rgb(0, 0, 255); }".utf8)
-        let files = ["site/index.md": markdown, htmlPath: html, cssPath: css, imagePath: png]
+        let raster = animatedHTML ? try animatedGIF() : png
+        let files = ["site/index.md": markdown, htmlPath: html, cssPath: css, imagePath: raster]
         for (path, bytes) in files {
             let location = workspace.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -109,12 +117,12 @@ final class PluginPaneFlowTests: XCTestCase {
         let arguments: [String]
         switch format {
         case .markdown: path = "site/index.md"; arguments = [path, "--assets", "site/image.png"]
-        case .html, .htmlUnicode: path = htmlPath; arguments = [path, "--assets", cssPath + "," + imagePath]
+        case .html, .htmlUnicode, .htmlAnimated: path = htmlPath; arguments = [path, "--assets", cssPath + "," + imagePath]
         case .image: path = "site/image.png"; arguments = [path]
         }
         let document = try XCTUnwrap(files[path])
         let argumentsJSON = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
-        let count = (format == .html || unicodeHTML) ? 3 : format == .markdown ? 2 : 1
+        let count = (format == .html || unicodeHTML || animatedHTML) ? 3 : format == .markdown ? 2 : 1
         let config = root.appendingPathComponent("config"), known = root.appendingPathComponent("known")
         var source = "Host pane-target\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
         if jump {
@@ -333,7 +341,7 @@ final class PluginPaneFlowTests: XCTestCase {
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("Markdown attachment did not draw actual red pixels"); return }
         case .image:
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("standalone image did not draw actual red pixels"); return }
-        case .html, .htmlUnicode:
+        case .html, .htmlUnicode, .htmlAnimated:
             guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("embedded HTML WebKit view missing"); return }
             let originalWeb = try XCTUnwrap(webViews(pane).first)
             guard !originalWeb.configuration.websiteDataStore.isPersistent else {
@@ -341,6 +349,16 @@ final class PluginPaneFlowTests: XCTestCase {
             }
             guard !originalWeb.configuration.defaultWebpagePreferences.allowsContentJavaScript else {
                 XCTFail("embedded HTML must disable JavaScript"); return
+            }
+            if animatedHTML {
+                let handler = try XCTUnwrap(originalWeb.configuration.urlSchemeHandler(forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler)
+                let request = HTMLReadProbe(request: URLRequest(url: try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(imagePath))))
+                handler.webView(originalWeb, start: request)
+                let original = try XCTUnwrap(CGImageSourceCreateWithData(raster as CFData, nil))
+                let displayed = request.data.isEmpty ? nil : CGImageSourceCreateWithData(request.data as CFData, nil)
+                XCTAssertTrue(CGImageSourceGetCount(original) == 2 && request.mime == "image/png" &&
+                              displayed.map { CGImageSourceGetCount($0) == 1 } == true,
+                              "actual SSH animation must reach WebKit only as one static PNG frame")
             }
             retainedHTML.append(originalWeb)
             let rendered = try await htmlPixels(pane)
@@ -404,6 +422,24 @@ final class PluginPaneFlowTests: XCTestCase {
         return bytes as Data
     }
 
+    private func animatedGIF() throws -> Data {
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, "com.compuserve.gif" as CFString, 2, nil))
+        for green in [false, true] {
+            let pixels = Data((0..<32 * 32).flatMap { _ in
+                green ? [UInt8(0), 255, 0, 255] : [UInt8(255), 0, 0, 255]
+            })
+            let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+            let image = try XCTUnwrap(CGImage(width: 32, height: 32, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: 128, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+                decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+            CGImageDestinationAddImage(destination, image, nil)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
     private func webViews(_ view: NSView) -> [WKWebView] {
         (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
     }
@@ -461,9 +497,11 @@ final class PluginPaneFlowTests: XCTestCase {
     private final class HTMLReadProbe: NSObject, WKURLSchemeTask {
         let request: URLRequest
         var rejected = false, delivered = false
+        var mime: String?
+        var data = Data()
         init(request: URLRequest) { self.request = request }
-        func didReceive(_ response: URLResponse) { delivered = true }
-        func didReceive(_ data: Data) { delivered = true }
+        func didReceive(_ response: URLResponse) { delivered = true; mime = response.mimeType }
+        func didReceive(_ data: Data) { delivered = true; self.data.append(data) }
         func didFinish() { delivered = true }
         func didFailWithError(_ error: Error) { rejected = true }
     }

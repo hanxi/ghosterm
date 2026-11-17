@@ -44,7 +44,8 @@ final class CaptureDelegate: NSObject, WKNavigationDelegate {
 @MainActor
 @main
 struct Probe {
-    static func main() throws {
+    private static func stepRunLoop() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    static func main() async throws {
         let app = NSApplication.shared
         _ = app.setActivationPolicy(.prohibited)
         let captureRoot = ProcessInfo.processInfo.environment["GHOSTERM_HTML_PROBE_CAPTURE"]
@@ -62,8 +63,8 @@ struct Probe {
         let pngBytes = try bytes("site/web/image.png", fallback: solidRedPNG())
         let image = ExtensionController.ReceivedResource(resourceID: "image", sha256: String(repeating: "c", count: 64), mime: "image/png", displayName: "site/web/image.png", size: UInt64(pngBytes.count), bytes: pngBytes)
         let resources = [html, css, image]
-        let document = try PluginResourceHTMLDecoder.document(htmlBytes, mime: html.mime).unwrap()
-        let coordinator = PluginResourceHTMLCoordinator(resource: html, resources: resources)
+        let snapshot = try await PluginResourceHTMLSnapshot.prepare(document: html, resources: resources).unwrap()
+        let coordinator = PluginResourceHTMLCoordinator(snapshot: snapshot)
         let configuration = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: coordinator.schemeHandler)
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 240, height: 180), configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
@@ -73,10 +74,11 @@ struct Probe {
         webView.uiDelegate = coordinator
         window.orderOut(nil)
         window.contentView = webView
-        coordinator.update(document: document, resource: html, resources: resources, in: webView)
+        coordinator.update(snapshot: snapshot, in: webView)
         let deadline = Date().addingTimeInterval(10)
         while delegate.results.isEmpty && delegate.failure == nil && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            stepRunLoop()
+            await Task.yield()
         }
         guard delegate.failure == nil, delegate.results.count == 1 else {
             throw ProbeError.failed(delegate.failure ?? "timed out waiting for initial snapshot")
@@ -85,10 +87,11 @@ struct Probe {
         let greenCSS = ExtensionController.ReceivedResource(resourceID: "css",
             sha256: String(repeating: "d", count: 64), mime: "text/css",
             displayName: "site/web/style.css", size: UInt64(greenCSSBytes.count), bytes: greenCSSBytes)
-        coordinator.update(document: document, resource: html,
-                           resources: [html, greenCSS, image], in: webView)
+        let refreshedSnapshot = try await PluginResourceHTMLSnapshot.prepare(document: html, resources: [html, greenCSS, image]).unwrap()
+        coordinator.update(snapshot: refreshedSnapshot, in: webView)
         while !delegate.done && Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            stepRunLoop()
+            await Task.yield()
         }
         webView.stopLoading()
         webView.navigationDelegate = nil

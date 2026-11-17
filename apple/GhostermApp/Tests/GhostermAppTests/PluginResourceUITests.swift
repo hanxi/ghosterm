@@ -11,10 +11,10 @@ import WebKit
 
 final class PluginResourceUITests: XCTestCase {
     @MainActor
-    func testHTMLWebViewUsesFreshNonpersistentStorage() {
+    func testHTMLWebViewUsesFreshNonpersistentStorage() async throws {
         TestWindows.enterAutomationMode()
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
-        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main])
+        let handler = PluginResourceHTMLSchemeHandler(snapshot: try await snapshot(main, resources: [main]))
         let first = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
         let second = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
         XCTAssertTrue(!first.websiteDataStore.isPersistent && !second.websiteDataStore.isPersistent &&
@@ -23,29 +23,31 @@ final class PluginResourceUITests: XCTestCase {
     }
 
     @MainActor
-    func testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates() {
+    func testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates() async throws {
         TestWindows.enterAutomationMode()
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
-        let owner = PluginResourceHTMLCoordinator(resource: main, resources: [main])
+        let prepared = try await snapshot(main, resources: [main])
+        let owner = PluginResourceHTMLCoordinator(snapshot: prepared)
         let web = HTMLLoadSpy(frame: .zero, configuration: PluginResourceHTMLWebViewConfiguration.make(schemeHandler: owner.schemeHandler))
         web.navigationDelegate = owner; web.uiDelegate = owner
-        owner.update(document: "doc", resource: main, resources: [main], in: web)
+        owner.update(snapshot: prepared, in: web)
         owner.close(in: web)
         owner.close(in: web)
-        owner.update(document: "late document", resource: main, resources: [main], in: web)
-        XCTAssertTrue(web.documents == ["doc"] && web.stops == 1 &&
+        let late = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("late document".utf8))
+        owner.update(snapshot: try await snapshot(late, resources: [late]), in: web)
+        XCTAssertTrue(web.documents == [prepared.document] && web.stops == 1 &&
                       web.navigationDelegate == nil && web.uiDelegate == nil,
                       "closed HTML coordinator must stop once, detach delegates and reject late loads")
     }
 
     @MainActor
-    func testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest() throws {
+    func testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest() async throws {
         TestWindows.enterAutomationMode()
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
-        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([1, 2, 3]))
-        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main, image])
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: try solidRedPNG())
+        let handler = PluginResourceHTMLSchemeHandler(snapshot: try await snapshot(main, resources: [main, image]))
         handler.close()
-        handler.update(document: main, resources: [main, image])
+        handler.update(snapshot: try await snapshot(main, resources: [main, image]))
         let task = CapturedSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png"))))
         let configuration = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
         handler.webView(WKWebView(frame: .zero, configuration: configuration), start: task)
@@ -54,11 +56,11 @@ final class PluginResourceUITests: XCTestCase {
     }
 
     @MainActor
-    func testHTMLCoordinatorCloseRevokesRetainedSchemeHandler() throws {
+    func testHTMLCoordinatorCloseRevokesRetainedSchemeHandler() async throws {
         TestWindows.enterAutomationMode()
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
-        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([1, 2, 3]))
-        let owner = PluginResourceHTMLCoordinator(resource: main, resources: [main, image])
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: try solidRedPNG())
+        let owner = PluginResourceHTMLCoordinator(snapshot: try await snapshot(main, resources: [main, image]))
         let web = HTMLLoadSpy(frame: .zero, configuration: PluginResourceHTMLWebViewConfiguration.make(schemeHandler: owner.schemeHandler))
         owner.close(in: web)
         let task = CapturedSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png"))))
@@ -108,6 +110,50 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertEqual(selection.resourceID, first.resourceID, "a late stale selection must be ignored")
         selection.reconcile([])
         XCTAssertNil(selection.resourceID, "stopping a run must clear its resource selection")
+    }
+
+    @MainActor
+    func testHTMLPreparedAttachmentArrivalRebuildsAndRevokesTheOldView() async throws {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html",
+                            bytes: Data("<link rel='stylesheet' href='style.css'><img src='logo.png'>".utf8))
+        let css = resource("css", path: "site/style.css", mime: "text/css", bytes: Data("body{color:red}".utf8))
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: try solidRedPNG())
+        let model = ResourceBrowserHarnessModel(resources: [main, css])
+        model.selection.reconcile([main.resourceID, css.resourceID])
+        let host = NSHostingView(rootView: ResourceBrowserHarness(model: model))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 900),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host; TestWindows.presentOffscreen(window)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func web(_ view: NSView) -> WKWebView? {
+            if let found = view as? WKWebView { return found }
+            return view.subviews.lazy.compactMap(web).first
+        }
+        func waitForView(otherThan previous: WKWebView? = nil) async throws -> WKWebView? {
+            for _ in 0..<100 {
+                host.layoutSubtreeIfNeeded()
+                if let current = web(host), current !== previous { return current }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            return nil
+        }
+        let initial = try await waitForView()
+        let first = try XCTUnwrap(initial)
+        let handler = try XCTUnwrap(first.configuration.urlSchemeHandler(forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler)
+        let request = URLRequest(url: try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(css.displayName)))
+        let before = CapturedSchemeTask(request: request); handler.webView(first, start: before)
+        XCTAssertEqual(before.data, css.bytes)
+        model.resources.append(image)
+        let returned = try await waitForView(otherThan: first)
+        let after = CapturedSchemeTask(request: request); handler.webView(first, start: after)
+        XCTAssertTrue(returned != nil && first.navigationDelegate == nil && after.error != nil && after.data.isEmpty,
+                      "prepared attachment changes must replace and revoke the previous HTML view")
+        model.resources = []
+        for _ in 0..<100 where web(host) != nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertNil(web(host))
+        XCTAssertEqual(window.alphaValue, 0)
+        XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
     }
 
     @MainActor
@@ -326,16 +372,16 @@ final class PluginResourceUITests: XCTestCase {
     }
 
     @MainActor
-    func testHTMLSchemeHandlerReturnsTheVerifiedSnapshotBytes() throws {
+    func testHTMLSchemeHandlerReturnsTheVerifiedSnapshotBytes() async throws {
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("<img src='logo.png'>".utf8))
-        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([9, 8, 7]))
-        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main, image])
-        let request = URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png")))
+        let image = resource("image", path: "site/style.css", mime: "text/css", bytes: Data("body{color:red}".utf8))
+        let handler = PluginResourceHTMLSchemeHandler(snapshot: try await snapshot(main, resources: [main, image]))
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/style.css")))
         let task = CapturedSchemeTask(request: request)
 
         handler.webView(WKWebView(frame: .zero), start: task)
 
-        XCTAssertEqual(task.response?.mimeType, "image/png")
+        XCTAssertEqual(task.response?.mimeType, "text/css")
         XCTAssertEqual((task.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Cache-Control"),
                        "no-store, no-cache, must-revalidate")
         XCTAssertEqual(task.data, image.bytes)
@@ -368,6 +414,12 @@ final class PluginResourceUITests: XCTestCase {
             url: document, isMainFrame: false, documentURL: document))
         XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(
             url: nil, isMainFrame: true, documentURL: nil))
+    }
+
+    private func snapshot(_ document: ExtensionController.ReceivedResource,
+                          resources: [ExtensionController.ReceivedResource]) async throws -> PluginResourceHTMLSnapshot {
+        let value = await PluginResourceHTMLSnapshot.prepare(document: document, resources: resources)
+        return try XCTUnwrap(value)
     }
 
     private func resource(_ id: String) -> ExtensionController.ReceivedResource {
