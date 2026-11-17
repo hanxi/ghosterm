@@ -52,6 +52,8 @@ final class AppCommands: NSObject {
 
     /// 关于：开我们自己的关于窗口（不是系统那张标准面板——它列不出随包
     /// 组件的许可，见 `AboutWindow`）。
+    @objc func checkForUpdates(_ sender: Any?) { UpdateChecker.shared.checkNow() }
+
     @objc func showAbout(_ sender: Any?) { AboutWindow.open() }
 
     @objc func showSettings(_ sender: Any?) {
@@ -110,6 +112,9 @@ enum AppMenu {
                                keyEquivalent: "")
         about.target = commands
         menu.addItem(about)
+        let update = NSMenuItem(title: "检查更新…", action: #selector(AppCommands.checkForUpdates(_:)), keyEquivalent: "")
+        update.target = commands
+        menu.addItem(update)
         menu.addItem(.separator())
         let settings = NSMenuItem(title: "设置…",
                                   action: #selector(AppCommands.showSettings(_:)),

@@ -121,6 +121,9 @@ struct RootView: View {
         // 界面字号：装在整棵树的根上（终端面不吃它——终端字号是 Ghostty
         // 配置里的事，见 AppearancePane 的说明）。
         .interfaceTextSize()
+        .overlay(alignment: .bottomTrailing) {
+            UpdateNotice(updater: .shared).padding(12)
+        }
         // 关闭标签页的确认。**只在真有东西会被打断时才出现**（空闲提示符 /
         // 已退出 / 失败 / 连接中都不问——判据在 TabManager.requestClose）。
         .alert("关闭这个标签页？",

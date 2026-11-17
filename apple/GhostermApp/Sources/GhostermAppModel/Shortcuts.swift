@@ -97,6 +97,7 @@ public enum AboutInfo {
     /// docs/explanation/licensing.md）如实列出。
     public static let entries: [Entry] = [
         Entry(name: "Ghosterm", detail: "MIT License · 本程序"),
+        Entry(name: "Sparkle", detail: "MIT · 应用更新（Ed25519 校验）"),
         Entry(name: "libghostty (Ghostty)", detail: "MIT · 终端引擎（含本地补丁）"),
         Entry(name: "libssh2", detail: "BSD-3-Clause · SSH / SFTP"),
         Entry(name: "OpenSSL", detail: "Apache-2.0 · SSH 加密后端"),

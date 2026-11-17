@@ -8,7 +8,7 @@ import re
 
 FILES = {
     'macos': {'Ghosterm-macos-arm64-dev.dmg', 'Ghosterm-macos-arm64-dev.zip',
-              'SHA256SUMS', 'BUILD-INFO.txt', 'version.json'},
+              'SHA256SUMS', 'BUILD-INFO.txt', 'version.json', 'appcast.xml'},
     'android': {'Ghosterm-android-arm64-dev.apk', 'android-SHA256SUMS', 'android-build-info.json'},
 }
 

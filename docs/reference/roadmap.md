@@ -126,9 +126,9 @@ M4.6 的 S1–S7 历史切片与 macOS S6 正常路径已交付，队列 UI 已�
 - [x] tmux 3.2a/3.6a 的本机与真实 SSH 证据、网络中断/未知结果/竞态/任务保留与干净打包；具体支持范围见[实施清单](optional-tmux-implementation.md)。
 - [x] `package-mac.sh` 自包含 `.app/.dmg/.zip`、递归依赖、图标/主题、签名档位、校验和与 BUILD-INFO。
 - [x] main dev 与 PR/tag release 双轨 CI；Homebrew cask 对拍、一键安装与回滚校验。
-- [x] 关于窗口手动更新检测，commit 为主锚；未知不能报最新；只提供下载，不自动安装。
+- [x] 菜单及关于窗口主动更新检查；dev 比 commit、release 比正式版本，右下角显示下载与重启状态；无 Apple 证书时使用独立 Ed25519 验签更新。
 
-更新检测已交付的是当前状态判据和入口：`RemoteBuild.decode` 尚未严格校验远端 commit、摘要字符集及下载来源，`compare` 不验证提交祖先关系。不能把上面的完成项理解为所有畸形清单已经覆盖；新增缺口单列如下。
+更新清单已补 commit、摘要字符集及 GitHub 下载来源校验；`compare` 仍不验证 Git 祖先关系，dev 的「有新版」表示远端提交不同。更新引擎、签名配置、实际一次性 ad-hoc 应用安装测试与发行边界见 [macOS 应用内更新](../how-to/macos-updates.md)，不把本地测试当作完整客户端或云端发行验收。
 
 `4cbfcf4` 已交付跨显示器缩放同步：布局、backing 变化与窗口挂载统一下发 DPI/Metal 比例/像素尺寸，换屏通知下一轮读取最终属性。三项原生回归与六组手工变异已有证据；不增加 CI 20 份覆盖，真实双屏视觉复验仍待完成。详见[跨屏实施记录](optional-tmux-implementation.md#后续跨显示器缩放修复2026-10-31)。
 

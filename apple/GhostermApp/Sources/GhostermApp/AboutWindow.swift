@@ -57,7 +57,7 @@ struct AboutContentView: View {
 /// 关于：名字、版本、许可与项目地址（照抄 iGhostVT 的关于页形态：
 /// 图标 + 名称 + 版本，下面接许可）。
 struct AboutPane: View {
-    @StateObject private var updater = UpdateChecker()
+    @ObservedObject private var updater = UpdateChecker.shared
     @State private var fontLicensePresented = false
 
     var body: some View {
@@ -129,16 +129,8 @@ struct AboutPane: View {
 /// 为什么入口在这里而不是设置页：它不是可调项，和「版本」「许可」同一类信息
 /// （见文件头对 `SettingsView` 的取舍）。
 ///
-/// 为什么**没有**「立即安装」：dev 包 ad-hoc 签名、未公证，替换正在运行的二进制
-/// 必被 Gatekeeper 拦下——按钮给了也点不动（`installBlocked` 就是清单里那条
-/// 机器可读声明）。所以这里只报结论、只给下载直链。
 struct UpdateRow: View {
     @ObservedObject var updater: UpdateChecker
-
-    private var newer: RemoteBuild? {
-        if case .newer(let build) = updater.query { return build }
-        return nil
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Padding.s) {
@@ -152,11 +144,6 @@ struct UpdateRow: View {
                 Button(updater.isChecking ? "检查中…" : "检查更新") { updater.checkNow() }
                     .disabled(updater.isChecking)
                     .controlSize(.small)
-                if let url = newer?.downloadURL {
-                    Button("打开下载页") { NSWorkspace.shared.open(url) }
-                        .controlSize(.small)
-                        .help("只给直链：Ghosterm 不自动替换正在运行的二进制")
-                }
             }
             .font(DS.Font.detail)
 
@@ -169,10 +156,8 @@ struct UpdateRow: View {
             .foregroundStyle(.secondary)
             .accessibilityElement(children: .combine)
 
-            if newer?.installBlocked == true {
-                SettingsNote("这份新版是 ad-hoc 签名、未公证：下载后需自行覆盖安装，"
-                             + "首次打开会被 Gatekeeper 拦下，需在系统设置「隐私与安全性」点「仍要打开」"
-                             + "（或 xattr -dr com.apple.quarantine）。")
+            if updater.query != nil || updater.phase != .idle {
+                UpdateActions(updater: updater)
             }
         }
     }

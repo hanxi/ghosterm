@@ -283,6 +283,7 @@ jobs:
 
       - name: 出包（dmg + zip + 校验和）
         env:
+          GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
           SIGN_MODE: ${{ steps.signing.outputs.mode }}
           SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
           NOTARY_PROFILE: ${{ steps.notary.outputs.profile }}
@@ -301,6 +302,25 @@ jobs:
           cat dist/BUILD-INFO.txt
           ls -la dist
 
+      - name: 无证书更新签名与安装回归
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/update-tests
+          export TMPDIR="$PWD/tmp/update-tests"
+          python3 scripts/test-macos-update.py
+          python3 scripts/test-macos-update-install.py
+
+      - name: 更新清单与独立 Ed25519 签名
+        if: github.event_name != 'pull_request'
+        env:
+          GHOSTERM_UPDATE_PRIVATE_KEY: ${{ secrets.MACOS_UPDATE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/update-signing
+          export TMPDIR="$PWD/tmp/update-signing"
+          python3 scripts/make-macos-update.py --dist dist --channel "$INPUT_CHANNEL" \
+            --commit "$GITHUB_SHA" --signer apple/GhostermApp/.build/artifacts/sparkle/Sparkle/bin/sign_update
+
       - name: 一键安装脚本集成与变异验证
         run: |
           set -euo pipefail
@@ -317,6 +337,8 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
             dist/BUILD-INFO.txt
+            dist/version.json
+            dist/appcast.xml
           retention-days: 1
 
       - name: 保存失败日志

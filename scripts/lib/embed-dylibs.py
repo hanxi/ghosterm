@@ -91,7 +91,10 @@ def resolve_ref(app, dep):
         rel = dep[len("@executable_path/"):]
         return os.path.normpath(os.path.join(app, MAIN_REL, rel))
     if dep.startswith(("@rpath/", "@loader_path/")):
-        cand = os.path.join(fw, dep.rsplit("/", 1)[1])
+        if dep.startswith("@rpath/") and ".framework/" in dep:
+            cand = os.path.join(fw, dep[len("@rpath/"):])
+        else:
+            cand = os.path.join(fw, dep.rsplit("/", 1)[1])
         return cand if os.path.exists(cand) else None
     return None
 
@@ -128,6 +131,10 @@ def collect(app):
         img = queue.pop(0)
         for dep in deps_of(img):
             if is_system(dep):
+                continue
+            if dep.startswith("@rpath/Sparkle.framework/"):
+                if resolve_ref(app, dep) is None:
+                    fail("Sparkle.framework 未完整内嵌")
                 continue
             inner = resolve_ref(app, dep)
             base = os.path.basename(dep)
