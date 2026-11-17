@@ -1328,3 +1328,11 @@ python3 -B scripts/test-plugin-release-android.py --headless-api 36 --version-ch
 
 默认仍为 JS-off。具体模拟器 / 构件、声明比较与真实 Core 的不同证据范围见插件计划
 第二十二批；本入口不审计代码行为，也不安装执行端依赖或迁移已有运行实例。
+
+## 执行端离线签名安装
+
+独立 `gterm plugin install` 可在用户选择的执行端安装并登记已签名 ZIP；
+`register-signed` 可重新核对、登记已有发布副本。需显式启用签名构建、选择可信渠道策略，
+并分别配置 Portable / Node / Exec 的本次启动范围；不会安装 Node 或业务程序。
+副本发布、目录登记与同步结果分开，失败后先观察再操作。命令、策略变化后的拒绝、
+多 variant 选择和当前验证边界见 [CLI 安装说明](../../cli/gterm/README.md#离线签名执行端安装实验)。

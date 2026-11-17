@@ -2,7 +2,7 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端签名安装仍待接；未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；完整版本维护与故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
@@ -226,7 +226,7 @@ core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
 
 cli/gterm/
-  main.c / stdio.c / catalog.c / catalog-store.c 已接诊断、固定包检查、显式 stdio 与开发目录持久登记 / 普通 argv 分派；前台 IPC 由用户明确选择，自动发现与签名执行端安装待接，不内置业务命令
+  main.c / stdio.c / catalog.c / catalog-store.c / release-*.c 已接诊断、固定包检查、三档 stdio、开发 / 签名目录登记与普通 argv 分派、离线签名安装；TTY 只被动发现候选，前台 IPC 由用户明确选择，不内置业务命令
   tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
   process_posix.c / ipc_posix.c
   relay.c        可选前台中继，具体支持拓扑由探针决定
@@ -11636,3 +11636,64 @@ P1–P6 未完成、不增加 CI 二十份，仅本地提交，不推送 / 发�
 - `android-default.log`：`57419dd795c4e1131e11c2a5002ee3b617bde57de2c1e02b9a5aa3f8b80b768c`
 - `apple-release-final.log`：`a27be6f98254d251962c982a84357f6967b14da3b1ced82bc602b7e17f7a0848`
 - `format.log`：`f44fea60e1cfef708d20551d5f50d941889f7db64254c16a6f31bc304a0c3663`
+
+
+### P6 实施第二十三批：执行端签名安装与三档普通命令（2026-11-17）
+
+按加速约定，本批直接实现 CLI 核验 → 受管副本 → 登记 → 普通业务命令整链，
+只编译与跑关键边界 / 真实 C HOST 冒烟，不拆成每项保护的全量 / 变异循环。
+新增 install / register-signed；选择开发来源仍用原 register-development。
+CLI 不引入安装脚本、常驻服务、自动下载、私钥文件或 App 随包 helper。
+
+显式 JS / release-signature 构建使用固定 QuickJS 中的可信策略解析代码及共享 Core
+原始 Ed25519 验证。JSON 重复键 / 精确整数 / NFC / canonical 公钥 / key ID、渠道 /
+发布者 / 插件与撤销同候选 release/channel 契约；校验器不是插件代码，不激活模块。
+OpenSSL / zlib 为显式本机依赖；Portable 安装验证不需 Node / Python，测试的签名
+私钥只在既有一次性 signer 的内存中。签名关闭时在目录 IO 前明确返回 unsupported。
+
+严格 ZIP32 stored / raw DEFLATE、中央与本地连续布局 / CRC / 路径 / 文件类型和
+预算后，由真实 Core 检查实际 payload、身份与签名声明。专用 0700 安装根、私有锁、
+先同步意图、独占暂存、文件 / 目录同步与只读冻结、不覆盖 rename；版本名为原描述
+SHA256。原 ZIP 不再保留。正常失败只清本次匹配身份；进程死亡 / 身份或同步未知
+保留，不按名字收养 / 重放。已有条目达到 64 拒绝新安装。
+
+安装和目录更新分开报告：已发布后登记失败保留 installed=true / 非零结果，用户可
+只重新登记。更新仍用修订与旧 package D CAS，不自动删除旧版本或迁移运行实例。
+记录沿用原 CLI 私有格式，签名证据作为启动配置的一部分；列表不冒充当前认证。
+普通调用复核实际包、原始签名和独立策略的固定 SHA，IPC 等待后及激活前继续复核；
+策略变化拒绝旧记录，明确重新登记才能采用新快照。没有在线新鲜度 / 防回滚保证。
+
+Portable / Node / Exec 的签名安装、开发目录普通 argv 已接。显式 --variant 传到
+实际 Native Host 兼容性检查，多 variant 不按运行时可用性猜选；目录配置运行档 /
+variant 必须与 Core 已选元数据一致。业务能力、Client 来源和 Session consent 独立。
+
+本批证据仅为 macOS / arm64 本机 C HOST 的脚本决定，不是新的 App 点击或远端认证：
+
+- 最终 33 个场景同轮通过：stored / deflate 安装后真实普通调用 / RPC、签名 / 撤销 /
+  范围 / 重复键 / 精确数值 / NFC / Base64、实际归档 / 包身份、路径 / 尾部、版本冲突、
+  安装后登记失败及重新登记、调用前和等待期间策略变化、payload 变化、链接与 umask；
+  Node / Exec 的实际普通命令、拒绝、attacher 中断、开发目录和多 variant，配置不匹配拒绝。
+- 新构建的签名关闭档明确退出 4 且未创建目录 / store；同档开发普通调用与执行批准
+  拒绝 2 项通过。启用档原目录的普通调用 / Preview / 跨进程观察 / 替换 / 移除 5 项通过。
+- C 格式检查 285 文件；不改 Core 公共 ABI、各端源码或默认 JS-off。根 Core 缓存仍
+  JS-off / tests-on。未在本批跑完整 gate.sh、旧完整目录矩阵或新变异 / sanitizer 扫描。
+
+前置失败单列：UTF-8 helper 改名漏一个调用、QuickJS-NG 回调误用上游旧 JSRuntime
+签名，两次编译失败未计绿。初轮把 active-cancel 的原前台误判成退出 0；实际上夹具
+终止的是 attacher（本机 130），原前台保留断流结果不明 7，且旧进程组 errno=1 /
+execution cleanup unknown 仍可见。修正断言以保留该语义，不把它记作远端已取消。
+
+本机 OpenSSL 动态库声明 macOS 26 下限，不能宣称已有 macOS 13 CLI 分发物；Linux
+仅有分支源码，未实跑。完整 IO / 磁盘 / 并发 / SIGKILL / 取消与清理、版本维护 / GC、
+跨实现策略向量、App / SSH / 设备及发行矩阵待集中验收。真实 Agent 认证 / 模型 turn
+继续推进，P1–P6 未完成、不增加 CI 二十份，仅本地分批提交，不推送 / 发行。
+锁定开发编译工具留在忽略的 build 缓存复用，本批临时构建 / SDK / 原件用后清理。
+
+本批最终原件 SHA256（清理后仅保留身份，不冒充完整可审阅日志）：
+
+- `final-smoke.log`：`d5332689911132781a47f476255c2e706d778db24b6467ea570a33ce34474873`
+- `catalog-smoke.log`：`3e2fe56c55b65a8e2102e9890104d39155345a3b9835410b94cb68c68172884b`
+- `final-off-smoke.log`：`1aac646c7db187ab1741993d41e30dcf9babe19f5c6b935dcb1aeaa7a99a7f75`
+- `off-install-final.json`：`06fbadf21b0b2b76cfa1021467f5085d8cde135d9b4513d93540e9adb6c2ade1`
+- `format-final.log`：`e8c3c16d4574f97494555172502225ec08148951f831c05a2ae2cef69ce368ef`
+- `sdk.log`：`735b9852d115711ff04816c306ffca22445f8cb86ffd8c39fd0a3015c300f9e2`

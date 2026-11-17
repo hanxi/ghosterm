@@ -4,6 +4,7 @@
 #include "catalog.h"
 #include "ipc.h"
 #include "stdio.h"
+#include "release.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,6 +31,9 @@ static int report(int status, const char *code, const gterm_catalog_t *catalog) 
     gterm_json_string(kind);
     fputs(",\"code\":", stdout);
     gterm_json_string(code);
+    if (catalog && catalog->installed) {
+        fputs(",\"installed\":true", stdout);
+    }
     printf(",\"committed\":%s,\"durabilityConfirmed\":false,\"authorizationGranted\":false,"
            "\"publisherAuthenticated\":false}\n",
            catalog && catalog->committed ? "true" : "false");
@@ -139,7 +143,10 @@ static int capture(const gterm_catalog_entry_t *entry,
         (strcmp(metadata->id, entry->id) || strcmp(metadata->version, entry->version))) {
         return 9;
     }
-    return *cancelled ? 130 : 0;
+    return *cancelled
+               ? 130
+               : gterm_release_profile(
+                     (int)entry->profile_count, entry->profile, entry->digest, metadata, cancelled);
 }
 
 static char **
@@ -196,6 +203,12 @@ static bool fixed_paths(const gterm_catalog_entry_t *e) {
             }
         } else if (!strcmp(name, "--node-sdk") || !strcmp(name, "--node-runtime")) {
             path = e->profile[i + 1];
+        } else if (!strcmp(name, "--release-evidence")) {
+            if (!gterm_catalog_path(e->profile[i + 2]) ||
+                !gterm_catalog_digest(e->profile[i + 3])) {
+                return false;
+            }
+            path = e->profile[i + 1];
         }
         if (path && !gterm_catalog_path(path)) {
             return false;
@@ -205,7 +218,9 @@ static bool fixed_paths(const gterm_catalog_entry_t *e) {
     return true;
 }
 
-static int profile_check(const gterm_catalog_entry_t *e, const char *command) {
+static int profile_check(const gterm_catalog_entry_t *e,
+                         const char *command,
+                         const gt_ext_package_metadata_t *metadata) {
     if (!fixed_paths(e)) {
         return 2;
     }
@@ -218,6 +233,21 @@ static int profile_check(const gterm_catalog_entry_t *e, const char *command) {
                      ? gterm_stdio_validate(count, args)
                      : 2;
     free(args);
+    if (!result) {
+        const char *runtime = "portable-js", *variant = NULL;
+        for (uint32_t at = 0; at < e->profile_count;) {
+            if (!strcmp(e->profile[at], "--runtime")) {
+                runtime = e->profile[at + 1];
+            }
+            if (!strcmp(e->profile[at], "--variant")) {
+                variant = e->profile[at + 1];
+            }
+            at += (uint32_t)gterm_stdio_option_arity(e->profile[at]) + 1;
+        }
+        if (strcmp(runtime, metadata->runtime) || (variant && strcmp(variant, metadata->variant))) {
+            result = 4;
+        }
+    }
     return result;
 }
 
@@ -234,7 +264,19 @@ static void list(const gterm_catalog_t *c) {
         gterm_json_string(e->version);
         fputs(",\"packageDigest\":", stdout);
         gterm_json_string(e->digest);
-        printf(",\"source\":\"explicit-development-digest\",\"publisherAuthenticated\":false}");
+        bool signed_record = false;
+        for (uint32_t j = 0; j < e->profile_count;) {
+            int fields = gterm_stdio_option_arity(e->profile[j]);
+            if (fields < 0 || (uint32_t)fields >= e->profile_count - j) {
+                break;
+            }
+            if (!strcmp(e->profile[j], "--release-evidence")) {
+                signed_record = true;
+            }
+            j += (uint32_t)fields + 1;
+        }
+        printf(",\"source\":\"%s\",\"publisherAuthenticated\":false}",
+               signed_record ? "signed-release-record" : "explicit-development-digest");
     }
     puts("],\"authorizationGranted\":false,\"publisherAuthenticated\":false}");
 }
@@ -245,6 +287,11 @@ int gterm_catalog_manage(const char *operation,
                          volatile sig_atomic_t *cancelled) {
     const char *path = NULL, *host = NULL, *trusted = NULL, *expected_digest = NULL, *id = NULL,
                *expected_text = NULL;
+    const char *policy = NULL, *store = NULL, *artifact = NULL, *descriptor = NULL,
+               *signature = NULL;
+    bool installing = !strcmp(operation, "install"),
+         signed_registration = !strcmp(operation, "register-signed"),
+         signed_source = installing || signed_registration;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--"); at += 2) {
         if (at + 1 >= argc) {
@@ -256,6 +303,11 @@ int gterm_catalog_manage(const char *operation,
                              : !strcmp(argv[at], "--trust-development-digest") ? &trusted
                              : !strcmp(argv[at], "--expect-digest")            ? &expected_digest
                              : !strcmp(argv[at], "--id")                       ? &id
+                             : !strcmp(argv[at], "--policy")                   ? &policy
+                             : !strcmp(argv[at], "--store")                    ? &store
+                             : !strcmp(argv[at], "--artifact")                 ? &artifact
+                             : !strcmp(argv[at], "--descriptor")               ? &descriptor
+                             : !strcmp(argv[at], "--signature")                ? &signature
                                                                                : NULL;
         if (!value || *value) {
             return report(2, "CATALOG_OPTIONS", NULL);
@@ -268,21 +320,32 @@ int gterm_catalog_manage(const char *operation,
     bool listing = !strcmp(operation, "list"), removing = !strcmp(operation, "unregister");
     uint64_t expected = 0;
     if (!gterm_catalog_path(path) ||
-        (listing ? (at != argc || expected_text || host || trusted || expected_digest || id)
+        (listing ? (at != argc || expected_text || host || trusted || expected_digest || id ||
+                    policy || store || artifact || descriptor || signature)
                  : !revision(expected_text, &expected))) {
         return report(2, "CATALOG_OPTIONS", NULL);
     }
     if (!listing &&
-        (removing ? (at != argc || host || trusted || !id || !gterm_catalog_digest(expected_digest))
-                  : (at + 1 >= argc || strcmp(argv[at], "--") || id || !host ||
-                     !gterm_catalog_digest(trusted) ||
+        (removing ? (at != argc || host || trusted || policy || store || artifact || descriptor ||
+                     signature || !id || !gterm_catalog_digest(expected_digest))
+                  : (at >= argc || strcmp(argv[at], "--") || id || !host ||
+                     (signed_source ? (trusted || !gterm_catalog_path(policy))
+                                    : (!gterm_catalog_digest(trusted) || policy || store ||
+                                       artifact || descriptor || signature)) ||
+                     (installing ? (!gterm_catalog_path(store) || !strcmp(store, path) ||
+                                    !artifact || !descriptor || !signature)
+                                 : (at + 1 >= argc || !gterm_catalog_path(argv[at + 1]) || store ||
+                                    artifact || descriptor || signature)) ||
                      (expected_digest && !gterm_catalog_digest(expected_digest)) ||
-                     !gterm_catalog_path(argv[at + 1]) ||
-                     argc - at - 2 > (int)GTERM_CATALOG_ARGUMENTS))) {
+                     argc - at - (installing ? 1 : 2) + (signed_source ? 4 : 0) >
+                         (int)GTERM_CATALOG_ARGUMENTS))) {
         return report(2, "CATALOG_OPTIONS", NULL);
     }
     if (gt_ext_runtime_support() != GT_OK) {
         return report(4, "PLUGIN_JS_DISABLED", NULL);
+    }
+    if (signed_source && !gterm_release_supported()) {
+        return report(4, "RELEASE_VERIFY_UNAVAILABLE", NULL);
     }
     gterm_catalog_t c;
     int status = gterm_catalog_open(&c, path, !listing);
@@ -307,17 +370,106 @@ int gterm_catalog_manage(const char *operation,
         goto done;
     }
     if (!removing) {
-        fresh.directory = strdup(argv[at + 1]);
-        fresh.digest = strdup(trusted);
         fresh.host = read_host(host);
-        fresh.profile = calloc((size_t)(argc - at - 2) + 1, sizeof(char *));
+        char *release_directory = NULL;
+        char policy_digest[65] = {0};
+        if (signed_source) {
+            if (!fresh.host) {
+                status = 5;
+                code = "CATALOG_INPUT";
+                goto done;
+            }
+            if (installing) {
+                status = gterm_release_install(store,
+                                               artifact,
+                                               descriptor,
+                                               signature,
+                                               policy,
+                                               fresh.host,
+                                               &fresh.directory,
+                                               policy_digest,
+                                               &c.installed,
+                                               cancelled);
+                code = "RELEASE_INSTALL";
+                if (status) {
+                    goto done;
+                }
+                release_directory = strdup(fresh.directory);
+                if (release_directory) {
+                    release_directory[strlen(release_directory) - 8] = 0;
+                }
+            } else {
+                release_directory = strdup(argv[at + 1]);
+                fresh.directory = malloc(strlen(argv[at + 1]) + 9);
+                if (fresh.directory) {
+                    sprintf(fresh.directory, "%s/payload", argv[at + 1]);
+                }
+            }
+            if (!release_directory || !fresh.directory) {
+                free(release_directory);
+                status = 5;
+                goto done;
+            }
+            size_t n = strlen(release_directory);
+            char *release_json = malloc(n + 14), *release_sig = malloc(n + 14);
+            if (!release_json || !release_sig) {
+                free(release_json);
+                free(release_sig);
+                free(release_directory);
+                status = 5;
+                goto done;
+            }
+            snprintf(release_json, n + 14, "%s/release.json", release_directory);
+            snprintf(release_sig, n + 14, "%s/release.sig", release_directory);
+            gterm_release_t proof;
+            status = gterm_release_authenticate(release_json,
+                                                release_sig,
+                                                policy,
+                                                installing ? policy_digest : NULL,
+                                                &proof,
+                                                cancelled);
+            free(release_json);
+            free(release_sig);
+            code = "RELEASE_AUTHENTICATION";
+            if (status) {
+                free(release_directory);
+                goto done;
+            }
+            fresh.digest = strdup(proof.digest);
+            memcpy(policy_digest, proof.policy_digest, 65);
+            gterm_release_clear(&proof);
+            fresh.profile = calloc((size_t)(argc - at + 4), sizeof(char *));
+            if (fresh.profile) {
+                const char *evidence[] = {
+                    "--release-evidence", release_directory, policy, policy_digest};
+                for (unsigned i = 0; i < 4; i++) {
+                    char *copy = strdup(evidence[i]);
+                    if (!copy) {
+                        status = 5;
+                        break;
+                    }
+                    fresh.profile[fresh.profile_count++] = copy;
+                }
+            }
+            free(release_directory);
+            if (status) {
+                goto done;
+            }
+        } else {
+            fresh.directory = strdup(argv[at + 1]);
+            fresh.digest = strdup(trusted);
+            fresh.profile = calloc((size_t)(argc - at - 2) + 1, sizeof(char *));
+        }
         if (!fresh.directory || !fresh.digest || !fresh.host || !fresh.profile) {
             status = 5;
             code = "CATALOG_INPUT";
             goto done;
         }
         size_t bytes = 0;
-        for (int i = at + 2; i < argc; i++) {
+        for (uint32_t i = 0; i < fresh.profile_count; i++) {
+            bytes += strlen(fresh.profile[i]) + 1;
+        }
+        for (int i = at + (installing ? 1 : 2); i < argc; i++) {
             size_t n = strlen(argv[i]);
             bytes += n + 1;
             if (n > 4096 || bytes > 32768) {
@@ -342,7 +494,7 @@ int gterm_catalog_manage(const char *operation,
             status = 2;
             goto done;
         }
-        status = profile_check(&fresh, command.path);
+        status = profile_check(&fresh, command.path, &metadata);
         code = "CATALOG_PROFILE";
         if (status) {
             goto done;
@@ -412,9 +564,13 @@ done:
         } else {
             printf("{\"result\":\"%s\",\"revision\":\"%" PRIu64
                    "\",\"committed\":true,\"durabilityConfirmed\":true,\"authorizationGranted\":"
-                   "false,\"publisherAuthenticated\":false}\n",
-                   removing ? "unregistered" : "registered",
-                   c.revision);
+                   "false,\"publisherAuthenticated\":%s,\"installed\":%s}\n",
+                   removing     ? "unregistered"
+                   : installing ? "installed-and-registered"
+                                : "registered",
+                   c.revision,
+                   signed_source ? "true" : "false",
+                   c.installed ? "true" : "false");
         }
     }
     gterm_catalog_close(&c);
@@ -530,7 +686,7 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
         if (status) {
             goto done;
         }
-        status = profile_check(e, "catalog-probe");
+        status = profile_check(e, "catalog-probe", &metadata);
         code = "CATALOG_PROFILE";
         if (status) {
             goto done;

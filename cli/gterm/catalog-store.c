@@ -112,7 +112,7 @@ static bool put32(buffer_t *b, uint32_t value) {
     return true;
 }
 
-static bool utf8(const unsigned char *s, size_t size) {
+bool gterm_catalog_utf8(const unsigned char *s, size_t size) {
     for (size_t i = 0; i < size;) {
         uint32_t c = s[i++], minimum;
         size_t count;
@@ -154,7 +154,7 @@ static bool utf8(const unsigned char *s, size_t size) {
 static bool get_string(buffer_t *b, char **out, size_t limit) {
     uint32_t n;
     if (!get32(b, &n) || n > limit || b->at > b->size || n > b->size - b->at ||
-        memchr(b->bytes + b->at, 0, n) || !utf8(b->bytes + b->at, n)) {
+        memchr(b->bytes + b->at, 0, n) || !gterm_catalog_utf8(b->bytes + b->at, n)) {
         return false;
     }
     char *s = malloc((size_t)n + 1);
@@ -170,8 +170,8 @@ static bool get_string(buffer_t *b, char **out, size_t limit) {
 
 static bool put_string(buffer_t *b, const char *s) {
     size_t n = s ? strlen(s) : 0;
-    if (!s || n > 65536 || !utf8((const unsigned char *)s, n) || !put32(b, (uint32_t)n) ||
-        n > b->size - b->at) {
+    if (!s || n > 65536 || !gterm_catalog_utf8((const unsigned char *)s, n) ||
+        !put32(b, (uint32_t)n) || n > b->size - b->at) {
         return false;
     }
     memcpy(b->bytes + b->at, s, n);

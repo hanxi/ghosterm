@@ -1,8 +1,8 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor、一次性前台 IPC、实验 App 的显式 SSH attach、本机启动，以及受信开发目录的持久登记和普通命令分派。
-它不内置业务命令；未配置目录时保留 `COMMAND_ACTIVATION_UNAVAILABLE`。自动终端发现、执行端签名安装 / 升级仍待接。
+当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor、一次性前台 IPC、实验 App 的显式 SSH attach、本机启动、被动发现，以及开发 / 签名执行端目录的普通命令分派。
+它不内置业务命令；未配置目录时保留 `COMMAND_ACTIVATION_UNAVAILABLE`。签名执行端可离线安装并显式替换登记；完整升级 / 版本维护与发行矩阵继续。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
 
@@ -195,7 +195,7 @@ python3 -B scripts/test-gterm-catalog.py --build tmp/gterm-build
 目录同步 / 消费式关闭故障；默认 CLI 不含这些注入入口。变异驱动
 `scripts/mutation-check-gterm-catalog.py` 只允许工程 tmp 中的独立检出，真实编译后
 逐组单条正常断言红、同 archive 配置绿、恢复绿和 SHA256。当前目录整链专项实际
-运行 Portable 包与官方 Preview；Node / Exec 目录整链、签名安装、完整
+运行 Portable 包与官方 Preview；三档普通命令与签名安装另见下一节，完整
 文件系统 / 并发 / 物理设备矩阵另验，不以 headless C HOST 冒充 App 点击链。
 
 `--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者
@@ -319,6 +319,72 @@ python3 scripts/test-plugin-process-runtime.py --node 已安装Node路径 --tool
 ```
 
 Swift / JNI 已同步公共配置布局和进程事实观察。App 的远端运行档配置见下节；本机 IPC 激活与通用运行档的完整产品矩阵仍待完成，默认 App 插件开关保持原状态。运行档构件和 Host SDK 不加入 App 打包。
+
+### 离线签名执行端安装（实验）
+
+CLI 另外显式启用 `-DGHOSTERM_WITH_RELEASE_SIGNATURE=ON`，链接已安装的 OpenSSL Crypto
+和 zlib，并保持 `GHOSTERM_WITH_PLUGIN_JS=ON`。签名构建把可信渠道策略校验器编入 CLI，
+不依赖 Node / Python 做安装验证；这两个运行时只在所选插件或开发测试需要时使用。
+未启用签名的构建在接触目录 / 安装根之前返回 `RELEASE_VERIFY_UNAVAILABLE`（退出 4）。
+本批使用当前 macOS 主机的 OpenSSL；该本机依赖声明下限为 macOS 26，不能据此宣称已产出
+兼容 macOS 13 的 CLI 分发物。普通 App 构建和随包组件不变。
+
+用户选择独立可信的渠道公钥策略，以及发布方提供的 ZIP / 原始描述 / 64 字节签名。
+目录登记根须已存在且属于当前用户、0700；安装根为另一个专用规范绝对目录，最多
+3500 字节，可创建最后一层，不递归创建祖先。命令不会联网、下载依赖或运行安装脚本。
+
+```text
+gterm plugin install --catalog ABSOLUTE_CATALOG --expect-revision 0 \
+  --store ABSOLUTE_INSTALL_ROOT --artifact RELEASE_ZIP --descriptor RELEASE_JSON \
+  --signature RELEASE_SIG --policy ABSOLUTE_TRUSTED_POLICY --host-json HOST_JSON \
+  -- --client-digest CLIENT_SHA256 --method plugin.method
+```
+
+先按同一候选 release / channel 契约严格检查 JSON、重复解码键、精确整数、NFC、
+公钥 ID / canonical Base64、渠道 / 发布者 / 插件范围和撤销，再用共享 Core 验证
+`GHOSTERM-PLUGIN-RELEASE-V1` + NUL + 原始描述的 Ed25519 签名。实际 ZIP 字节数 /
+摘要须匹配签名声明。只接 ZIP32 stored / raw DEFLATE：无 extras、描述符、注释、
+拼接 / 尾部、链接或特殊文件，核对中央 / 本地目录、连续布局、CRC 和解压限额。
+最多 1024 文件 / 4096 总条目、单文件 16 MiB / 总 64 MiB、32 层路径；实际归档最多 72 MiB。
+真实 Core 再核对完整 payload 及 ID / version / publisher / package D，检查兼容但不激活模块。
+
+安装根使用私有单链接锁。先写并同步意图，再创建本次独占暂存；文件同步并冻结为
+0400（可执行成员 0500）、目录 0500，一次不覆盖 rename 为 `INSTALL_ROOT/描述SHA256/`。
+该版本内含 `payload/`、`release.json`、`release.sig`，不保存第二份 ZIP 或私钥。
+已有版本冲突不覆盖；正常失败只清本次身份仍匹配的暂存。SIGKILL / 身份或同步未知的
+残留保留，不自动恢复、收养或删除；已有版本 / 暂存 / 意图条目达到 64 后拒绝新安装，
+完整崩溃和显式版本维护仍待验收。
+
+成功为 `installed-and-registered`；结果分别给 `installed`、目录 `committed` 和
+`durabilityConfirmed`。发布后登记失败会明确保留 `installed=true`，返回非零，不删除
+已发布版本；同步不明也返回非零。此时先观察，正确配置后可只重新登记：
+
+```text
+gterm plugin register-signed --catalog ABSOLUTE_CATALOG --expect-revision CURRENT \
+  --policy ABSOLUTE_TRUSTED_POLICY --host-json HOST_JSON \
+  -- ABSOLUTE_RELEASE_DIRECTORY [stdio profile options...]
+```
+
+替换已有 ID 仍须 `--expect-digest OLD_PACKAGE_SHA256` 和当前修订；只改变后续选择，
+不删除旧版本、不迁移正在运行的实例。列表中的 `signed-release-record` 仅说明记录来源，
+`publisherAuthenticated=false`，不把列表当成当前认证。每次普通命令重新核对签名、
+实际包和固定策略 SHA；等待 IPC 后、进入 Session 及激活前继续核对。策略文件变化
+即拒绝旧记录，须显式重新登记；这是本机快照检查，没有在线策略新鲜度 / 防回滚保证。
+签名不批准 Client、业务程序、工作区或本次 Host Session。
+
+三运行档均可登记和签名安装；Node / Exec 继续明确配置 `--runtime` 和
+`--allow-process-execution`、固定 Node / Host SDK 等依赖。同平台有多个候选 variant 时，
+HOST_JSON 用 `variantId`、启动配置用 `--variant ID` 明确选择；不会按运行时可用性猜选。
+登记与分派会核对配置运行档 / variant 和 Core 已选元数据；不匹配拒绝成为可选命令。
+
+```sh
+python3 -B scripts/test-gterm-release.py --build tmp/gterm-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+```
+
+本批为 macOS / arm64 本机 C HOST 专项：33 场景，含三档、Node / Exec 开发目录、
+多 variant、拒绝及 attacher 中断。attacher 的本地取消 130 不证明原前台取消；后者
+保留断流结果不明 7。不是 App 点击、Linux 或完整 IO / 取消 / 崩溃 / 发行证据。
 
 ### App 中选择远端 Executor 运行档
 

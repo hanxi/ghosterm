@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* No terminal mode changes, network, installation, or business execution here.
+/* Entry point parses and dispatches native commands; no terminal mode changes.
  * INT/TERM/HUP only set a flag: Core cancellation is not async-signal-safe. */
 static volatile sig_atomic_t interrupted;
 
@@ -23,32 +23,39 @@ static void interrupt_check(int number) {
 }
 
 static int usage(void) {
-    fputs("usage: gterm doctor\n"
-          "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
-          "DIGEST [DIRECTORY DIGEST]...\n"
-          "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
-          "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
-          "       gterm plugin register-development --catalog DIRECTORY --expect-revision N "
-          "--host-json FILE --trust-development-digest SHA256 [--expect-digest OLD] "
-          "-- ABSOLUTE_PACKAGE_DIRECTORY [stdio profile options...]\n"
-          "       gterm plugin unregister --catalog DIRECTORY --expect-revision N "
-          "--id ID --expect-digest SHA256\n"
-          "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
-          "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
-          "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
-          "       gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32\n"
-          "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
-          "[ARG...]\n"
-          "       gterm relay --stdio [--runtime node|exec --allow-process-execution] "
-          "[--node-runtime PATH VERSION SHA256 --node-sdk DIRECTORY SHA256] "
-          "--trust-development-digest SHA256 --client-digest SHA256 "
-          "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
-          "[--client-capability ui.table|ui.diff|ui.task|ui.views] "
-          "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
-          "[--process-argument NAME VALUE]... [--process-environment NAME]... "
-          "-- DIRECTORY COMMAND [ARG...]\n"
-          "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
-          stderr);
+    fputs(
+        "usage: gterm doctor\n"
+        "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
+        "DIGEST [DIRECTORY DIGEST]...\n"
+        "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
+        "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
+        "       gterm plugin install --catalog DIRECTORY --expect-revision N --store DIRECTORY "
+        "--artifact ZIP --descriptor JSON --signature FILE --policy JSON --host-json FILE "
+        "[--expect-digest OLD] -- [stdio profile options...]\n"
+        "       gterm plugin register-signed --catalog DIRECTORY --expect-revision N "
+        "--policy JSON --host-json FILE [--expect-digest OLD] -- RELEASE_DIRECTORY [stdio "
+        "profile options...]\n"
+        "       gterm plugin register-development --catalog DIRECTORY --expect-revision N "
+        "--host-json FILE --trust-development-digest SHA256 [--expect-digest OLD] "
+        "-- ABSOLUTE_PACKAGE_DIRECTORY [stdio profile options...]\n"
+        "       gterm plugin unregister --catalog DIRECTORY --expect-revision N "
+        "--id ID --expect-digest SHA256\n"
+        "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
+        "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
+        "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
+        "       gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32\n"
+        "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
+        "[ARG...]\n"
+        "       gterm relay --stdio [--variant ID] [--runtime node|exec --allow-process-execution] "
+        "[--node-runtime PATH VERSION SHA256 --node-sdk DIRECTORY SHA256] "
+        "--trust-development-digest SHA256 --client-digest SHA256 "
+        "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
+        "[--client-capability ui.table|ui.diff|ui.task|ui.views] "
+        "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
+        "[--process-argument NAME VALUE]... [--process-environment NAME]... "
+        "-- DIRECTORY COMMAND [ARG...]\n"
+        "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
+        stderr);
     return 2;
 }
 
@@ -512,7 +519,8 @@ int main(int argc, char **argv) {
                available ? "explicit-catalog-stdio-or-ipc" : "unsupported");
         result = available ? 0 : 4;
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
-               (!strcmp(argv[2], "register-development") || !strcmp(argv[2], "unregister") ||
+               (!strcmp(argv[2], "register-development") || !strcmp(argv[2], "register-signed") ||
+                !strcmp(argv[2], "install") || !strcmp(argv[2], "unregister") ||
                 !strcmp(argv[2], "list"))) {
         result = gterm_catalog_manage(argv[2], argc - 3, argv + 3, &interrupted);
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") && !strcmp(argv[2], "resolve")) {

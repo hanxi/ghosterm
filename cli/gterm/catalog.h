@@ -17,7 +17,7 @@ typedef struct {
     int directory, lock;
     const char *path;
     struct stat root, original;
-    bool present, committed;
+    bool present, committed, installed;
     uint64_t revision;
     uint32_t count;
     gterm_catalog_entry_t entries[GTERM_CATALOG_ENTRIES];
@@ -25,6 +25,7 @@ typedef struct {
 
 bool gterm_catalog_path(const char *);
 bool gterm_catalog_digest(const char *);
+bool gterm_catalog_utf8(const unsigned char *, size_t);
 void gterm_catalog_entry_clear(gterm_catalog_entry_t *);
 /* Private native CLI format; no Core ABI, discovery or permission grant. */
 int gterm_catalog_open(gterm_catalog_t *, const char *, bool);

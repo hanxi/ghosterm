@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 #include "ghosterm.h"
+#include "release.h"
+#include "catalog.h"
 #include "stdio.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -210,10 +212,12 @@ int gterm_stdio_option_arity(const char *option) {
     return !strcmp(option, "--allow-process-execution") ? 0
            : !strcmp(option, "--process-program")       ? 4
            : !strcmp(option, "--node-runtime")          ? 3
+           : !strcmp(option, "--release-evidence")      ? 3
            : !strcmp(option, "--node-sdk") || !strcmp(option, "--root") ||
                    !strcmp(option, "--process-argument")
                ? 2
-           : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
+           : !strcmp(option, "--variant") || !strcmp(option, "--runtime") ||
+                   !strcmp(option, "--trust-development-digest") ||
                    !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment") ||
                    !strcmp(option, "--client-capability")
@@ -244,7 +248,9 @@ static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bo
     const char *runtime_name = NULL, *node_executable = NULL, *node_version = NULL,
                *node_sha = NULL;
     const char *sdk_directory = NULL, *sdk_sha = NULL;
+    const char *variant_id = NULL;
     bool execution_authorized = false;
+    bool release_evidence = false;
     bool client_table = false, client_diff = false, client_task = false, client_views = false;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     process_program_t process_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
@@ -261,6 +267,26 @@ static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bo
     size_t root_count = 0;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--");) {
+        if (!strcmp(argv[at], "--variant")) {
+            if (variant_id || at + 1 >= argc || !argv[at + 1][0] || strlen(argv[at + 1]) > 128 ||
+                strspn(argv[at + 1],
+                       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") !=
+                    strlen(argv[at + 1])) {
+                return diagnostic("invalid Executor variant", 2);
+            }
+            variant_id = argv[at + 1];
+            at += 2;
+            continue;
+        }
+        if (!strcmp(argv[at], "--release-evidence")) {
+            if (release_evidence || at + 3 >= argc || !gterm_catalog_path(argv[at + 1]) ||
+                !gterm_catalog_path(argv[at + 2]) || !gterm_catalog_digest(argv[at + 3])) {
+                return diagnostic("invalid release evidence", 2);
+            }
+            release_evidence = true;
+            at += 4;
+            continue;
+        }
         if (!strcmp(argv[at], "--client-capability")) {
             if (at + 1 >= argc) {
                 return diagnostic("missing Client service requirement", 2);
@@ -561,20 +587,29 @@ static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bo
 #else
     const char *host_arch = "unknown";
 #endif
+    char variant_json[160] = {0};
+    if (variant_id) {
+        int count =
+            snprintf(variant_json, sizeof(variant_json), ",\"variantId\":\"%s\"", variant_id);
+        if (count < 0 || (size_t)count >= sizeof(variant_json)) {
+            goto done;
+        }
+    }
     char host_json[1024];
     int host_size = snprintf(host_json,
                              sizeof(host_json),
                              "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
                              "\",\"protocols\":[" GTERM_PROTOCOL
                              "],\"runtimes\":[\"%s\"],\"capabilities\":[\"session.rpc\"%s%s%s],"
-                             "\"os\":\"%s\",\"arch\":\"%s\"%s}",
+                             "\"os\":\"%s\",\"arch\":\"%s\"%s%s}",
                              runtime_name,
                              process_available ? ",\"process.spawn\",\"process.pipes\"" : "",
                              resource_store_available ? ",\"resource.receive\"" : "",
                              root_count && resource_store_available ? ",\"file.readScoped\"" : "",
                              host_os,
                              host_arch,
-                             programs_json);
+                             programs_json,
+                             variant_json);
     if (host_size <= 0 || (size_t)host_size >= sizeof(host_json)) {
         goto done;
     }
@@ -598,6 +633,12 @@ static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bo
     }
     if (strcmp(metadata.package_digest, trusted)) {
         result = diagnostic("development package digest changed", 6);
+        goto done;
+    }
+    int release_status = gterm_release_profile(argc, argv, trusted, &metadata, cancelled);
+    if (release_status) {
+        result = release_status;
+        stage = "signed release revalidation";
         goto done;
     }
     uint32_t count;
@@ -832,6 +873,12 @@ static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bo
         .execution = external ? &execution : NULL};
     execution.environment = runtime_environment;
     execution.environment_count = process_environment_count;
+    release_status = gterm_release_profile(argc, argv, trusted, &metadata, cancelled);
+    if (release_status) {
+        result = release_status;
+        stage = "signed release before activation";
+        goto done;
+    }
     if (gt_ext_runtime_open_package(&session, package, &runtime_config, true, &runtime) != GT_OK) {
         goto done;
     }
