@@ -233,6 +233,56 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/blocked.svg")!))
     }
 
+    func testHTMLResolverKeepsCanonicallyEquivalentFilenamesDistinct() throws {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let decomposed = resource("nfd", path: "site/cafe\u{301}.css", mime: "text/css", bytes: Data("decomposed".utf8))
+        let composed = resource("nfc", path: "site/café.css", mime: "text/css", bytes: Data("composed".utf8))
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: [main, decomposed, composed])
+        let first = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(decomposed.displayName))
+        let second = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(composed.displayName))
+        XCTAssertTrue(resolver.resolve(first)?.data == decomposed.bytes && resolver.resolve(second)?.data == composed.bytes,
+                      "different UTF-8 filenames must keep their own snapshot bytes")
+    }
+
+    func testHTMLResolverRejectsEquivalentButDifferentDirectoryBytes() throws {
+        let main = resource("main", path: "site/cafe\u{301}/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let outside = resource("outside", path: "site/café/theme.css", mime: "text/css", bytes: Data("outside".utf8))
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: [main, outside])
+        let url = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(outside.displayName))
+        XCTAssertTrue(PluginResourcePreviewAssets.after(main, in: [main, outside]).isEmpty && resolver.resolve(url) == nil,
+                      "equivalent Unicode directories must not widen the exact document scope")
+    }
+
+    func testHTMLCanonicalPathsUseSlashBytesDespiteFollowingCombiningMarks() {
+        let invalid = ["/\u{301}.html", "site//\u{301}.html", "site/\u{301}/../bad.html"]
+        XCTAssertTrue(invalid.allSatisfy { PluginResourceHTMLAssetResolver.documentURL($0) == nil },
+                      "combining marks must not hide absolute or empty path components")
+    }
+
+    func testHTMLResolverRejectsMalformedUtf8WithoutAliasingReplacementNames() throws {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let replacement = resource("replacement", path: "site/�.css", mime: "text/css", bytes: Data("replacement".utf8))
+        let literal = resource("literal", path: "site/%FF.css", mime: "text/css", bytes: Data("literal percent".utf8))
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: [main, replacement, literal])
+        let valid = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(replacement.displayName))
+        let percent = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(literal.displayName))
+        let malformed = try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/%FF.css"))
+        XCTAssertTrue(resolver.resolve(valid)?.data == replacement.bytes &&
+                      resolver.resolve(percent)?.data == literal.bytes && resolver.resolve(malformed) == nil,
+                      "malformed UTF-8 must not alias a valid replacement filename or decode percent twice")
+    }
+
+    func testHTMLResolverPreservesCombiningMarksAdjacentToSlashBytes() throws {
+        let main = resource("main", path: "\u{301}folder/\u{301}index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let css = resource("css", path: "\u{301}folder/\u{301}theme.css", mime: "text/css", bytes: Data("exact".utf8))
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: [main, css])
+        let base = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL(main.displayName))
+        let url = try XCTUnwrap(URL(string: "%CC%81theme.css", relativeTo: base)?.absoluteURL)
+        XCTAssertTrue(base.absoluteString == "ghosterm-resource://preview/%CC%81folder/%CC%81index.html" &&
+                      resolver.resolve(url)?.data == css.bytes,
+                      "valid combining marks after slash bytes must retain their exact path and attachment")
+    }
+
     func testHTMLAssetResolverRejectsDuplicateInvalidAndOverLimitSnapshots() {
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
         let duplicateA = resource("duplicate-a", path: "site/logo.png", mime: "image/png", bytes: Data([1]))

@@ -32,6 +32,12 @@ final class PluginPaneFlowTests: XCTestCase {
     func testHTMLAttachmentsThroughProxyJumpControls() async throws {
         try await runPreview(.html, jump: true)
     }
+    func testUnicodeHTMLAttachmentsThroughDirectControls() async throws {
+        try await runPreview(.htmlUnicode, jump: false)
+    }
+    func testUnicodeHTMLAttachmentsThroughProxyJumpControls() async throws {
+        try await runPreview(.htmlUnicode, jump: true)
+    }
     func testImageThroughDirectControls() async throws {
         try await runPreview(.image, jump: false)
     }
@@ -57,7 +63,7 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true, versionSelectionReview: true)
     }
 
-    private enum Format { case markdown, html, image }
+    private enum Format { case markdown, html, htmlUnicode, image }
 
     private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
@@ -84,20 +90,31 @@ final class PluginPaneFlowTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let png = try redPNG()
         let markdown = Data("# Preview controls\n\n![red sample](image.png)\n\nOwned SSH pane flow token\n".utf8)
-        let html = Data("<html><head><link rel='stylesheet' href='style.css'></head><body><img width='64' height='64' src='image.png'></body></html>".utf8)
+        let unicodeHTML = format == .htmlUnicode
+        let directory = unicodeHTML ? "site/cafe\u{301}" : "site"
+        let htmlPath = unicodeHTML ? directory + "/页面 #?%.html" : "site/index.html"
+        let cssPath = unicodeHTML ? directory + "/主 题%.css" : "site/style.css"
+        let imagePath = unicodeHTML ? directory + "/图😀.png" : "site/image.png"
+        let cssLink = unicodeHTML ? "%E4%B8%BB%20%E9%A2%98%25.css" : "style.css"
+        let imageLink = unicodeHTML ? "%E5%9B%BE%F0%9F%98%80.png" : "image.png"
+        let html = Data("<html><head><link rel='stylesheet' href='\(cssLink)'></head><body><img width='64' height='64' src='\(imageLink)'></body></html>".utf8)
         let css = Data("body { margin: 0; background: rgb(0, 0, 255); }".utf8)
-        let files = ["site/index.md": markdown, "site/index.html": html, "site/style.css": css, "site/image.png": png]
-        for (path, bytes) in files { try bytes.write(to: workspace.appendingPathComponent(path)) }
+        let files = ["site/index.md": markdown, htmlPath: html, cssPath: css, imagePath: png]
+        for (path, bytes) in files {
+            let location = workspace.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try bytes.write(to: location)
+        }
         let path: String
         let arguments: [String]
         switch format {
         case .markdown: path = "site/index.md"; arguments = [path, "--assets", "site/image.png"]
-        case .html: path = "site/index.html"; arguments = [path, "--assets", "site/style.css,site/image.png"]
+        case .html, .htmlUnicode: path = htmlPath; arguments = [path, "--assets", cssPath + "," + imagePath]
         case .image: path = "site/image.png"; arguments = [path]
         }
         let document = try XCTUnwrap(files[path])
         let argumentsJSON = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
-        let count = format == .html ? 3 : format == .markdown ? 2 : 1
+        let count = (format == .html || unicodeHTML) ? 3 : format == .markdown ? 2 : 1
         let config = root.appendingPathComponent("config"), known = root.appendingPathComponent("known")
         var source = "Host pane-target\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
         if jump {
@@ -215,6 +232,11 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue)
         let resources = try XCTUnwrap(model.extensionRun?.receivedResources)
         XCTAssertEqual(resources.count, count)
+        if unicodeHTML {
+            XCTAssertEqual(Set(resources.map { Data($0.displayName.utf8) }),
+                           Set([htmlPath, cssPath, imagePath].map { Data($0.utf8) }),
+                           "Unicode SSH receipts must preserve exact path bytes")
+        }
         for item in resources {
             XCTAssertEqual(item.bytes, files[item.displayName], "every received attachment must match the owned source")
             XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
@@ -311,7 +333,7 @@ final class PluginPaneFlowTests: XCTestCase {
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("Markdown attachment did not draw actual red pixels"); return }
         case .image:
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("standalone image did not draw actual red pixels"); return }
-        case .html:
+        case .html, .htmlUnicode:
             guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("embedded HTML WebKit view missing"); return }
             let originalWeb = try XCTUnwrap(webViews(pane).first)
             guard !originalWeb.configuration.websiteDataStore.isPersistent else {
@@ -325,17 +347,17 @@ final class PluginPaneFlowTests: XCTestCase {
             guard rendered.red > 20 && rendered.blue > 100 else {
                 XCTFail("embedded HTML did not draw received CSS and PNG: \(rendered)"); return
             }
-            let image = try XCTUnwrap(resources.first { $0.displayName == "site/image.png" })
+            let image = try XCTUnwrap(resources.first { $0.displayName.utf8.elementsEqual(imagePath.utf8) })
             try scrollBottom()
             try press("plugin-resource-select-" + image.resourceID)
             guard try await until({ node("plugin-resource-preview-" + image.resourceID) != nil && webViews(pane).isEmpty }) else {
                 XCTFail("resource selection did not replace embedded HTML with the selected image"); return
             }
-            guard try await until({ htmlClosed(originalWeb) }) else {
+            guard try await until({ htmlClosed(originalWeb, path: imagePath) }) else {
                 XCTFail("removed HTML must detach delegates and revoke attachment reads even while retained"); return
             }
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("selected HTML attachment did not draw actual red pixels"); return }
-            let main = try XCTUnwrap(resources.first { $0.displayName == path })
+            let main = try XCTUnwrap(resources.first { $0.displayName.utf8.elementsEqual(path.utf8) })
             try scrollBottom()
             try press("plugin-resource-select-" + main.resourceID)
             guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("returning to HTML did not rebuild embedded WebKit"); return }
@@ -353,7 +375,7 @@ final class PluginPaneFlowTests: XCTestCase {
         try scrollBottom()
         try press("plugin-stop")
         guard try await until({ model.extensionRun == nil && !model.extensionRunBusy && webViews(pane).isEmpty }) else { XCTFail("stop control did not release run"); return }
-        guard try await until({ retainedHTML.allSatisfy(htmlClosed) }) else {
+        guard try await until({ retainedHTML.allSatisfy { htmlClosed($0, path: imagePath) } }) else {
             XCTFail("stopped HTML must detach delegates and revoke retained attachment handlers"); return
         }
         XCTAssertNil(model.extensionRunIssue)
@@ -427,10 +449,10 @@ final class PluginPaneFlowTests: XCTestCase {
         return result
     }
 
-    private func htmlClosed(_ web: WKWebView) -> Bool {
+    private func htmlClosed(_ web: WKWebView, path: String) -> Bool {
         guard web.navigationDelegate == nil, web.uiDelegate == nil,
               let handler = web.configuration.urlSchemeHandler(forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler,
-              let url = URL(string: "ghosterm-resource://preview/site/image.png") else { return false }
+              let url = PluginResourceHTMLAssetResolver.documentURL(path) else { return false }
         let request = HTMLReadProbe(request: URLRequest(url: url))
         handler.webView(web, start: request)
         return request.rejected && !request.delivered

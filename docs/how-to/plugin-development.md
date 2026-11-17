@@ -430,9 +430,9 @@ python3 -B scripts/test-plugin-pane.py --gterm tmp/plugin-pane/gterm/gterm --rou
 
 脚本复制原生源码到 `tmp/`，由 Apple gate 启动本轮独占的 loopback SSH 服务。
 实际操作生产页面的导入、摘要批准、启动表单、会话批准与停止按钮；表单经原生
-编辑通知提交。默认 `--route both` 共六条链：Markdown + PNG、独立 PNG、HTML +
-CSS / PNG 各走直连与 ProxyJump，核对实际主机密钥提示的端口顺序，拒绝只看配置
-就当双跳已执行。`--route direct` / `jump` 各运行对应三条链，缺夹具或跳过项判失败。
+编辑通知提交。默认 `--route both` 共八条链：Markdown + PNG、独立 PNG、HTML +
+CSS / PNG、Unicode HTML 各走直连与 ProxyJump，核对实际主机密钥提示的端口顺序，拒绝只看配置
+就当双跳已执行。`--route direct` / `jump` 各运行对应四条链，缺夹具或跳过项判失败。
 每份真实收件核对字节 / SHA256；Markdown 与图片取原生绘制像素，HTML 则对页面实际
 嵌入的 WKWebView 取快照，核对 CSS 蓝背景与 PNG 红像素，并点击附件图片后切回
 HTML，最后停止并检查资源控件及嵌入 WebKit 移除。
@@ -441,16 +441,21 @@ HTML，最后停止并检查资源控件及嵌入 WebKit 移除。
 仍使用系统 `fileImporter`；本专项不证明系统文件面板、VoiceOver、用户键盘焦点、
 其它设备或完整生命周期，也不把已有原生像素专项当作多格式 / 多服务器全矩阵。
 
-资源组件另跑 14 项基线。HTML 的实际嵌入视图还必须采用每视图独立的非持久
+资源组件另跑 19 项基线。HTML 的实际嵌入视图还必须采用每视图独立的非持久
 WKWebsiteDataStore；切换到图片再返回时使用新 store。测试刻意持有已移除和停止后
 的 WKWebView，检查 delegate 解绑，并通过原 scheme handler 发起附件请求确认拒绝。
 这证明 Native owner 撤销未来读取，不等同于任意并发回包 / 物理内存擦除或系统缓存取证。
 
-`--mutate` 默认 21 组：原九组摘要展示、来源批准、启动、会话批准、停止、Markdown
+快照路径按 UTF-8 字节识别：NFC / NFD 不合并，斜杠不按 Swift 的字形簇拆分。
+Unicode SSH 档核对分解重音目录、`#?%` 主文档名和中文 / emoji 附件的原始路径字节。
+默认基线显式选择这八条，不把需要独立签名夹具的版本管理测试混入后跳过。
+
+`--mutate` 默认 26 组：原九组摘要展示、来源批准、启动、会话批准、停止、Markdown
 图片、独立图片、HTML 附件与资源选择，以及十二组 WebKit 存储 / 页面绕过 / 拆除 /
-Coordinator 终态、幂等、stopLoading、delegate、附件撤销和 handler 关闭 / 晚更新保护。
-`--mutation-case 名称` 仅选择本次组（可重复），必须同时指定 `--mutate`；基础六条
-或对应三条链仍运行，收据逐项记录实际组及选择的测试，不能以选组称完整 21 组。
+Coordinator 终态、幂等、stopLoading、delegate、附件撤销和 handler 关闭 / 晚更新保护，
+以及五组 UTF-8 路径键 / 范围 / 斜杠分段 / URL 编码 / 前导斜杠保护。
+`--mutation-case 名称` 仅选择本次组（可重复），必须同时指定 `--mutate`；基础八条
+或对应四条链仍运行，收据逐项记录实际组及选择的测试，不能以选组称完整 26 组。
 每组要求生产对象实际重编译、单条正常断言红、同副本独立配置读取绿、原件恢复绿
 及 SHA256 一致；编译失败、崩溃和 unexpected failure 不计目标红。收据记录指定
 源码、实际 gterm / XCTest 与链接 Core / QuickJS / libssh2 摘要。gate 由仓库

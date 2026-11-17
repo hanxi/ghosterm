@@ -2,27 +2,46 @@ import Foundation
 import GhostermAppModel
 import WebKit
 
+/// Paths identify snapshot bytes, not linguistically equivalent text. ASCII
+/// separators must also stay visible when followed by a combining scalar.
+private enum PluginResourcePath {
+    static func canonical(_ bytes: Data) -> Bool {
+        guard !bytes.isEmpty, bytes.count <= 1024, bytes.first != 47,
+              !bytes.contains(92), !bytes.contains(0) else { return false }
+        for part in bytes.split(separator: 47, omittingEmptySubsequences: false) {
+            if part.isEmpty || part.elementsEqual([46]) || part.elementsEqual([46, 46]) { return false }
+        }
+        return true
+    }
+
+    static func parentPrefix(_ path: String) -> Data? {
+        let bytes = Data(path.utf8)
+        guard canonical(bytes) else { return nil }
+        guard let slash = bytes.lastIndex(of: 47) else { return Data() }
+        return Data(bytes.prefix(through: slash))
+    }
+}
+
 struct PluginResourceHTMLAssetResolver {
     struct Asset {
         let data: Data
         let mime: String
     }
 
-    private let directory: String
-    private let assets: [String: Asset]
+    private let directory: Data?
+    private let assets: [Data: Asset]
 
     init(document: ExtensionController.ReceivedResource,
          resources: [ExtensionController.ReceivedResource]) {
-        let parent = Self.parentPath(document.displayName)
-        directory = parent.isEmpty ? "" : parent + "/"
-        var candidates: [String: Asset] = [:]
-        var duplicatePaths = Set<String>()
+        directory = PluginResourcePath.parentPrefix(document.displayName)
+        var candidates: [Data: Asset] = [:]
+        var duplicatePaths = Set<Data>()
         let attached = PluginResourcePreviewAssets.after(document, in: resources)
         for resource in attached {
-            guard resource.displayName.hasPrefix(directory),
+            let key = Data(resource.displayName.utf8)
+            guard let directory, PluginResourcePath.canonical(key), key.starts(with: directory),
                   Self.isAllowedMime(resource.mime), resource.size <= 1_048_576,
                   UInt64(resource.bytes.count) == resource.size else { continue }
-            let key = resource.displayName
             guard candidates[key] == nil else {
                 candidates.removeValue(forKey: key)
                 duplicatePaths.insert(key)
@@ -37,18 +56,20 @@ struct PluginResourceHTMLAssetResolver {
     func resolve(_ url: URL) -> Asset? {
         guard url.scheme == "ghosterm-resource", url.host == "preview",
               url.user == nil, url.password == nil, url.port == nil,
-              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path,
-              path.hasPrefix("/") else { return nil }
-        let relative = String(path.dropFirst())
-        guard Self.isCanonical(relative), relative.hasPrefix(directory) else { return nil }
+              let directory, let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path else { return nil }
+        let bytes = Data(path.utf8)
+        guard bytes.first == 47 else { return nil }
+        let relative = Data(bytes.dropFirst())
+        guard PluginResourcePath.canonical(relative), relative.starts(with: directory) else { return nil }
         return assets[relative]
     }
 
     static func documentURL(_ path: String) -> URL? {
-        guard isCanonical(path) else { return nil }
+        let bytes = Data(path.utf8)
+        guard PluginResourcePath.canonical(bytes) else { return nil }
         let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))
-        let encoded = path.split(separator: "/", omittingEmptySubsequences: false)
-            .map { String($0).addingPercentEncoding(withAllowedCharacters: allowed) ?? "" }
+        let encoded = bytes.split(separator: 47, omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self).addingPercentEncoding(withAllowedCharacters: allowed) ?? "" }
             .joined(separator: "/")
         return URL(string: "ghosterm-resource://preview/\(encoded)")
     }
@@ -65,29 +86,19 @@ struct PluginResourceHTMLAssetResolver {
         ].contains(normalized)
     }
 
-    private static func parentPath(_ path: String) -> String {
-        guard isCanonical(path), let slash = path.lastIndex(of: "/") else { return "" }
-        return String(path[..<slash])
-    }
-
-    private static func isCanonical(_ path: String) -> Bool {
-        !path.isEmpty && path.utf8.count <= 1024 && !path.hasPrefix("/") &&
-            !path.contains("\\") && !path.unicodeScalars.contains(where: { $0.value == 0 }) &&
-            !path.split(separator: "/", omittingEmptySubsequences: false)
-                .contains(where: { $0.isEmpty || $0 == "." || $0 == ".." })
-    }
 }
 
 enum PluginResourcePreviewAssets {
     static func after(_ document: ExtensionController.ReceivedResource,
                       in resources: [ExtensionController.ReceivedResource])
         -> [ExtensionController.ReceivedResource] {
-        guard let index = resources.firstIndex(where: { $0.resourceID == document.resourceID }) else {
+        guard let index = resources.firstIndex(where: { $0.resourceID == document.resourceID }),
+              let directory = PluginResourcePath.parentPrefix(document.displayName) else {
             return []
         }
         return resources.dropFirst(index + 1)
             .prefix(while: { !isDocument($0) })
-            .filter { $0.displayName.hasPrefix(parentPrefix(document.displayName)) }
+            .filter { $0.displayName.utf8.starts(with: directory) }
             .prefix(6)
             .map { $0 }
     }
@@ -97,10 +108,6 @@ enum PluginResourcePreviewAssets {
             PluginResourceMarkdownDecoder.supports(mime: resource.mime, displayName: resource.displayName)
     }
 
-    private static func parentPrefix(_ path: String) -> String {
-        guard let slash = path.lastIndex(of: "/") else { return "" }
-        return String(path[...slash])
-    }
 }
 
 enum PluginResourceHTMLNavigationPolicy {

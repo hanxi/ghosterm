@@ -19,7 +19,7 @@
 - Android：libghostty-vt + Canvas、主机/身份/信任管理、本地/SSH、SAF/本机/SFTP 浏览与复制任务、持久只读历史、显式核对/清理、主题/字体/Kitty、可选远端 tmux。设备共享存储来源暂不支持作为粘贴目标；环境包延后。
 - iOS、Windows、Linux、HarmonyOS、Web 原生客户端尚未交付。落地页是产品介绍网站，不是 Web 终端。
 - 默认普通终端，后台会话由用户显式选择 tmux；自有 sessiond、私有恢复协议及随包 runtime 已退役。
-- 插件源码（2026-11-17，本地 `70cd876e` 及后续切片）：共享 C 通道 / Session / Runtime / scoped resource、Portable SDK / QuickJS、gterm 显式 relay / IPC 和 macOS / Android 原生资源 / 对话 / 通用视图已接候选。P6 已接离线签名、两端原子安装 / 活动版本 / 禁用回滚 / 旧引用与显式维护；Android 声明差异至第二十二批。普通 App 仍 JS-off，普通 `gterm <业务命令>` 分派不支持；真实模型 / 批准整链、完整 UI / 生命周期 / 设备及发行矩阵尚未闭环。具体范围以[插件计划](plan-plugin-bridge.md)各批为准，网关与其它原生端未交付。
+- 插件源码（2026-11-17，本地 `264af42f` 及后续切片）：共享 C 通道 / Session / Runtime / scoped resource、Portable SDK / QuickJS、gterm 显式 relay / IPC 和 macOS / Android 原生资源 / 对话 / 通用视图已接候选。P6 已接离线签名、两端原子安装 / 活动版本 / 禁用回滚 / 旧引用与显式维护；Android 声明差异至第二十二批。普通 App 仍 JS-off，普通 `gterm <业务命令>` 分派不支持；真实模型 / 批准整链、完整 UI / 生命周期 / 设备及发行矩阵尚未闭环。具体范围以[插件计划](plan-plugin-bridge.md)各批为准，网关与其它原生端未交付。
 
 详细平台差异见[能力矩阵](capability-matrix.md)。
 
@@ -31,6 +31,7 @@
 - 插件 P2 第五十九批（2026-11-17）：Android 页面返回原 PTY 的焦点 / IME 已修复。API29 / API36 arm64 / 4 KiB 页同 APK 各 127 项和各三条真实 SAF / 双跳 Preview 链通过；九组新变异分轮、旧十四组通过。Core 589/185、Apple 182/3、JNI 148/37、格式 272 与两档 Release/R8 / 四模块 lint 通过；来源 / 失败与限制见[插件计划](plan-plugin-bridge.md)。仅本地专项，不更新上方历史发行快照，不代表新完整客户端或用户真机验收。
 - 插件 P2 第六十批（2026-11-17）：Android 静态 HTML / 显式 CSS 与图片已接原生 WebView。API29 / API36 同源同 APK 各 33 项组合与各六条真实双跳链、21 组完整变异通过；两档 Release / R8 / 四模块 lint、Core 589/185、格式 272 及绑定对拍通过。版本 / 摘要 / 失败见[插件计划](plan-plugin-bridge.md)，不代表完整客户端 / 物理设备或发行验收。
 - 插件 P2 第六十一批（2026-11-17）：Android HTML 修复 NFD 路径改名与非法 UTF-8 替换别名；API29 / API36 同源同 APK 各 36 项组合、各七条真实双跳链、完整 24 组变异及两档原生构建通过。Unicode 主文档 / CSS / PNG 与三种格式默认测试名均实际核对；见[插件计划](plan-plugin-bridge.md)，不扩大为完整客户端 / 物理设备或发行验收。
+- 插件 P2 第六十二批（2026-11-17）：macOS HTML 修复 Unicode 等价键 / 目录范围和组合字符遮蔽斜杠问题；八条实际直连 / ProxyJump 页面链、19 项资源组件、完整 26 组变异、两档 arm64 Release 及默认 Core 闸门通过。目录选择仍为注入夹具，窗口后台离屏；来源 / 摘要 / 限制见[插件计划](plan-plugin-bridge.md)。
 - macOS `4cbfcf4` 完整宿主历史含设置页像素失败；后续字体切片已修正键盘页高度，关联组合 56 通过/1 开发态资源跳过，未重跑完整宿主。终端、绑定和打包专项不能代替完整宿主全绿，见[实施记录](optional-tmux-implementation.md)。
 - 真机/OEM 输入法、网络切换、全部提供方/服务器、长时性能及完整发行矩阵仍未完成。合并闸门以 [AGENTS.md](../../AGENTS.md) 为唯一事实来源。
 

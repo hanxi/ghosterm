@@ -41,12 +41,13 @@ def main():
     selected_markdown = TEST if args.route != 'jump' else 'PluginPaneFlowTests.testMarkdownAttachmentsThroughProxyJumpControls'
     selected_html = 'PluginPaneFlowTests.testHTMLAttachmentsThrough' + ('DirectControls' if args.route == 'direct' else 'ProxyJumpControls')
     selected_image = 'PluginPaneFlowTests.testImageThrough' + ('ProxyJumpControls' if args.route == 'jump' else 'DirectControls')
-    baseline = 'PluginPaneFlowTests'
+    baseline = ('PluginPaneFlowTests.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|'
+                'MarkdownAttachmentsThroughProxyJumpControls|(UnicodeHTMLAttachments|HTMLAttachments|Image)Through(Direct|ProxyJump)Controls)$')
     if args.route == 'direct':
-        baseline += '.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|HTMLAttachmentsThroughDirectControls|ImageThroughDirectControls)'
+        baseline = 'PluginPaneFlowTests.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|(UnicodeHTMLAttachments|HTMLAttachments|Image)ThroughDirectControls)$'
     elif args.route == 'jump':
-        baseline += '.*ProxyJumpControls'
-    baseline_count = 6 if args.route == 'both' else 3
+        baseline = 'PluginPaneFlowTests.test.*ThroughProxyJumpControls$'
+    baseline_count = 8 if args.route == 'both' else 4
     cases = [
         ('digest', 'Text("摘要：\\(entry.review.digest)")', 'Text("摘要：unverified")',
          'review must display the exact immutable package digest'),
@@ -108,6 +109,26 @@ def main():
          'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
         ('privacy-handler-late', 'guard resolver != nil else { return }', '_ = resolver',
          'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
+    ])
+    exact = 'PluginResourceUITests.testHTMLResolverKeepsCanonicallyEquivalentFilenamesDistinct'
+    scope = 'PluginResourceUITests.testHTMLResolverRejectsEquivalentButDifferentDirectoryBytes'
+    canonical = 'PluginResourceUITests.testHTMLCanonicalPathsUseSlashBytesDespiteFollowingCombiningMarks'
+    valid_path = 'PluginResourceUITests.testHTMLResolverPreservesCombiningMarksAdjacentToSlashBytes'
+    cases.extend([
+        ('path-key-bytes', 'let key = Data(resource.displayName.utf8)',
+         'let key = Data(resource.displayName.precomposedStringWithCanonicalMapping.utf8)',
+         'different UTF-8 filenames must keep their own snapshot bytes', exact, HTML),
+        ('path-bundle-scope', '.filter { $0.displayName.utf8.starts(with: directory) }',
+         '.filter { $0.displayName.hasPrefix(String(decoding: directory, as: UTF8.self)) }',
+         'equivalent Unicode directories must not widen the exact document scope', scope, HTML),
+        ('path-slash-bytes', 'for part in bytes.split(separator: 47, omittingEmptySubsequences: false)',
+         'for part in String(decoding: bytes, as: UTF8.self).split(separator: "/", omittingEmptySubsequences: false).map({ Data($0.utf8) })',
+         'combining marks must not hide absolute or empty path components', canonical, HTML),
+        ('path-url-segments', 'let encoded = bytes.split(separator: 47, omittingEmptySubsequences: false)',
+         'let encoded = path.split(separator: "/", omittingEmptySubsequences: false).map { Data($0.utf8) }',
+         'valid combining marks after slash bytes must retain their exact path and attachment', valid_path, HTML),
+        ('path-leading-slash', 'let relative = Data(bytes.dropFirst())', 'let relative = Data(path.dropFirst().utf8)',
+         'valid combining marks after slash bytes must retain their exact path and attachment', valid_path, HTML),
     ])
     if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
         parser.error('--mutation-case requires --mutate and a known case name')
@@ -186,7 +207,7 @@ def main():
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
-        run('html-lifetime-baseline', selected='PluginResourceUITests', count=14)
+        run('html-lifetime-baseline', selected='PluginResourceUITests', count=19)
         for recipe in cases if args.mutate else []:
             label, old, new, expected, *selected_case = recipe
             if args.mutation_case and label not in args.mutation_case:
@@ -214,7 +235,7 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
     assert all((ROOT / name).read_bytes() == value for name, value in originals.items()), 'original checkout changed'
-    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=14,
+    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=19,
                    inputs=inputs, linkedArchives=linked, gtermSHA256=executable_sha, xctestSHA256=binary_sha,
                    commands=commands, mutations=groups)
     out.parent.mkdir(parents=True, exist_ok=True)

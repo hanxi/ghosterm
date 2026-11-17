@@ -11186,3 +11186,82 @@ JS-enabled App / 测试 APK 依次为
 `08e4bb20454a46e81ea335f28c3ac5489c324d135b7b0de12cd8216f40f8d703`。
 原始日志、收据、上游参考源码和临时工具均已清理，本文摘要为历史记录；默认 JS-off，
 仅本地分批提交，不推送 / 发行。
+
+
+### P2 实施第六十二批：macOS HTML 快照路径的 UTF-8 字节边界（2026-11-17）
+
+修复三个实际组件缺陷：Swift String 的规范等价比较将 NFC / NFD 文件名当作同一
+字典键，误删两份不同快照；目录 hasPrefix 放行字节不同的等价目录；Character 分段
+会让紧邻斜杠的组合字符遮蔽绝对 / 空路径组件。语义参考
+[Swift 字符串比较](https://docs.swift.org/swift-book/LanguageGuide/StringsAndCharacters.html)，
+但验收以生产组件的实际断言为准。
+
+原实现新增四条回归，三条正常失败、非法 UTF-8 检查原有路径通过。对三条缺陷逐条
+以同一已构建 XCTest（skip-build）取得单条正常断言红、独立 HostList 配置读取绿，
+源文件摘要保持一致。没有将编译失败、崩溃或 sanitizer 当目标红。
+
+快照键 / 重复路径集合、目录边界、斜杠分段和前导斜杠移除改为 UTF-8 Data 字节
+操作；不做 Unicode 规范化。合法组合字符仍保留，严格百分号 / UTF-8 解码的原行为
+继续保护。无新文件 IO、Core 入口或能力授权；相同字节的重复路径仍关闭，不扩大
+原 MIME / 六附件 / 压缩字节上限。本批不等于完整图片解码 / 进程内存矩阵已完成。
+
+真实生产页面专项扩展为直连与 ProxyJump 各四条：Markdown / PNG、独立 PNG、HTML
+及 Unicode HTML，合计 **八条**全部通过；实际收件逐项核对字节 / SHA256，Unicode
+路径另以 Data 核对原始码点。覆盖分解重音目录、`页面 #?%.html`、中文 / emoji
+附件、实际嵌入 WebKit 的 CSS 蓝 / PNG 红像素、附件选择 / 返回新视图、停止及保留
+旧 handler 后对本条真实附件路径的拒绝。目录选择回调仍为注入夹具，不冒充系统
+fileImporter；窗口显示前透明、离屏、禁止激活，测试核对 alpha 与屏幕交集。
+
+资源组件 **19 项**通过；原二十一＋新五组完整 **26 组**变异通过，每组真实重编译
+生产对象、指定单条正常断言红、同副本独立配置绿、恢复绿及 SHA256。新五组保护
+路径键、附件范围、斜杠识别、URL 分段及首个斜杠移除。验证脚本的默认基线改为显式
+八条，避免把另外四个需要签名夹具的版本管理方法混进来后跳过；不借此记那些版本
+测试本轮通过。未增加 macOS CI 二十份。
+
+收据冻结 **580 份**指定 Core / Apple / SDK / 官方包输入，全部与最终工作区一致，
+并逐项核对本轮链接 archive 及真实 gterm；隔离 XCTest SHA256 为
+`097ce4a3b7d5efb4df86fcc61934e3d0df5d458fce8bf62b46a02968c0abce44`，gterm 为
+`1779a3c6ec2ce8de5f7e38c157b4afccab2e7f01a3123d4c0aa9478eb6c49b7f`。本批来源为本地 `264af42f` 加 dirty，
+未推送 / 发行，不声称新云端或 clean 包。
+
+26 组使用的 JS-enabled Core / QuickJS / libssh2 archive SHA256 依次为
+`0aa1bf07388ab1f2f57842424ff560c019a50381c085d27e839cb6144d141eea`、
+`76e12968a35462ddb114a9fc6e6437793da4700610f27aec3172f6eb5514c548`、
+`8f2092d2e1676b88861df85c47be269cc3fb926d1b3597cb3bc23964eaa0d4f5`；结束后恢复默认 JS-off / tests-on。
+最终全源指定集仍为 **1636 份**，SHA256
+`426197b31db6cd7ba08a9d1bec1977b1b70d73be4029b02477416335c76779ed`。
+
+JS-enabled 与普通 JS-off 的 macOS arm64 Release 均实际编译链接通过；无 C / 公开
+ABI 或 Android 生产源变化，不借旧 Android / 全宿主结果作为本批新证据。P1–P6 的
+完整退出条件继续，格式 / 生命周期 / 性能 / 辅助技术 / 系统文件面板及发行矩阵未关闭。
+
+
+最终普通 Core 闸门通过：**589/589 CTest / 185 公共 ABI**；Apple **182 引用 / 3
+登记未用**、JNI **148 / 37**、clang-format **19.1.7 / 272 文件**通过。普通 Release
+在 JS-off archive 上重新链接，未留下实验 JS-on 的普通构件。不以八条链 / 19 项组件
+替代完整宿主或其它设备验收。
+
+以下为本轮历史材料 SHA256，原始临时内容核对后清理，重验需重新生成。
+
+| 材料 | SHA256 |
+|---|---|
+| baseline-inputs.json | `0cbd03fc774372d20fae6fd72204ce4d662bd9ddd67d5018b58345321edd28cd` |
+| baseline-device.log | `5c605b0ec34671921d141d6c52e218e0f04852a3b4ff2ebb7e7aba907e474500` |
+| baseline.log | `f84d294d070d1283e7e30c256728f8339334fd0230bbed807ca3c094cebb2ab1` |
+| final-unit.log | `793fd7a27795da5da2f5b10d171b0b1968c849114faaa54346887f79afdcc2c8` |
+| pane-receipt.json | `57b4a2cb3f371e4a61fc9e0885dec6be05e0ee7003c2654f83666df8dcaa7371` |
+| pane-run.log | `d24663b95d4dd9c8cf848b5b97ab112eeb106c0d2eb927e7c8c365c7e257abd1` |
+| core-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| release-js-on.log | `b3d3fb6c91666775ce9d85810ab2a4ba8e3c095cd2e4e3fdf50e655533b1e362` |
+| release-js-off.log | `7b31be211334263779fb30c1d592de05da77370b76e4505c7cb2ec19aa4c3ea4` |
+| c-format.log | `6e72b64e4d86057a2401b1d07a516ee12b12de75a7b4cc9aaf8a7a4f359e3c66` |
+
+
+本批收尾：验证子进程、隔离 XCTest / WebKit probe 及自有 SSH 夹具均已结束，未操作
+原 65439 / 2637。隔离源码与构件在 runner context 退出时回收；其后清理本批 / 闸门
+497 个 tmp 顶层项、765 目录、2353 普通文件、26,258,500 逻辑字节与四个符号链接，
+无特殊文件，不将该逻辑大小称作 APFS 实际释放量。只保留 tmp 根与原 eq 三件，
+SHA256 不变。清理后重枚举 1636 份指定源仍为
+`426197b31db6cd7ba08a9d1bec1977b1b70d73be4029b02477416335c76779ed`。
+本轮原始日志 / 收据 / 临时工具已清理，本文摘要为历史记录；默认 JS-off / tests-on，
+仅本地分批提交，不推送或发行。
