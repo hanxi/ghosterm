@@ -27,6 +27,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -173,6 +174,7 @@ class ExtensionController(profile: HostProfile, context: Context,
     private var pendingRemoval: Pair<String, PluginReleaseRemoval>? = null
     private var registry: ExtensionRegistry? = null // worker-confined
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
+    private var foregroundInspectionReader: Any? = null
     @Volatile private var session: ExtensionSession? = null
     private var sessionPackageKey: Key? = null
     private var sessionApprovedSnapshot = false
@@ -257,6 +259,48 @@ class ExtensionController(profile: HostProfile, context: Context,
 
     suspend fun closeSSHChannel() = onWorker {
         channel?.let { current -> current.close(); channel = null }
+    }
+
+    /** Reads only bounded inspection metadata on the native worker. EOF and a
+     * packet-backed zero exit are both required; never adopts a Session. */
+    suspend fun readForegroundDeclaration(instance: String): PluginForegroundDeclaration {
+        val reader = Any()
+        val output = java.io.ByteArrayOutputStream()
+        val deadline = SystemClock.elapsedRealtime() + 8000
+        try {
+            // Acquisition itself may complete on the worker while the caller
+            // is cancelled before withContext resumes. The ticket is created
+            // before suspension, and only its own finally may release it.
+            val current = onWorker {
+                check(foregroundInspectionReader == null && session == null && runtime == null)
+                checkNotNull(channel).also { foregroundInspectionReader = reader }
+            }
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                check(SystemClock.elapsedRealtime() < deadline) { "前台实例检查超时" }
+                val value = onWorker {
+                    check(channel === current && session == null && runtime == null) { "前台检查通道已失效" }
+                    current.step(0)
+                    val (io, bytes) = current.read()
+                    check((io.data || io.wait || io.eof) && bytes.size <= PluginForegroundDeclaration.MAXIMUM_BYTES - output.size()) {
+                        "前台检查通道失败或声明超过上限"
+                    }
+                    output.write(bytes)
+                    val info = current.info()
+                    if (io.eof && info.exitStatus != null) {
+                        check(info.exitStatus == 0 && info.error == 0 && info.cleanupError == 0) { "前台实例未确认在线或声明读取失败" }
+                        PluginForegroundDeclaration.parse(output.toByteArray(), instance)
+                    } else null
+                }
+                if (value != null) return value
+                delay(10)
+            }
+        } finally {
+            withContext(NonCancellable) { onWorker {
+                if (foregroundInspectionReader === reader) foregroundInspectionReader = null
+                output.reset()
+            } }
+        }
     }
 
     /** Transfer a ready SSH relay to a HOST Session using only the already

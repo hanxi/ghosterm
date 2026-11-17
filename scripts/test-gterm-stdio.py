@@ -17,6 +17,12 @@ def run_preview_runtime(build,work,package):
  assert r.returncode==0,('preview-runtime',r.returncode,r.stdout,r.stderr)
  assert 'PASS stdio preview' in r.stdout,r.stdout
  print(r.stdout,end='')
+ dot_env={**env,'GT_GTERM_PREVIEW_MAIN':'./site/./index.md'}
+ dot_store=work/'dot-resource-store';dot_store.mkdir(mode=0o700)
+ r=subprocess.run([str(build/'test_gterm_stdio'),str(build/'gterm'),str(package),digest,'preview',str(workspace),str(dot_store)],capture_output=True,text=True,timeout=45,env=dot_env)
+ if 'ABNORMAL' in r.stderr or 'AddressSanitizer' in r.stderr or 'runtime error:' in r.stderr:raise RuntimeError(r.stderr)
+ assert r.returncode==0,('preview-dot-path-runtime',r.returncode,r.stdout,r.stderr)
+ print('PASS stdio Preview ./ identity components through real Core resource publication')
  unicode_parts=['😀'*14]+['😀'*16]*15+['😀'*15]*14+['😀'*15+'.md']
  unicode_path='/'.join(unicode_parts)
  assert len(unicode_path)==512 and len(unicode_parts)==31

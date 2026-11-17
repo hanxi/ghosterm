@@ -24,7 +24,14 @@ function mediaType(path) {
 function relativePath(path) {
   return typeof path === "string" && path.length > 0 && [...path].length <= 512 &&
     !path.startsWith("/") && !path.includes("\\") && !path.includes("\0") &&
-    !path.split("/").some(part => !part || part === "." || part === "..");
+    !path.split("/").some(part => !part || part === "..") &&
+    path !== "." && !path.endsWith("/.");
+}
+
+// Remove only identity components. Do not collapse `a/../b`: that requires
+// opening a in the actual filesystem and must never bypass a scoped ancestor.
+function canonicalPath(path) {
+  return path.split("/").filter(part => part !== ".").join("/");
 }
 
 function attachmentPaths(value, mainPath) {
@@ -49,11 +56,14 @@ function attachmentPaths(value, mainPath) {
     }
   }
   paths.push(path);
-  if (paths.length > MAX_ASSETS || paths.some(path => !relativePath(path)) ||
-      new Set(paths).size !== paths.length || paths.includes(mainPath)) {
+  if (paths.length > MAX_ASSETS || paths.some(path => !relativePath(path))) {
     throw new Error(`preview accepts at most ${MAX_ASSETS} unique relative attachment paths`);
   }
-  return paths;
+  const canonical = paths.map(canonicalPath);
+  if (new Set(canonical).size !== canonical.length || canonical.includes(mainPath)) {
+    throw new Error(`preview accepts at most ${MAX_ASSETS} unique relative attachment paths`);
+  }
+  return canonical;
 }
 
 async function publish(context, path, mime, maxBytes) {
@@ -79,8 +89,10 @@ export async function activate(context) {
   if (!context.resources || !context.resources.workspaces.includes("workspace")) {
     throw new Error("preview requires the explicitly selected workspace root");
   }
-  const attachments = attachmentPaths(args.assets, args.path);
-  const mainType = mediaType(args.path);
+  if (!relativePath(args.path)) throw new Error("preview path must resolve to a canonical relative path of at most 512 characters");
+  const mainPath = canonicalPath(args.path);
+  const attachments = attachmentPaths(args.assets, mainPath);
+  const mainType = mediaType(mainPath);
   if (attachments.length && mainType !== "text/html" && mainType !== "text/markdown") {
     throw new Error("preview attachments are supported only for HTML and Markdown documents");
   }
@@ -91,7 +103,7 @@ export async function activate(context) {
     }
     return type;
   });
-  await publish(context, args.path, mainType, args.maxBytes);
+  await publish(context, mainPath, mainType, args.maxBytes);
   for (let index = 0; index < attachments.length; index++) {
     await publish(context, attachments[index], attachmentTypes[index], args.maxBytes);
   }

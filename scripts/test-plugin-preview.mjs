@@ -34,6 +34,15 @@ assert.deepEqual(publications.map(({ input }) => [input.relativePath, input.medi
 assert.ok(publications.every(({ input }) => input.root === "workspace"));
 assert.ok(publications.every(({ limits }) => limits.byteLimit === "65536"));
 
+const dotPaths = await run({ path: "./site/./index.html", assets: "./site/theme.css,site/./images/logo.png", maxBytes: 65536 });
+assert.deepEqual(dotPaths.map(({ input }) => input.relativePath), publications.map(({ input }) => input.relativePath));
+for (const path of [".", "./", "site/.", "./site/../index.html"]) {
+  await assert.rejects(() => run({ path, assets: "", maxBytes: 65536 }), /canonical relative path/);
+}
+for (const assets of ["./site/a.png,site/./a.png", "./site/index.html"]) {
+  await assert.rejects(() => run({ path: "./site/index.html", assets, maxBytes: 65536 }), /unique relative attachment paths/);
+}
+
 const htmlPage = await run({
   path: "site/web/index.html",
   assets: "site/web/style.css,site/web/image.png",

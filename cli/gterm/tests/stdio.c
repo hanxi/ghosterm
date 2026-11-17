@@ -62,7 +62,10 @@ int main(int argc, char **argv) {
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
-    const char *preview_path = preview_unicode ? argv[7] : "site/index.md";
+    const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
+    if (!preview_path) {
+        preview_path = "site/index.md";
+    }
     char client_digest[65];
     memset(client_digest, 'd', 64);
     client_digest[64] = 0;

@@ -10,8 +10,8 @@ import java.nio.charset.CodingErrorAction
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
 object ExtensionRelayBootstrap {
-    data class Attachment(val directory: String, val instance: String, val authorized: Boolean, val remoteProcesses: Boolean = false) {
-        val reviewDescription: String get() = "连接已有前台实例：$instance\n远端私有目录：$directory\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n远端业务进程服务：" + if (remoteProcesses) "明确允许沿用实例范围" else "未允许"
+    data class Attachment(val directory: String, val instance: String, val authorized: Boolean, val remoteProcesses: Boolean = false, val scopedFiles: Boolean = false) {
+        val reviewDescription: String get() = "连接已有前台实例：$instance\n远端私有目录：$directory\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n已有只读文件范围：${if (scopedFiles) "明确允许沿用" else "未允许"}\n远端业务进程服务：${if (remoteProcesses) "明确允许沿用实例范围" else "未允许"}"
     }
     data class ProcessProgram(
         val name: String,

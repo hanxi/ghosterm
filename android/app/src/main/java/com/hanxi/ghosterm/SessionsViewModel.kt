@@ -270,10 +270,21 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
      * must adopt the ready channel into a Session before ownership transfers. */
     internal fun connectExtensionRoute(target: PreparedSSH, request: ExtensionRelayBootstrap.Request,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
+        return connectExtensionBootstrap(target, ExtensionRelayBootstrap.build(request), onReady)
+    }
+
+    /** The ready callback must finish inspection and close its channel before
+     * returning true. It does not create or authorize a plugin Session. */
+    internal fun inspectExtensionRoute(target: PreparedSSH, executable: String, directory: String, instance: String,
+        onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
+        return connectExtensionBootstrap(target, PluginForegroundDeclaration.bootstrap(executable, directory, instance), onReady)
+    }
+
+    private fun connectExtensionBootstrap(target: PreparedSSH, bootstrap: String,
+        onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
         if (connecting != null) return null
         val owner = extensionController ?: return null
         if (!BuildConfig.PLUGIN_JS_ENABLED) return null
-        val bootstrap = ExtensionRelayBootstrap.build(request)
         val attempt = SSHAttempt(target).also {
             it.extensionBootstrap = bootstrap
             it.extensionOwner = owner
@@ -505,9 +516,9 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             attempt.message="正在准备后台会话管理…"
                         if (extensionState?.info?.phase == 1) {
                             val readyState = checkNotNull(extensionState)
-                            val callback = checkNotNull(attempt.extensionOnReady) { "插件通道缺少 Session 接管器" }
+                            val callback = checkNotNull(attempt.extensionOnReady) { "插件通道缺少原生接管器" }
                             val transferred = callback(readyState)
-                            check(transferred) { "插件 SSH 通道尚未被 Session 接管" }
+                            check(transferred) { "插件 SSH 通道的原生处理未完成" }
                             extensionTransferred = true
                             attempt.connection = null; connecting = null
                             break

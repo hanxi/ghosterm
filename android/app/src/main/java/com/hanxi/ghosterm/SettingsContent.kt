@@ -45,6 +45,9 @@ import com.hanxi.ghosterm.domain.*
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 
 internal fun PreferenceKey.title(): String = when (this) {
     PreferenceKey.APPEARANCE -> "应用外观"; PreferenceKey.TERMINAL_THEME -> "终端配色"
@@ -85,6 +88,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
     fonts:TerminalFontsViewModel=viewModel(), extensions: ExtensionPackagesViewModel=viewModel(),
     onPickPlugin: () -> Unit = {}, hostAliases: List<String> = emptyList(),
+    onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
@@ -321,10 +325,10 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     }
     }
     launchSelection?.let { (entry, command) ->
-        PluginLaunchDialog(entry, command, hostAliases, onDismiss = { launchSelection = null }) { alias, request, clientWorkspace ->
+        PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
             launchSelection = null
             onLaunchPlugin(entry, command, alias, request, clientWorkspace)
-        }
+        })
     }
     extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
         PluginConsentDialog(active, extensions.launchBusy, extensions::decideConsent)
@@ -652,6 +656,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     hostAliases: List<String>,
     onDismiss: () -> Unit,
     onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
+    onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
 ) {
     var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
     var hostMenu by remember { mutableStateOf(false) }
@@ -676,20 +681,28 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var attachExisting by remember { mutableStateOf(false) }
     var ipcDirectory by remember { mutableStateOf("") }
     var ipcInstance by remember { mutableStateOf("") }
-    var remoteProcesses by remember { mutableStateOf(false) }
+    var remoteProcesses by remember(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting, ipcDirectory, ipcInstance) { mutableStateOf(false) }
+    var scopedFiles by remember(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting, ipcDirectory, ipcInstance) { mutableStateOf(false) }
     var attachmentAllowed by remember(selectedHost, executable, executorDigest, command.path, argumentsJson,
-        methodsJson, hostMethodsJson, attachExisting, ipcDirectory, ipcInstance, remoteProcesses) { mutableStateOf(false) }
+        methodsJson, hostMethodsJson, attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles) { mutableStateOf(false) }
     var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest, attachExisting,
         workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
     var clientAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest,
-        attachExisting, ipcDirectory, ipcInstance, remoteProcesses,
+        attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles,
         clientDirectory, workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
 
     var problem by remember { mutableStateOf<String?>(null) }
+    val inspectionKey = listOf(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting.toString(), ipcDirectory, ipcInstance)
+    val currentInspectionKey by rememberUpdatedState(inspectionKey)
+    var declaration by remember(inspectionKey) { mutableStateOf<PluginForegroundDeclaration?>(null) }
+    var inspectionBusy by remember { mutableStateOf(false) }
+    var inspectionJob by remember { mutableStateOf<Job?>(null) }
+    val inspectionScope = rememberCoroutineScope()
+    DisposableEffect(inspectionKey) { onDispose { inspectionJob?.cancel() } }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text("启动 ${command.title}") },
@@ -720,6 +733,37 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         modifier = Modifier.testTag("plugin-ipc-directory"), label = { Text("远端私有 IPC 目录") })
                     OutlinedTextField(ipcInstance, { ipcInstance = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-ipc-instance"), label = { Text("前台显示的 32 位实例标识") })
+                    TextButton(enabled = !inspectionBusy && selectedHost in hostAliases, modifier = Modifier.testTag("plugin-ipc-inspect"), onClick = {
+                        val capturedKey = inspectionKey
+                        inspectionBusy = true; problem = null; declaration = null
+                        inspectionJob = inspectionScope.launch {
+                            try {
+                                val value = onInspect(selectedHost, executable, ipcDirectory, ipcInstance)
+                                if (capturedKey == currentInspectionKey) declaration = value
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (failure: Exception) {
+                                if (capturedKey == currentInspectionKey) problem = "前台检查失败：${failure.message ?: failure.javaClass.simpleName}"
+                            } finally { inspectionBusy = false }
+                        }
+                    }) { Text(if (inspectionBusy) "正在检查前台实例…" else "检查此位置的前台实例") }
+                    declaration?.let { value ->
+                        SelectionContainer { Text("当前声明：${value.command} · ${value.runtime}\nExecutor：${value.executorDigest}\nClient：${value.clientDigest}\n参数：${org.json.JSONArray(value.arguments)}\nExecutor RPC：${value.methods.joinToString()}\nHost RPC：${value.hostMethods.joinToString()}\nClient 服务：${value.clientCapabilities.joinToString()}",
+                            Modifier.testTag("plugin-ipc-declaration"), style = MaterialTheme.typography.bodySmall) }
+                        TextButton(enabled = !inspectionBusy && value.clientDigest == entry.review.digest && value.command == command.path,
+                            modifier = Modifier.testTag("plugin-ipc-adopt"), onClick = {
+                                executorDigest = value.executorDigest
+                                argumentsJson = org.json.JSONArray(value.arguments).toString()
+                                methodsJson = org.json.JSONArray(value.methods).toString()
+                                hostMethodsJson = org.json.JSONArray(value.hostMethods).toString()
+                                scopedFiles = false; remoteProcesses = false; attachmentAllowed = false
+                                executionAllowed = false; clientAllowed = false
+                            }) { Text("将核对后的命令和参数填入表单") }
+                    }
+                    Text("检查只读取当前声明，不启动插件或批准附着。填入后须重新确认连接与已有范围。", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(scopedFiles, { scopedFiles = it }, Modifier.testTag("plugin-ipc-files"))
+                        Text("允许沿用此实例已选工作区的只读文件范围", style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(remoteProcesses, { remoteProcesses = it }, Modifier.testTag("plugin-ipc-processes"))
                         Text("允许沿用此实例已有的远端业务进程范围", style = MaterialTheme.typography.bodySmall)
@@ -807,7 +851,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }
         },
         confirmButton = {
-            TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
+            TextButton(enabled = !inspectionBusy && selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
                 try {
                     val execution = if (attachExisting || runtimeChoice == "Portable JS") null else {
                         val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
@@ -822,7 +866,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         workspaceRootDirectory.takeUnless { attachExisting || it.isBlank() },
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution,
-                        if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses) else null)
+                        if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses, scopedFiles) else null)
                     ExtensionRelayBootstrap.build(request)
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }

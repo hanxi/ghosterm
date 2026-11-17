@@ -185,6 +185,20 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             else connect(withContext(Dispatchers.IO) { repository.prepareConnection(base, host.alias) })
         }
     }
+
+    /** Same ssh_config policy as launch, with an explicit failure returned to
+     * the inspection form instead of leaving an asynchronous request pending. */
+    internal suspend fun preparePluginInspection(alias: String): com.hanxi.ghosterm.bridge.PreparedSSH {
+        val base = checkNotNull(snapshot) { "SSH 配置尚未载入" }
+        check(base.hosts.any { it.alias == alias }) { "所选 SSH 主机已不存在" }
+        val prepared = withContext(Dispatchers.IO) {
+            val issues = repository.connectionIssues(base, alias).filter { it.keyword != "proxyjump" }
+            check(issues.isEmpty()) { "不支持 SSH 配置：" + issues.joinToString("、") { it.description } }
+            repository.prepareConnection(base, alias)
+        }
+        check(snapshot === base) { "SSH 配置已变化，请重新选择主机" }
+        return prepared
+    }
     fun saveHost() {
         val base = snapshot ?: return
         val editing = draft ?: return

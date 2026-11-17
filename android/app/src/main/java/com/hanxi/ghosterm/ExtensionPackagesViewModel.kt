@@ -82,6 +82,41 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     var launchBusy by mutableStateOf(false)
         private set
 
+    internal suspend fun inspectForeground(target: PreparedSSH, executable: String, directory: String,
+        instance: String, sessions: SessionsViewModel): PluginForegroundDeclaration {
+        val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
+        check(!launchBusy && activeSession == null && activeRuntime == null && sessions.connecting == null) { "已有插件运行或 SSH 连接请求" }
+        PluginForegroundDeclaration.bootstrap(executable, directory, instance)
+        launchBusy = true; error = null
+        var attempt: SSHAttempt? = null
+        var result: PluginForegroundDeclaration? = null
+        try {
+            val id = checkNotNull(sessions.inspectExtensionRoute(target, executable, directory, instance) {
+                val value = owner.readForegroundDeclaration(instance)
+                owner.closeSSHChannel()
+                result = value
+                true
+            }) { "无法开始前台实例检查" }
+            attempt = sessions.connecting?.takeIf { it.id == id }
+            while (sessions.connecting?.id == id) {
+                currentCoroutineContext().ensureActive()
+                val current = checkNotNull(sessions.connecting)
+                check(!current.failed) { current.message }
+                delay(25)
+            }
+            currentCoroutineContext().ensureActive()
+            return checkNotNull(result) { "前台检查已取消或未确认在线" }
+        } finally {
+            withContext(NonCancellable) {
+                attempt?.let { current ->
+                    if (sessions.connecting === current) sessions.cancelConnection(current.id)
+                    current.job?.join()
+                }
+            }
+            launchBusy = false
+        }
+    }
+
     fun launch(entry: Entry, command: ExtensionController.Command, target: PreparedSSH,
         request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
         clientWorkspace: ExtensionController.ClientWorkspace? = null) {
@@ -163,7 +198,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
                         val extraCapabilities = buildList {
-                            if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null) &&
+                            if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null || launchRequest.attachment?.scopedFiles == true) &&
                                 "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
                             if (launchRequest.processPrograms.isNotEmpty() || launchRequest.attachment?.remoteProcesses == true) {
                                 add("process.spawn")
