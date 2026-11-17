@@ -88,6 +88,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
     fonts:TerminalFontsViewModel=viewModel(), extensions: ExtensionPackagesViewModel=viewModel(),
     onPickPlugin: () -> Unit = {}, hostAliases: List<String> = emptyList(),
+    frontendCandidates: List<FrontendCandidate> = emptyList(), frontendDiscoveryIssue: String? = null,
+    onDismissFrontend: (java.util.UUID) -> Unit = {},
+    validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
     onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
@@ -228,6 +231,17 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 SettingsNote("只显示身份信息；私钥材料和口令不会出现在此页面。")
             }
             SettingsSection.PLUGINS -> {
+                if (frontendCandidates.isNotEmpty()) {
+                    SettingsNote("终端候选尚未核实。外层 SSH 和来源终端不证明执行端身份；请审查对应 Client，并明确选择实际执行端后检查。")
+                    frontendCandidates.forEach { candidate ->
+                        GhostermGroup {
+                            SelectionContainer { Text("${candidate.sourceDescription}\n${candidate.offer.directory}\nClient：${candidate.offer.clientDigest}",
+                                Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
+                            TextButton(onClick = { onDismissFrontend(candidate.id) }) { Text("移除此候选") }
+                        }
+                    }
+                }
+                frontendDiscoveryIssue?.let { SettingsNote(it) }
                 GhostermSectionLabel("插件包来源")
                 if (!extensions.runtimeAvailable) {
                     SettingsNote("当前构建未启用可用的 JavaScript 插件运行时。插件包不会被加载或执行。")
@@ -325,7 +339,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     }
     }
     launchSelection?.let { (entry, command) ->
-        PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
+        PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, frontendCandidates = frontendCandidates, validateFrontend = validateFrontend,
+            onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
             launchSelection = null
             onLaunchPlugin(entry, command, alias, request, clientWorkspace)
         })
@@ -657,6 +672,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     onDismiss: () -> Unit,
     onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
     onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
+    frontendCandidates: List<FrontendCandidate> = emptyList(),
+    validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
 ) {
     var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
     var hostMenu by remember { mutableStateOf(false) }
@@ -727,6 +744,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(attachExisting, { attachExisting = it }, Modifier.testTag("plugin-ipc-mode"))
                     Text("连接已有前台 gterm 实例")
+                }
+                frontendCandidates.filter { it.offer.clientDigest == entry.review.digest }.forEach { candidate ->
+                    TextButton(modifier = Modifier.testTag("plugin-discovery-use-${candidate.id}"), onClick = {
+                        if (!validateFrontend(candidate)) problem = "候选提示已过期或来源已停止，请重新运行前台命令。"
+                        else {
+                            attachExisting = true; ipcDirectory = candidate.offer.directory; ipcInstance = candidate.offer.instance
+                            declaration = null; scopedFiles = false; remoteProcesses = false
+                            attachmentAllowed = false; executionAllowed = false; clientAllowed = false
+                        }
+                    }) { Text("使用终端候选位置：${candidate.sourceDescription}") }
                 }
                 if (attachExisting) {
                     OutlinedTextField(ipcDirectory, { ipcDirectory = it }, singleLine = true,

@@ -222,6 +222,8 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 收到它就该**收掉这个窗格**（布局塌陷）——由持有者决定（pane 不认识自己
     /// 的 tab，结构改动一律经持有者，见 `AppModel.handlePaneExit`）。
     public var onExit: ((TerminalPane) -> Void)?
+    public var onDiscovery: ((TerminalPane, [ExtensionDiscovery.Offer], UInt32, String?) -> Void)?
+    public private(set) var discoveryGeneration = UUID()
 
     /// 谁建会话谁持有（UAF 教训）：pane 撑住 SessionController，
     /// SessionController 撑住 transport 与 SSHSession。
@@ -235,6 +237,12 @@ public final class TerminalPane: ObservableObject, Identifiable {
     public func attach(surface: TerminalSurface, session: SessionController) {
         self.surface = surface
         self.session = session
+        discoveryGeneration = UUID()
+        let generation = discoveryGeneration
+        session.onDiscovery = { [weak self] offers, skipped, issue in
+            guard let self, self.discoveryGeneration == generation, self.session != nil else { return }
+            self.onDiscovery?(self, offers, skipped, issue)
+        }
         status = .ready
         observeState()
         observeProgramStatus()
@@ -253,6 +261,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 停会话（先置停止标志，再等读循环真的退出——见 SessionController.stop）。
     public func stop() {
+        discoveryGeneration = UUID()
         onStop?()
         session?.stop()
         session = nil

@@ -1,10 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
 #include "foreground.h"
 #include "stdio.h"
+#include "ghosterm.h"
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <termios.h>
 
 typedef struct {
     const char *runtime, *executor, *client, *command;
@@ -307,4 +311,104 @@ gterm_foreground_json(unsigned char *bytes, size_t size, const char *instance, s
     }
     *length = n;
     return json;
+}
+
+bool gterm_foreground_announce(const char *directory,
+                               const unsigned char *instance,
+                               int argc,
+                               char **argv) {
+    size_t n = strlen(directory);
+    int boundary = gterm_stdio_invocation_index(argc, argv);
+    const char *client = NULL;
+    if (boundary < 0 || n > GT_EXT_DISCOVERY_DIRECTORY_MAX ||
+        !utf8((const unsigned char *)directory, n)) {
+        return false;
+    }
+    for (int at = 0; at < boundary;) {
+        if (!strcmp(argv[at], "--client-digest")) {
+            if (client) {
+                return false;
+            }
+            client = argv[at + 1];
+        }
+        at += gterm_stdio_option_arity(argv[at]) + 1;
+    }
+    if (!digest(client)) {
+        return false;
+    }
+    const char *setting = getenv("GTERM_DISCOVERY_TMUX_LAYERS"), *tmux = getenv("TMUX");
+    unsigned layers = tmux && *tmux ? 1 : 0;
+    if (setting) {
+        if (strlen(setting) != 1 || setting[0] < '0' || setting[0] > '4') {
+            fputs("gterm: discovery hint unavailable: tmux layers must be 0..4\n", stderr);
+            return false;
+        }
+        layers = (unsigned)(setting[0] - '0');
+    }
+    int fd = open("/dev/tty", O_WRONLY | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    if (!isatty(fd) || tcgetpgrp(fd) != getpgrp()) {
+        close(fd);
+        return false;
+    }
+    unsigned char raw[50 + GT_EXT_DISCOVERY_DIRECTORY_MAX];
+    memcpy(raw, instance, 16);
+    for (size_t i = 0; i < 32; i++) {
+        unsigned a =
+            (unsigned)(client[i * 2] <= '9' ? client[i * 2] - '0' : client[i * 2] - 'a' + 10);
+        unsigned b = (unsigned)(client[i * 2 + 1] <= '9' ? client[i * 2 + 1] - '0'
+                                                         : client[i * 2 + 1] - 'a' + 10);
+        raw[16 + i] = (unsigned char)(a * 16 + b);
+    }
+    raw[48] = (unsigned char)(n >> 8);
+    raw[49] = (unsigned char)n;
+    memcpy(raw + 50, directory, n);
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    unsigned char frame[2048], wrapped[2048];
+    static const char tag[] = "\033]777;ghosterm-discovery;1;";
+    size_t used = sizeof(tag) - 1;
+    memcpy(frame, tag, used);
+    for (size_t at = 0; at < n + 50; at += 3) {
+        size_t left = n + 50 - at;
+        unsigned a = raw[at], b = left > 1 ? raw[at + 1] : 0, c = left > 2 ? raw[at + 2] : 0;
+        frame[used++] = (unsigned char)alphabet[a >> 2];
+        frame[used++] = (unsigned char)alphabet[((a & 3) << 4) | (b >> 4)];
+        frame[used++] = left > 1 ? (unsigned char)alphabet[((b & 15) << 2) | (c >> 6)] : '=';
+        frame[used++] = left > 2 ? (unsigned char)alphabet[c & 63] : '=';
+    }
+    frame[used++] = 0x1b;
+    frame[used++] = '\\';
+    for (unsigned layer = 0; layer < layers; layer++) {
+        size_t at = 7;
+        memcpy(wrapped, "\033Ptmux;", at);
+        for (size_t i = 0; i < used; i++) {
+            if (at + 4 > sizeof(wrapped)) {
+                close(fd);
+                return false;
+            }
+            if (frame[i] == 0x1b) {
+                wrapped[at++] = 0x1b;
+            }
+            wrapped[at++] = frame[i];
+        }
+        wrapped[at++] = 0x1b;
+        wrapped[at++] = '\\';
+        used = at;
+        memcpy(frame, wrapped, used);
+    }
+    /* One bounded nonblocking write, without borrowing the shell's fd flags or
+     * termios. CAN is best-effort repair for a partial control string. */
+    ssize_t sent = write(fd, frame, used);
+    bool ok = sent >= 0 && (size_t)sent == used;
+    if (sent > 0 && !ok) {
+        unsigned char cancel = 0x18;
+        (void)write(fd, &cancel, 1);
+    }
+    if (close(fd)) {
+        ok = false;
+    }
+    return ok;
 }

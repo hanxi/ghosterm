@@ -19,6 +19,7 @@ add_library(ghosterm_core STATIC
   src/base/secure-random.c
   src/base/sha256.c
   src/extension/memory.c
+  src/extension/discovery.c
   src/extension/stream.c
   src/extension/fd-stream.c
   src/extension/frame.c
@@ -150,6 +151,13 @@ if(GHOSTERM_WITH_PLUGIN_JS)
   endforeach()
 endif()
 add_executable(test_plugin_memory tests/test_plugin_memory.c)
+add_executable(test_ext_discovery tests/test_ext_discovery.c)
+target_include_directories(test_ext_discovery PRIVATE src)
+target_link_libraries(test_ext_discovery PRIVATE ghosterm_core)
+target_compile_options(test_ext_discovery PRIVATE -Wall -Wextra -Werror)
+foreach(mode fragment strings invalid timeout queue ownership)
+  add_test(NAME ext_discovery_${mode} COMMAND test_ext_discovery ${mode})
+endforeach()
 target_include_directories(test_plugin_memory PRIVATE src)
 target_link_libraries(test_plugin_memory PRIVATE ghosterm_core)
 target_compile_options(test_plugin_memory PRIVATE -Wall -Wextra -Werror)

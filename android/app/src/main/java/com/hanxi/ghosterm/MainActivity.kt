@@ -221,6 +221,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     onDispose { if (recoveryOwner == viewportId) recoveryOwner = null }
                 }
                 TerminalScreen(sessions, openFiles = ::openTerminalFiles, recoveryBusy = hosts.busy,
+                    onPluginCandidates = { sessions.home(); hosts.settings(); settings.open(SettingsSection.PLUGINS) },
                     recoveryError = if (recoveryOwner == sessions.active?.id) hosts.error else null,
                     onRecover = { stopped ->
                         if (stopped.remoteAlias == null) sessions.restartLocal(stopped.id)
@@ -349,6 +350,9 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about,
                             extensions = extensions, onPickPlugin = ::pickPluginFolder,
                             hostAliases = hosts.snapshot?.hosts?.map { it.alias }.orEmpty(),
+                            frontendCandidates = sessions.frontendCandidates, frontendDiscoveryIssue = sessions.frontendDiscoveryIssue,
+                            onDismissFrontend = sessions::dismissFrontendCandidate,
+                            validateFrontend = sessions::frontendCandidateIsCurrent,
                             onInspectPlugin = { alias, executable, directory, instance ->
                                 val target = hosts.preparePluginInspection(alias)
                                 extensions.inspectForeground(target, executable, directory, instance, sessions)

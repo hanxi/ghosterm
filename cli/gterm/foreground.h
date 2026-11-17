@@ -7,4 +7,6 @@
 bool gterm_foreground_encode(int, char **, unsigned char *, size_t *);
 /* Returns a malloc-owned ASCII JSON object, after strict wire validation. */
 char *gterm_foreground_json(unsigned char *, size_t, const char *, size_t *);
+/* Best-effort untrusted hint on the controlling foreground TTY only. */
+bool gterm_foreground_announce(const char *, const unsigned char *, int, char **);
 #endif

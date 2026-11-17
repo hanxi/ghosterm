@@ -2,7 +2,7 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；用户选择目录 / 端点及当前 Session，尚无自动发现或执行端签名安装。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端签名安装仍待接；未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
@@ -11574,3 +11574,65 @@ clang-format 19.1.7 / 278 文件、JNI 148/37 与 diff / Python 语法检查通�
 Preview 实际发布 `69c955c380c1c0a9482e943547fedf09a1ccf7b48cbfa774d02f3a35035c5027`。
 原件用后清理，仅留历史身份；格式器作为钉版本开发工具留在忽略的 build 缓存，避免
 每批重复安装。仅本地分批提交，不推送 / 发行。
+
+
+### P2 实施第六十七批：被动终端候选与双端手动入口（2026-11-17）
+
+按用户“先实现代码、最后集中测试”的加速要求，本批一次接通 C 观察器、CLI 发出提示、
+Swift / JNI / Kotlin 绑定、两端候选列表 / 手动入口及现有在线检查表单。期间只编译、
+跑协议边界与一条实际 macOS 点击链；没有新增逐次全量 / 变异循环，也没有取消最终闸门。
+
+`extension_discovery.h` 新增 open / feed / poll / close 四 ABI。纯 C 的被动观察器每次输入
+不超过 64 KiB，候选最多八项；严格 Base64 / UTF-8 / 规范目录，识别前缀 / payload
+500 ms 截止，未知 OSC / APC / DCS 等整段跳过。终端源字节仍完整直送原 Surface，
+不入 JS / UI，不改写控制串，不写回 TTY。这里只协商发现提示，业务 wire / permit
+仍在独立管道；私有 discovery v1 格式和预算见 CLI README，不视为冻结业务协议。
+
+CLI 在自己单独非阻塞打开的控制 TTY 上核对前台进程组，尝试一次有界输出；无 TTY /
+后台保留手工入口，不读取终端、不改共享 fd / termios。公开实例、声称的 Client D
+与目录三项以 Base64 编码，不含配对秘密、主机、程序或回包路由。tmux 层数显式为
+0–4；检测到 TMUX 默认一层，用户负责 allow-passthrough，不自动改配置。
+
+两端只发布低频有界元数据，列表八项、本机提示三十秒，来源会话 / 代次失效不再使用。
+macOS 顶部、Android 终端菜单提供手动入口，不主动弹窗 / 改焦点。外层 SSH 别名只作
+来源标记，不认作嵌套 SSH 的执行端。使用候选只填写目录 / 实例并撤回全部旧批准；
+仍由用户选择真实位置、检查在线声明、匹配已批准 Client / 命令和重新同意范围 / Session。
+普通 App 仍为 JS-off，不开放观察器或自动连接。
+
+本批专项：
+
+- 六项 Core：逐字节 / 所有分界、Unicode、未知控制串和 UTF-8 ST、坏编码 / 路径 /
+  超限、截止与取消、去重 / 队列、无效参数及共享内存预约释放；另 public_headers 通过。
+- `test-gterm-discovery.py` 七场景通过：真实拥有的不可见 PTY 前台、后台进程组、无 TTY
+  管道、四层编码、错误层数、实际单层与双层 tmux。核对公开字段、私有秘密不外发、
+  原 fd 标志 / termios，真实输出再经公开 C API 解码。四层编码不冒充四层实际 tmux。
+- macOS `testDiscoveredForegroundInspectionAndAttachmentThroughControls` 一项通过：
+  真 PTY gterm → SessionController → 原生候选 → 真实控件选择 → 自选 SSH 路线检查 →
+  核对填入 / 清批准 → consent → Markdown / PNG 精确字节 → 停止与来源失效。
+  用透明离屏窗口，6.160 秒；同轮实际离屏 WebKit CSS / PNG 渲染通过。
+- Android 新入口本批只编译，不借第六十六批设备结果记新设备绿。最终构建与恢复收据见下。
+
+前置错误单列：首次 C target 未重新配置，测试脚本先用了错误的 ready 文案；tmux
+清理第一次对已经退出的进程组发信号遭 EPERM，改为先 waitpid 并仅关闭自己的客户端 /
+服务器。首次 Apple 对拍缺新 Swift 文件的显式扫描登记，补后通过。Android 首次选错
+本地 JDK 路径，下一次误写不存在的 runtime lint 模块，均未运行测试、不计绿。
+
+尚待集中验收：Android 实际候选 / 返回 / 检查路线与取消，完整 EOF / 超时 / 流控 /
+短写 / SIGKILL / 来源重绑 / 压力 / 内存故障、其余 tmux / SSH 拓扑及辅助技术；新 ABI
+改动后的整仓 gate.sh 与对应变异未在本批重跑，合并前仍须完成。签名执行端目录、
+Node / Exec 普通目录、完整路径语义与 Agent 真认证 / 模型 turn 继续实施。
+P1–P6 未完成、不增加 CI 二十份，仅本地提交，不推送 / 发行。
+
+最终：C 格式检查 282 文件、当前 ABI 190 / Apple 187＋3 / JNI 153＋37、
+普通 macOS arm64 Release 通过；Android 最终启用档 Debug / 测试 APK / 未签名 Release
+实际 R8 和四模块 lint 通过（326 任务，29 执行），随后普通 JS-off 三 APK 构建
+通过（303 任务，45 执行）。Core 已恢复 JS-off / tests-on，六项与公开头最终复验通过。
+本批收据 SHA256（原件用后清理，不以摘要冒充可重新审阅的日志）：
+
+- `discovery-test-final.log`：`19497fdb0e41b78343320b3f669f5d7ebdb993f16f964c0426eb5377b7a730d1`
+- `pty-test-final2.log`：`414651e2e7f4e4b4a47f2d5dc2d44e078d02d1f329c4264f1cbacf099d4f317a`
+- `apple-smoke-final.log`：`2432f48822d3cd2c8dd37dc9f5ed2583ffb09ab4ae90c7d7d54cdfeff16512e7`
+- `android-enabled-current.log`：`d3b49751dcc3763d63242e98d6e00a9010c3947643364c4694e3e895e3423845`
+- `android-default.log`：`57419dd795c4e1131e11c2a5002ee3b617bde57de2c1e02b9a5aa3f8b80b768c`
+- `apple-release-final.log`：`a27be6f98254d251962c982a84357f6967b14da3b1ced82bc602b7e17f7a0848`
+- `format.log`：`f44fea60e1cfef708d20551d5f50d941889f7db64254c16a6f31bc304a0c3663`

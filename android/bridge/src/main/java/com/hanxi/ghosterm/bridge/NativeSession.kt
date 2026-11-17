@@ -14,6 +14,21 @@ import kotlinx.coroutines.sync.withLock
 
 /** Control plane. Output and key encoding remain on the native IO owner. */
 open class NativeTerminalSession internal constructor(private var handle: Long, private val remote: Boolean = false) : TerminalSurface, Closeable {
+    data class DiscoveryOffer(val directory: String, val instance: String, val clientDigest: String, val sequence: ULong)
+    data class Discovery(val status: Int, val skipped: Long, val offer: DiscoveryOffer?)
+    /** Low-frequency metadata; never terminal bytes or an authority grant. */
+    @Synchronized fun discovery(): Discovery {
+        if (handle == 0L) return Discovery(8, 0, null)
+        val result = NativeSession.readDiscovery(handle)
+        val fields = result[0] as LongArray; val bytes = result[1] as ByteArray
+        check(fields.size == 4 && bytes.size == 611 && fields[1] in 0L..1L && fields[2] in 0L..0xffffffffL)
+        fun text(at: Int, size: Int): String {
+            val end = (at until at + size).firstOrNull { bytes[it] == 0.toByte() } ?: error("发现字段未终止")
+            return Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes, at, end - at)).toString()
+        }
+        val offer = if (fields[0] == 0L && fields[1] == 1L) DiscoveryOffer(text(0, 513), text(513, 33), text(546, 65), fields[3].toULong()) else null
+        return Discovery(fields[0].toInt(), fields[2], offer)
+    }
     private val actionMutex = Mutex()
     @Synchronized override fun frame(after: Long): TerminalFrame? =
         if (handle == 0L) null else NativeSession.readFrame(handle, after)?.let(TerminalFrame::decode)
@@ -148,6 +163,7 @@ internal object NativeSession {
     external fun readGraphics(handle: Long, after: Long): Array<Any>?
     external fun setVisibility(handle: Long, visible: Boolean)
     external fun readFrame(handle: Long, after: Long): IntArray?
+    external fun readDiscovery(handle: Long): Array<Any>
     external fun readClipboard(handle: Long): ByteArray?
     external fun replyClipboard(handle: Long, request: Long, allowed: Boolean, data: ByteArray)
     external fun readState(handle: Long): IntArray

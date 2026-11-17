@@ -112,6 +112,11 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var visible by mutableStateOf(false); private set
     var creating by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    var frontendCandidates: List<FrontendCandidate> by mutableStateOf(emptyList()); private set
+    var frontendDiscoveryIssue: String? by mutableStateOf(null); private set
+    fun dismissFrontendCandidate(id: UUID) { frontendCandidates = frontendCandidates.filterNot { it.id == id } }
+    fun frontendCandidateIsCurrent(candidate: FrontendCandidate): Boolean = !candidate.expired &&
+        sessions.any { it.id == candidate.sourceID && !it.state.terminal && it.connection.state().connected }
     var identityMemoryWarning by mutableStateOf<String?>(null); private set
     fun dismissIdentityMemoryWarning() { identityMemoryWarning = null }
     private var sequence: Int
@@ -147,6 +152,29 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var terminalStyle by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalStyle()); private set
     var terminalControls by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalControls()); private set
     init {
+        if (BuildConfig.PLUGIN_JS_ENABLED && monitorSessions) viewModelScope.launch {
+            while (true) {
+                val live = sessions.toList().filterNot { it.state.terminal }
+                val found = frontendCandidates.filter { !it.expired && live.any { s -> s.id == it.sourceID } }.toMutableList()
+                var issue: String? = null
+                for (source in live) {
+                    try {
+                        for (i in 0 until 8) {
+                            val report = source.connection.discovery()
+                            if (report.status != 0 && report.status != 8) issue = "此终端的前台发现不可用（Core ${report.status}）；可手工附着。"
+                            if (report.skipped > 0) issue = "已跳过超限或损坏的前台候选提示；可手工附着。"
+                            val offer = report.offer ?: break
+                            found.removeAll { it.sourceID == source.id && it.offer.instance == offer.instance }
+                            val origin = source.remoteAlias?.let { "外层 SSH：$it（执行端未核实）" } ?: "本地终端（执行端未核实）"
+                            found += FrontendCandidate(UUID.randomUUID(), source.id, origin, offer, android.os.SystemClock.elapsedRealtime())
+                            if (found.size > 8) found.removeAt(0)
+                        }
+                    } catch (failure: Exception) { issue = "前台发现观察失败：${failure.message ?: failure.javaClass.simpleName}" }
+                }
+                frontendCandidates = found.toList(); frontendDiscoveryIssue = issue
+                delay(1000)
+            }
+        }
         if (settings != null) viewModelScope.launch {
             settings.state.collect { terminalControls = it.committed.terminalControls() }
         }

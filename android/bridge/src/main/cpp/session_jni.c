@@ -62,6 +62,9 @@ typedef struct session {
     uint64_t revision, frame_revision;
     gat_graphics_frame *graphics_frame;
     uint64_t graphics_revision, graphics_source_revision;
+    /* Observer calls are serialized by mutex; terminal bytes never enter JNI. */
+    gt_ext_discovery_t *discovery;
+    gt_status_t discovery_status;
     /* Below: exclusively accessed by owner. */
     gt_transport_t *transport;
     gat_surface *surface;
@@ -102,6 +105,7 @@ static void release(session *s) {
     free(s->frame);
     free(s->home);
     free(s->clipboard_bytes);
+    gt_ext_discovery_close(&s->discovery);
     pthread_cond_destroy(&s->clipboard_condition);
     pthread_mutex_destroy(&s->mutex);
     free(s);
@@ -402,6 +406,23 @@ static void *owner(void *context) {
             nanosleep(&delay, NULL);
         }
         if (length > 0) {
+            pthread_mutex_lock(&s->mutex);
+            if (s->discovery) {
+                struct timespec clock;
+                gt_status_t status =
+                    clock_gettime(CLOCK_MONOTONIC, &clock)
+                        ? GT_ERR_IO
+                        : gt_ext_discovery_feed(s->discovery,
+                                                output,
+                                                (size_t)length,
+                                                (uint64_t)clock.tv_sec * 1000 +
+                                                    (uint64_t)clock.tv_nsec / 1000000);
+                if (status != GT_OK) {
+                    s->discovery_status = status;
+                    gt_ext_discovery_close(&s->discovery);
+                }
+            }
+            pthread_mutex_unlock(&s->mutex);
             gat_surface_feed(s->surface, output, (size_t)length);
             s->revision++;
         } else if (length == GT_TRANSPORT_READ_ERROR) {
@@ -443,6 +464,15 @@ static void *owner(void *context) {
             break;
         }
         uint64_t now = (uint64_t)clock.tv_sec * 1000 + (uint64_t)clock.tv_nsec / 1000000;
+        pthread_mutex_lock(&s->mutex);
+        if (s->discovery) {
+            gt_status_t status = gt_ext_discovery_feed(s->discovery, NULL, 0, now);
+            if (status != GT_OK) {
+                s->discovery_status = status;
+                gt_ext_discovery_close(&s->discovery);
+            }
+        }
+        pthread_mutex_unlock(&s->mutex);
         if (visible && (animation_revision != s->revision || now >= animation_at)) {
             bool changed = false;
             uint64_t delay = UINT64_MAX;
@@ -520,6 +550,10 @@ static jlong start_session(JNIEnv *env, session *s) {
     atomic_init(&s->frame_requested, true);
     atomic_init(&s->graphics_requested, true);
     atomic_init(&s->visible, false);
+    s->discovery_status = gt_ext_runtime_support();
+    if (s->discovery_status == GT_OK) {
+        s->discovery_status = gt_ext_discovery_open(&s->discovery);
+    }
     s->refs = 2;
     pthread_mutex_lock(&registry_mutex);
     size_t slot = 0;
@@ -890,6 +924,39 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_read
     jobjectArray result = gat_graphics_frame_java(env, frame, revision);
     gat_graphics_frame_free(frame);
     release(s);
+    return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeSession_readDiscovery(JNIEnv *env, jobject self, jlong id) {
+    (void)self;
+    session *s = borrow(env, id);
+    if (!s) {
+        return NULL;
+    }
+    jclass object = (*env)->FindClass(env, "java/lang/Object");
+    jobjectArray result = object ? (*env)->NewObjectArray(env, 2, object, NULL) : NULL;
+    jlongArray values = result ? (*env)->NewLongArray(env, 4) : NULL;
+    jbyteArray data = values ? (*env)->NewByteArray(env, 611) : NULL;
+    if (!result || !values || !data) {
+        release(s);
+        return NULL;
+    }
+    gt_ext_discovery_snapshot_t snapshot = {0};
+    pthread_mutex_lock(&s->mutex);
+    gt_status_t status =
+        s->discovery ? gt_ext_discovery_poll(s->discovery, &snapshot) : s->discovery_status;
+    pthread_mutex_unlock(&s->mutex);
+    release(s);
+    jlong fields[] = {status, snapshot.available, snapshot.skipped, (jlong)snapshot.sequence};
+    jbyte bytes[611] = {0};
+    memcpy(bytes, snapshot.directory, 513);
+    memcpy(bytes + 513, snapshot.instance, 33);
+    memcpy(bytes + 546, snapshot.client_digest, 65);
+    (*env)->SetLongArrayRegion(env, values, 0, 4, fields);
+    (*env)->SetByteArrayRegion(env, data, 0, 611, bytes);
+    (*env)->SetObjectArrayElement(env, result, 0, values);
+    (*env)->SetObjectArrayElement(env, result, 1, data);
     return result;
 }
 

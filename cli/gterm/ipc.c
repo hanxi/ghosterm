@@ -368,6 +368,7 @@ int gterm_ipc_listen(const char *directory,
         goto done;
     }
     end += 30000;
+    (void)gterm_foreground_announce(directory, permit.bytes + 8, argc, argv);
     for (unsigned attempts = 0; attempts < 16 && !*cancelled; attempts++) {
         if (!wait_fd(e.listener, POLLIN, end, cancelled)) {
             break;

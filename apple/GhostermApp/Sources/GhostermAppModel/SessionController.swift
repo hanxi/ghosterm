@@ -35,6 +35,8 @@ public final class SessionController {
     }
     /// 状态变化（低频）→ 投给 UI。终端字节流**不**走这里。
     public var onStateChange: ((SessionState) -> Void)?
+    /// Low-frequency unverified hints only; never terminal or business bytes.
+    public var onDiscovery: (([ExtensionDiscovery.Offer], UInt32, String?) -> Void)?
 
     private func setState(_ s: SessionState) {
         stateLock.lock()
@@ -182,6 +184,13 @@ public final class SessionController {
 
     private func readLoop() {
         var exitCode: Int32 = 0
+        var discovery: ExtensionDiscovery?
+        var discoveryIssue: String?
+        if ExtensionRuntime.supportStatus == 0 {
+            do { discovery = try ExtensionDiscovery() }
+            catch { discoveryIssue = String(describing: error) }
+        }
+        var lastDiscovery: UInt64 = 0, reportedSkipped: UInt32 = 0
         while running {
             // 先排空输入/尺寸待办：这些是 UI/termio 线程转交过来的，
             // 在这里执行才满足「transport 由会话线程独占」的契约。
@@ -195,13 +204,37 @@ public final class SessionController {
             }
             switch result {
             case .data(let bytes):
+                if let observer = discovery {
+                    do {
+                        try bytes.withUnsafeBytes { try observer.feed($0, now: UInt64(ProcessInfo.processInfo.systemUptime * 1000)) }
+                    } catch { discovery = nil; discoveryIssue = String(describing: error) }
+                }
                 surface.feed(Data(bytes))
             case .timeout:
-                continue
+                break
             case .eof:
                 let exited = transport.exited(exitCode: &exitCode)
                 finish(exited ? .exited(code: exitCode) : .exitedUnknown)
                 return
+            }
+            let now = UInt64(ProcessInfo.processInfo.systemUptime * 1000)
+            if now - lastDiscovery >= 1000 {
+                lastDiscovery = now
+                var offers: [ExtensionDiscovery.Offer] = [], skipped = reportedSkipped
+                if let observer = discovery {
+                    do {
+                        try observer.feed(UnsafeRawBufferPointer(start: nil, count: 0), now: now)
+                        for _ in 0..<8 {
+                            let (offer, count) = try observer.poll(); skipped = count
+                            guard let offer else { break }; offers.append(offer)
+                        }
+                    } catch { discovery = nil; discoveryIssue = String(describing: error) }
+                }
+                if !offers.isEmpty || skipped != reportedSkipped || discoveryIssue != nil {
+                    let batch = offers, count = skipped, issue = discoveryIssue
+                    reportedSkipped = skipped; discoveryIssue = nil
+                    DispatchQueue.main.async { [weak self] in self?.onDiscovery?(batch, count, issue) }
+                }
             }
         }
     }

@@ -62,6 +62,14 @@ struct RootView: View {
                 if let error = model.terminalConfigError {
                     TerminalConfigurationError(message: error) { SettingsWindow.open(model: model) }
                 }
+                if !model.frontendCandidates.isEmpty {
+                    HStack {
+                        Text("终端发现了未核实的前台插件候选").font(.caption)
+                        Spacer()
+                        Button("查看候选（\(model.frontendCandidates.count)）") { SettingsWindow.open(model: model, pane: .extensions) }
+                            .accessibilityIdentifier("plugin-discovery-open")
+                    }.padding(.horizontal, 12).padding(.vertical, 4)
+                }
                 panes
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

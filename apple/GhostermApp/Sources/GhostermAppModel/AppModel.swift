@@ -104,6 +104,11 @@ public final class AppModel: ObservableObject {
 
     @Published public private(set) var extensionRun: ExtensionRun?
     @Published public private(set) var extensionRunBusy = false
+    @Published public private(set) var frontendCandidates: [FrontendCandidate] = []
+    @Published public private(set) var frontendDiscoveryIssue: String?
+    private var pendingFrontendCandidates: [FrontendCandidate] = []
+    private var pendingFrontendIssue: String?
+    private var frontendUpdatePending = false
     @Published public private(set) var extensionRunIssue: String?
     @Published public private(set) var codexThreadID: String?
     @Published public var codexMessageDraft = ""
@@ -534,6 +539,7 @@ public final class AppModel: ObservableObject {
         tabs.activate(tab)
         tab.activeWorkspacePaneID = paneID
         let pane = TerminalPane()
+        wireFrontendDiscovery(pane)
         pane.onExit = { [weak self] p in self?.handlePaneExit(p) }
         tab.split(axis: axis, with: pane)
         if tab.kind.isLocalShell {
@@ -854,6 +860,7 @@ public final class AppModel: ObservableObject {
         // 标签页与窗格先建（状态 .connecting：屏幕显示「连接中…」），
         // 连接在工作线程建好后再 attach——绝不空窗假装已连。
         let pane = TerminalPane()
+        wireFrontendDiscovery(pane)
         // 单窗格标签页退出 = 关标签页（与分屏同一策略；最后一个窗格不留画面）。
         pane.onExit = { [weak self] p in self?.handlePaneExit(p) }
         let tab = TerminalTab(kind: kind, pane: pane)
@@ -1193,6 +1200,48 @@ public final class AppModel: ObservableObject {
             try? await extensionController.stopSSHChannel()
             try? await extensionController.releaseFinished()
             throw error
+        }
+    }
+
+    public func frontendCandidateIsCurrent(_ candidate: FrontendCandidate) -> Bool {
+        !candidate.expired && tabs.tabs.contains { tab in
+            tab.panes.contains { $0.id == candidate.sourceID && $0.isRunning && $0.discoveryGeneration == candidate.sourceGeneration }
+        }
+    }
+
+    public func dismissFrontendCandidate(_ id: UUID) {
+        frontendCandidates.removeAll { $0.id == id }
+    }
+
+    private func wireFrontendDiscovery(_ pane: TerminalPane) {
+        pane.onDiscovery = { [weak self] pane, offers, skipped, issue in
+            guard let self, self.extensionController != nil,
+                  let tab = self.tabs.tabs.first(where: { $0.panes.contains(where: { $0.id == pane.id }) }) else { return }
+            let source = tab.kind.remoteTarget.map { "外层 SSH：\($0.pattern)（执行端未核实）" } ?? "本地终端（执行端未核实）"
+            if let issue { self.pendingFrontendIssue = issue }
+            if skipped > 0 { self.pendingFrontendIssue = "此终端已跳过超限或损坏的候选提示（\(skipped)）；仍可手工附着。" }
+            for offer in offers {
+                self.pendingFrontendCandidates.removeAll { $0.sourceID == pane.id && $0.offer.instance == offer.instance }
+                self.pendingFrontendCandidates.append(FrontendCandidate(id: UUID(), sourceID: pane.id,
+                    sourceGeneration: pane.discoveryGeneration, sourceDescription: source, offer: offer,
+                    receivedAt: ProcessInfo.processInfo.systemUptime))
+                if self.pendingFrontendCandidates.count > 8 { self.pendingFrontendCandidates.removeFirst() }
+            }
+            guard !self.frontendUpdatePending else { return }
+            self.frontendUpdatePending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
+                guard let self else { return }
+                self.frontendUpdatePending = false
+                var candidates = self.frontendCandidates.filter(self.frontendCandidateIsCurrent)
+                for candidate in self.pendingFrontendCandidates where self.frontendCandidateIsCurrent(candidate) {
+                    candidates.removeAll { $0.sourceID == candidate.sourceID && $0.offer.instance == candidate.offer.instance }
+                    candidates.append(candidate)
+                    if candidates.count > 8 { candidates.removeFirst() }
+                }
+                self.pendingFrontendCandidates.removeAll()
+                self.frontendCandidates = candidates
+                if let issue = self.pendingFrontendIssue { self.frontendDiscoveryIssue = issue; self.pendingFrontendIssue = nil }
+            }
         }
     }
 

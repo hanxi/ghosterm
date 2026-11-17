@@ -26,6 +26,9 @@ final class PluginPaneFlowTests: XCTestCase {
     func testForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: false, foreground: true)
     }
+    func testDiscoveredForegroundInspectionAndAttachmentThroughControls() async throws {
+        try await runPreview(.markdown, jump: false, foreground: true, discovery: true)
+    }
     func testMarkdownAttachmentsThroughProxyJumpControls() async throws {
         try await runPreview(.markdown, jump: true)
     }
@@ -74,7 +77,7 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -222,6 +225,8 @@ final class PluginPaneFlowTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(25))
         }
         var frontend: Process?
+        var discoveredCandidate: FrontendCandidate?
+        if discovery { addTeardownBlock { model.disconnectForTesting() } }
         if foreground {
             guard host == "127.0.0.1", user == NSUserName() else { throw XCTSkip("foreground fixture requires owned same-user loopback SSH") }
             let endpoint = root.appendingPathComponent("e")
@@ -230,21 +235,41 @@ final class PluginPaneFlowTests: XCTestCase {
             process.arguments = ["relay", "--listen", endpoint.path, "--trust-development-digest", digest,
                 "--client-digest", digest, "--root", "workspace", workspace.path, "--", package.path, "preview"] + arguments
             process.standardInput = FileHandle.nullDevice; process.standardOutput = Pipe(); process.standardError = Pipe()
-            try process.run(); frontend = process
-            addTeardownBlock {
-                if process.isRunning { process.terminate() }
-                let deadline = ProcessInfo.processInfo.systemUptime + 5
-                while process.isRunning, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(10)) }
-                XCTAssertFalse(process.isRunning, "owned foreground fixture must exit")
+            if discovery {
+                model.connect(to: .localShell)
+                guard try await until({ model.activePane?.isRunning == true }) else { XCTFail("owned local PTY did not start"); return }
+                func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+                let command = ([gterm] + (process.arguments ?? [])).map(quote).joined(separator: " ")
+                model.activePane?.surface?.sendCommittedText("GTERM_DISCOVERY_TMUX_LAYERS=0 " + command + "\r")
+            } else {
+                try process.run(); frontend = process
+                addTeardownBlock {
+                    if process.isRunning { process.terminate() }
+                    let deadline = ProcessInfo.processInfo.systemUptime + 5
+                    while process.isRunning, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(10)) }
+                    XCTAssertFalse(process.isRunning, "owned foreground fixture must exit")
+                }
             }
             let permitURL = endpoint.appendingPathComponent("permit")
             guard try await until({ (try? Data(contentsOf: permitURL).count) == 56 }) else { XCTFail("foreground endpoint did not become ready"); return }
             let permit = try Data(contentsOf: permitURL)
             let instance = permit[8..<24].map { String(format: "%02x", $0) }.joined()
-            try press("plugin-ipc-mode")
-            try await Task.sleep(for: .milliseconds(30))
-            try set("plugin-ipc-directory", endpoint.path)
-            try set("plugin-ipc-instance", instance)
+            if discovery {
+                guard try await until({ model.frontendCandidates.contains { $0.offer.instance == instance } }) else { XCTFail("real PTY hint did not reach native candidate list"); return }
+                let candidate = try XCTUnwrap(model.frontendCandidates.first { $0.offer.instance == instance })
+                discoveredCandidate = candidate
+                XCTAssertEqual(candidate.offer.directory, endpoint.path)
+                XCTAssertEqual(candidate.offer.clientDigest, digest)
+                XCTAssertTrue(model.frontendCandidateIsCurrent(candidate))
+                XCTAssertNil(model.extensionRun, "passive hint must not create a Session")
+                XCTAssertFalse(model.extensionRunBusy, "passive hint must not authenticate")
+                try press("plugin-discovery-use-" + candidate.id.uuidString)
+            } else {
+                try press("plugin-ipc-mode")
+                try await Task.sleep(for: .milliseconds(30))
+                try set("plugin-ipc-directory", endpoint.path)
+                try set("plugin-ipc-instance", instance)
+            }
             try await Task.sleep(for: .milliseconds(30))
             try press("plugin-ipc-inspect")
             guard try await until({ node("plugin-ipc-declaration") != nil && !model.extensionRunBusy }) else {
@@ -451,6 +476,10 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertNil(node("plugin-consent-allow"))
         if let frontend {
             guard try await until({ !frontend.isRunning }) else { XCTFail("stopping attached runtime must release original frontend"); return }
+        }
+        if let candidate = discoveredCandidate {
+            model.disconnectForTesting()
+            XCTAssertFalse(model.frontendCandidateIsCurrent(candidate), "stopped source cannot be reused")
         }
         if let managed {
             let revision = try await controller.installedVersions().revision

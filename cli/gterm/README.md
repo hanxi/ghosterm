@@ -92,12 +92,13 @@ macOS 与 Android 页支持先检查在线声明，再明确填入命令 / 参�
 摘要与命令（Android 对应当前选中的命令），并清除此前连接、已有只读范围、业务进程与 Native 工作区批准。更改位置后旧声明不能再填入。
 仍需选择已批准的 Client 包、预期 Executor 摘要和 RPC 方法，保持真实 Session consent。
 前台的运行档、根目录和程序映射不能从此连接页重配；需要沿用前台已选只读文件范围或业务进程服务时，分别明确允许。
-macOS 已有显式本机启动和附着；自动发现与 App TerminalSurface 上的入口尚未接线；
-不从终端输出猜测目标，不自动 SSH 转发或恢复旧会话。复现：
+macOS 已有显式本机启动和附着。两端实验 App 现在可被动显示终端中的候选提示；
+用户仍须自己选择实际执行位置，检查在线声明并重新批准。不会从输出猜测目标、自动 SSH 转发或恢复旧会话。复现：
 
 ```sh
 python3 scripts/test-gterm-ipc.py --build tmp/gterm-build
 python3 scripts/test-gterm-inspect.py --build tmp/gterm-build
+python3 scripts/test-gterm-discovery.py --gterm tmp/gterm-build/gterm --observer core/build/test_ext_discovery --tmux /opt/homebrew/bin/tmux
 python3 scripts/mutation-check-gterm-ipc.py --build tmp/gterm-build
 python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --build tmp/gterm-build --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
@@ -139,11 +140,32 @@ gterm plugin unregister --catalog ABSOLUTE_CATALOG_DIRECTORY --expect-revision R
 
 每次分派重新捕获所有登记包并核对固定摘要 / ID / 版本，任一无效项整体拒绝；不会
 静默跳过坏项后选另一个包。参数校验完成后才进入已有 `relay --listen` 的一次性
-前台 IPC，端点目录仍由用户明确选择。终端只出现公开实例就绪诊断；用户在实验 App
-中明确填写目录、公开实例、同一完整命令 / argv，经本机管道或已认证无 PTY SSH
+前台 IPC，端点目录仍由用户明确选择。终端给出公开实例就绪诊断；有控制终端且位于
+前台进程组时，另尝试发送一条有界候选提示。用户在实验 App 中选择候选或明确填写
+目录、公开实例、同一完整命令 / argv，经本机管道或已认证无 PTY SSH
 attach，核对 Client / Executor 并决定本次 Session。业务字节不进入交互终端。
 等待 30 秒、同用户准入、一次消费、拒绝 / 停止 / 关闭及清理沿用 IPC 规则。
-这里没有自动发现 / 自动连接或 TTY 双向能力。
+这只自动发现不可信候选，不自动连接，也没有 TTY 双向能力。
+
+### 被动终端候选（实验）
+
+macOS 终端顶部和 Android 终端菜单提供手动打开候选页的入口，不弹窗或抢焦点。
+提示只含公开实例、声称的 Client 摘要和目录。页面显示来源终端，外层 SSH 主机不等于
+实际执行位置；使用候选只填写目录 / 实例并撤回旧批准，不选择主机或运行程序。
+先批准匹配摘要的 Client，再自行选择实际位置、检查在线声明、确认范围和 Session。
+列表最多八项、提示本机保存三十秒；原 listener 的三十秒期限不被延长。
+
+私有 discovery v1 使用 `ESC ] 777;ghosterm-discovery;1; BASE64 ESC \\`。
+Base64 原文依次为公开实例 16 字节、声称的 Client SHA256 32 字节、目录 UTF-8
+长度 BEu16 和规范绝对目录（2–512 字节）；不包含私有 permit、hostname、程序或回包地址。
+这不是已冻结的业务 wire v1。共享观察器只看有界输入，原始终端字节仍完整直送 Surface，
+未知 OSC / APC / DCS 不会作为候选解析；业务数据继续走独立管道。
+
+发送器单独非阻塞打开控制终端，只在当前前台进程组发送一次，不读取 TTY、不改变
+共享 fd 标志或 termios。无 TTY / 后台作业静默保留手工入口；短写仅尝试 CAN 修复。
+tmux 需用户显式配置 `allow-passthrough on`；检测到 `$TMUX` 默认包一层，嵌套时
+显式设置 `GTERM_DISCOVERY_TMUX_LAYERS=0..4`，不会自动修改 tmux。真实单 / 双层有专项，
+四层仅测帧包装；流控、短写 / SIGKILL、其它终端与完整拓扑矩阵留待集中验收。
 
 目录更新要求 `list` 返回的当前十进制字符串修订号；首次无记录为 `0`。替换既有 ID
 还须 `--expect-digest OLD_SHA256`，无选择覆盖、旧摘要或旧修订均拒绝。登记替换只影响
@@ -173,7 +195,7 @@ python3 -B scripts/test-gterm-catalog.py --build tmp/gterm-build
 目录同步 / 消费式关闭故障；默认 CLI 不含这些注入入口。变异驱动
 `scripts/mutation-check-gterm-catalog.py` 只允许工程 tmp 中的独立检出，真实编译后
 逐组单条正常断言红、同 archive 配置绿、恢复绿和 SHA256。当前目录整链专项实际
-运行 Portable 包与官方 Preview；Node / Exec 目录整链、自动发现、签名安装、完整
+运行 Portable 包与官方 Preview；Node / Exec 目录整链、签名安装、完整
 文件系统 / 并发 / 物理设备矩阵另验，不以 headless C HOST 冒充 App 点击链。
 
 `--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者

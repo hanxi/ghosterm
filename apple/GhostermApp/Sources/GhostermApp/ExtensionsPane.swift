@@ -131,6 +131,19 @@ struct ExtensionsPane: View {
             if let issue {
                 Text(issue).foregroundStyle(.red).textSelection(.enabled)
             }
+            if !model.frontendCandidates.isEmpty {
+                Text("终端候选尚未核实。请审查对应 Client 包，并明确选择实际执行端后检查；来源终端和外层 SSH 不证明执行端身份。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                ForEach(model.frontendCandidates) { candidate in
+                    HStack(alignment: .top) {
+                        Text("\(candidate.sourceDescription)\n\(candidate.offer.directory)\nClient：\(candidate.offer.clientDigest)")
+                            .font(DS.Font.caption).textSelection(.enabled)
+                        Spacer()
+                        Button("移除此候选") { model.dismissFrontendCandidate(candidate.id) }
+                    }
+                }
+            }
+            if let issue = model.frontendDiscoveryIssue { Text(issue).font(DS.Font.caption).foregroundStyle(.secondary) }
 
             ForEach($entries) { $entry in
                 VStack(alignment: .leading, spacing: DS.Padding.s) {
@@ -184,6 +197,16 @@ struct ExtensionsPane: View {
                             }
                             Toggle("连接已有前台 gterm 实例", isOn: $entry.attachExisting)
                                 .accessibilityIdentifier("plugin-ipc-mode")
+                            ForEach(model.frontendCandidates.filter { $0.offer.clientDigest == entry.review.digest }) { candidate in
+                                Button("使用终端候选位置：\(candidate.sourceDescription)") {
+                                    guard model.frontendCandidateIsCurrent(candidate) else { issue = "候选已失效，请重新运行前台命令。"; return }
+                                    entry.attachExisting = true
+                                    entry.ipcDirectory = candidate.offer.directory; entry.ipcInstance = candidate.offer.instance
+                                    entry.foregroundDeclaration = nil; entry.foregroundKey = nil
+                                    entry.remoteProcesses = false; entry.scopedFiles = false; entry.attachmentAllowed = false
+                                    entry.localAllowed = false; entry.clientAuthorized = false; entry.executionDraft.authorized = false
+                                }.accessibilityIdentifier("plugin-discovery-use-\(candidate.id)")
+                            }
                             if entry.attachExisting {
                                 TextField(entry.localConnection ? "本机私有 IPC 目录" : "远端私有 IPC 目录", text: $entry.ipcDirectory)
                                     .accessibilityIdentifier("plugin-ipc-directory")

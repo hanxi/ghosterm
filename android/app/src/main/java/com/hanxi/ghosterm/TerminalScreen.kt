@@ -27,7 +27,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Composable
 fun TerminalScreen(model: SessionsViewModel,
     onRecover: ((TerminalSession) -> Unit)? = null, recoveryBusy: Boolean = false, recoveryError: String? = null,
-    openFiles: () -> Unit) {
+    onPluginCandidates: (() -> Unit)? = null, openFiles: () -> Unit) {
     val session = model.active ?: return
     val controls = model.terminalControls
     var terminal by remember { mutableStateOf<TerminalView?>(null) }
@@ -170,6 +170,10 @@ fun TerminalScreen(model: SessionsViewModel,
                 onClick = { menu = false; keyboardRequestedVisible = true; keyboardRequested = session.id },
                 modifier = Modifier.testTag("terminal-menu-keyboard"))
             DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; leaveTerminal(openFiles) }, modifier = Modifier.testTag("terminal-menu-files"))
+            if (model.frontendCandidates.isNotEmpty() && onPluginCandidates != null) {
+                DropdownMenuItem(text = { Text("前台插件候选（${model.frontendCandidates.size}）") },
+                    onClick = { menu = false; leaveTerminal(onPluginCandidates) }, modifier = Modifier.testTag("plugin-discovery-open"))
+            }
             DropdownMenuItem(text = { Text(if (statusBarVisible) "隐藏系统状态栏" else "显示系统状态栏") },
                 onClick = { menu = false; statusBarVisible = !statusBarVisible }, modifier = Modifier.testTag("terminal-menu-status-bar"))
             DropdownMenuItem(text = { Text("返回主机列表") },
