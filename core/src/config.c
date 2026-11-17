@@ -207,32 +207,34 @@ typedef struct {
 static int
 tokenize(const char *p, const char *end, char ***out_args, int *out_n, token_range_t *range) {
     char **args = NULL;
+    char *buffer = NULL;
     int n = 0;
     size_t cap = 0;
+    *out_args = NULL;
+    *out_n = 0;
     while (p < end) {
         while (p < end && isspace((unsigned char)*p)) {
             p++;
         }
-        if (p >= end) {
-            break;
-        }
-        /* 行内注释：token 开头的未引号 # 注释到行尾。对齐 OpenSSH——ssh -G
-     * 实证：`RemoteForward 9001 localhost:9001 # note` 输出不含 note；
-     * token 中间的 # 不是注释（`HostName foo#bar` 原样保留）。不剥离会
-     * 把注释当 token 进 args：normalize_forward 取到的「最后一个 token」
-     * 不含冒号 → 负差值算长度 → memchr 越界读（SIGBUS，闸门实证）。 */
-        if (*p == '#') {
+        if (p >= end || *p == '#') {
             break;
         }
         const char *token_start = p;
-        char buf[1024];
-        size_t bl = 0;
+        size_t length = 0, capacity = 64;
+        buffer = gt__alloc(capacity);
+        if (!buffer) {
+            goto failed;
+        }
         int quoted = 0;
         while (p < end) {
             char c = *p;
             if (c == '\\' && p + 1 < end) {
                 p++;
                 c = *p;
+                if (c == '\n' || c == '\r') {
+                    gt__set_error("config: physical line continuation is unsupported");
+                    goto failed;
+                }
             } else if (c == '"') {
                 quoted = !quoted;
                 p++;
@@ -240,26 +242,42 @@ tokenize(const char *p, const char *end, char ***out_args, int *out_n, token_ran
             } else if (!quoted && isspace((unsigned char)c)) {
                 break;
             }
-            if (bl + 1 < sizeof buf) {
-                buf[bl++] = c;
+            char *expanded = grow(buffer, &capacity, length + 2, 1);
+            if (!expanded) {
+                goto failed;
             }
+            buffer = expanded;
+            buffer[length++] = c;
             p++;
         }
-        buf[bl] = '\0';
+        if (quoted) {
+            gt__set_error("config: unterminated quote");
+            goto failed;
+        }
+        buffer[length] = '\0';
+        char **expanded = grow(args, &cap, (size_t)n + 2, sizeof *args);
+        if (!expanded) {
+            goto failed;
+        }
+        args = expanded;
         if (range && range->index == n) {
             range->start = token_start;
             range->end = p;
         }
-        args = grow(args, &cap, (size_t)n + 2, sizeof *args);
-        if (!args) {
-            return -1;
-        }
-        args[n++] = gt__strdup(buf);
+        args[n++] = buffer;
+        buffer = NULL;
         args[n] = NULL;
     }
     *out_args = args;
     *out_n = n;
     return 0;
+failed:
+    free(buffer);
+    for (int i = 0; i < n; i++) {
+        free(args[i]);
+    }
+    free(args);
+    return -1;
 }
 
 static int glob_match(const char *pat, const char *str) {
@@ -304,10 +322,13 @@ static int glob_match(const char *pat, const char *str) {
  * 追加新节点——若槽位靠 nnodes 推导而外层尚未 ++，递归会**复用同一
  * 槽位**覆盖外层节点（表现为 raw 被清 NULL、to_string 崩溃）。 */
 static gt_node_t *node_new(gt_config_t *cfg) {
-    cfg->nodes = grow(cfg->nodes, &cfg->cap, cfg->nnodes + 1, sizeof(gt_node_t));
-    if (!cfg->nodes) {
+    gt_node_t *expanded = grow(cfg->nodes, &cfg->cap, cfg->nnodes + 1, sizeof(gt_node_t));
+    if (!expanded) {
+        cfg->include_error = 1;
+        gt__set_error("config nodes: out of memory");
         return NULL;
     }
+    cfg->nodes = expanded;
     gt_node_t *n = &cfg->nodes[cfg->nnodes];
     memset(n, 0, sizeof *n);
     n->block = -1;
@@ -511,6 +532,11 @@ static void parse_depth(gt_config_t *cfg,
                         int included,
                         int depth,
                         const char *source_path) {
+    if (memchr(text, 0, len)) {
+        cfg->include_error = 1;
+        gt__set_error("config: embedded NUL");
+        return;
+    }
     const char *p = text, *end = text + len;
     size_t source_line = 0;
     while (p < end) {
@@ -530,6 +556,11 @@ static void parse_depth(gt_config_t *cfg,
             return;
         }
         node->raw = gt__alloc(raw_len + 1);
+        if (!node->raw) {
+            cfg->include_error = 1;
+            gt__set_error("config raw line: out of memory");
+            return;
+        }
         memcpy(node->raw, p, raw_len);
         node->raw[raw_len] = '\0';
         node->included = included;
@@ -554,22 +585,39 @@ static void parse_depth(gt_config_t *cfg,
                 q++;
             }
             kw = lower_dup(ks, (size_t)(q - ks));
+            if (!kw) {
+                cfg->include_error = 1;
+                gt__set_error("config keyword: out of memory");
+                return;
+            }
+            while (q < le && (*q == ' ' || *q == '\t')) {
+                q++;
+            }
             if (q < le && *q == '=') {
                 q++; /* 跳过 '='，值从其后 tokenize */
             }
             if (tokenize(q, le, &args, &nargs, NULL) != 0) {
                 free(kw);
+                cfg->include_error = 1;
                 return;
             }
         }
 
         size_t idx = (size_t)(node - cfg->nodes); /* realloc 后重取 */
         if (kw && strcmp(kw, "host") == 0 && nargs > 0) {
-            cfg->blocks = grow(cfg->blocks, &cfg->bcap, cfg->nblocks + 1, sizeof(gt_block_t));
-            if (!cfg->blocks) {
+            gt_block_t *expanded =
+                grow(cfg->blocks, &cfg->bcap, cfg->nblocks + 1, sizeof(gt_block_t));
+            if (!expanded) {
                 free(kw);
+                for (int i = 0; i < nargs; i++) {
+                    free(args[i]);
+                }
+                free(args);
+                cfg->include_error = 1;
+                gt__set_error("config blocks: out of memory");
                 return;
             }
+            cfg->blocks = expanded;
             gt_block_t *b = &cfg->blocks[cfg->nblocks];
             memset(b, 0, sizeof *b);
             b->patterns = args;
@@ -1457,6 +1505,10 @@ static char **render_edit(const gt_config_edit_t *e,
         }
         for (size_t i = 0; i < nv; i++) {
             out[n++] = mkline(indent, kwspell, sep, e->values[i]);
+            if (!out[n - 1]) {
+                free_lines(out, n);
+                return NULL;
+            }
         }
     } else {
         char *joined = join_tokens(e->values, nv, ' ');
@@ -1564,6 +1616,68 @@ int gt_config_inspect_host(const gt_config_t *cfg, const char *alias, gt_config_
     }
     effmap_free(&values);
     return GT_OK;
+}
+
+static bool render_per_line(const char *kw);
+
+int gt_config_directive_at(const gt_config_t *cfg,
+                           const char *alias,
+                           size_t index,
+                           gt_config_directive_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof *out);
+    }
+    if (!cfg || !alias || !*alias || !out) {
+        gt__set_error("config_directive_at: invalid arguments");
+        return GT_ERR_INVALID_ARG;
+    }
+    int block = find_block_for_alias(cfg, alias);
+    if (block < 0) {
+        return GT_ERR_NOT_FOUND;
+    }
+    size_t matching_blocks = 0;
+    for (size_t b = 0; b < cfg->nblocks; b++) {
+        for (int p = 0; p < cfg->blocks[b].npatterns; p++) {
+            const char *pattern = cfg->blocks[b].patterns[p];
+            if (*pattern != '!' && kw_eq(pattern, alias)) {
+                matching_blocks++;
+                break;
+            }
+        }
+    }
+    if (matching_blocks != 1) {
+        gt__set_error("config_directive_at: ambiguous Host block");
+        return GT_ERR_UNSUPPORTED;
+    }
+    for (size_t i = 0; i < cfg->nnodes; i++) {
+        if (kw_eq(cfg->nodes[i].keyword, "match")) {
+            gt__set_error("config_directive_at: Match requires a conditional evaluator");
+            return GT_ERR_UNSUPPORTED;
+        }
+    }
+    const gt_node_t *header = &cfg->nodes[cfg->blocks[block].header_node];
+    size_t found = 0;
+    for (size_t i = 0; i < cfg->nnodes; i++) {
+        const gt_node_t *node = &cfg->nodes[i];
+        if (node->block != block || node->included != header->included ||
+            strcmp(node->source_path, header->source_path) || !node->keyword ||
+            kw_eq(node->keyword, "host")) {
+            continue;
+        }
+        if (found++ != index) {
+            continue;
+        }
+        out->keyword = node->keyword;
+        out->arguments = (const char *const *)node->args;
+        out->argument_count = (size_t)node->nargs;
+        out->raw = node->raw;
+        out->source_path = node->source_path;
+        out->source_line = node->source_line;
+        out->included = node->included != 0;
+        out->render_per_line = render_per_line(node->keyword);
+        return GT_OK;
+    }
+    return GT_ERR_NOT_FOUND;
 }
 
 int gt_config_identity_at(const gt_config_t *cfg,
@@ -1682,34 +1796,30 @@ static char *elist_join(const elist_t *l) {
     return out;
 }
 
-/* 用新文本替换 cfg 内容（重新解析，派生状态自洽）。 */
-static int config_reparse(gt_config_t *cfg, const char *text) {
-    for (size_t i = 0; i < cfg->nnodes; i++) {
-        gt_node_t *n = &cfg->nodes[i];
-        free(n->raw);
-        free(n->keyword);
-        free(n->source_path);
-        if (n->args) {
-            for (int a = 0; a < n->nargs; a++) {
-                free(n->args[a]);
-            }
-            free(n->args);
-        }
-    }
-    free(cfg->nodes);
-    free(cfg->blocks);
-    cfg->nodes = NULL;
-    cfg->blocks = NULL;
-    cfg->nnodes = cfg->cap = cfg->nblocks = cfg->bcap = 0;
-    parse_text(cfg, text, strlen(text), 0);
-    return 0;
-}
+/* Builds a complete candidate; ownership of text transfers on every result. */
+static int config_replace_checked(gt_config_t *cfg, char *text);
 
 int gt_config_edit(
     gt_config_t *cfg, const char *alias, const gt_config_edit_t *edits, size_t nedits, bool reset) {
     if (!cfg || !alias || !*alias) {
         gt__set_error("config_edit: cfg/alias 不能为空");
         return GT_ERR_INVALID_ARG;
+    }
+    if (strpbrk(alias, "\r\n\t ") || (nedits && !edits)) {
+        gt__set_error("config_edit: invalid alias or edits");
+        return GT_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < nedits; i++) {
+        if (!edits[i].keyword || !*edits[i].keyword || strpbrk(edits[i].keyword, "\r\n\t =#")) {
+            gt__set_error("config_edit: invalid keyword");
+            return GT_ERR_INVALID_ARG;
+        }
+        for (size_t v = 0; edits[i].values && edits[i].values[v]; v++) {
+            if (strpbrk(edits[i].values[v], "\r\n")) {
+                gt__set_error("config_edit: a value cannot introduce another physical line");
+                return GT_ERR_INVALID_ARG;
+            }
+        }
     }
     elist_t l;
     if (elist_from_config(cfg, &l) != 0) {
@@ -1768,7 +1878,10 @@ int gt_config_edit(
                 size_t rn = 0;
                 char **rl = render_edit(&edits[i], "  ", edits[i].keyword, " ", &rn);
                 if (!rl) {
-                    continue; /* 删除指令：新块里无事可做 */
+                    if (vcount(edits[i].values)) {
+                        ok = false;
+                    }
+                    continue; /* Empty values delete; allocation failure must not succeed. */
                 }
                 for (size_t k = 0; k < rn; k++) {
                     ins[ni++] = rl[k];
@@ -1820,7 +1933,8 @@ int gt_config_edit(
                 sep = gt__strdup(" ");
             }
             size_t rn = 0;
-            char **rl = render_edit(e, indent, kwspell ? kwspell : e->keyword, sep, &rn);
+            char **rl =
+                (indent && kwspell && sep) ? render_edit(e, indent, kwspell, sep, &rn) : NULL;
             free(indent);
             free(kwspell);
             free(sep);
@@ -1862,8 +1976,7 @@ int gt_config_edit(
         if (!text) {
             rc = GT_ERR_INTERNAL;
         } else {
-            config_reparse(cfg, text);
-            free(text);
+            rc = config_replace_checked(cfg, text);
         }
     }
     elist_free(&l);

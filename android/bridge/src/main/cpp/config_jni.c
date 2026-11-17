@@ -128,6 +128,74 @@ done:
     return result;
 }
 
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_directiveBytes(
+    JNIEnv *env, jobject self, jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) {
+        return NULL;
+    }
+    char *alias = utf8(env, name);
+    jobjectArray result = NULL;
+    gt_config_host_info_t owner = {0};
+    gt_config_directive_info_t entry = {0};
+    size_t count = 0, cells = 0;
+    int rc = GT_ERR_INVALID_ARG;
+    if (!alias) {
+        goto done;
+    }
+    if (gt_config_inspect_host(cfg, alias, &owner) != GT_OK) {
+        fail(env, "找不到主机块");
+        goto done;
+    }
+    while ((rc = gt_config_directive_at(cfg, alias, count, &entry)) == GT_OK && count < 4096) {
+        if (entry.argument_count > 4096 || cells > 65536 - 7 - entry.argument_count) {
+            fail(env, "主机块指令超过读取预算");
+            goto done;
+        }
+        cells += 7 + entry.argument_count;
+        count++;
+    }
+    if (rc != GT_ERR_NOT_FOUND) {
+        fail(env, "主机块重复、包含条件规则或超过读取预算，不能作为可编辑快照");
+        goto done;
+    }
+    jclass type = (*env)->FindClass(env, "[B");
+    if (!type) {
+        goto done;
+    }
+    result = (*env)->NewObjectArray(env, (jsize)cells, type, NULL);
+    size_t offset = 0;
+    for (size_t i = 0; result && i < count && !(*env)->ExceptionCheck(env); i++) {
+        if (gt_config_directive_at(cfg, alias, i, &entry) != GT_OK) {
+            fail(env, "主机块快照不完整");
+            break;
+        }
+        char line[32], arguments[32];
+        snprintf(line, sizeof line, "%zu", entry.source_line);
+        snprintf(arguments, sizeof arguments, "%zu", entry.argument_count);
+        const char *fields[] = {entry.keyword,
+                                entry.source_path,
+                                line,
+                                entry.included ? "1" : "0",
+                                entry.render_per_line ? "1" : "0",
+                                entry.raw,
+                                arguments};
+        for (size_t f = 0; f < 7 + entry.argument_count && !(*env)->ExceptionCheck(env); f++) {
+            const char *text = f < 7 ? fields[f] : entry.arguments[f - 7];
+            jbyteArray field = bytes(env, text);
+            if (field) {
+                (*env)->SetObjectArrayElement(env, result, (jsize)offset++, field);
+                (*env)->DeleteLocalRef(env, field);
+            }
+        }
+    }
+done:
+    free(alias);
+    gt_config_free(cfg);
+    return result;
+}
+
 JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_hostsBytes(
     JNIEnv *env, jobject self, jbyteArray input) {
     (void)self;

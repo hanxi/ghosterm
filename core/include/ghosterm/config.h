@@ -65,6 +65,27 @@ typedef struct {
  * Only a single main-file block is editable by the alias-based edit API. */
 int gt_config_inspect_host(const gt_config_t *cfg, const char *alias, gt_config_host_info_t *out);
 
+/* Parsed directives physically owned by the first literal Host block, in source
+ * order. Borrowed strings/argument array remain valid until edit/free. Included
+ * expansion rows are excluded from a main-file block; inherited/global rules
+ * are not block contents. Duplicate literal blocks and Match are unsupported.
+ * NOT_FOUND means absent alias/end; errors/end zero the entire output. */
+typedef struct {
+    const char *keyword;
+    const char *const *arguments;
+    size_t argument_count;
+    const char *raw;
+    const char *source_path;
+    size_t source_line;
+    bool included;
+    bool render_per_line;
+} gt_config_directive_info_t;
+
+int gt_config_directive_at(const gt_config_t *cfg,
+                           const char *alias,
+                           size_t index,
+                           gt_config_directive_info_t *out);
+
 /* IdentityFile is cumulative, not first-wins. Enumerate parsed entries from
  * matching rules and from the first literal Host block, in source order.
  * Values are unquoted parser tokens, without tilde/token expansion or defaults.

@@ -24,6 +24,27 @@ object ConfigBridge {
         editIdentityBytes(configuration, alias.toByteArray(Charsets.UTF_8), values.map { it.toByteArray(Charsets.UTF_8) }.toTypedArray())
     private external fun editIdentityBytes(configuration: ByteArray, alias: ByteArray, values: Array<ByteArray>): ByteArray
 
+    fun directives(configuration: ByteArray, alias: String): List<ConfigDirectiveInfo> {
+        val fields = directiveBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map {
+            Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(it)).toString()
+        }
+        val result = mutableListOf<ConfigDirectiveInfo>()
+        var offset = 0
+        while (offset < fields.size) {
+            check(fields.size - offset >= 7) { "主机块指令快照不完整" }
+            val count = fields[offset + 6].toInt()
+            check(count in 0..4096 && fields.size - offset >= 7 + count)
+            result += ConfigDirectiveInfo(fields[offset], fields.subList(offset + 7, offset + 7 + count).toList(),
+                fields[offset + 5], fields[offset + 1], fields[offset + 2].toInt(),
+                fields[offset + 3] == "1", fields[offset + 4] == "1")
+            offset += 7 + count
+        }
+        return result
+    }
+    private external fun directiveBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
+
     fun connectionIssues(configuration: ByteArray, alias: String): List<ConnectionIssue> =
         connectionIssueBytes(configuration, alias.toByteArray(Charsets.UTF_8))
             .map { it.toString(Charsets.UTF_8) }.also { check(it.size % 4 == 0) }
@@ -64,3 +85,5 @@ data class ConnectionIssue(val keyword: String, val sourcePath: String, val sour
 data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>, val jumps: List<PreparedSSH> = emptyList())
 data class ConfigIdentityInfo(val value: String, val sourcePath: String, val sourceHeader: String,
     val sourceLine: Int, val included: Boolean, val explicitValue: Boolean, val effective: Boolean)
+data class ConfigDirectiveInfo(val keyword: String, val arguments: List<String>, val raw: String,
+    val sourcePath: String, val sourceLine: Int, val included: Boolean, val renderPerLine: Boolean)

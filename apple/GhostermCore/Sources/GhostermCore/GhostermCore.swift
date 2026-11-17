@@ -96,6 +96,16 @@ public struct ConfigHostInfo: Equatable {
     public let port: ConfigFieldInfo
 }
 
+public struct ConfigDirectiveInfo: Equatable {
+    public let keyword: String
+    public let arguments: [String]
+    public let raw: String
+    public let sourcePath: String
+    public let sourceLine: Int
+    public let included: Bool
+    public let renderPerLine: Bool
+}
+
 public struct SSHConnectionIssue: Hashable, Sendable {
     public let keyword, sourcePath: String
     public let sourceLine: Int
@@ -124,6 +134,7 @@ public final class SSHConfig {
     private init(handle: OpaquePointer) { self.handle = handle }
 
     public convenience init(contents: String) throws {
+        guard !contents.utf8.contains(0) else { throw GhostermError.failed("SSH 配置不能包含 NUL") }
         var h: OpaquePointer?
         contents.withCString { h = gt_config_parse($0, strlen($0)) }
         guard let handle = h else { throw GhostermError.failed(Ghosterm.lastError) }
@@ -134,6 +145,16 @@ public final class SSHConfig {
         var h: OpaquePointer?
         path.withCString { h = gt_config_parse_file($0) }
         guard let handle = h else { throw GhostermError.failed(Ghosterm.lastError) }
+        guard let bytes = gt_config_to_string(handle) else {
+            gt_config_free(handle)
+            throw GhostermError.failed("无法读取完整 SSH 配置")
+        }
+        let valid = String(validatingCString: bytes) != nil
+        free(bytes)
+        guard valid else {
+            gt_config_free(handle)
+            throw GhostermError.failed("SSH 配置不是有效 UTF-8，不能无损编辑")
+        }
         self.init(handle: handle)
     }
 
@@ -200,8 +221,38 @@ public final class SSHConfig {
         return entries
     }
 
+    /// Copy the native lexical view; no second SSH parser lives in the UI.
+    public func directives(alias: String) throws -> [ConfigDirectiveInfo] {
+        guard !alias.utf8.contains(0) else { throw GhostermError.failed("别名不能包含 NUL") }
+        _ = try inspect(alias: alias)
+        var result: [ConfigDirectiveInfo] = []
+        for index in 0...4096 {
+            var item = gt_config_directive_info_t()
+            let code = alias.withCString { gt_config_directive_at(handle, $0, index, &item) }
+            if code == GT_ERR_NOT_FOUND.rawValue { return result }
+            try check(code)
+            guard index < 4096, item.argument_count <= 4096 else {
+                throw GhostermError.failed("块内指令或参数过多（最多 4096）")
+            }
+            func exact(_ pointer: UnsafePointer<CChar>?) throws -> String {
+                guard let pointer, let text = String(validatingCString: pointer) else {
+                    throw GhostermError.failed("块内指令不是有效 UTF-8，不能无损编辑")
+                }
+                return text
+            }
+            let arguments = try (0..<Int(item.argument_count)).map { try exact(item.arguments![$0]) }
+            result.append(ConfigDirectiveInfo(keyword: try exact(item.keyword), arguments: arguments,
+                raw: try exact(item.raw), sourcePath: try exact(item.source_path),
+                sourceLine: Int(item.source_line), included: item.included, renderPerLine: item.render_per_line))
+        }
+        return result
+    }
+
     /// 稀疏编辑（除目标行外逐字节不变）；`values == nil` 表示删除该指令。
     public func edit(alias: String, _ edits: [(String, [String]?)], reset: Bool = false) throws {
+        guard !alias.utf8.contains(0), edits.allSatisfy({ key, values in
+            !key.utf8.contains(0) && (values?.allSatisfy { !$0.utf8.contains(0) } ?? true)
+        }) else { throw GhostermError.failed("配置编辑不能包含 NUL") }
         let kwsMut = edits.map { strdup($0.0) }
         var flatMut: [UnsafeMutablePointer<CChar>?] = []
         var offsets: [Int32] = []
