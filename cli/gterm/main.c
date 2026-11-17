@@ -3,6 +3,7 @@
 #include "ghosterm.h"
 #include "stdio.h"
 #include "ipc.h"
+#include "catalog.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -26,6 +27,14 @@ static int usage(void) {
           "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
           "DIGEST [DIRECTORY DIGEST]...\n"
           "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
+          "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
+          "       gterm plugin register-development --catalog DIRECTORY --expect-revision N "
+          "--host-json FILE --trust-development-digest SHA256 [--expect-digest OLD] "
+          "-- ABSOLUTE_PACKAGE_DIRECTORY [stdio profile options...]\n"
+          "       gterm plugin unregister --catalog DIRECTORY --expect-revision N "
+          "--id ID --expect-digest SHA256\n"
+          "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
+          "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
           "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
           "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
           "[ARG...]\n"
@@ -44,7 +53,7 @@ static int usage(void) {
 
 /* JSON escapes all non-ASCII scalars, including terminal/bidi controls. Inputs
  * below are already validated UTF-8 by Core; ASCII paths never get interpolated. */
-static void json_string(const char *text) {
+void gterm_json_string(const char *text) {
     const unsigned char *p = (const unsigned char *)text;
     putchar('"');
     while (*p) {
@@ -77,9 +86,9 @@ static void json_string(const char *text) {
 
 static int failure(const char *kind, const char *code, int exit_code) {
     fputs("{\"result\":", stdout);
-    json_string(kind);
+    gterm_json_string(kind);
     fputs(",\"code\":", stdout);
-    json_string(code);
+    gterm_json_string(code);
     puts(",\"authorizationGranted\":false,\"publisherAuthenticated\":false}");
     return exit_code;
 }
@@ -223,13 +232,13 @@ static int package_check(const char *directory, const char *host_path) {
         goto done;
     }
     fputs("{\"result\":\"compatible\",\"hostEvidence\":\"caller-supplied\",\"id\":", stdout);
-    json_string(metadata.id);
+    gterm_json_string(metadata.id);
     fputs(",\"version\":", stdout);
-    json_string(metadata.version);
+    gterm_json_string(metadata.version);
     fputs(",\"publisher\":", stdout);
-    json_string(metadata.publisher);
+    gterm_json_string(metadata.publisher);
     fputs(",\"packageDigest\":", stdout);
-    json_string(metadata.package_digest);
+    gterm_json_string(metadata.package_digest);
     fputs(",\"authorizationGranted\":false,\"publisherAuthenticated\":false,\"commands\":[",
           stdout);
     for (uint32_t i = 0; i < count; i++) {
@@ -237,11 +246,11 @@ static int package_check(const char *directory, const char *host_path) {
             putchar(',');
         }
         fputs("{\"path\":", stdout);
-        json_string(commands[i].path);
+        gterm_json_string(commands[i].path);
         fputs(",\"title\":", stdout);
-        json_string(commands[i].title);
+        gterm_json_string(commands[i].title);
         fputs(",\"argsSchema\":", stdout);
-        json_string((const char *)commands[i].args_schema);
+        gterm_json_string((const char *)commands[i].args_schema);
         putchar('}');
     }
     puts("]}");
@@ -456,17 +465,17 @@ done:
         return failure(kind, code, result);
     }
     fputs("{\"result\":\"resolved\",\"hostEvidence\":\"caller-supplied\",\"id\":", stdout);
-    json_string(metadata.id);
+    gterm_json_string(metadata.id);
     fputs(",\"version\":", stdout);
-    json_string(metadata.version);
+    gterm_json_string(metadata.version);
     fputs(",\"packageDigest\":", stdout);
-    json_string(metadata.package_digest);
+    gterm_json_string(metadata.package_digest);
     fputs(",\"command\":", stdout);
-    json_string(contribution.path);
+    gterm_json_string(contribution.path);
     fputs(",\"title\":", stdout);
-    json_string(contribution.title);
+    gterm_json_string(contribution.title);
     fputs(",\"argsSchema\":", stdout);
-    json_string((const char *)contribution.args_schema);
+    gterm_json_string((const char *)contribution.args_schema);
     puts(",\"authorizationGranted\":false,\"publisherAuthenticated\":false}");
     return 0;
 }
@@ -495,8 +504,12 @@ int main(int argc, char **argv) {
         printf("{\"portableJs\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"foreground-one-"
                "shot\"}\n",
                available ? "available" : "unsupported",
-               available ? "explicit-stdio-or-ipc" : "unsupported");
+               available ? "explicit-catalog-stdio-or-ipc" : "unsupported");
         result = available ? 0 : 4;
+    } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
+               (!strcmp(argv[2], "register-development") || !strcmp(argv[2], "unregister") ||
+                !strcmp(argv[2], "list"))) {
+        result = gterm_catalog_manage(argv[2], argc - 3, argv + 3, &interrupted);
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") && !strcmp(argv[2], "resolve")) {
         result = package_resolve(argc - 3, argv + 3);
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") && !strcmp(argv[2], "check")) {
@@ -509,6 +522,8 @@ int main(int argc, char **argv) {
         }
     } else if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--help"))) {
         result = usage();
+    } else if (getenv("GTERM_CATALOG") || (argc > 1 && argv[1][0] == '-')) {
+        result = gterm_catalog_dispatch(argc - 1, argv + 1, &interrupted);
     } else {
         result = failure("unsupported", "COMMAND_ACTIVATION_UNAVAILABLE", 4);
     }

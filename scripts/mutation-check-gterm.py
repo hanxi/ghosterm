@@ -16,13 +16,13 @@ def main():
         ('host-link', 'O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK', 'O_RDONLY | O_CLOEXEC | O_NONBLOCK', 'host-link'),
         ('directory-link', 'open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)', 'open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC)', 'directory-link'),
         ('unknown-exit', '                         info.error == GT_EXT_PACKAGE_UNKNOWN       ? 3\n', '                         info.error == GT_EXT_PACKAGE_UNKNOWN       ? 4\n', 'unknown'),
-        ('package-digest', '    json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    json_string(metadata.package_digest);\n', '    json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    json_string(metadata.manifest_digest);\n', 'compatible'),
+        ('package-digest', '    gterm_json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    gterm_json_string(metadata.package_digest);\n', '    gterm_json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    gterm_json_string(metadata.manifest_digest);\n', 'compatible'),
         ('terminal-escape', 'c < 32 || c >= 127', 'c < 32 || c > 0x10ffff', 'compatible'),
         ('activation-exit', '"COMMAND_ACTIVATION_UNAVAILABLE", 4', '"COMMAND_ACTIVATION_UNAVAILABLE", 0', 'no-activation'),
     ]
     if args.stdio:
         cases = [
-            ('tty', 'if (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO))', 'if (false && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'tty'),
+            ('tty', 'if (!validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'if (false && !validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'tty'),
             ('trust-digest', 'if (strcmp(metadata.package_digest, trusted))', 'if (false && strcmp(metadata.package_digest, trusted))', 'digest'),
             ('selected-command', 'if (!selected)', 'if (false && !selected)', 'command'),
             ('consent', '        if (state == GT_EXT_SESSION_ACTIVE) {\n', '        if (state < GT_EXT_SESSION_ENDING) {\n', 'deny'),

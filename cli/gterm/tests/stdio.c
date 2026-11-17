@@ -131,7 +131,8 @@ int main(int argc, char **argv) {
                       "--instance",
                       instance,
                       "--",
-                      "fixture",
+                      getenv("GT_GTERM_FIXTURE_COMMAND") ? getenv("GT_GTERM_FIXTURE_COMMAND")
+                                                         : "fixture",
                       "中文",
                       "",
                       "';throw Error('injected');//",
@@ -393,6 +394,16 @@ int main(int argc, char **argv) {
                                  .features = GT_EXT_FEATURE_REQUESTS};
     strcpy(c.plugin_id, preview ? "org.ghosterm.preview" : "org.ghosterm.fixture");
     strcpy(c.plugin_version, "0.1.0");
+    const char *fixture_id = getenv("GT_GTERM_FIXTURE_PLUGIN_ID");
+    const char *fixture_version = getenv("GT_GTERM_FIXTURE_PLUGIN_VERSION");
+    if (fixture_id) {
+        CHECK(strlen(fixture_id) < sizeof(c.plugin_id));
+        strcpy(c.plugin_id, fixture_id);
+    }
+    if (fixture_version) {
+        CHECK(strlen(fixture_version) < sizeof(c.plugin_version));
+        strcpy(c.plugin_version, fixture_version);
+    }
     strcpy(c.sdk_version, "1.0.0");
     strcpy(c.host_version, "0.1.0");
     strcpy(c.client_digest, client_digest);

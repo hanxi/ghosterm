@@ -1,8 +1,8 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC、实验 App 的显式 SSH attach 和 macOS App 本机直接启动；普通命令分发与安装/升级仍未实现。
-它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
+当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor、一次性前台 IPC、实验 App 的显式 SSH attach、本机启动，以及受信开发目录的持久登记和普通命令分派。
+它不内置业务命令；未配置目录时保留 `COMMAND_ACTIVATION_UNAVAILABLE`。自动终端发现、执行端签名安装 / 升级仍待接。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
 
@@ -94,6 +94,76 @@ python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --build tmp/gt
 
 测试使用工程内隔离 endpoint 和真实 Core Host Session；变异只编译 CLI 副本，
 ASan/UBSan 覆盖 CLI 对象，Core archive 与 native Host / 配置对照共享且不被修改。
+
+### 执行端开发目录与普通命令（实验）
+
+先创建本用户拥有的两个规范绝对路径目录，权限均为 0700：一个保存目录登记，另一个
+承载本次前台 IPC。没有默认扫描 cwd / HOME、自动安装、常驻进程或终端字节流路由。
+以下是登记的语法；占位路径 / 摘要需由调用方明确提供：
+
+```text
+gterm plugin list --catalog ABSOLUTE_CATALOG_DIRECTORY
+gterm plugin register-development --catalog ABSOLUTE_CATALOG_DIRECTORY --expect-revision 0 --host-json HOST_JSON --trust-development-digest EXECUTOR_SHA256 -- ABSOLUTE_PACKAGE_DIRECTORY --client-digest CLIENT_SHA256 --root workspace @cwd
+gterm [--catalog ABSOLUTE_CATALOG_DIRECTORY] [--endpoint ABSOLUTE_ENDPOINT_DIRECTORY] [--select PLUGIN_ID EXECUTOR_SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]
+gterm plugin unregister --catalog ABSOLUTE_CATALOG_DIRECTORY --expect-revision REVISION --id PLUGIN_ID --expect-digest EXECUTOR_SHA256
+```
+
+`register-development` 先经公共 Core 捕获包、完整性 / 兼容性检查并核对调用方提供的
+开发摘要，只登记 Executor。它保存包 ID / 版本 / 摘要 / 原目录、调用方的 host 观察
+以及目录之后的 stdio 启动配置；不执行模块，不把 publisher 声明当成身份认证，不
+授予 Session 权限。host 观察不是已连接服务的证明，实际 stdio 仍按真实配置重新检查。
+根路径可显式选 `@cwd`：每次调用使用本次前台进程的 cwd，由 fd 跨 IPC 等待保留，
+不保存登记时 cwd，也不把任意插件字符串解释为路径。固定绝对根不改变原行为；未选
+该配置时不自动授权 cwd。Preview 的参数仍受官方包的规范相对路径限制，完整 `./` /
+绝对路径等规范化矩阵另验。
+配置中的固定根目录、Node / SDK 与程序路径必须为规范绝对路径，固定参数按原始 argv
+保存。只保存额外环境变量的名字，运行时仍取执行端显式选择的值。包 / 运行档 / 根 /
+业务程序授权及每次 Session consent 各自保留，不能靠登记绕过。
+
+登记完成后可为当前 shell 显式设置 `GTERM_CATALOG` / `GTERM_ENDPOINT`（与上述两个
+全局选项同义），再直接运行 `gterm preview path` 或插件贡献的其它命令。CLI 将 argv
+按声明 token 匹配命令，经 Core 注册表解析冲突并解码业务参数；不会自动选最长前缀、
+按安装顺序抢占或解释 shell。重叠贡献要求 `--select ID DIGEST`；`--command` 可额外
+固定完整规范命令，必须与所选贡献和实际 token 一致。空参数、Unicode 和字面引号保留。
+
+每次分派重新捕获所有登记包并核对固定摘要 / ID / 版本，任一无效项整体拒绝；不会
+静默跳过坏项后选另一个包。参数校验完成后才进入已有 `relay --listen` 的一次性
+前台 IPC，端点目录仍由用户明确选择。终端只出现公开实例就绪诊断；用户在实验 App
+中明确填写目录、公开实例、同一完整命令 / argv，经本机管道或已认证无 PTY SSH
+attach，核对 Client / Executor 并决定本次 Session。业务字节不进入交互终端。
+等待 30 秒、同用户准入、一次消费、拒绝 / 停止 / 关闭及清理沿用 IPC 规则。
+这里没有自动发现 / 自动连接或 TTY 双向能力。
+
+目录更新要求 `list` 返回的当前十进制字符串修订号；首次无记录为 `0`。替换既有 ID
+还须 `--expect-digest OLD_SHA256`，无选择覆盖、旧摘要或旧修订均拒绝。登记替换只影响
+后续命令；运行选择在共享目录锁下固定，释放锁后保留本次固定配置，旧进程仍须自己
+完成 Session 或显式停止。`unregister` 只改登记记录，不删除用户的开发目录 / 文件。
+
+记录为未冻结的 CLI 私有二进制格式，与 App 的 Client 版本选择 JSON 无关。目录最多
+32 项、文件最多 1 MiB；每项启动配置最多 256 个字符串 / 32 KiB，每字符串最多
+4096 字节，host 观察最多 64 KiB。全部文本严格 UTF-8，拒绝 NUL、尾部数据、损坏 /
+超限记录以及不满足 owner / 模式 / 普通文件 / 单链接约束的记录和锁；最终路径不跟
+符号链接。不覆盖未知文件或自动修复损坏记录。同账户恶意 native 程序不在此边界内。
+
+更新使用协作 `fcntl` 锁、原修订 / 文件身份复核、新建 0600 临时文件、文件 fsync、
+原子 rename 与目录 fsync。失败不删替换文件；rename 后目录同步失败返回非零并保留
+`committed=true, durabilityConfirmed=false`，此时先重新观察，不能盲目重放旧更新。
+关闭失败不得先输出成功。SIGKILL 可能留下未知暂存，不自动删除 / 恢复。
+
+基础退出码沿用 2/3/4/5/6/130，命令冲突 8、旧选择 / 修订 9、未找到 10、目录忙 11。
+有序传输结束仍不等于业务成功；Session 和明确 RPC 回执是实际结果依据。
+
+```sh
+python3 -B scripts/test-gterm-catalog.py --build tmp/gterm-build
+```
+
+普通档默认跑 53 个场景。显式 `GHOSTERM_GTERM_TESTS=ON` 加
+`GHOSTERM_GTERM_CATALOG_FAULTS=ON` 的专用测试构建另以 `--faults` 加三项文件同步 /
+目录同步 / 消费式关闭故障；默认 CLI 不含这些注入入口。变异驱动
+`scripts/mutation-check-gterm-catalog.py` 只允许工程 tmp 中的独立检出，真实编译后
+逐组单条正常断言红、同 archive 配置绿、恢复绿和 SHA256。当前目录整链专项实际
+运行 Portable 包与官方 Preview；Node / Exec 目录整链、自动发现、签名安装、完整
+文件系统 / 并发 / 物理设备矩阵另验，不以 headless C HOST 冒充 App 点击链。
 
 `--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者
 签名认证，也不代替 Host 的本次 Session 决定。包捕获、完整性/兼容检查、摘要和完整

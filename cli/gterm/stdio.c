@@ -206,25 +206,28 @@ static bool close_owners(gt_ext_runtime_t **runtime,
     return ok;
 }
 
+int gterm_stdio_option_arity(const char *option) {
+    return !strcmp(option, "--allow-process-execution") ? 0
+           : !strcmp(option, "--process-program")       ? 4
+           : !strcmp(option, "--node-runtime")          ? 3
+           : !strcmp(option, "--node-sdk") || !strcmp(option, "--root") ||
+                   !strcmp(option, "--process-argument")
+               ? 2
+           : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
+                   !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
+                   !strcmp(option, "--host-method") || !strcmp(option, "--process-environment") ||
+                   !strcmp(option, "--client-capability")
+               ? 1
+               : -1;
+}
+
 int gterm_stdio_invocation_index(int argc, char **argv) {
     for (int at = 0; at < argc;) {
         const char *option = argv[at];
         if (!strcmp(option, "--")) {
             return at + 2 < argc ? at : -1;
         }
-        int count =
-            !strcmp(option, "--allow-process-execution") ? 0
-            : !strcmp(option, "--process-program")       ? 4
-            : !strcmp(option, "--node-runtime")          ? 3
-            : !strcmp(option, "--node-sdk") || !strcmp(option, "--root") ||
-                    !strcmp(option, "--process-argument")
-                ? 2
-            : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
-                    !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
-                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment") ||
-                    !strcmp(option, "--client-capability")
-                ? 1
-                : -1;
+        int count = gterm_stdio_option_arity(option);
         if (count < 0 || count >= argc - at) {
             return -1;
         }
@@ -233,7 +236,7 @@ int gterm_stdio_invocation_index(int argc, char **argv) {
     return -1;
 }
 
-int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
+static int stdio_run(int argc, char **argv, volatile sig_atomic_t *cancelled, bool validate_only) {
     if (gterm_stdio_invocation_index(argc, argv) < 0) {
         return diagnostic("incomplete or unknown stdio options", 2);
     }
@@ -411,7 +414,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     const char *directory = argv[at + 1], *command = argv[at + 2];
     gt_ext_invocation_t invocation = {
         command, (const char *const *)(argv + at + 3), (size_t)(argc - at - 3)};
-    if (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)) {
+    if (!validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO))) {
         return diagnostic("stdio protocol refuses a terminal", 2);
     }
     if (gt_ext_runtime_support() != GT_OK) {
@@ -449,6 +452,9 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                 return diagnostic("invalid Node version", 2);
             }
         }
+    }
+    if (validate_only) {
+        return 0;
     }
     gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1,
                                             .node_sdk_directory_fd = -1,
@@ -896,4 +902,13 @@ done:
                    result);
     }
     return result;
+}
+
+int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
+    return stdio_run(argc, argv, cancelled, false);
+}
+
+int gterm_stdio_validate(int argc, char **argv) {
+    volatile sig_atomic_t cancelled = 0;
+    return stdio_run(argc, argv, &cancelled, true);
 }

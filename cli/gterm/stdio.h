@@ -6,4 +6,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled);
 /* Lexical boundary shared with IPC invocation matching. Returns the index of
  * `--` after complete known options; option values may themselves be `--`. */
 int gterm_stdio_invocation_index(int argc, char **argv);
+/* Lexical/basic runtime preflight only; no package IO, activation or grants. */
+int gterm_stdio_validate(int argc, char **argv);
+int gterm_stdio_option_arity(const char *);
 #endif

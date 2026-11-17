@@ -2,7 +2,7 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 分派仍返回显式不支持，当前真实调用使用已接的显式 relay / IPC 入口。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 与 P4 Claude 尚缺真实认证 / 模型 turn、实际工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；用户选择目录 / 端点及当前 Session，尚无自动发现或执行端签名安装。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
@@ -226,7 +226,7 @@ core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
 
 cli/gterm/
-  main.c / stdio.c 已接 doctor / plugin check / 显式开发包 stdio 激活；已接显式目录/摘要的跨包解析；安装发现与自动分发待接，不包含业务命令实现
+  main.c / stdio.c / catalog.c / catalog-store.c 已接诊断、固定包检查、显式 stdio 与开发目录持久登记 / 普通 argv 分派；前台 IPC 由用户明确选择，自动发现与签名执行端安装待接，不内置业务命令
   tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
   process_posix.c / ipc_posix.c
   relay.c        可选前台中继，具体支持拓扑由探针决定
@@ -11362,3 +11362,102 @@ SHA256 不变。清理后重枚举 1638 份指定源仍为
 `242ab80792da2b7384346b360a77a755071226731673ef53f7632900e844eccc`。
 本轮原始日志 / 收据 / 临时工具均已清理，本文为历史身份记录；默认 Core JS-off /
 tests-on，普通 App 已重新链接默认 archive，仅本地分批提交，不推送或发行。
+
+### P2 实施第六十四批：执行端开发目录与普通命令分派（2026-11-17）
+
+新增 CLI 私有持久目录，不将 `preview / ai` 等业务写入 C。用户经
+`plugin register-development` 指定包目录、开发摘要、host 观察及启动配置，公共
+Core 完成固定捕获 / 完整性与兼容检查后才登记；来源允许、发布者身份和每次
+Session 运行批准分开。`plugin list / unregister` 可跨进程读取或移除登记，不删除
+用户开发目录。替换须同时核对目录修订与旧包摘要，缺选择不覆盖旧项。
+
+普通 `gterm <tokens> [args]` 从明确配置的 `GTERM_CATALOG` / `--catalog` 读取，重新
+捕获所有项并核对 ID / 版本 / 摘要；任一坏项整体拒绝。按规范命令 token 匹配，
+再经 Core registry 解析冲突、SDK 解码参数，不猜最长前缀或按安装顺序选包。
+`--select ID DIGEST` 固定包选择，`--command` 可额外核对完整规范命令；空参数、
+Unicode 与字面引号保持原 argv。参数无效在创建端点前拒绝。
+
+前台接收端由 `GTERM_ENDPOINT` / `--endpoint` 明确选择，沿用既有一次性 IPC：
+同用户准入、私有 permit、公开实例、调用逐字匹配、30 秒等待、Host Session
+consent、取消与终态清理。用户在 App 明确附着已选实例；没有自动 TTY 发现、
+猜主机、自动 SSH 连接、后台服务或复用旧会话。目录登记不是 relay 的业务别名。
+目录选择固定的是预期摘要 / 启动配置；准入后既有 stdio 再捕获并核对同一摘要，
+等待期间开发目录变化可能拒绝启动。已 ACTIVE 的 Runtime 继续持有自己的固定
+owner；本片没有新增待启动实例的安装包引用保护。
+
+固定根仍为绝对路径；用户可显式选择 `--root workspace @cwd`，每次调用将其转为
+本次实际 cwd，由既有 IPC 保存的 cwd fd 跨等待保持身份，不保存登记时的目录或
+自动授权其它根。真实 Preview 专项在 A 登记、B 调用，A 中同名文件内容不同，
+实际 Native HOST 收到 B 的主文档 / CSS 字节与摘要。官方包仍限制规范相对路径；
+完整 `./` / 绝对路径规范化等 §7 路径矩阵继续，未将这一片记作全路径验收。
+
+目录最多 32 项 / 1 MiB，单项启动配置 256 字符串 / 32 KiB，单字符串 4096 字节、
+host 观察 64 KiB。严格 UTF-8 / NUL / 长度 / 尾部 / 重复 ID 与修订检查；owner、
+0700 根、0600 普通单链接文件、最终链接拒绝和协作 fcntl 锁均显式核对。原修订 /
+文件身份确认后写独占临时文件、文件 fsync、rename、目录 fsync；目录同步失败
+返回非零并保留 committed=true / durabilityConfirmed=false，关闭失败不先输出
+成功。仅清理仍为本次 inode 的暂存，SIGKILL 残留不自动修复。同账户恶意 native
+程序、完整磁盘 / 并发故障矩阵仍不在本片已验证范围内。
+
+原 CLI 未实现登记的正常断言红已记录；初版目录解码将过长 UTF-8 转成 JSON NUL
+别名，新增断言正常红后补严格字节验证。首轮选择测试暴露 HOST 夹具写死 ID /
+版本，已改为显式测试事实，原默认不变。同包父子前缀夹具被原包检查器拒绝，保留
+为负向；正向用两个合法包验证选择，未放宽包检查。一次对象未重编被 hash 守卫
+拒收，现强制删除对象和可执行再编译；一次并行验证读到变异中的源码被 SHA 守卫
+拒收，最终改为新变异恢复后再跑其它 reader。上述未计通过。
+
+最终 **53 项**普通 CLI Release 场景、**56 项** ASan/UBSan 含三种显式 IO 故障场景
+通过，无跳过；实际 C HOST / Core Session 决策、RPC、官方 Preview 资源、两 token
+命令、显式选择、cwd、取消、修订 / 摘要 / 损坏 / 模式 / 链接 / 锁 / 限额均覆盖。
+故障入口只编入显式测试构建，普通 Release 不含注入。JS-off Release 三种目录 /
+命令入口明确返回 4 / PLUGIN_JS_DISABLED，未写目录或端点；旧禁用档另通过。
+这是本机 headless C HOST 证据，不外推 App 点击、SSH / tmux 或设备专项。
+
+新 **24 组**与旧 CLI / stdio / resolve **7＋7＋6 组**分轮完整变异最终通过：每组真实
+重编、指定单条正常断言红、同 archive 独立配置绿、恢复绿及源码 SHA256。新组
+收据 814 份输入 / 123 条执行记录，收尾全部逐项一致；旧三轮各自输入亦逐项一致。
+ASan/UBSan 启用，无 LSan，不冒称所有系统 IO / 内部分配故障穷举。不增加 CI 二十份。
+
+为避免并行 Native 更新工作相互覆盖，验证使用 `294bfe60` 的隔离检出，仅覆盖本批
+14 份 CLI / 测试文件。随后主分支合入的 Native 更新 / 打包提交未混进这轮平台证据；
+Core / SDK 与该基线未变，本批 14 份最终文件与主工作区逐项相同，有序紧凑 JSON
+输入清单 SHA256 为 `eb65285263e37cde2c486f606d314326ca594bcf5751333df15d36f24c8bcc50`。
+
+隔离普通 Core JS-off / tests-on / SSH-on 的 **589/589 CTest、185 ABI**、Apple
+**182/3**、JNI **148/37** 与 clang-format **19.1.7 / 276 文件**通过。Core 首轮错误
+TMPDIR 主动停止，第二轮缺锁定 SSH Python 环境导致两项前置失败；补齐工程内
+副本后完整重跑通过，耗时 113.84 秒，未将前置轮记绿。未改各端 UI / JNI 或公开
+C ABI；两档均为 CLI 的 arm64 Release，本批无 App 构建 / GUI / 云端新结论。
+
+普通 CLI SHA256 `637e8c40ab1a9370f4ad36ed8ada2eb6eeb86621e49bdb173ecaacf3fc66d800`；
+禁用档 `f1380f93db32161153c130c649bb0081213320bf8544d02a5c4a54615799a7be`。
+新变异使用的 Core / QuickJS archive 分别为
+`965e0fdf7cec1c36cc6963f63c6fb66f2a3bed971443aeaf6ad33f96eabbcaeb` /
+`aa76f38697262534a9a7f56fcb3d41fb27a688da1ea08ef82030fa41e148f07f`；
+真实 C HOST 为 `7eb736b7bd26fd90b762cb0df588123e5693db8c93071ae93c6a600fe32f8ed5`。
+
+| 历史材料 | SHA256 |
+|---|---|
+| 新 24 组 receipt.json | `d9f9225e0355989a9cf8807f6a81316f45b577d528a3f702ec9ab7b3ad7a7981` |
+| 旧 main 7 组 result.json | `674dc76755e938aeed316b29bf0cfcdefd4f678a78d5a4c67040c38602a60790` |
+| 旧 stdio 7 组 result.json | `2d2a7a22fb02e6c9724147e14f39af770982324d9db1a9e8fb78a1602838175f` |
+| 旧 resolve 6 组 result.json | `ad84ecda757b96663c9b4909d2327e56023ffd580f786892038603c2aa92cf26` |
+| catalog-cwd-final.log | `c3663e17c40f10c68c96a5357da509828517f75d47c6d248209a3de61f7bef29` |
+| catalog-release-final.log | `165bf435a38bad61b8ba95ff99e5153030c8795159c0b23403a9ef619a4b7361` |
+| core-final-gate.log | `887f64c99b6344592c916e3cc55d6cda0960680894c64fe83ee014eeb221bdb8` |
+| ctest-final.log | `d8c8621c3d9608b8def9a7981844819bada195f5eeed5ba6bb4a5d683d61108f` |
+| c-format-final.log | `749053e47b97e25403b383073e037226759e253b5e321bd2dc6733dde4d40e19` |
+| disabled-catalog-final.log | `9ec4b3db60ec63353b21f33d0d3a13cb2459df3ca0ef66295d9042da65aff69e` |
+
+普通命令仍需明确开发来源 / 启动配置 / 端点与 App 附着；自动发现、执行端签名
+安装、Node / Exec 的目录整链、完整文件系统 / 生命周期 / 路径 / 设备矩阵及真实
+Agent 模型 / 工具批准继续，P1–P6 未完成。本批仅本地分批提交，不推送或发行。
+
+收尾：本批进程 / 一次性 C HOST / 自有端点均已结束。清理前盘点本轮
+`tmp/p2-dispatch/` 为 4294 目录、31,668 普通文件、79 符号链接与 857,870,826
+逻辑字节；不称作 APFS 实际回收量。只移除本轮隔离 worktree 及该目录，未清理
+并行任务的根 tmp 材料、未操作原 65439 / 2637；原 eq 三件摘要不变。清理后本批
+14 份文件仍与验收输入一致，清单 SHA256 仍为
+`eb65285263e37cde2c486f606d314326ca594bcf5751333df15d36f24c8bcc50`。
+原始日志 / 收据 / 构件 / 工具均已移除，本文保留历史身份；Root 其它已合入更新
+提交保留，不将隔离 CLI 验收冒充那些 Native 更新或发行验收。
