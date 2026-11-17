@@ -244,7 +244,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 **安全存储缺口**：当前 `SSHCredentialSelector.Storage.readKey` 从文件读取 PEM（限制 owner、权限、常规文件、大小且不跟随链接），Keychain 生产接线存口令/密码。`KeychainStore` 虽有 PEM helper，不能据此声称生产流程已做到私钥导入后只读安全存储。该缺口按 `AGENTS.md` 铁律 #5 继续修复，不修改规则来迁就代码。
 
-**设置页范围**：macOS 为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎，外观字号/配置页的“只有新标签读取”、标题栏按钮只在当前格显示、通用页恢复/关闭会话的提示均已落后于代码，列为 UI 文案待修；Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
+**设置页范围**：macOS 普通设置为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎；字号/重载、标题栏动作和普通/tmux 启停提示已于 2026-11-17 对齐实际实现。四个普通页像素判据通过，混合组合的插件页既有失败单列，未改该页或放宽断言。Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
 
 **引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。full 引擎的标准文本剪贴板回调与 OSC 52 已接，选中自动复制仍未独立验收，宿主关闭判据也不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
 

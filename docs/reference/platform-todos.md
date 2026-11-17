@@ -30,7 +30,7 @@
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
 | 8 / P1 | 终端配置读写 | [SettingsStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SettingsStore.swift) 读取失败当空，外部新建不冲突，重复键读改不一致；引擎校验/恢复顺序待修 | 不存在/失败分开，候选先验证，提交后才发布；实际已开 surface 字号/配色与磁盘一致。此存储与 SSH ConfigStore 分开实施 |
 | 9 / P1 | SSH 多地址与 shell 打开取消 | [SSHAddressResolver.swift](../../apple/GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 首个有效地址即结束；`AppModel.startSSH` 用旧 shell opener | 两片分别做：TCP 阶段候选推进；认证剩余 deadline/取消贯通 channel→PTY→shell。SSH/SFTP/tmux 各入口验证，ProxyJump 首跳也不能沿用新能力的假定 |
-| 10 / P1–P2 | 剪贴板与设置文案收尾 | 菜单 paste 仍直接输入；[SettingsView.swift](../../apple/GhostermApp/Sources/GhostermApp/SettingsView.swift) 仍提示仅新标签生效/恢复会话/关闭结束 | 粘贴确认与全局菜单路由单独验证；文案可独立小修，但不能借文案变更记配置事务已修 |
+| 10 / P1 | 剪贴板收尾（设置文案已修） | 菜单 paste 仍直接输入；[SettingsView.swift](../../apple/GhostermApp/Sources/GhostermApp/SettingsView.swift) 的六处过时提示已独立修正 | 粘贴确认与全局菜单路由仍须单独实现/验证；文案修正不改变设置存储或关闭规则，像素/既有插件页失败范围见 Apple 说明 |
 
 共享事件队列终态保留/查询、旧 job 下载完整性、负深度 walk 硬护栏、递归权限链接处理仍有效，属于文件迁移的相关工作，不借新绑定或 Android 验收关闭。macOS 信任记录管理页也可接现有快照/事务 API；别名改名应排在配置事务/表单之后。
 
@@ -59,3 +59,4 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 闸门失败传播批：仅改 `apple-app-gate.sh` 的子检查返回值处理，保留现有入口、过滤器和 SSH 跳过策略；独立 shell 验证不执行插件。依赖桩最初遗漏 PATH 工具及误选系统 Bash 3.2 的失败未计有效红；修正夹具后，原实现只有 ABI/HTML 两条正常断言失败，Core/Swift 错误与全成功对照通过。最终 PATH Bash 5.3.20 五项通过；两组撤回修复分别正常断言红/对照绿/恢复绿及 SHA256。未运行完整原生宿主或 CI。系统 Bash 3.2 的空数组兼容由下一独立批处理。
 - Bash 3.2 兼容批：修复环境/测试过滤器空数组在 nounset 下的展开，过滤器仍按一个参数传递。Bash 3.2 / 5.3.20 各六项 shell 检查通过，一组撤回修复单条正常断言红/独立对照绿/恢复绿/SHA256。未改插件代码或 SSH 跳过策略，未执行原生业务。
 - ConfigStore 独立写盘批：强制备份、稳定非阻塞保存锁、字节/身份快照、原子替换、首次创建排他提交、提交后错误和重载保护已接。最终同源 43 项与 22 组完整 native 变异、arm64 Release、隔离 Core 589/185 与 C 格式 276 通过；不改 AppModel 或插件。完整范围/前置失败与剩余模型发布见[写盘事务](macos-config-store.md)。
+- 普通设置文案批：六处启动、普通/tmux 关闭、字号、标题栏动作及配置重载提示已修，不改偏好/生命周期。与已提交 ConfigStore 组合的 arm64 Release 通过；97 项为 95 通过/1 开发态资源跳过/1 既有插件页像素失败，四个普通页原像素断言通过，未改原版复现同一插件页失败。完整数字不记全绿，也不改插件页，详见 Apple 说明。

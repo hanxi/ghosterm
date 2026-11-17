@@ -247,7 +247,7 @@ private struct GeneralPane: View {
                     get: { model.preferences.shellOnLaunch },
                     set: { model.preferences.shellOnLaunch = $0 }))
             } details: {
-                SettingsNote("开启后，启动应用时若没有可恢复的会话，会新建一个。"
+                SettingsNote("开启后，启动应用时会新建普通本地终端。"
                              + "关闭后，应用启动时不打开任何标签页。")
             }
 
@@ -259,9 +259,8 @@ private struct GeneralPane: View {
                 SettingsNote("避免刚打开应用就误触输入。")
             }
 
-            SettingsNote("会话随标签页存在：标签页关掉，会话就结束。"
-                         + "这里**没有**「保持会话运行」那一项——那个要靠常驻后台"
-                         + "助手（launchd/XPC）让会话活过应用退出，我们不做常驻 helper。")
+            SettingsNote("关闭普通终端会结束本次会话。关闭 tmux 客户端仅断开连接，"
+                         + "后台任务是否保留由 tmux 与目标系统策略决定。")
         }
         .onAppear {
             if availableShells == nil {
@@ -380,7 +379,7 @@ private struct AppearancePane: View {
                         .onChange(of: terminalFontSize) { applyTerminalFont(size: $0) }
                 }
             } details: {
-                SettingsNote("新开的终端用这个字号；已经开着的标签页保持它当时的字号。")
+                SettingsNote("保存成功后，同步更新已有终端与新终端的字号。")
             }
 
             SettingsRow("终端字体") { TerminalFontControl(model: model) }
@@ -436,7 +435,7 @@ private struct AppearancePane: View {
                 Checkbox("显示", isOn: $paneTitleBarVisible)
             } details: {
                 SettingsNote("每格顶上一条：状态点、进程名、目录。"
-                             + "右侧的操作按钮只画在当前那格。")
+                             + "可通过当前窗格、鼠标悬停或键盘入口操作。")
             }
 
             if let errorText {
@@ -643,7 +642,7 @@ private struct ConfigurationPane: View {
                 .accessibilityLabel("自定义配置")
 
             HStack {
-                SettingsNote("按 Ghostty 语法写；只有**新开的**标签页会读到改动。")
+                SettingsNote("按 Ghostty 语法写；保存后会重新应用终端配置。")
                 Spacer()
                 if let statusText {
                     Text(statusText).font(DS.Font.detail).foregroundStyle(.secondary)
@@ -659,7 +658,7 @@ private struct ConfigurationPane: View {
             Divider()
 
             Text("当前生效的配置").font(DS.Font.labelEmphasis)
-            SettingsNote("这是引擎实际读到的那份文件（改上面那段之后、新开的标签页用它）。")
+            SettingsNote("这是当前终端配置文件的内容。")
             ConfigurationFileView(contents: model.terminalConfigText)
         }
         .onAppear(perform: load)
