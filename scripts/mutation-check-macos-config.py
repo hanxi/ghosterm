@@ -2,8 +2,7 @@
 """Mutate configuration storage/publication in an isolated native checkout below project tmp/.
 
 The checkout must have its own Core/Swift build outputs and pinned dependencies.
-Tests use disposable files, never the user's ~/.ssh/config. No SSH service or UI
-test is run. Every case requires a compiled single assertion failure, an
+Tests use disposable files, never the user's ~/.ssh/config. No SSH service is used; the form phase uses offscreen native controls. Every case requires a compiled single assertion failure, an
 independent configuration-reading control and restored success with SHA256.
 """
 import argparse
@@ -85,7 +84,7 @@ PUBLICATION_CASES = [
     ('publish-after-save', 'do { try store.save(candidate.serialized) }',
      'configModel = candidate; hosts = candidate.hosts\n        do { try store.save(candidate.serialized) }',
      'testFailedNewHostCannotRemainInTheModel'),
-    ('main-snapshot', 'candidate.rawConfig == model.rawConfig', 'true',
+    ('main-snapshot', 'Data(candidate.rawConfig.utf8) == Data(model.rawConfig.utf8)', 'true',
      'testLoadStoreRaceCannotAdoptChangedMainBytes'),
     ('committed-reload', 'if case ConfigStoreError.committed = error { reload() }',
      '// mutation: retain the stale published model',
@@ -97,6 +96,56 @@ PUBLICATION_CASES = [
 ]
 
 
+FORM_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/HostEditorDraft.swift'
+FORM_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/HostEditorDraftTests.swift'
+FORM_CASES = [
+    ('dirty-only', 'public var changed: Bool { enabled != originalEnabled || (enabled && Data(value.utf8) != originalValue) }',
+     'public var changed: Bool { true }', 'testUnchangedPlainSnapshotProducesNoEdits'),
+    ('identity-list', 'ownIdentities.map { $0.arguments[0] }', 'ownIdentities.prefix(1).map { $0.arguments[0] }',
+     'testUnchangedSnapshotProducesNoEditsDespiteDuplicatesAndRawStyle'),
+    ('first-explicit', 'rows.first { $0.keyword == key.lowercased() }', 'rows.last { $0.keyword == key.lowercased() }',
+     'testUnchangedSnapshotProducesNoEditsDespiteDuplicatesAndRawStyle'),
+    ('inheritance', 'enabled: own != nil, source: source', 'enabled: true, source: source',
+     'testUnchangedSnapshotProducesNoEditsDespiteDuplicatesAndRawStyle'),
+    ('decoded-quote', 'result.append((field.keyword, [Self.quote(field.value)]))', 'result.append((field.keyword, [field.value]))',
+     'testScalarQuotingKeepsOneDecodedArgument'),
+    ('disabled-roundtrip', '(enabled && Data(value.utf8) != originalValue)', '(Data(value.utf8) != originalValue)',
+     'testDisabledUnchangedInheritanceDoesNotWriteAfterToggleRoundtrip'),
+    ('included-readonly', 'info?.included == true ?', 'false ?', 'testIncludedHostIsExplicitlyReadOnly'),
+    ('unicode-dirty', 'Data(value.utf8) != originalValue', 'value != String(decoding: originalValue, as: UTF8.self)',
+     'testUnicodeNormalizationDifferenceIsStillDirty'),
+]
+HOST_SAVE_CASES = [
+    ('new-alias', 'guard !$0.contains(alias: alias) else {', 'guard true else {', 'testNewAliasCannotReplaceExistingBlock'),
+    ('rename', 'try $0.rename(alias: alias, to: replacement)', '_ = replacement', 'testRenameAndEditAreOneAtomicCommit'),
+    ('rename-fields', 'if !edits.isEmpty { try $0.edit(alias: alias, edits) }', '_ = edits', 'testRenameAndEditAreOneAtomicCommit'),
+    ('unicode-snapshot', 'Data(candidate.rawConfig.utf8) == Data(model.rawConfig.utf8)', 'candidate.rawConfig == model.rawConfig',
+     'testByteDifferentUnicodeLoadStoreRaceIsAConflict'),
+    ('stale-form', 'expected != configModel.map({ Data($0.rawConfig.utf8) })', 'expected != expected',
+     'testStaleFormCannotOverwriteAnotherSavedEdit'),
+]
+HOST_LIST_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/HostListModel.swift'
+HOST_LIST_CASES = [
+    ('negative-alias', 'if pattern.hasPrefix("!") || pattern.contains("*")', 'if pattern.contains("*")',
+     'testNegatedPatternsCannotBecomeConnectableHosts'),
+    ('duplicate-alias', 'guard seen.insert(HostEntry.patternKey(pattern)).inserted else { continue }',
+     '// mutation: allow duplicate connectable rows', 'testRepeatedAliasesProduceOneConnectableRow'),
+]
+UI_SOURCE = 'apple/GhostermApp/Sources/GhostermApp/HostEditorSheet.swift'
+UI_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/HostEditorUITests.swift'
+UI_CASES = [
+    ('cancel', 'Button("取消") { dismiss() }', 'Button("取消") { save() }', 'testActualCancelDoesNotWriteEditedDraft'),
+]
+PHASES = {
+    'store': (SOURCE, TESTS, 'ConfigStoreTests', CASES),
+    'publication': (PUBLICATION_SOURCE, PUBLICATION_TESTS, 'ConfigEditTests', PUBLICATION_CASES),
+    'form': (FORM_SOURCE, FORM_TESTS, 'HostEditorDraftTests', FORM_CASES),
+    'host-save': (PUBLICATION_SOURCE, PUBLICATION_TESTS, 'ConfigEditTests', HOST_SAVE_CASES),
+    'host-list': (HOST_LIST_SOURCE, FORM_TESTS, 'HostEditorDraftTests', HOST_LIST_CASES),
+    'host-ui': (UI_SOURCE, UI_TESTS, 'HostEditorUITests', UI_CASES),
+}
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -104,8 +153,8 @@ def sha(data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkout', type=Path, required=True)
-    parser.add_argument('--phase', choices=('store', 'publication'), default='store')
-    parser.add_argument('--case', action='append', choices=sorted({case[0] for case in CASES + PUBLICATION_CASES}))
+    parser.add_argument('--phase', choices=tuple(PHASES), default='store')
+    parser.add_argument('--case', action='append', choices=sorted({case[0] for case in [case for phase in PHASES.values() for case in phase[3]]}))
     args = parser.parse_args()
     checkout = args.checkout.resolve(strict=True)
     if ROOT / 'tmp' not in checkout.parents:
@@ -116,18 +165,17 @@ def main():
     scratch = checkout / 'tmp'
     scratch.mkdir(exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix='config-mutations-', dir=scratch))
-    cases = PUBLICATION_CASES if args.phase == 'publication' else CASES
-    source_name = PUBLICATION_SOURCE if args.phase == 'publication' else SOURCE
-    tests_name = PUBLICATION_TESTS if args.phase == 'publication' else TESTS
-    test_class = 'ConfigEditTests' if args.phase == 'publication' else 'ConfigStoreTests'
+    source_name, tests_name, test_class, cases = PHASES[args.phase]
     if args.case and set(args.case) - {case[0] for case in cases}:
         parser.error('selected cases do not belong to this phase')
     source, tests = checkout / source_name, checkout / tests_name
     original, test_bytes = source.read_bytes(), tests.read_bytes()
-    main_bytes = (ROOT / source_name).read_bytes()
+    main_source = ROOT / source_name
+    main_bytes = main_source.read_bytes() if main_source.exists() else None
     environment = {**os.environ, 'TMPDIR': str(scratch), 'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}
     command = ['swift', 'test', '--package-path', str(checkout / 'apple/GhostermApp'),
                '--cache-path', str(scratch / 'spm-cache'), '--skip-update', '--filter']
+    baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor'
     records = []
 
     def run(label, selected, red=False):
@@ -150,7 +198,7 @@ def main():
         records.append({'case': label, 'returncode': result.returncode, 'log': str(logfile.relative_to(checkout))})
 
     try:
-        run('baseline', BASELINE)
+        run('baseline', baseline)
         for name, before, after, target in cases:
             if args.case and name not in args.case:
                 continue
@@ -165,10 +213,10 @@ def main():
             if source.read_bytes() != original or tests.read_bytes() != test_bytes:
                 raise RuntimeError('restored source/test SHA256 differs')
             print(f'PASS {name}: single assertion red, control green, restored green, SHA256', flush=True)
-        run('final', BASELINE)
+        run('final', baseline)
     finally:
         source.write_bytes(original)
-        if tests.read_bytes() != test_bytes or (ROOT / source_name).read_bytes() != main_bytes:
+        if tests.read_bytes() != test_bytes or (main_source.read_bytes() if main_source.exists() else None) != main_bytes:
             raise RuntimeError('test inputs or main checkout changed during the scan')
         (work / 'receipt.json').write_text(json.dumps({
             'source_sha256': sha(original), 'tests_sha256': sha(test_bytes),

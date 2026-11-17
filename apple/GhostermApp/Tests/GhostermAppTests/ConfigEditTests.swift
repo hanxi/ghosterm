@@ -97,7 +97,7 @@ final class ConfigEditTests: XCTestCase {
         // HostName 缺省时 resolve 会回落为 pattern——编辑器初值必须是
         // **块内实际写的行**（空），不能把求值结果当成已写指令。
         let (_, model) = try makeConfig("Host bare\n  User me\n")
-        let ds = model.directives(of: "bare")
+        let ds = try model.directives(of: "bare")
         XCTAssertEqual(ds.map { $0.keyword.lowercased() }, ["user"],
                        "只看块内实际指令（保留原拼写）")
         XCTAssertEqual(ds.first?.values, ["me"])
@@ -209,4 +209,64 @@ final class ConfigEditTests: XCTestCase {
                       && (try? String(contentsOfFile: path, encoding: .utf8))?.contains("Host *") == true,
                       "successful configuration publication must update rule choices without adding a connectable wildcard")
     }
+    func testRenameAndEditAreOneAtomicCommit() throws {
+        let original = "# keep\r\nHost web sibling\r\n  User before\r\nHost other\r\n  Port 2222\r\n"
+        let (path, model) = try makeConfig(original)
+        try model.saveHost(alias: "web", replacement: "renamed", edits: [("User", ["after"])])
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), "# keep\r\nHost renamed sibling\r\n  User after\nHost other\r\n  Port 2222\r\n")
+    }
+
+    func testRenameCollisionCannotPublishOrSaveFieldEdits() throws {
+        let original = "Host web\n User before\nHost occupied\n"
+        let (path, model) = try makeConfig(original)
+        var rejected = false
+        do { try model.saveHost(alias: "web", replacement: "occupied", edits: [("User", ["after"])]) }
+        catch { rejected = true }
+        XCTAssertTrue(rejected && (try? String(contentsOfFile: path, encoding: .utf8)) == original && model.configModel?.rawConfig == original,
+                      "rename collision must discard the complete candidate")
+    }
+
+    func testNewAliasCannotReplaceExistingBlock() throws {
+        let original = "Host web\n User before\n"
+        let (path, model) = try makeConfig(original)
+        var rejected = false
+        do { try model.addHost(alias: "WEB", [("User", ["after"])]) }
+        catch { rejected = true }
+        XCTAssertTrue(rejected && (try? String(contentsOfFile: path, encoding: .utf8)) == original && model.configModel?.rawConfig == original,
+                      "create must not reset an existing case-insensitive alias")
+    }
+
+    func testByteDifferentUnicodeLoadStoreRaceIsAConflict() throws {
+        let original = "Host web\n User caf\u{00e9}\n"
+        let external = "Host web\n User cafe\u{0301}\n"
+        let (path, model) = try makeConfig(original)
+        model.makeConfigStore = { path in
+            try? external.write(toFile: path, atomically: false, encoding: .utf8)
+            return ConfigStore(path: path)
+        }
+        model.reload()
+        var rejected = false
+        do { try model.applyEdits(alias: "web", [("Port", ["2222"])]) }
+        catch { if case ConfigStoreError.conflict = error { rejected = true } }
+        XCTAssertTrue(rejected && Data((model.configModel?.rawConfig ?? "").utf8) == Data(original.utf8) && (try? Data(contentsOf: URL(fileURLWithPath: path))) == Data(external.utf8),
+                      "Unicode equivalence cannot replace byte-level conflict checks")
+    }
+
+    func testStaleFormCannotOverwriteAnotherSavedEdit() throws {
+        let (path, model) = try makeConfig("Host web\n User before\n")
+        let draft = try HostEditorDraft(model: model.configModel, alias: "web", isNew: false)
+        try model.applyEdits(alias: "web", [("User", ["newer"])])
+        var rejected = false
+        do { try model.saveHost(alias: "web", replacement: "web", edits: [("User", ["stale"])], expectedConfiguration: draft.originalConfiguration) }
+        catch { if case ConfigStoreError.conflict = error { rejected = true } }
+        XCTAssertTrue(rejected && (try? String(contentsOfFile: path, encoding: .utf8)) == "Host web\n User newer\n" && model.hosts.first?.user == "newer")
+    }
+
+    func testRenamePreviewReevaluatesInheritanceWithoutWriting() throws {
+        let (path, model) = try makeConfig("Host web\n User own\nHost new-*\n HostName different\n")
+        let before = try Data(contentsOf: URL(fileURLWithPath: path))
+        let preview = try model.previewHostRename(alias: "web", replacement: "new-name", edits: [], expectedConfiguration: before)
+        XCTAssertTrue(preview.contains("different:22") && (try? Data(contentsOf: URL(fileURLWithPath: path))) == before && model.hosts.first?.pattern == "web")
+    }
+
 }

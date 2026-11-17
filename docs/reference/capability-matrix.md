@@ -74,7 +74,7 @@
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
 | `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令替换/删除已按实际匹配行修复，未知行、注释、CRLF 和相邻块保留，B7/B8 变异护此行为。Android 另验实际保存与编辑器输出保护；来源查询与包含文件/重名块保护已接入；不代表表单已支持全部指令；改名接口另列下行 |
 | 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承已有 32 项设备/32 组配置变异证据，重命名在后续切片单独验收；见 [Android §9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30) |
-| IdentityFile 来源查询 | 🟡 | `gt_config_identity_at`、Swift/JNI 已接；原顺序累积条目与本块/继承/Include 来源，不展开路径、不补默认身份；Match/非法参数拒绝，8 C + 1 Swift 和 3 组 Android 变异通过。来源接口证据见 [§9.34](android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)；Android 主机身份选择与引用列表已接，见 §9.35，macOS 表单未接 |
+| IdentityFile 来源查询 | 🟡 | `gt_config_identity_at`、Swift/JNI 已接；原顺序累积条目与本块/继承/Include 来源，不展开路径、不补默认身份；Match/非法参数拒绝，8 C + 1 Swift 和 3 组 Android 变异通过。来源接口证据见 [§9.34](android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)；Android 主机身份选择与引用列表已接，见 §9.35，macOS 表单已接本块/继承，范围见[分批实施](non-plugin-remainder.md) |
 | 主机信任记录快照 | 🟡 | 只读 `gt_known_hosts_*` 与 Swift/JNI 已接；与认证复用词法读侧，保留 marker、畸形条目和原始字节范围。37 CTest、10 C + 1 Swift + 4 JNI/Kotlin 变异及既有 20 组真实 SSH 信任变异通过；不等于密钥验证、管理页面或安全移除，见 [§9.36](android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30) |
 | 主机信任写入事务 | 🟡 | TOFU 与 `gt_known_hosts_remove` 共用锁、备份、同目录原子替换及提交结果；§9.37 的 38 CTest / 80 ABI、17 C + 2 Swift 事务变异及两端绑定证据通过。Android 管理页另见 §9.39，macOS 仅有绑定和认证消费。协作写者以外的并发与断电恢复未验 |
 | 配置别名重命名 | 🟡 | `gt_config_rename_host`、Swift/JNI 与 Android 表单接线；34 项 Core CTest 中含 `sshconfig_rename`，12 C / 1 Swift 隔离变异和 Swift 定向证据通过；Android API 36 arm64 / 4 KB 页模拟器 36 项设备测试与 36 组配置/页面变异通过。只改目标 token，写盘由平台事务承担；macOS GUI 未接入，见 [§9.9](android-implementation.md#99-主机别名重命名2026-10-30) |
@@ -231,7 +231,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 冲突范围与目录重试 | 已有覆盖/跳过/保留两份对话框和重试入口 | “应用到全部”为全局值，完成/清空后不重置，后续批次可能继续使用；目录重试重新扫描整目录，不仅失败项。源码核对，批次隔离及部分成功重试仍待验收，见路线图 P1 |
 | 系统集成 | 栏间复制、Finder 拖入远端、本地代表条目拖出 Finder、Quick Look（远端临时下载） | 多选拖出 Finder 仍不完整；远端拖出 Finder 的文件承诺未做；iOS 无宿主 |
 | 远端预览生命周期 | 临时下载成功后打开 Quick Look 已接；现有测试覆盖路径形状 | 没有请求代次、大小预算或应用层副本回收；关闭窗格后回调仍可能打开预览。真实 QLPreviewPanel 与缓存生命周期须另验，见 [Apple 说明](../../apple/README.md#quick-look-预览边界) |
-| 配置 GUI | Host 编辑、通配规则、读取失败提示与 Core 稀疏 API；共享重复指令误删已修复；`ConfigStoreTests` 覆盖正常备份和冲突 | 表单简化扫描并提交全部字段，多条 IdentityFile 只回显最后一行；内存先改、写盘失败未恢复；独立 `ConfigStore` 写盘事务已补强，表单/模型发布仍待修；可连接列表未过滤否定模式、重复 Host 块产生同 ID，均见路线图待办 |
+| 配置 GUI | Core 物理块快照、脏字段/逐行身份/来源展示、改名预览确认、候选落盘后发布；否定过滤与 ASCII 去重已接 | 🟡 定向原生控件、模型与变异证据见[分批实施](non-plugin-remainder.md)。Include 只读，重复未知标量/条件规则与歧义显式拒绝；安全存储和完整客户端验收另记 |
 | 配置来源与别名改名 | Swift 已有来源查询与改名绑定；共享契约与平台绑定分别验收 | macOS `HostEditorSheet` 未消费来源，也没有已有主机改名字段；Android 容器引用不是本端可读取的密钥路径，不因共享 API 或 Android 页面通过而标本端 GUI 完成 |
 | 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误折为空、外部新建文件不报冲突、重复键编辑与回读不一致；引擎拒绝后的磁盘/恢复状态待修。full 引擎配置机制不能自动套用于 Android vt 自绘 |
 | 终端系统剪贴板 | `beffb49` 接通标准 `copy:` / `paste:`、真实选区与 NSPasteboard；专用测试覆盖显式 firstResponder 菜单快捷键、中文/多行 bracketed paste | OSC 52 标准文本读写及读授权已接（macOS/Android），见 [专项边界](osc52.md)；全局主菜单路由、菜单粘贴确认与选中自动复制仍待独立验收 |

@@ -732,8 +732,12 @@ public final class AppModel: ObservableObject {
 
     /// 新建 Host 块（reset=true：文件末尾追加新块）。
     public func addHost(alias: String,
-                        _ edits: [(String, [String]?)]) throws {
-        try commitConfigurationEdit { try $0.edit(alias: alias, edits, reset: true) }
+                        _ edits: [(String, [String]?)], expectedConfiguration: Data? = nil) throws {
+        try verifyEditorSnapshot(expectedConfiguration)
+        try commitConfigurationEdit {
+            guard !$0.contains(alias: alias) else { throw GhostermError.failed("别名已存在，不能覆盖已有 Host 块") }
+            try $0.edit(alias: alias, edits, reset: true)
+        }
     }
 
     private func commitConfigurationEdit(_ update: (HostListModel) throws -> Void) throws {
@@ -743,7 +747,7 @@ public final class AppModel: ObservableObject {
         // Reparse the real source so Include provenance keeps its file context.
         // The published model remains immutable throughout candidate editing.
         let candidate = try HostListModel(path: configPath)
-        guard candidate.rawConfig == model.rawConfig else {
+        guard Data(candidate.rawConfig.utf8) == Data(model.rawConfig.utf8) else {
             throw ConfigStoreError.conflict("配置内容与编辑快照不一致")
         }
         try update(candidate)
@@ -758,9 +762,46 @@ public final class AppModel: ObservableObject {
         loadError = nil
     }
 
-    /// 一块的全部指令（编辑器初值）。
-    public func directives(of alias: String) -> [(keyword: String, values: [String])] {
-        configModel?.directives(of: alias) ?? []
+    private func verifyEditorSnapshot(_ expected: Data?) throws {
+        if let expected, expected != configModel.map({ Data($0.rawConfig.utf8) }) {
+            throw ConfigStoreError.conflict("此表单打开后配置已修改，请重新打开表单")
+        }
+    }
+
+    public func previewHostRename(alias: String, replacement: String, edits: [(String, [String]?)], expectedConfiguration: Data?) throws -> String {
+        try verifyEditorSnapshot(expectedConfiguration)
+        guard let current = configModel else { throw GhostermError.failed("配置未加载") }
+        let before = try current.resolved(alias: alias)
+        let candidate = try HostListModel(path: configPath)
+        guard Data(candidate.rawConfig.utf8) == Data(current.rawConfig.utf8) else {
+            throw ConfigStoreError.conflict("配置内容与改名快照不一致")
+        }
+        if !edits.isEmpty { try candidate.edit(alias: alias, edits) }
+        try candidate.rename(alias: alias, to: replacement)
+        let after = try candidate.resolved(alias: replacement)
+        func summary(_ host: ResolvedHost, fallback: String) -> String {
+            "\(host.user ?? NSUserName())@\(host.hostname ?? fallback):\(host.port)"
+        }
+        return "\(alias)：\(summary(before, fallback: alias))\n→ \(replacement)：\(summary(after, fallback: replacement))\n改名可能改变继承规则。已有连接继续使用原参数和 UUID。"
+    }
+
+    public func saveHost(alias: String, replacement: String, edits: [(String, [String]?)], expectedConfiguration: Data? = nil) throws {
+        if edits.isEmpty && Data(alias.utf8) == Data(replacement.utf8) { return }
+        try verifyEditorSnapshot(expectedConfiguration)
+        guard Data(alias.utf8) != Data(replacement.utf8) else {
+            try applyEdits(alias: alias, edits)
+            return
+        }
+        try commitConfigurationEdit {
+            if !edits.isEmpty { try $0.edit(alias: alias, edits) }
+            try $0.rename(alias: alias, to: replacement)
+        }
+    }
+
+    /// A failed read must not masquerade as an empty editable block.
+    public func directives(of alias: String) throws -> [(keyword: String, values: [String])] {
+        guard let configModel else { throw GhostermError.failed("配置未加载") }
+        return try configModel.directives(of: alias)
     }
 
     // MARK: - 连接
