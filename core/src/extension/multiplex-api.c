@@ -136,6 +136,41 @@ gt_status_t gt_ext_mux_scope_info(const gt_ext_mux_t *mux,
     return GT_OK;
 }
 
+gt_status_t gt_ext_mux_native_enable(gt_ext_mux_t *mux, bool host) {
+    return mux ? gt__bridge_mux_native_enable(mux->inner, host) : GT_ERR_INVALID_ARG;
+}
+
+gt_status_t gt_ext_mux_native_send(gt_ext_mux_t *mux, const void *bytes, size_t size) {
+    return mux ? gt__bridge_mux_native_send(mux->inner, bytes, size) : GT_ERR_INVALID_ARG;
+}
+
+gt_status_t gt_ext_mux_native_take(gt_ext_mux_t *mux, void *bytes, size_t capacity, size_t *size) {
+    if (size) {
+        *size = 0;
+    }
+    return mux ? gt__bridge_mux_native_take(mux->inner, bytes, capacity, size) : GT_ERR_INVALID_ARG;
+}
+
+bool gt_ext_mux_native_info(const gt_ext_mux_t *mux, gt_ext_mux_native_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    gt_bridge_mux_native_info_t value;
+    if (!mux || !out || !gt__bridge_mux_native_info(mux->inner, &value)) {
+        return false;
+    }
+    *out = (gt_ext_mux_native_info_t){.next_send = value.next_send,
+                                      .next_receive = value.next_receive,
+                                      .outgoing_bytes = value.outgoing_bytes,
+                                      .incoming_bytes = value.incoming_bytes,
+                                      .enabled = value.enabled,
+                                      .host = value.host,
+                                      .awaiting = value.awaiting,
+                                      .send_exhausted = value.send_exhausted,
+                                      .receive_exhausted = value.receive_exhausted};
+    return true;
+}
+
 gt_status_t gt_ext_mux_transport_info(gt_ext_mux_t *mux, gt_ext_channel_info_t *out) {
     if (out) {
         memset(out, 0, sizeof(*out));

@@ -32,6 +32,24 @@ class ExtensionMultiplexer private constructor(private val worker: Thread) : Aut
         check(v.size == 8 && v[2] in 0L..8L)
         return Info(v[0].toInt(), v[1].toInt(), v[2].toInt(), v[3].toULong(), v[4].toULong(), v[5].toULong(), v[6] != 0L, v[7] != 0L)
     }
+    data class NativeInfo(val nextSend: ULong, val nextReceive: ULong, val outgoingBytes: Int, val incomingBytes: Int,
+        val enabled: Boolean, val host: Boolean, val awaiting: Boolean, val sendExhausted: Boolean, val receiveExhausted: Boolean)
+    fun enableNativeControl(host: Boolean) {
+        owner(); val status = NativeExtensionMultiplexer.nativeEnable(handle, host)
+        if (status != 0) throw ExtensionChannelException(status, "无法启用 Native 连接管理")
+    }
+    fun nativeInfo(): NativeInfo {
+        owner(); val v = NativeExtensionMultiplexer.nativeInfo(handle); check(v.size == 9)
+        check(v[2] in 0L..65540L && v[3] in 0L..65536L)
+        return NativeInfo(v[0].toULong(), v[1].toULong(), v[2].toInt(), v[3].toInt(), v[4] != 0L,
+            v[5] != 0L, v[6] != 0L, v[7] != 0L, v[8] != 0L)
+    }
+    fun sendNativeControl(bytes: ByteArray) {
+        owner(); require(bytes.size in 1..65536)
+        val status = NativeExtensionMultiplexer.nativeSend(handle, bytes.copyOf())
+        if (status != 0) throw ExtensionChannelException(status, "Native 连接管理消息未接收")
+    }
+    fun takeNativeControl(): ByteArray? { owner(); return NativeExtensionMultiplexer.nativeTake(handle) }
     fun scopeInfo(instance: String, epoch: ULong): ScopeInfo {
         owner(); requireID(instance); require(epoch != 0uL)
         val fields = NativeExtensionMultiplexer.scopeInfo(handle, instance.toByteArray(Charsets.UTF_8), epoch.toLong())
@@ -95,6 +113,10 @@ internal object NativeExtensionMultiplexer {
     external fun openChannel(handle: Long, instance: ByteArray, epoch: Long): LongArray
     external fun step(handle: Long, milliseconds: Int): Int
     external fun info(handle: Long): LongArray
+    external fun nativeEnable(handle: Long, host: Boolean): Int
+    external fun nativeInfo(handle: Long): LongArray
+    external fun nativeSend(handle: Long, bytes: ByteArray): Int
+    external fun nativeTake(handle: Long): ByteArray?
     external fun scopeInfo(handle: Long, instance: ByteArray, epoch: Long): Array<Any>
     external fun transportInfo(handle: Long): Array<Any>
     external fun processObservation(handle: Long): Array<Any>

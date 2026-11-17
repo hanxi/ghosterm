@@ -56,6 +56,32 @@ bool gt_ext_mux_info(const gt_ext_mux_t *, gt_ext_mux_info_t *);
  * close_sent are transport facts, not a business completion or process receipt. */
 gt_status_t
 gt_ext_mux_scope_info(const gt_ext_mux_t *, const char *, uint64_t, gt_ext_mux_scope_info_t *);
+
+/* Explicit Native-only connection management, disabled by default. It uses
+ * ordinary wire-v1 request/response envelopes at instanceId=connectionId,
+ * epoch=1, streamId=rpc.request/rpc.response, method native.multiplex.*.
+ * This reserved owner is not a business instance or a plugin-visible Session.
+ * No peer frame creates a channel: the Native receiver must validate the
+ * requested operation and explicitly call open_channel. Eight business slots
+ * remain available. Enable both endpoints before sending management frames.
+ * The local HOST sends one request at a time; EXECUTOR sends its matching
+ * response. A reply is admission/cleanup metadata, never a business outcome. */
+typedef struct {
+    uint64_t next_send, next_receive;
+    uint32_t outgoing_bytes, incoming_bytes;
+    bool enabled, host, awaiting, send_exhausted, receive_exhausted;
+} gt_ext_mux_native_info_t;
+
+gt_status_t gt_ext_mux_native_enable(gt_ext_mux_t *, bool host);
+/* Copies a validated complete JSON envelope, without the length prefix. One
+ * bounded outbound and inbound frame, charged to the shared heap. Busy returns
+ * GT_ERR_IO without consuming bytes/sequence. Wrong identity/direction/request
+ * ID, malformed JSON and replay are rejected. Send never performs IO. */
+gt_status_t gt_ext_mux_native_send(gt_ext_mux_t *, const void *, size_t);
+/* NOT_FOUND means no complete message. Short buffers return INVALID_ARG and
+ * report the required size without consuming the message. No NUL is added. */
+gt_status_t gt_ext_mux_native_take(gt_ext_mux_t *, void *, size_t, size_t *);
+bool gt_ext_mux_native_info(const gt_ext_mux_t *, gt_ext_mux_native_info_t *);
 /* Snapshot of the physical authentication/diagnostics and actual physical IO.
  * Child channels do not impersonate this process or authentication owner. */
 gt_status_t gt_ext_mux_transport_info(gt_ext_mux_t *, gt_ext_channel_info_t *);

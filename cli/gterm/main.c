@@ -67,7 +67,7 @@ static int usage(void) {
         "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
         "[--process-argument NAME VALUE]... [--process-environment NAME]... "
         "-- DIRECTORY COMMAND [ARG...]\n"
-        "       gterm relay --multiplex --connection HEX32 "
+        "       gterm relay --multiplex [--live] --connection HEX32 "
         "--instance HEX32 EPOCH ARGV_HEX ...\n"
         "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
         stderr);

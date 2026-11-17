@@ -942,6 +942,115 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_info(JNIEnv *e, jobjec
     return result;
 }
 
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_nativeEnable(
+    JNIEnv *e, jobject self, jlong id, jboolean host) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return GT_ERR_INVALID_ARG;
+    }
+    gt_status_t status = gt_ext_mux_native_enable(slot->mux, host != JNI_FALSE);
+    extension_unpin(slot);
+    return status;
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_nativeInfo(
+    JNIEnv *e, jobject self, jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    gt_ext_mux_native_info_t info;
+    bool ok = gt_ext_mux_native_info(slot->mux, &info);
+    extension_unpin(slot);
+    if (!ok) {
+        extension_error(e, "Native 连接管理状态不可读");
+        return NULL;
+    }
+    jlong values[9] = {(jlong)info.next_send,
+                       (jlong)info.next_receive,
+                       info.outgoing_bytes,
+                       info.incoming_bytes,
+                       info.enabled,
+                       info.host,
+                       info.awaiting,
+                       info.send_exhausted,
+                       info.receive_exhausted};
+    jlongArray result = (*e)->NewLongArray(e, 9);
+    if (result) {
+        (*e)->SetLongArrayRegion(e, result, 0, 9, values);
+    }
+    return result;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_nativeSend(
+    JNIEnv *e, jobject self, jlong id, jbyteArray input) {
+    (void)self;
+    if (!input) {
+        return GT_ERR_INVALID_ARG;
+    }
+    jsize size = (*e)->GetArrayLength(e, input);
+    if (size <= 0 || size > 65536) {
+        return GT_ERR_INVALID_ARG;
+    }
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return GT_ERR_INVALID_ARG;
+    }
+    uint8_t *bytes = malloc((size_t)size);
+    gt_status_t status = GT_ERR_IO;
+    if (bytes) {
+        (*e)->GetByteArrayRegion(e, input, 0, size, (jbyte *)bytes);
+        if (!(*e)->ExceptionCheck(e)) {
+            status = gt_ext_mux_native_send(slot->mux, bytes, (size_t)size);
+        }
+        memset(bytes, 0, (size_t)size);
+        free(bytes);
+    }
+    extension_unpin(slot);
+    return status;
+}
+
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_nativeTake(
+    JNIEnv *e, jobject self, jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    gt_ext_mux_native_info_t info;
+    jbyteArray result = NULL;
+    if (!gt_ext_mux_native_info(slot->mux, &info) || !info.enabled || info.incoming_bytes > 65536) {
+        extension_error(e, "Native 连接管理未启用或消息超过预算");
+    } else if (info.incoming_bytes) {
+        /* Allocate both copies before consuming the Native inbox. An OOM must
+         * preserve admission metadata for the same owner to observe or close. */
+        result = (*e)->NewByteArray(e, (jsize)info.incoming_bytes);
+        if (result) {
+            size_t size = 0;
+            uint8_t *bytes = malloc(info.incoming_bytes);
+            if (!bytes) {
+                result = NULL;
+                extension_error(e, "Native 消息内存不足");
+            } else {
+                gt_status_t status =
+                    gt_ext_mux_native_take(slot->mux, bytes, info.incoming_bytes, &size);
+                if (status == GT_OK && size == info.incoming_bytes) {
+                    (*e)->SetByteArrayRegion(e, result, 0, (jsize)size, (const jbyte *)bytes);
+                } else {
+                    result = NULL;
+                    extension_error(e, "Native 消息读取失败");
+                }
+                memset(bytes, 0, info.incoming_bytes);
+                free(bytes);
+            }
+        }
+    }
+    extension_unpin(slot);
+    return result;
+}
+
 JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_scopeInfo(
     JNIEnv *e, jobject self, jlong id, jbyteArray instance, jlong epoch) {
     (void)self;

@@ -4,6 +4,7 @@
 #include "release.h"
 #include "catalog.h"
 #include "stdio.h"
+#include "extension/wire.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -1048,7 +1049,12 @@ static void job_free(stdio_job_t *job) {
 
 static int
 jobs_drive(stdio_job_t **jobs, size_t count, gt_ext_mux_t *mux, volatile sig_atomic_t *cancelled) {
-    size_t remaining = count, first = 0;
+    size_t remaining = 0, first = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (jobs[i] && !jobs[i]->released) {
+            remaining++;
+        }
+    }
     while (remaining) {
         if (*cancelled && mux) {
             gt_ext_mux_stop(mux);
@@ -1058,7 +1064,7 @@ jobs_drive(stdio_job_t **jobs, size_t count, gt_ext_mux_t *mux, volatile sig_ato
         }
         for (size_t offset = 0; offset < count; offset++) {
             stdio_job_t *job = jobs[(first + offset) % count];
-            if (job->released) {
+            if (!job || job->released) {
                 continue;
             }
             job_step(job, cancelled);
@@ -1088,6 +1094,9 @@ jobs_drive(stdio_job_t **jobs, size_t count, gt_ext_mux_t *mux, volatile sig_ato
     }
     int result = 0;
     for (size_t i = 0; i < count; i++) {
+        if (!jobs[i]) {
+            continue;
+        }
         if (jobs[i]->cleanup_failed) {
             return 5;
         }
@@ -1220,11 +1229,298 @@ static int decode_profile(const char *hex, mux_instance_t *instance) {
     return at == bytes ? 0 : 2;
 }
 
+/* The Native control owner is deliberately outside the eight plugin slots.
+ * It only consumes explicit management requests on a --live connection; no
+ * unknown business frame registers a branch or activates a module. */
+static bool
+native_text(gt_bridge_wire_t *wire, uint16_t object, const char *key, char *out, size_t capacity) {
+    const uint8_t *bytes;
+    size_t size;
+    if (!gt__bridge_wire_string(wire, gt__bridge_wire_member(wire, object, key), &bytes, &size) ||
+        size >= capacity || memchr(bytes, 0, size)) {
+        return false;
+    }
+    memcpy(out, bytes, size);
+    out[size] = 0;
+    return true;
+}
+
+static bool native_reply(gt_ext_mux_t *mux,
+                         const char *connection,
+                         const char *request,
+                         const char *value,
+                         const char *error) {
+    gt_ext_mux_native_info_t state;
+    if (!gt_ext_mux_native_info(mux, &state)) {
+        return false;
+    }
+    char outcome[1024], frame[2048];
+    const char *code = error;
+    if (error && !strcmp(error, "NOT_NEGOTIATED")) {
+        code = "PROTOCOL";
+    } else if (error && !strcmp(error, "INVALID_PROFILE")) {
+        code = "INVALID_INPUT";
+    } else if (error && !strcmp(error, "NO_MEMORY")) {
+        code = "RESOURCE_LIMIT";
+    } else if (error && !strcmp(error, "START_FAILED")) {
+        code = "INTERNAL";
+    }
+    int length =
+        error ? snprintf(outcome,
+                         sizeof(outcome),
+                         "{\"kind\":\"failed\",\"error\":{\"code\":\"%s\",\"message\":\"Native "
+                         "instance management: %s\",\"effect\":\"none\"}}",
+                         code,
+                         error)
+              : snprintf(outcome, sizeof(outcome), "{\"kind\":\"success\",\"value\":%s}", value);
+    if (length < 0 || (size_t)length >= sizeof(outcome)) {
+        return false;
+    }
+    length =
+        snprintf(frame,
+                 sizeof(frame),
+                 "{\"wireVersion\":1,\"connectionId\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"1\","
+                 "\"streamId\":\"rpc.response\",\"seq\":\"%" PRIu64 "\",\"kind\":\"response\","
+                 "\"payload\":{\"requestId\":\"%s\",\"outcome\":%s}}",
+                 connection,
+                 connection,
+                 state.next_send,
+                 request,
+                 outcome);
+    return length > 0 && (size_t)length < sizeof(frame) &&
+           gt_ext_mux_native_send(mux, frame, (size_t)length) == GT_OK;
+}
+
+static int jobs_drive_live(stdio_job_t **jobs,
+                           mux_instance_t *profiles,
+                           gt_ext_mux_t *mux,
+                           resource_owner_t *shared,
+                           const char *connection,
+                           volatile sig_atomic_t *cancelled) {
+    gt_bridge_wire_t *wire = NULL;
+    if (gt__bridge_wire_new(NULL, &wire) != GT_OK) {
+        return 5;
+    }
+    char incoming[8192], finish_id[33] = {0};
+    const char *open_keys[] = {"instance", "epoch", "profile"};
+    const char *status_keys[] = {"instance", "epoch"};
+    int result = 0;
+    bool draining = false, replied = false, negotiated = false;
+    for (;;) {
+        if (*cancelled) {
+            draining = true;
+            result = 130;
+            gt_ext_mux_stop(mux);
+        }
+        gt_status_t io = gt_ext_mux_step(mux, 0);
+        if (io != GT_OK) {
+            draining = true;
+            if (!result) {
+                result = 7;
+            }
+        }
+        size_t active = 0;
+        for (size_t i = 0; i < GT_EXT_MUX_INSTANCES_MAX; i++) {
+            stdio_job_t *job = jobs[i];
+            if (!job) {
+                continue;
+            }
+            if (draining && !job->finished) {
+                job->finished = true;
+                job->result = result;
+            }
+            job_step(job, cancelled);
+            if (job->finished) {
+                if (!job->close_deadline) {
+                    job->close_deadline = clock_ms() + 10000;
+                }
+                if (job_close_step(job)) {
+                    if (job->cleanup_failed) {
+                        result = 5;
+                    } else if (!result && job->result) {
+                        result = job->result;
+                    }
+                    job_free(job);
+                    jobs[i] = NULL;
+                    clear_profile(&profiles[i]);
+                    memset(&profiles[i], 0, sizeof(profiles[i]));
+                    continue;
+                }
+                if (clock_ms() >= job->close_deadline) {
+                    result = 5;
+                    goto done;
+                }
+            }
+            active++;
+        }
+        if (draining && !active) {
+            if (!finish_id[0] || io != GT_OK) {
+                break;
+            }
+            if (!replied) {
+                if (!close_resource_owner(shared)) {
+                    result = 5;
+                    break;
+                }
+                if (!native_reply(mux, connection, finish_id, "{\"released\":true}", NULL)) {
+                    result = 5;
+                    break;
+                }
+                replied = true;
+            }
+            gt_ext_mux_native_info_t state;
+            if (!gt_ext_mux_native_info(mux, &state)) {
+                result = 5;
+                break;
+            }
+            if (!state.outgoing_bytes) {
+                break;
+            }
+        }
+        if (!draining) {
+            size_t size = 0;
+            gt_status_t status = gt_ext_mux_native_take(mux, incoming, sizeof(incoming), &size);
+            if (status == GT_OK) {
+                gt_bridge_message_t message;
+                char id[33], method[129];
+                if (gt__bridge_wire_parse(wire, incoming, size, &message) != GT_OK ||
+                    !native_text(wire, message.payload, "requestId", id, sizeof(id)) ||
+                    !native_text(wire, message.payload, "method", method, sizeof(method))) {
+                    result = 5;
+                    goto done;
+                }
+                uint16_t input = gt__bridge_wire_member(wire, message.payload, "input");
+                const char *error = negotiated ? "UNSUPPORTED" : "NOT_NEGOTIATED";
+                char value[256] = "{}";
+                if (!strcmp(method, "native.multiplex.hello") &&
+                    gt__bridge_wire_object_fields(wire, input, NULL, 0)) {
+                    error = NULL;
+                    negotiated = true;
+                    strcpy(value, "{\"nativeControl\":1,\"maximumInstances\":8}");
+                } else if (negotiated && !strcmp(method, "native.multiplex.finish") &&
+                           gt__bridge_wire_object_fields(wire, input, NULL, 0)) {
+                    memcpy(finish_id, id, sizeof(id));
+                    draining = true;
+                    continue;
+                } else if (negotiated && !strcmp(method, "native.multiplex.open")) {
+                    char instance[33], epoch[21], profile[4097];
+                    uint64_t generation = 0;
+                    size_t slot = GT_EXT_MUX_INSTANCES_MAX;
+                    error = "INVALID_INPUT";
+                    if (gt__bridge_wire_object_fields(wire, input, open_keys, 3) &&
+                        native_text(wire, input, "instance", instance, sizeof(instance)) &&
+                        native_id(instance) &&
+                        native_text(wire, input, "epoch", epoch, sizeof(epoch)) &&
+                        decimal(epoch, &generation) &&
+                        native_text(wire, input, "profile", profile, sizeof(profile))) {
+                        for (size_t i = 0; i < GT_EXT_MUX_INSTANCES_MAX; i++) {
+                            if (!jobs[i]) {
+                                slot = i;
+                                break;
+                            }
+                        }
+                        error = "BUSY";
+                        if (slot < GT_EXT_MUX_INSTANCES_MAX) {
+                            mux_instance_t *selected = &profiles[slot];
+                            int prepared = decode_profile(profile, selected);
+                            if (!prepared) {
+                                prepared = gterm_stdio_validate(selected->argc, selected->argv);
+                            }
+                            error = prepared == 5 ? "NO_MEMORY" : "INVALID_PROFILE";
+                            if (!prepared) {
+                                stdio_job_t *job = job_new(shared->store);
+                                if (job) {
+                                    jobs[slot] = job;
+                                    memcpy(job->instance, instance, sizeof(instance));
+                                    job->epoch = generation;
+                                    selected->id = job->instance;
+                                    selected->epoch = generation;
+                                    prepared =
+                                        job_prepare(job, selected->argc, selected->argv, cancelled);
+                                    if (prepared) {
+                                        error = prepared == 4   ? "UNSUPPORTED"
+                                                : prepared == 6 ? "INTEGRITY"
+                                                                : "IO";
+                                    } else {
+                                        gt_status_t status = gt_ext_mux_open_channel(
+                                            mux, instance, generation, &job->channel);
+                                        if (status != GT_OK) {
+                                            prepared = status == GT_ERR_INVALID_ARG ? 2 : 5;
+                                            error = status == GT_ERR_INVALID_ARG ? "INVALID_INPUT"
+                                                                                 : "RESOURCE_LIMIT";
+                                        }
+                                    }
+                                    if (!prepared) {
+                                        job_start(job);
+                                        error = job->started ? NULL : "START_FAILED";
+                                        strcpy(value, "{\"admitted\":true}");
+                                    } else {
+                                        job->finished = true;
+                                        job->result = prepared;
+                                    }
+                                } else {
+                                    error = "NO_MEMORY";
+                                }
+                            }
+                            if (!jobs[slot]) {
+                                clear_profile(selected);
+                                memset(selected, 0, sizeof(*selected));
+                            }
+                        }
+                    }
+                } else if (negotiated && !strcmp(method, "native.multiplex.status")) {
+                    char instance[33], epoch[21];
+                    uint64_t generation;
+                    error = "INVALID_INPUT";
+                    if (gt__bridge_wire_object_fields(wire, input, status_keys, 2) &&
+                        native_text(wire, input, "instance", instance, sizeof(instance)) &&
+                        native_id(instance) &&
+                        native_text(wire, input, "epoch", epoch, sizeof(epoch)) &&
+                        decimal(epoch, &generation)) {
+                        bool present = false;
+                        for (size_t i = 0; i < GT_EXT_MUX_INSTANCES_MAX; i++) {
+                            if (jobs[i] && jobs[i]->epoch == generation &&
+                                !strcmp(jobs[i]->instance, instance)) {
+                                present = true;
+                            }
+                        }
+                        snprintf(value,
+                                 sizeof(value),
+                                 "{\"present\":%s,\"instances\":%zu}",
+                                 present ? "true" : "false",
+                                 active);
+                        error = NULL;
+                    }
+                }
+                if (!native_reply(mux, connection, id, value, error)) {
+                    result = 5;
+                    goto done;
+                }
+            } else if (status != GT_ERR_NOT_FOUND) {
+                result = 5;
+                break;
+            }
+        }
+        idle();
+    }
+done:
+    gt__bridge_wire_free(wire);
+    return result;
+}
+
 int gterm_multiplex(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     mux_instance_t instances[GT_EXT_MUX_INSTANCES_MAX] = {0};
     size_t argument_bytes = 0;
-    if (argc < 6 || strcmp(argv[0], "--connection") || !native_id(argv[1]) || (argc - 2) % 4 ||
-        (argc - 2) / 4 > (int)GT_EXT_MUX_INSTANCES_MAX) {
+    bool live = argc > 0 && !strcmp(argv[0], "--live");
+    if (live) {
+        argc--;
+        argv++;
+    }
+    if (live && gt_ext_runtime_support() != GT_OK) {
+        return diagnostic("live multiplex runtime unsupported", 4);
+    }
+    if (argc < (live ? 2 : 6) || strcmp(argv[0], "--connection") || !native_id(argv[1]) ||
+        (argc - 2) % 4 || (argc - 2) / 4 > (int)GT_EXT_MUX_INSTANCES_MAX) {
         return diagnostic(
             "multiplex requires a native connection identity and one to eight instances", 2);
     }
@@ -1314,9 +1610,13 @@ int gterm_multiplex(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     if (open_stdio_channel(&physical) != GT_OK) {
         goto done;
     }
-    gt_ext_mux_config_t config = {.frame_bytes = 4096, .receive_frames = 64, .instances = 8};
+    gt_ext_mux_config_t config = {
+        .frame_bytes = live ? 8192 : 4096, .receive_frames = 64, .instances = 8};
     memcpy(config.connection, argv[1], 33);
     if (gt_ext_mux_open(&physical, &config, &mux) != GT_OK) {
+        goto done;
+    }
+    if (live && gt_ext_mux_native_enable(mux, false) != GT_OK) {
         goto done;
     }
     for (size_t i = 0; i < count; i++) {
@@ -1330,9 +1630,16 @@ int gterm_multiplex(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     for (size_t i = 0; i < count; i++) {
         job_start(jobs[i]);
     }
-    result = jobs_drive(jobs, count, mux, cancelled);
+    result = live ? jobs_drive_live(jobs, instances, mux, &shared, argv[1], cancelled)
+                  : jobs_drive(jobs, count, mux, cancelled);
+    if (live) {
+        owners = GT_EXT_MUX_INSTANCES_MAX;
+    }
 done:
     for (size_t i = 0; i < owners; i++) {
+        if (!jobs[i]) {
+            continue;
+        }
         if (!jobs[i]->released) {
             pending = true;
             if (!jobs[i]->finished) {
@@ -1363,7 +1670,7 @@ done:
     if (!close_resource_owner(&shared)) {
         result = diagnostic("shared resource cleanup failed", 5);
     }
-    for (size_t i = 0; i < count; i++) {
+    for (size_t i = 0; i < GT_EXT_MUX_INSTANCES_MAX; i++) {
         clear_profile(&instances[i]);
     }
     return result;

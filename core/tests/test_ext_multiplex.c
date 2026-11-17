@@ -347,9 +347,95 @@ static void source_borrow(const char *temporary_root) {
     }
 }
 
+static size_t native_envelope(char *out, size_t capacity, bool request, unsigned sequence) {
+    int size =
+        snprintf(out,
+                 capacity,
+                 "{\"wireVersion\":1,\"connectionId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\","
+                 "\"instanceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"epoch\":\"1\","
+                 "\"streamId\":\"rpc.%s\",\"seq\":\"%u\",\"kind\":\"%s\","
+                 "\"payload\":{\"requestId\":\"dddddddddddddddddddddddddddddddd\",%s}}",
+                 request ? "request" : "response",
+                 sequence,
+                 request ? "request" : "response",
+                 request ? "\"method\":\"native.multiplex.hello\",\"timeoutMs\":1000,\"input\":{}"
+                         : "\"outcome\":{\"kind\":\"success\",\"value\":{\"nativeControl\":1}}");
+    CHECK(size > 0 && (size_t)size < capacity);
+    return (size_t)size;
+}
+
+static void native_control(bool wrong_role) {
+    fixture_t f = {0};
+    open_fixture(&f, false);
+    activate(&f);
+    char request[1024], response[1024], taken[1024];
+    size_t n = native_envelope(request, sizeof(request), true, 0), used = 99;
+    CHECK(gt_ext_mux_native_send(f.mux[0], request, n) == GT_ERR_UNSUPPORTED);
+    CHECK(gt_ext_mux_native_take(f.mux[0], taken, sizeof(taken), &used) == GT_ERR_UNSUPPORTED &&
+          !used);
+    for (unsigned side = 0; side < 2; side++) {
+        CHECK(gt_ext_mux_native_enable(f.mux[side], side == 0 || wrong_role) == GT_OK);
+        CHECK(gt_ext_mux_native_enable(f.mux[side], side == 0) == GT_ERR_INVALID_ARG);
+        gt_ext_mux_info_t info;
+        CHECK(gt_ext_mux_info(f.mux[side], &info) && info.instances == 8);
+        gt_ext_channel_t *extra = NULL;
+        CHECK(gt_ext_mux_open_channel(f.mux[side], "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 9, &extra) ==
+                  GT_ERR_INVALID_ARG &&
+              !extra);
+    }
+    CHECK(gt_ext_mux_native_send(f.mux[0], request, n) == GT_OK);
+    CHECK(gt_ext_mux_native_send(f.mux[0], request, n) == GT_ERR_IO);
+    if (wrong_role) {
+        bool rejected = false;
+        for (unsigned step = 0; step < 1000 && !rejected; step++) {
+            CHECK(gt_ext_mux_step(f.mux[0], 0) == GT_OK);
+            rejected = gt_ext_mux_step(f.mux[1], 0) == GT_ERR_PROTOCOL;
+        }
+        CHECK(rejected);
+    } else {
+        gt_ext_mux_native_info_t state;
+        for (unsigned step = 0; step < 1000; step++) {
+            pump(&f);
+            CHECK(gt_ext_mux_native_info(f.mux[1], &state));
+            if (state.incoming_bytes) {
+                break;
+            }
+        }
+        CHECK(state.incoming_bytes == n && state.next_receive == 1 && state.awaiting);
+        CHECK(gt_ext_mux_native_take(f.mux[1], taken, 1, &used) == GT_ERR_INVALID_ARG && used == n);
+        CHECK(gt_ext_mux_native_take(f.mux[1], taken, sizeof(taken), &used) == GT_OK && used == n &&
+              !memcmp(taken, request, n));
+        n = native_envelope(response, sizeof(response), false, 0);
+        CHECK(gt_ext_mux_native_send(f.mux[1], response, n) == GT_OK);
+        for (unsigned step = 0; step < 1000; step++) {
+            pump(&f);
+            CHECK(gt_ext_mux_native_info(f.mux[0], &state));
+            if (state.incoming_bytes) {
+                break;
+            }
+        }
+        CHECK(state.incoming_bytes == n && !state.awaiting && state.next_send == 1 &&
+              state.next_receive == 1);
+        CHECK(gt_ext_mux_native_take(f.mux[0], taken, sizeof(taken), &used) == GT_OK && used == n &&
+              !memcmp(taken, response, n));
+        n = native_envelope(request, sizeof(request), true, 0);
+        CHECK(gt_ext_mux_native_send(f.mux[0], request, n) == GT_ERR_INVALID_ARG);
+        for (unsigned side = 0; side < 2; side++) {
+            for (unsigned slot = 0; slot < 8; slot++) {
+                gt_ext_session_info_t info;
+                CHECK(gt_ext_session_info(f.session[side][slot], &info) &&
+                      info.phase == GT_EXT_SESSION_ACTIVE);
+            }
+        }
+    }
+    cleanup(&f);
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 2 || argc == 3);
-    if (!strcmp(argv[1], "roundtrip")) {
+    if (!strcmp(argv[1], "native") || !strcmp(argv[1], "native-invalid")) {
+        native_control(!strcmp(argv[1], "native-invalid"));
+    } else if (!strcmp(argv[1], "roundtrip")) {
         roundtrip();
     } else if (!strcmp(argv[1], "capacity")) {
         capacity();

@@ -60,6 +60,38 @@ public final class ExtensionMultiplexer {
         guard gt_ext_mux_info(try pointer(), &value) else { throw GhostermError.failed("多实例状态不可读") }
         return Info(value)
     }
+    public struct NativeInfo {
+        public let nextSend: UInt64, nextReceive: UInt64
+        public let outgoingBytes: Int, incomingBytes: Int
+        public let enabled: Bool, host: Bool, awaiting: Bool, sendExhausted: Bool, receiveExhausted: Bool
+    }
+    public func enableNativeControl(host: Bool) throws {
+        let status = gt_ext_mux_native_enable(try pointer(), host)
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法启用 Native 连接管理") }
+    }
+    public func nativeInfo() throws -> NativeInfo {
+        var value = gt_ext_mux_native_info_t()
+        guard gt_ext_mux_native_info(try pointer(), &value) else { throw GhostermError.failed("Native 连接管理状态不可读") }
+        return NativeInfo(nextSend: value.next_send, nextReceive: value.next_receive,
+            outgoingBytes: Int(value.outgoing_bytes), incomingBytes: Int(value.incoming_bytes),
+            enabled: value.enabled, host: value.host, awaiting: value.awaiting,
+            sendExhausted: value.send_exhausted, receiveExhausted: value.receive_exhausted)
+    }
+    public func sendNativeControl(_ bytes: Data) throws {
+        let p = try pointer()
+        let status = bytes.withUnsafeBytes { gt_ext_mux_native_send(p, $0.baseAddress, $0.count) }
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "Native 连接管理消息未接收") }
+    }
+    public func takeNativeControl() throws -> Data? {
+        let p = try pointer(); let info = try nativeInfo()
+        guard info.enabled else { throw GhostermError.status(4, "未启用 Native 连接管理") }
+        guard info.incomingBytes > 0 else { return nil }
+        guard info.incomingBytes <= 65536 else { throw GhostermError.failed("Native 消息超过预算") }
+        var bytes = Data(count: info.incomingBytes), count = 0
+        let status = bytes.withUnsafeMutableBytes { gt_ext_mux_native_take(p, $0.baseAddress, $0.count, &count) }
+        guard status == GT_OK, count == bytes.count else { throw GhostermError.status(Int32(status.rawValue), "Native 消息读取失败") }
+        return bytes
+    }
     public func scopeInfo(instance: String, epoch: UInt64) throws -> ScopeInfo {
         let p = try pointer(); try Self.requireID(instance)
         var value = gt_ext_mux_scope_info_t()

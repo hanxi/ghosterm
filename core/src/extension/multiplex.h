@@ -60,6 +60,17 @@ gt_status_t gt__bridge_mux_scope_info(const gt_bridge_mux_t *,
                                       const char *,
                                       uint64_t,
                                       gt_bridge_mux_branch_info_t *);
+
+typedef struct {
+    uint64_t next_send, next_receive;
+    uint32_t outgoing_bytes, incoming_bytes;
+    bool enabled, host, awaiting, send_exhausted, receive_exhausted;
+} gt_bridge_mux_native_info_t;
+
+gt_status_t gt__bridge_mux_native_enable(gt_bridge_mux_t *, bool host);
+gt_status_t gt__bridge_mux_native_send(gt_bridge_mux_t *, const void *, size_t);
+gt_status_t gt__bridge_mux_native_take(gt_bridge_mux_t *, void *, size_t, size_t *);
+bool gt__bridge_mux_native_info(const gt_bridge_mux_t *, gt_bridge_mux_native_info_t *);
 /* At most one physical write and one read (wait capped at 10ms). Session IO on
  * child streams is nonblocking and never pumps other instances recursively.
  * FIFO within a branch; round-robin between branch heads, with at most eight

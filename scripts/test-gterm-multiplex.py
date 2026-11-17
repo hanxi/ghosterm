@@ -63,7 +63,7 @@ export function activate(ctx){
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
-    parser.add_argument("--case", choices=["roundtrip", "denied", "resources", "cancel", "preflight"])
+    parser.add_argument("--case", choices=["roundtrip", "denied", "resources", "cancel", "preflight", "live"])
     parser.add_argument("--disabled", action="store_true")
     args = parser.parse_args()
     build = args.build.resolve(strict=True)
@@ -91,7 +91,7 @@ def main():
             assert not list(runtime_tmp.iterdir())
             print("PASS disabled multiplex: explicit unsupported, no protocol or temporary owners")
             return
-        for case in [args.case] if args.case else ["roundtrip", "denied", "resources", "cancel", "preflight"]:
+        for case in [args.case] if args.case else ["roundtrip", "denied", "resources", "cancel", "preflight", "live"]:
             if case == "preflight":
                 base = [build / "gterm", "relay", "--multiplex", "--connection", "a" * 32]
                 group = ["--instance", "1" * 32, "1", profiles[0]]
@@ -117,6 +117,12 @@ def main():
                     assert result.stdout == b"", "preflight must not emit a Session or run a module"
                     assert not list(runtime_tmp.iterdir()), "preflight retained files"
                 print(f"PASS multiplex preflight: {len(malformed)} explicit rejections", flush=True)
+                continue
+            if case == "live":
+                result = run([build / "test_gterm_live", build / "gterm", "org.ghosterm.mux-fixture", digest, runtime_tmp, *profiles], timeout=70)
+                assert b"PASS live multiplex" in result.stdout, result.stdout
+                assert not list(runtime_tmp.iterdir()), "live server retained resource or staging owners"
+                print(result.stdout.decode(), end="", flush=True)
                 continue
             selected, sha, plugin_id = profiles, digest, "org.ghosterm.mux-fixture"
             if case == "denied":

@@ -34,7 +34,16 @@ struct gt_bridge_mux {
     gt_status_t error;
     size_t live, cursor, control_burst;
     size_t writing_slot;
-    bool writing, writing_close, released;
+    bool writing, writing_close, writing_native, native_last, released;
+
+    struct {
+        uint8_t *buffers;
+        size_t outgoing, incoming;
+        uint64_t next_send, next_receive;
+        char awaiting_id[33];
+        bool enabled, host, send_exhausted, receive_exhausted;
+    } native;
+
     uint64_t highest_epoch, admitted_epochs, received, sent, rejected;
     uint64_t accepted_bytes, sent_bytes, received_bytes;
     uint8_t input[GT_BRIDGE_IO_QUANTUM];
@@ -196,8 +205,8 @@ static gt_bridge_close_t branch_close(gt_bridge_stream_t *stream, int ms) {
     if (stopped(branch->mux) || branch->mux->error != GT_OK) {
         return GT_BRIDGE_RELEASED;
     }
-    bool writing =
-        branch->mux->writing && &branch->mux->branches[branch->mux->writing_slot] == branch;
+    bool writing = branch->mux->writing && !branch->mux->writing_native &&
+                   &branch->mux->branches[branch->mux->writing_slot] == branch;
     return !writing && (branch->close_sent || (branch->peer_closed && !ready(branch)))
                ? GT_BRIDGE_RELEASED
                : GT_BRIDGE_DRAINING;
@@ -249,7 +258,8 @@ gt_status_t gt__bridge_mux_branch_open(gt_bridge_mux_t *mux,
         *out = NULL;
     }
     if (!mux || !out || !valid_id(instance) || mux->released || stopped(mux) ||
-        mux->error != GT_OK || !fresh_epoch(mux, epoch)) {
+        mux->error != GT_OK || !fresh_epoch(mux, epoch) ||
+        (mux->native.enabled && !strcmp(instance, mux->config.connection))) {
         return GT_ERR_INVALID_ARG;
     }
     mux_branch_t *available = NULL;
@@ -371,6 +381,167 @@ static bool ready(const mux_branch_t *branch) {
     return branch->live && gt__bridge_decoder_view(branch->outgoing, &bytes, &size);
 }
 
+gt_status_t gt__bridge_mux_native_enable(gt_bridge_mux_t *mux, bool host) {
+    if (!mux || mux->released || stopped(mux) || mux->error != GT_OK || mux->native.enabled) {
+        return GT_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < mux->config.instances; i++) {
+        if (mux->branches[i].live &&
+            !strcmp(mux->branches[i].identity.instance, mux->config.connection)) {
+            return GT_ERR_INVALID_ARG;
+        }
+    }
+    uint8_t *buffers =
+        gt__plugin_memory_alloc(&mux->allocator, (size_t)mux->config.frame_bytes * 2);
+    if (!buffers) {
+        return GT_ERR_IO;
+    }
+    mux->native.buffers = buffers;
+    mux->native.host = host;
+    mux->native.enabled = true;
+    return GT_OK;
+}
+
+static bool native_message(gt_bridge_mux_t *mux,
+                           const gt_bridge_message_t *message,
+                           bool request,
+                           char id[33]) {
+    const uint8_t *text;
+    size_t size;
+    if (strcmp(message->instance, mux->config.connection) || message->epoch != 1 ||
+        strcmp(message->stream, request ? "rpc.request" : "rpc.response") ||
+        message->kind != (request ? GT_BRIDGE_REQUEST : GT_BRIDGE_RESPONSE) ||
+        !gt__bridge_wire_string(mux->wire,
+                                gt__bridge_wire_member(mux->wire, message->payload, "requestId"),
+                                &text,
+                                &size) ||
+        size != 32) {
+        return false;
+    }
+    memcpy(id, text, size);
+    id[size] = 0;
+    if (request) {
+        if (!gt__bridge_wire_string(mux->wire,
+                                    gt__bridge_wire_member(mux->wire, message->payload, "method"),
+                                    &text,
+                                    &size) ||
+            size <= 17 || memcmp(text, "native.multiplex.", 17)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void native_advance(uint64_t *sequence, bool *exhausted) {
+    if (*sequence == UINT64_MAX) {
+        *exhausted = true;
+    } else {
+        (*sequence)++;
+    }
+}
+
+gt_status_t gt__bridge_mux_native_send(gt_bridge_mux_t *mux, const void *bytes, size_t size) {
+    if (!mux || !bytes || !size || size > mux->config.frame_bytes || mux->released ||
+        stopped(mux) || mux->error != GT_OK) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (!mux->native.enabled) {
+        return GT_ERR_UNSUPPORTED;
+    }
+    if (mux->native.outgoing || mux->writing_native || mux->native.incoming ||
+        (mux->native.host == (mux->native.awaiting_id[0] != 0))) {
+        return GT_ERR_IO;
+    }
+    gt_bridge_message_t message;
+    char id[33];
+    if (mux->native.send_exhausted ||
+        gt__bridge_wire_parse(mux->wire, bytes, size, &message) != GT_OK ||
+        strcmp(message.connection, mux->config.connection) ||
+        !native_message(mux, &message, mux->native.host, id) ||
+        message.sequence != mux->native.next_send ||
+        (!mux->native.host && strcmp(id, mux->native.awaiting_id))) {
+        return GT_ERR_INVALID_ARG;
+    }
+    memcpy(mux->native.buffers, bytes, size);
+    mux->native.outgoing = size;
+    if (mux->native.host) {
+        memcpy(mux->native.awaiting_id, id, sizeof(id));
+    } else {
+        mux->native.awaiting_id[0] = 0;
+    }
+    native_advance(&mux->native.next_send, &mux->native.send_exhausted);
+    return GT_OK;
+}
+
+gt_status_t
+gt__bridge_mux_native_take(gt_bridge_mux_t *mux, void *out, size_t capacity, size_t *size) {
+    if (size) {
+        *size = 0;
+    }
+    if (!mux || !size || (!out && capacity)) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (!mux->native.enabled) {
+        return GT_ERR_UNSUPPORTED;
+    }
+    if (!mux->native.incoming) {
+        return GT_ERR_NOT_FOUND;
+    }
+    *size = mux->native.incoming;
+    if (!out || capacity < *size) {
+        return GT_ERR_INVALID_ARG;
+    }
+    memcpy(out, mux->native.buffers + mux->config.frame_bytes, *size);
+    memset(mux->native.buffers + mux->config.frame_bytes, 0, *size);
+    mux->native.incoming = 0;
+    return GT_OK;
+}
+
+bool gt__bridge_mux_native_info(const gt_bridge_mux_t *mux, gt_bridge_mux_native_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!mux || !out) {
+        return false;
+    }
+    *out = (gt_bridge_mux_native_info_t){
+        .next_send = mux->native.next_send,
+        .next_receive = mux->native.next_receive,
+        .outgoing_bytes =
+            (uint32_t)(mux->native.outgoing +
+                       (mux->writing_native ? gt__bridge_writer_pending(mux->writer) : 0)),
+        .incoming_bytes = (uint32_t)mux->native.incoming,
+        .enabled = mux->native.enabled,
+        .host = mux->native.host,
+        .awaiting = mux->native.awaiting_id[0] != 0,
+        .send_exhausted = mux->native.send_exhausted,
+        .receive_exhausted = mux->native.receive_exhausted};
+    return true;
+}
+
+static gt_status_t native_receive(gt_bridge_mux_t *mux,
+                                  const gt_bridge_message_t *message,
+                                  const uint8_t *bytes,
+                                  size_t size) {
+    char id[33];
+    if (mux->native.receive_exhausted || mux->native.incoming ||
+        message->sequence != mux->native.next_receive ||
+        !native_message(mux, message, !mux->native.host, id) ||
+        (mux->native.host && strcmp(id, mux->native.awaiting_id)) ||
+        (!mux->native.host && mux->native.awaiting_id[0])) {
+        return GT_ERR_PROTOCOL;
+    }
+    memcpy(mux->native.buffers + mux->config.frame_bytes, bytes, size);
+    mux->native.incoming = size;
+    if (!mux->native.host) {
+        memcpy(mux->native.awaiting_id, id, sizeof(id));
+    } else {
+        mux->native.awaiting_id[0] = 0;
+    }
+    native_advance(&mux->native.next_receive, &mux->native.receive_exhausted);
+    return GT_OK;
+}
+
 static gt_status_t queue_close(gt_bridge_mux_t *mux, mux_branch_t *branch, size_t slot) {
     char bytes[512];
     int size = snprintf(
@@ -394,6 +565,7 @@ static gt_status_t queue_close(gt_bridge_mux_t *mux, mux_branch_t *branch, size_
         count_bytes(&mux->accepted_bytes, (size_t)size + 4);
         mux->writing = true;
         mux->writing_close = true;
+        mux->native_last = false;
         mux->writing_slot = slot;
     } else {
         branch->close_error = status;
@@ -431,6 +603,24 @@ static gt_status_t choose_write(gt_bridge_mux_t *mux) {
             control_waiting = true;
         }
     }
+    if (mux->native.outgoing && (!(bulk_waiting || control_waiting) || !mux->native_last) &&
+        (!bulk_waiting || mux->control_burst < 8)) {
+        gt_status_t status =
+            gt__bridge_writer_queue(mux->writer, mux->native.buffers, mux->native.outgoing);
+        if (status != GT_OK) {
+            return status;
+        }
+        count_bytes(&mux->accepted_bytes, mux->native.outgoing + 4);
+        memset(mux->native.buffers, 0, mux->native.outgoing);
+        mux->native.outgoing = 0;
+        mux->writing = true;
+        mux->writing_native = true;
+        mux->native_last = true;
+        if (mux->control_burst < 8) {
+            mux->control_burst++;
+        }
+        return GT_OK;
+    }
     bool bulk = bulk_waiting && (!control_waiting || mux->control_burst >= 8);
     for (size_t i = 0; i < mux->config.instances; i++) {
         size_t slot = (mux->cursor + i) % mux->config.instances;
@@ -456,6 +646,7 @@ static gt_status_t choose_write(gt_bridge_mux_t *mux) {
         count_bytes(&mux->accepted_bytes, size + 4);
         mux->writing = true;
         mux->writing_slot = slot;
+        mux->native_last = false;
         mux->writing_close = branch->close_queued;
         gt__bridge_decoder_consume(branch->outgoing);
         mux->control_burst = bulk ? 0 : (mux->control_burst < 8 ? mux->control_burst + 1 : 8);
@@ -471,6 +662,9 @@ static gt_status_t route_frame(gt_bridge_mux_t *mux, const uint8_t *bytes, size_
         return GT_ERR_PROTOCOL;
     }
     count_one(&mux->received);
+    if (mux->native.enabled && !strcmp(message.instance, mux->config.connection)) {
+        return native_receive(mux, &message, bytes, size);
+    }
     for (size_t i = 0; i < mux->config.instances; i++) {
         mux_branch_t *branch = &mux->branches[i];
         if (!branch->live || strcmp(branch->identity.instance, message.instance)) {
@@ -528,13 +722,17 @@ gt_status_t gt__bridge_mux_step(gt_bridge_mux_t *mux, int ms) {
         if (result.state != GT_BRIDGE_DATA && result.state != GT_BRIDGE_WAIT) {
             status = result.error == GT_OK ? GT_ERR_IO : result.error;
         } else if (!gt__bridge_writer_pending(mux->writer)) {
-            mux_branch_t *branch = &mux->branches[mux->writing_slot];
-            count_one(&branch->sent);
             count_one(&mux->sent);
-            if (mux->writing_close) {
-                branch->close_sent = true;
+            if (mux->writing_native) {
+                mux->writing_native = false;
+            } else {
+                mux_branch_t *branch = &mux->branches[mux->writing_slot];
+                count_one(&branch->sent);
+                if (mux->writing_close) {
+                    branch->close_sent = true;
+                }
+                mux->cursor = (mux->writing_slot + 1) % mux->config.instances;
             }
-            mux->cursor = (mux->writing_slot + 1) % mux->config.instances;
             mux->writing = false;
         }
     }
@@ -619,6 +817,11 @@ gt_bridge_close_t gt__bridge_mux_close(gt_bridge_mux_t *mux, int ms) {
 }
 
 static void free_mux(gt_bridge_mux_t *mux) {
+    if (mux->native.buffers) {
+        memset(mux->native.buffers, 0, (size_t)mux->config.frame_bytes * 2);
+        gt__plugin_memory_free(
+            &mux->allocator, mux->native.buffers, (size_t)mux->config.frame_bytes * 2);
+    }
     gt__bridge_wire_free(mux->wire);
     gt__bridge_writer_free(mux->writer);
     gt__bridge_decoder_free(mux->decoder);

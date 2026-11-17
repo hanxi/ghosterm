@@ -56,6 +56,9 @@ gt_status_t gt__bridge_wire_new(const gt_allocator_t *, gt_bridge_wire_t **);
 gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *, const void *, size_t, gt_bridge_message_t *);
 gt_bridge_wire_error_t gt__bridge_wire_error(const gt_bridge_wire_t *);
 uint16_t gt__bridge_wire_member(const gt_bridge_wire_t *, uint16_t, const char *);
+/* Exact Native operation objects: reject wrong types and extra/missing keys.
+ * Key names are caller-owned literals, never peer-controlled field paths. */
+bool gt__bridge_wire_object_fields(const gt_bridge_wire_t *, uint16_t, const char *const *, size_t);
 bool gt__bridge_wire_string(const gt_bridge_wire_t *, uint16_t, const uint8_t **, size_t *);
 bool gt__bridge_wire_raw(const gt_bridge_wire_t *, uint16_t, const uint8_t **, size_t *);
 /* Typed accessors for validated numeric fields and capability arrays. */

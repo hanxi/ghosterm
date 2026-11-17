@@ -358,6 +358,22 @@ uint16_t gt__bridge_wire_member(const gt_bridge_wire_t *d, uint16_t id, const ch
     return d && d->valid ? member(d, id, key) : 0;
 }
 
+bool gt__bridge_wire_object_fields(const gt_bridge_wire_t *d,
+                                   uint16_t id,
+                                   const char *const *keys,
+                                   size_t count) {
+    if (!d || !d->valid || !id || id > d->used || d->nodes[id].kind != J_OBJECT ||
+        d->nodes[id].count != count || (!keys && count)) {
+        return false;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (!keys[i] || !member(d, id, keys[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool gt__bridge_wire_string(const gt_bridge_wire_t *d,
                             uint16_t id,
                             const uint8_t **p,
