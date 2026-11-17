@@ -63,7 +63,7 @@ final class SFTPBrowserTests: XCTestCase {
                       "SFTP 双栏应建立（状态: \(model.status)）")
         guard let browser = model.remoteFiles?.panel else { return XCTFail("缺远端文件窗格") }
 
-        // 初次列目录（cwd 从 "." 开始——远端用户 home）。
+        // 初次列目录（cwd 从 "." 开始；闸门的 sftp-server -d 指向自有 tmp 夹具）。
         XCTAssertTrue(waitUntil(timeout: 15) { !browser.entries.isEmpty },
                       "初次列目录应有条目（错误: \(browser.errorText ?? "无")）")
         XCTAssertNil(browser.errorText, "列目录不应报错")

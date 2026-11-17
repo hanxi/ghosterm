@@ -199,12 +199,31 @@ struct FilesPanelView: View {
 
     /// 目录树（懒展开：展开某目录才去列它；只显示目录）。
     private var treeList: some View {
-        List {
-            ForEach(panel.treeChildrenVisible(panel.currentPath)) { d in
-                DirRow(panel: panel, entry: d)
+        let rootNeedsStatus = panel.treeLoading.contains(panel.currentPath) || panel.treeErrors[panel.currentPath] != nil || panel.treeChildren[panel.currentPath]?.isEmpty == true
+        let pendingChildren = panel.expandedDirs.filter {
+            $0 != panel.currentPath && (panel.treeErrors[$0] != nil || panel.treeLoading.contains($0))
+        }.sorted()
+        return VStack(alignment: .leading, spacing: 0) {
+            if let error = panel.errorText { Text(error).font(DS.Font.callout).foregroundStyle(.red).padding(DS.Padding.s) }
+            if rootNeedsStatus || !pendingChildren.isEmpty {
+                // Read state/actions stay outside virtualized outline rows;
+                // empty/error rows otherwise lose their native AX controls.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DS.Padding.s) {
+                        if rootNeedsStatus { TreeReadStatus(panel: panel, path: panel.currentPath) }
+                        ForEach(pendingChildren, id: \.self) { path in TreeReadStatus(panel: panel, path: path) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(DS.Padding.s)
+                }
+                .frame(maxHeight: 132)
             }
+            List {
+                ForEach(panel.treeChildrenVisible(panel.currentPath)) { d in
+                    DirRow(panel: panel, entry: d)
+                }
+            }
+            .listStyle(.sidebar)
         }
-        .listStyle(.sidebar)
         .onAppear { panel.loadTreeChildren(panel.currentPath) }
         .onChange(of: panel.currentPath) { _ in panel.loadTreeChildren(panel.currentPath) }
     }
@@ -580,6 +599,28 @@ private struct PanelKeyHandler: ViewModifier {
     }
 }
 
+
+private struct TreeReadStatus: View {
+    @ObservedObject var panel: FilesPanelModel
+    let path: String
+    var body: some View {
+        if panel.treeLoading.contains(path) {
+            ProgressView("正在读取 \(path)…").controlSize(.small)
+        } else if let error = panel.treeErrors[path] {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(error).font(DS.Font.callout).foregroundStyle(.red)
+                    .accessibilityIdentifier("files-tree-error-" + path)
+                Button("重试") { panel.retryTree(path) }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("files-tree-retry-" + path)
+                    .accessibilityLabel("重新读取 \(path) 的子目录")
+            }
+            .accessibilityElement(children: .contain)
+        } else if panel.treeChildren[path]?.isEmpty == true {
+            Text("没有子目录").font(DS.Font.callout).foregroundStyle(.secondary)
+        }
+    }
+}
 
 /// 目录树的一行（懒展开）。双击导航到该目录（列表模式同步过去）。
 private struct DirRow: View {

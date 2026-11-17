@@ -95,7 +95,7 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
     # 同一台 sshd 上反复连接，OpenSSH 10.x 默认会把 127.0.0.1 当攻击源，
     # 累计 15s 后在发 banner 前丢连接 → 「Failed getting banner」随机红。
     echo "PerSourcePenalties no"
-    echo "Subsystem sftp /usr/libexec/sftp-server"
+    echo "Subsystem sftp /usr/libexec/sftp-server -d \"$WORK\""
   } > "$WORK/sshd_config"
   "$SSHD" -f "$WORK/sshd_config" -D -e 2>"$WORK/sshd.log" &
   SRV=$!

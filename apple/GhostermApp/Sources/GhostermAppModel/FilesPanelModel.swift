@@ -6,6 +6,13 @@
 import Foundation
 import GhostermCore
 
+private final class FilePanelReadRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+}
+
 @MainActor
 public final class FilesPanelModel: ObservableObject {
     public enum SortKey: String, CaseIterable, Identifiable {
@@ -37,7 +44,9 @@ public final class FilesPanelModel: ObservableObject {
     /// 树模式：展开集合。
     @Published public var expandedDirs: Set<String> = []
     /// 树模式的加载状态（避免重复请求）。
-    private var treeLoading: Set<String> = []
+    @Published public private(set) var treeLoading: Set<String> = []
+    @Published public private(set) var treeErrors: [String: String] = [:]
+    private var treeEpoch: UInt64 = 0
 
     /// 「跟随终端目录」：本地 shell 标签页默认开——终端 `cd` 到哪，面板跟到哪。
     /// cwd 是内核查询（非 @Published），故用**轮询**比对。
@@ -61,6 +70,9 @@ public final class FilesPanelModel: ObservableObject {
     private var backStack: [String] = []
     private var forwardStack: [String] = []
     private var searchToken = 0
+    private var navigationRequest: FilePanelReadRequest?
+    private var pendingNavigationPath: Data?
+    private enum NavigationHistory { case record, unchanged, back, forward }
 
     public init(backend: FileBackend, initialPath: String? = nil) {
         self.backend = backend
@@ -113,7 +125,7 @@ public final class FilesPanelModel: ObservableObject {
         let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             guard self.followsTerminalCwd, let cwd = self.cwdProvider?(),
-                  !cwd.isEmpty, cwd != self.currentPath else { return }
+                  self.shouldFollow(cwd) else { return }
             self.navigate(to: cwd)
         }
         RunLoop.main.add(t, forMode: .common)
@@ -122,52 +134,94 @@ public final class FilesPanelModel: ObservableObject {
 
     /// 供测试直接驱动一次跟随检查（不必等 Timer）。
     public func followTick() {
-        guard followsTerminalCwd, let cwd = cwdProvider?(), !cwd.isEmpty,
-              cwd != currentPath else { return }
+        guard followsTerminalCwd, let cwd = cwdProvider?(), shouldFollow(cwd) else { return }
         navigate(to: cwd)
     }
 
-    deinit { followTimer?.invalidate() }
+    private func shouldFollow(_ directory: String) -> Bool {
+        let path = Data(directory.utf8)
+        return !directory.isEmpty && path != Data(currentPath.utf8) && pendingNavigationPath != path
+    }
+
+    deinit { followTimer?.invalidate(); navigationRequest?.cancel() }
 
     public func navigate(to path: String, record: Bool = true) {
+        requestNavigation(path, history: record ? .record : .unchanged)
+    }
+
+    private func requestNavigation(_ path: String, history: NavigationHistory) {
         let target = path.isEmpty ? "/" : path
+        cancelSearch()
+        navigationRequest?.cancel()
+        let request = FilePanelReadRequest()
+        navigationRequest = request
+        pendingNavigationPath = Data(target.utf8)
+        let origin = currentPath, back = backStack, forward = forwardStack
+        let backend = self.backend
         isLoading = true
         queue.async { [weak self] in
-            guard let self else { return }
-            do {
-                let list = try self.backend.list(target)
-                DispatchQueue.main.async {
-                    if record, self.currentPath != target {
-                        self.backStack.append(self.currentPath)
-                        self.forwardStack.removeAll()
+            guard !request.isCancelled else { return }
+            let result = Result { try backend.list(target) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.navigationRequest === request else { return }
+                self.isLoading = false
+                self.pendingNavigationPath = nil
+                switch result {
+                case .success(let list):
+                    let changed = Data(origin.utf8) != Data(target.utf8)
+                    switch history {
+                    case .record:
+                        if changed { self.backStack = back + [origin]; self.forwardStack = [] }
+                    case .unchanged: break
+                    case .back:
+                        self.backStack = Array(back.dropLast())
+                        self.forwardStack = forward + [origin]
+                    case .forward:
+                        self.forwardStack = Array(forward.dropLast())
+                        self.backStack = back + [origin]
                     }
+                    if changed { self.invalidateTreeCache(preserveExpansion: false) }
                     self.currentPath = target
                     self.entries = list
                     self.errorText = nil
-                    self.isLoading = false
                     self.selection.removeAll()
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.errorText = "\(error)"
-                    self.isLoading = false
+                    if changed, self.viewMode == .tree { self.loadTreeChildren(target) }
+                case .failure(let error):
+                    // Keep the complete last successful directory/history snapshot.
+                    self.errorText = "无法打开 \(target)：\(error)"
                 }
             }
         }
     }
 
-    public func refresh() { navigate(to: currentPath, record: false) }
+    public func refresh() {
+        let reloadTree = viewMode == .tree || !treeChildren.isEmpty || !treeLoading.isEmpty || !treeErrors.isEmpty
+        let prefix = Array((currentPath.hasSuffix("/") ? currentPath : currentPath + "/").utf8)
+        let expanded = expandedDirs.filter { Array($0.utf8).starts(with: prefix) }
+        invalidateTreeCache(preserveExpansion: true)
+        navigate(to: currentPath, record: false)
+        if reloadTree {
+            loadTreeChildren(currentPath)
+            for path in expanded { loadTreeChildren(path) }
+        }
+    }
+
+    private func invalidateTreeCache(preserveExpansion: Bool) {
+        treeEpoch &+= 1
+        treeChildren.removeAll()
+        treeErrors.removeAll()
+        treeLoading.removeAll()
+        if !preserveExpansion { expandedDirs.removeAll() }
+    }
 
     public func goBack() {
-        guard let prev = backStack.popLast() else { return }
-        forwardStack.append(currentPath)
-        navigate(to: prev, record: false)
+        guard let previous = backStack.last else { return }
+        requestNavigation(previous, history: .back)
     }
 
     public func goForward() {
-        guard let next = forwardStack.popLast() else { return }
-        backStack.append(currentPath)
-        navigate(to: next, record: false)
+        guard let next = forwardStack.last else { return }
+        requestNavigation(next, history: .forward)
     }
 
     public func up() {
@@ -246,18 +300,33 @@ public final class FilesPanelModel: ObservableObject {
     /// 懒加载某目录的子项（只保留目录，避免树把整棵树塞进内存）。
     public func loadTreeChildren(_ path: String) {
         guard treeChildren[path] == nil, !treeLoading.contains(path) else { return }
+        let epoch = treeEpoch, backend = self.backend
+        treeErrors[path] = nil
         treeLoading.insert(path)
         queue.async { [weak self] in
-            guard let self else { return }
-            let subs = (try? self.backend.list(path)) ?? []
-            let dirs = subs.filter(\.isDirectory).sorted {
+            let result = Result { try backend.list(path).filter(\.isDirectory).sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
-            }
-            DispatchQueue.main.async {
-                self.treeChildren[path] = dirs
+            } }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, epoch == self.treeEpoch else { return }
                 self.treeLoading.remove(path)
+                switch result {
+                case .success(let directories):
+                    self.treeChildren[path] = directories
+                    self.treeErrors[path] = nil
+                case .failure(let error):
+                    // A failed read is retryable, never a cached empty directory.
+                    self.treeErrors[path] = "读取 \(path) 失败：\(error)"
+                }
             }
         }
+    }
+
+    public func retryTree(_ path: String) {
+        guard !treeLoading.contains(path) else { return }
+        treeChildren[path] = nil
+        treeErrors[path] = nil
+        loadTreeChildren(path)
     }
 
     /// 树模式可见的子目录（隐藏文件规则同列表）。

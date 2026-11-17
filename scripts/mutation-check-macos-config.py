@@ -185,7 +185,36 @@ PRIVATE_UI_CASES = [
     ('private-import-error', '} catch { errorText = "\\(error)" }\n            importing = false',
      '} catch { _ = error }\n            importing = false', 'testActualKeyImportFailureIsVisibleWithoutSaving'),
 ]
+
+FILES_SOURCE = 'apple/GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift'
+FILES_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/FileNavigationTests.swift'
+FILES_CASES = [
+    ('files-latest', 'guard let self, self.navigationRequest === request else { return }',
+     'guard let self else { return }', 'testOlderNavigationCannotPublishWhileLatestIsPending'),
+    ('files-queued', 'guard !request.isCancelled else { return }',
+     '// mutation: start superseded queued IO', 'testSupersededQueuedNavigationDoesNotStartAnotherBackendRead'),
+    ('files-back', 'let origin = currentPath, back = backStack, forward = forwardStack',
+     'let origin = currentPath, back = backStack, forward = forwardStack\n        if case .back = history { backStack.removeLast() }', 'testFailedBackKeepsHistoryForRetry'),
+    ('files-forward', 'let origin = currentPath, back = backStack, forward = forwardStack',
+     'let origin = currentPath, back = backStack, forward = forwardStack\n        if case .forward = history { forwardStack.removeLast() }', 'testFailedForwardKeepsHistoryForRetry'),
+    ('files-error-cache', 'self.treeErrors[path] = "读取 \\(path) 失败：\\(error)"',
+     'self.treeChildren[path] = []\n                    self.treeErrors[path] = "读取 \\(path) 失败：\\(error)"', 'testTreeReadErrorIsNotCachedAsEmptyAndCanRetry'),
+    ('files-refresh', 'treeChildren.removeAll()', '// mutation: preserve obsolete directory cache', 'testRefreshInvalidatesActualLocalTreeCache'),
+    ('files-tree-epoch', 'guard let self, epoch == self.treeEpoch else { return }',
+     'guard let self else { return }', 'testOldTreeCompletionCannotRepopulateRefreshedCache'),
+    ('files-search-exit', 'cancelSearch()\n        navigationRequest?.cancel()',
+     'navigationRequest?.cancel()', 'testNavigationLeavesOldSearchResultsBehind'),
+    ('files-follow', '&& pendingNavigationPath != path', '&& true', 'testRepeatedFollowDoesNotSupersedeTheSamePendingDirectory'),
+]
+FILES_UI_SOURCE = 'apple/GhostermApp/Sources/GhostermApp/FilesPanelView.swift'
+FILES_UI_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/FileTreeUITests.swift'
+FILES_UI_CASES = [
+    ('files-retry-target', 'Button("重试") { panel.retryTree(path) }',
+     'Button("重试") { panel.retryTree(panel.currentPath) }', 'testActualTreeShowsFailureAndRetriesThroughItsButton'),
+]
 PHASES = {
+    'files-navigation': (FILES_SOURCE, FILES_TESTS, 'FileNavigationTests', FILES_CASES),
+    'files-tree-ui': (FILES_UI_SOURCE, FILES_UI_TESTS, 'FileTreeUITests', FILES_UI_CASES),
     'private-store': (PRIVATE_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', PRIVATE_CASES),
     'private-credential': (CREDENTIAL_SOURCE, CREDENTIAL_TESTS, 'SSHCredentialSelectorTests', CREDENTIAL_CASES),
     'private-binding': (CREDENTIAL_SOURCE, PRIVATE_TESTS, 'NativePrivateKeyStoreTests', PRIVATE_BINDING_CASES),
@@ -234,6 +263,8 @@ def main():
     baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
     if args.phase.startswith('private-'):
         baseline += '|NativePrivateKeyStoreTests|SSHCredentialSelectorTests|KeychainStoreTests'
+    if args.phase.startswith('files-'):
+        baseline = 'FileNavigationTests|FileTreeUITests|FilesPanelTests|FilesDragDropTests|HostListTests'
     records = []
 
     def run(label, selected, red=False):
