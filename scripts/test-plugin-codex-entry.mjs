@@ -169,6 +169,66 @@ const terminalErrors = unsupported.events.map(event => JSON.parse(event.input)).
 assert.equal(terminalErrors.length, 1, "Native must receive one terminal protocol observation before close");
 assert.match(terminalErrors[0].message, /unsupported.*item\/tool\/call/);
 
+// Real Native controls can stall their ACK while rendering/reading a patch.
+// A sustained vendor burst must back up into stdout rather than overflow the
+// fixed event queue or drop an observation.
+const backpressured = fixtureContext();
+const backpressureDisposable = activate(backpressured.context);
+let backpressureStarted = false;
+backpressured.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { backpressureStarted = true; });
+await driveUntil(backpressureDisposable, () => backpressureStarted, "backpressure thread");
+const sendEvent = backpressured.context.session.request;
+let held = true, acknowledge;
+const heldOutcome = new Promise(resolve => { acknowledge = resolve; });
+backpressured.context.session.request = (...args) => {
+  const call = sendEvent(...args);
+  return held ? { outcome: heldOutcome, cancel() {} } : call;
+};
+for (let index = 0; index < 100; index++) backpressured.child.line({
+  method: "thread/status/changed", params: { threadId: "thread-test", status: { type: "idle" }, index },
+});
+for (let index = 0; index < 800; index++) {
+  backpressureDisposable.step(); await Promise.resolve(); await Promise.resolve();
+}
+assert.equal(backpressured.events.length, 1, "only one Native event may wait for acknowledgement");
+assert(backpressured.child.output.length > 0, "the unconsumed vendor burst remains backpressured");
+assert.equal(backpressured.child.reaped, false);
+held = false; acknowledge({ kind: "success", value: { accepted: true } });
+for (let index = 0; index < 800 && backpressured.events.length < 100; index++) {
+  backpressureDisposable.step(); await Promise.resolve(); await Promise.resolve();
+}
+assert.deepEqual(backpressured.events.map(event => JSON.parse(event.input).sequence),
+  Array.from({ length: 100 }, (_, index) => index + 1), "all original observations arrive exactly once and in order");
+assert(backpressured.events.every(event => JSON.parse(event.input).notification.method === "thread/status/changed"));
+await backpressureDisposable.dispose();
+
+// If a real protocol error discards queued observations, its one terminal
+// observation still follows the last event actually forwarded to Native.
+const queuedFailure = fixtureContext();
+const queuedFailureDisposable = activate(queuedFailure.context);
+let queuedStarted = false;
+queuedFailure.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { queuedStarted = true; });
+await driveUntil(queuedFailureDisposable, () => queuedStarted, "queued failure thread");
+const deliverFailureEvent = queuedFailure.context.session.request;
+let releaseFailureAck;
+const pendingFailureAck = new Promise(resolve => { releaseFailureAck = resolve; });
+queuedFailure.context.session.request = (...args) => {
+  const call = deliverFailureEvent(...args);
+  return queuedFailure.events.length === 1 ? { outcome: pendingFailureAck, cancel() {} } : call;
+};
+for (let index = 0; index < 3; index++) queuedFailure.child.line({ method: "thread/status/changed",
+  params: { threadId: "thread-test", status: { type: "idle" } } });
+queuedFailure.child.line({ id: "unsupported-queued", method: "item/tool/call", params: {} });
+for (let index = 0; index < 100; index++) {
+  queuedFailureDisposable.step(); await Promise.resolve(); await Promise.resolve();
+}
+releaseFailureAck({ kind: "success", value: { accepted: true } });
+await driveUntil(queuedFailureDisposable, () => queuedFailure.child.reaped, "queued protocol error drained and reaped");
+const failedEvents = queuedFailure.events.map(event => JSON.parse(event.input));
+assert.deepEqual(failedEvents.map(event => event.sequence), [1, 2]);
+assert.equal(failedEvents[1].kind, "protocol-error");
+assert.match(failedEvents[1].message, /unsupported.*item\/tool\/call/);
+
 
 const permissions = fixtureContext();
 const permissionsDisposable = activate(permissions.context);

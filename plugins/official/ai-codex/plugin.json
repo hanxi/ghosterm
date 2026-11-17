@@ -18,8 +18,7 @@
       "argsSchema": "schemas/command.json",
       "views": [
         "chat",
-        "approval",
-        "diff"
+        "approval"
       ]
     }
   ],

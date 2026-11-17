@@ -331,3 +331,39 @@ launch-form UI, a real Agent/model, or user hardware.
 JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$PWD/tmp" ./android/gradlew -p android -PghostermPluginJs=true :app:assembleDebug :app:assembleDebugAndroidTest
 python3 -B scripts/test-plugin-codex-patch-android.py --headless-api 36 --gterm tmp/codex-gterm/gterm --route both
 ```
+
+
+### Real selected-account Native App workflow
+
+Codex patch review is a conversation protocol feature (`codex.change.read` and
+backend snapshot identities), rather than an implementation of the generic
+`ui.diff` service. The package declares chat / approval views; its complete file
+review remains available. Generic diff contributors still require `ui.diff`.
+
+```sh
+python3 -B scripts/build-plugin-codex.py --tools build/plugin-sdk-tools
+python3 -B scripts/test-plugin-codex-live-app.py --live --build tmp/JS_ENABLED_CLI_BUILD
+# Native consent, real CLI thread / effective policy and stop, without a model:
+python3 -B scripts/test-plugin-codex-live-app.py --live --prepare-only --build tmp/JS_ENABLED_CLI_BUILD
+```
+
+The live runner copies Apple sources into an owned project tmp directory and
+links that CLI build's JS-enabled Core, without reconfiguring root Core. The
+selected real HOME / CODEX_HOME and credentials stay in place. It verifies the
+pinned CLI, existing authentication and effective backend settings before a
+model call; a compact feature override must preserve every other effective
+feature value and fit the existing Native argv budget. It does not enable an
+approval bypass or substitute a protocol fixture for the CLI.
+
+The real workflow uses the production Extensions pane's transparent offscreen
+controls for consent, thread start, send, complete read, approval and stop. The
+package source selection, process authorization, launch configuration and message
+draft are prepared through APIs; this does not claim file-import / launch-form /
+keyboard / OS-focus acceptance. Only one explicitly owned sibling target file
+may be approved, after exact thread / turn / item / path and full added-content
+checks plus readonly Native text verification. Final file bytes, model reply and
+completion, empty workspace, released Session and a reaped Executor are required.
+An explicit Native stop may return cooperative cancellation 130; signal death
+or an unreaped owner fails. Raw model screenshots / OCR captures are disabled.
+Failed-run artifacts stay in their owned tmp tree for diagnosis and are cleaned
+after their processes exit; `--project` can reuse that isolated Swift build.

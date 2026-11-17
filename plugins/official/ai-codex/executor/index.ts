@@ -171,13 +171,13 @@ export function activate(context: PluginContext): Disposable {
   let closing = false;
   let closePromise: Promise<void> | undefined;
   let failure: Error | undefined;
-  let lastEventSequence = 0, failureReported = false;
+  let lastForwardedSequence = 0, failureReported = false;
   let flight: Call<{ readonly accepted: boolean }> | undefined;
   let startRequest: RequestContext | undefined;
   let activeTurnRequest: RequestContext | undefined;
   let interruptedTurnRequest: RequestContext | undefined;
   let interruptPromise: Promise<void> | undefined;
-  const events: string[] = [];
+  const events: { readonly sequence: number; readonly payload: string }[] = [];
   const approvals = new Map<string, ServerRequest>();
   const permissionReviews = new Map<string, string>();
   const changes = new CodexChangeStore();
@@ -232,7 +232,6 @@ export function activate(context: PluginContext): Disposable {
       request.check();
       conversation = process.createConversation();
       unsubscribe = conversation.onEvent(event => {
-        lastEventSequence = Math.max(lastEventSequence, event.sequence);
         try {
           let permissionReviewID: string | undefined;
           if (event.kind === "approval-request") {
@@ -253,7 +252,7 @@ export function activate(context: PluginContext): Disposable {
             permissionReviews.clear();
           }
           if (events.length >= EVENT_QUEUE_LIMIT) throw new CodexProtocolError("Codex event queue is full");
-          events.push(eventPayload(event, changes, permissionReviewID));
+          events.push({ sequence: event.sequence, payload: eventPayload(event, changes, permissionReviewID) });
         } catch (error) {
           failure = error instanceof Error ? error : new Error(String(error));
         }
@@ -346,7 +345,9 @@ export function activate(context: PluginContext): Disposable {
         failureReported = true;
         events.length = 0;
         try {
-          const payload = eventPayload({ sequence: ++lastEventSequence, kind: "protocol-error", error: failure }, changes);
+          // Queued observations were never delivered. The terminal record must
+          // follow the last forwarded sequence, rather than jump over them.
+          const payload = eventPayload({ sequence: lastForwardedSequence + 1, kind: "protocol-error", error: failure }, changes);
           const terminal = context.session.request(eventMethod, { event: payload }, 5000);
           void terminal.outcome.then(() => close(), () => close()).catch(() => {});
         } catch { void close().catch(() => {}); }
@@ -354,7 +355,10 @@ export function activate(context: PluginContext): Disposable {
       }
       if (startRequest?.cancelled) { void close().catch(() => {}); return; }
       try {
-        child?.step();
+        // A vendor line can emit both a resolution and a notification. Reserve
+        // two slots and stop dispatching stdout until Native acknowledges more
+        // events. Keep the fixed queue/CPU/pipe budgets; do not drop observations.
+        if (events.length <= EVENT_QUEUE_LIMIT - 2) child?.step();
         if (child?.stdio.failure) throw child.stdio.failure;
         if (child?.exit?.state === "exited") throw new Error("Codex app-server exited");
         interruptCancelledTurn();
@@ -363,10 +367,11 @@ export function activate(context: PluginContext): Disposable {
         return;
       }
       if (flight || events.length === 0) return;
-      const payload = events.shift();
-      if (payload === undefined) return;
+      const event = events.shift();
+      if (event === undefined) return;
       try {
-        const call = context.session.request(eventMethod, { event: payload }, 30000);
+        const call = context.session.request(eventMethod, { event: event.payload }, 30000);
+        lastForwardedSequence = event.sequence;
         flight = call;
         void call.outcome.then(outcome => {
           if (flight !== call) return;

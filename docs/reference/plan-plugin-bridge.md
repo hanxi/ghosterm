@@ -4,7 +4,7 @@
 
 **仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 的本机 Native stdio 真实账号 chat、完整文件审批及本轮权限 / 实际命令已通过；P4 Claude 的真实模型请求仍被所选服务 TLS 连接阻塞。双端完整启动 UI、真实交互 / 中断 / 断线矩阵继续；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；CLI 版本清单、跨进程引用、显式隔离清理及暂存 / 孤立隔离 / 损坏意图的逐项维护已接；非规范条目保留，完整故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
-**最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。第四十九批补真实账号 chat / 策略确认与终态错误，第五十批接稳定权限审批与双端审阅引用，并通过本机 Native / gterm / 真 CLI 的完整文件审批和本轮权限 / 实际命令。双端 App 模型 / 完整启动 / 中断 / 断线、性能与设备矩阵仍未验收，不能据此关闭 P3。
+**最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。第四十九批补真实账号 chat / 策略确认与终态错误，第五十批接稳定权限审批与双端审阅引用，并通过本机 Native / gterm / 真 CLI 的完整文件审批和本轮权限 / 实际命令。第五十一批修正 Codex 标准视图声明及事件背压 / 终态序号，并通过 macOS 本机真实账号的原生启动、发送、全文读取、批准、实际写入、模型完成与停止。导入 / 完整启动表单 / 键盘、Android App 模型、SSH 模型 / 中断 / 断线及性能 / 设备矩阵仍未验收，不能据此关闭 P3。
 
 **最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十八批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器、双向资源及受控进程服务。第十八批将通用运行档接到公开 runtime 门面与 gterm 显式启动，组合 session.rpc、原生 ResourceBroker 与 ProcessService；第十九至二十四批已接两端实验入口的运行档 / 依赖 / 显式允许、真实直连 / ProxyJump、受控业务进程，以及 Native Host 本机文件发布的双向资源；Client 不获得 file.* 或本机目录。后续完整资源 / 进程预算、tmux / 设备矩阵、官方 Agent 运行档与真实模型继续待验；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末各批。
 
@@ -12017,3 +12017,45 @@ reason 等、scope 默认 turn），修正检查与归一规则后通过；未�
 
 Claude 连接阻碍另经只读 `scutil --proxy` 核对：HTTP / HTTPS / SOCKS / PAC 均关闭，
 没有已配置系统代理这条新重试依据；未重复所选服务的长时间模型调用。
+
+
+### P3 实施第五十一批：真实原生文件审批、包声明与事件背压（2026-11-17）
+
+**具体缺陷与修复。** Codex 以 `codex.change.read` 和后端快照提供原生完整文件审阅，
+并未实现通用 `ui.diff` 服务，却声明了标准 diff 贡献；两端能力守卫因此拒绝启动。
+修正官方包仅声明 chat / approval，保留完整补丁审阅与通用 diff 的原能力检查。
+真实页面随后暴露审批后突发回包问题：Native 绘制 / 审阅延迟 ACK 时 Executor 持续
+dispatch，会塞满 16 项事件队列；清队列后的终态又沿未交付的生成序号跳号。
+现在预留单个 vendor line 可能产生的两项槽位，暂停 stdout dispatch 等待 ACK；
+终态紧跟实际已转发序号，不扩大队列 / CPU / 管道 / Native argv 限额，不吞业务事件。
+
+**真实链路。** 新 `test-plugin-codex-live-app.py --live` 和显式 opt-in Swift 用例，
+在工程 tmp 隔离 Apple 副本链接所选 gterm 的 JS-enabled Core；保持真实 HOME /
+CODEX_HOME 和原账号位置，不复制凭据或改主工作区 Core。CLI 0.166.0 / 认证及
+有效配置先验，紧凑 feature 表必须保持其余所有有效开关。生产 Extensions 页面在
+透明离屏窗执行 consent / thread / send / 完整读取 / 批准 / stop 六种控件；
+完整文档身份、精确目标和全部拟新增字节、只读 Native 文本、实际文件 / 模型完成 /
+空 workspace / Session 释放 / Executor reap 均通过。明确停止可返回协作取消 130，
+不把它记作模型成功；成功由先前独立 completed turn / 回复 / 实际字节证明。
+包来源批准、进程授权 / 启动配置及草稿通过 API 准备，未宣称导入、启动表单、
+键盘、硬件焦点、SSH 模型、Android 或用户真机完成。详情与命令见
+[Codex 指南](../../plugins/official/ai-codex/README.md#real-selected-account-native-app-workflow)。
+
+**回归与失败记账。** 实际包构建 / 类型检查 / 编译后 Executor 保护通过；新增暂停 ACK
+后 100 条观测逐项 / 连续恢复，以及丢弃待送记录后的单一连续终态。隔离编译旧 Executor
+配同一新版断言正常 Node AssertionError / exit 1，实际仅收到序号 `[1,19]`；修复后
+完整保护绿，独立 `sshconfig_golden` 绿。最初未编译 SDK 的 loader 失败未计目标红。
+前置 Native 失败、启动 argv 预算、取消码 / 新增文件格式判据失败均未计绿；首轮失败
+日志被提前清理，后已修正失败证据留存。新增文件的 diff 是原内容，按锁定
+[上游 0.166.0 实现](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server-protocol/src/protocol/item_builders.rs#L350)
+改为逐字节判据后，真实链路又复现序列错误，修复背压后最终成功；失败未写成成功。
+最终隔离原生构建的 167 份 Apple 生产源与当前工作区逐字节一致。
+
+最终包 D `ea192aef56b5bdc483da1f7b88a23be0f04f5c7cc4ca3c8b0926296d8df62e24`；
+Native 单例日志 SHA256 `86416c00ce97c14f222fa3f435095a2cfcefb25ae93ed03dd9a2f33fd0ed5acb`，
+外层收据 `4dd787fbec814902aefd6f52da7d302e4ce883599e55549ed1efd00d2f16c638`；
+旧代码正常红日志 `b93d7e82e49bc6f0295aff6ae0b1588bda5f043e7c1e67be7451d9bc7c5e81c6`，
+修复后保护绿日志 `0e454d3260bb8e32ad90383355274a996dd408eb73beb40b07d3bf144a2a6e68`。
+无新 Core ABI / Android 产品源码改动；完整 gate / 变异 / 跨端 / 设备矩阵仍集中验收，
+不增加 CI 二十份，普通 App 仍 JS-off，P1–P6 未完成。确认进程退出与 lsof 无打开项后，
+已清理本轮 11 个自有临时树（逻辑文件约 680.6 MiB），未清理其它任务目录。

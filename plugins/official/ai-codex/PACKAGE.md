@@ -29,7 +29,9 @@ only bounded in-memory patches already received from this Codex child.
 
 The Client has no JavaScript event handler: supported Native Hosts receive
 codex.event and provide thread, turn, interrupt and approval controls. Events use
-an object with an event JSON string. Diff previews are bounded and may be partial;
+an object with an event JSON string. Codex patch review uses `codex.change.read`
+and backend snapshot identities; it does not contribute the generic `ui.diff`
+service. The command declares chat / approval views only. Diff previews are bounded and may be partial;
 the UI identifies truncation. Unknown effects are never automatically replayed.
 The Executor also exposes complete patch snapshots through `codex.change.read`.
 Supported Native Hosts require a validated current complete document before

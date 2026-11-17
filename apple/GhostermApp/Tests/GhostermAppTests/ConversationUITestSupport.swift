@@ -24,10 +24,13 @@ final class ConversationUIProbe {
     struct FixtureFailure: Error { let message: String }
     let root: NSView
     let window: NSWindow
-    init<Content: View>(root: NSHostingView<Content>, width: CGFloat = 1000, height: CGFloat = 2000) {
+    private let captureFailures: Bool
+    init<Content: View>(root: NSHostingView<Content>, width: CGFloat = 1000, height: CGFloat = 2000,
+                       captureFailures: Bool = true) {
         TestWindows.enterAutomationMode()
         root.sizingOptions = []
         self.root = root
+        self.captureFailures = captureFailures
         root.frame = NSRect(x: 0, y: 0, width: width, height: height)
         window = FixtureWindow(contentRect: root.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = root
@@ -99,11 +102,13 @@ final class ConversationUIProbe {
             var repository = URL(fileURLWithPath: #filePath)
             for _ in 0..<5 { repository.deleteLastPathComponent() }
             repository = repository.appendingPathComponent("build").resolvingSymlinksInPath().deletingLastPathComponent()
-            if let data = bitmap.representation(using: .png, properties: [:]) {
+            if captureFailures, let data = bitmap.representation(using: .png, properties: [:]) {
                 try? data.write(to: repository.appendingPathComponent("tmp/claude-chat-ui.png"))
             }
             let labels = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-            try? Data(labels.utf8).write(to: repository.appendingPathComponent("tmp/claude-chat-ui-ocr.txt"))
+            if captureFailures {
+                try? Data(labels.utf8).write(to: repository.appendingPathComponent("tmp/claude-chat-ui-ocr.txt"))
+            }
             return nil
         }
         let box = match
