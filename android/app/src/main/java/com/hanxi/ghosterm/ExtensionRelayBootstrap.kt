@@ -60,6 +60,7 @@ object ExtensionRelayBootstrap {
         val attachment: Attachment? = null,
         val clientCapabilities: List<String> = emptyList(),
         val releaseEvidence: ReleaseEvidence? = null,
+        val variantID: String? = null,
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -269,7 +270,8 @@ object ExtensionRelayBootstrap {
         request.attachment?.let { attachment ->
             require(attachment.authorized && attachment.instance.matches(Regex("[a-f0-9]{32}")) &&
                 canonicalDirectory(attachment.directory) && request.execution == null && request.executorDirectory.isEmpty() &&
-                request.workspaceRootDirectory == null && request.processPrograms.isEmpty() && request.processEnvironmentNames.isEmpty() && request.releaseEvidence == null) {
+                request.workspaceRootDirectory == null && request.processPrograms.isEmpty() && request.processEnvironmentNames.isEmpty() &&
+                request.releaseEvidence == null && request.variantID == null) {
                 "已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程"
             }
             val argv = listOf(request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command) + request.arguments
@@ -281,6 +283,12 @@ object ExtensionRelayBootstrap {
             add("relay"); add("--stdio")
             add("--trust-development-digest"); add(request.executorDigest)
             add("--client-digest"); add(request.clientDigest)
+            request.variantID?.let { variant ->
+                require(variant.matches(Regex("[A-Za-z0-9._-]{1,128}"))) {
+                    "Executor variant ID 须为 1–128 位 ASCII 字母、数字、点、下划线或连字符"
+                }
+                add("--variant"); add(variant)
+            }
             request.releaseEvidence?.let { evidence ->
                 require(evidence.authorized && canonicalDirectory(evidence.directory) && canonicalDirectory(evidence.policyPath) &&
                     evidence.policySHA256.matches(Regex("[a-f0-9]{64}"))) {

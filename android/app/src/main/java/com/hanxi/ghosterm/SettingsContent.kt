@@ -647,6 +647,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var workspaceRootDirectory by remember { mutableStateOf("") }
     var clientDirectory by remember { mutableStateOf("") }
     var executorDigest by remember { mutableStateOf("") }
+    var executorVariantID by remember { mutableStateOf("") }
     var useReleaseEvidence by remember { mutableStateOf(false) }
     var releaseDirectory by remember { mutableStateOf("") }
     var releasePolicyPath by remember { mutableStateOf("") }
@@ -672,19 +673,19 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var attachmentAllowed by remember(selectedHost, executable, executorDigest, command.path, argumentsJson,
         methodsJson, hostMethodsJson, attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles) { mutableStateOf(false) }
     var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
-        selectedHost, executable, executorDirectory, executorDigest, attachExisting,
+        selectedHost, executable, executorDirectory, executorDigest, executorVariantID, attachExisting,
         workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest,
         useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256) { mutableStateOf(false) }
     var clientAllowed by remember(entry.review.id, entry.review.digest, command.path,
-        selectedHost, executable, executorDirectory, executorDigest,
+        selectedHost, executable, executorDirectory, executorDigest, executorVariantID,
         attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles,
         clientDirectory, workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest,
         useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256) { mutableStateOf(false) }
 
     var releaseEvidenceAllowed by remember(entry.review.id, entry.review.digest, command.path,
-        selectedHost, executable, executorDirectory, executorDigest, attachExisting,
+        selectedHost, executable, executorDirectory, executorDigest, executorVariantID, attachExisting,
         useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256,
         workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
@@ -719,14 +720,14 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(attachExisting, { attachExisting = it; useReleaseEvidence = false }, Modifier.testTag("plugin-ipc-mode"))
+                    Checkbox(attachExisting, { attachExisting = it; useReleaseEvidence = false; executorVariantID = "" }, Modifier.testTag("plugin-ipc-mode"))
                     Text("连接已有前台 gterm 实例")
                 }
                 frontendCandidates.filter { it.offer.clientDigest == entry.review.digest }.forEach { candidate ->
                     TextButton(modifier = Modifier.testTag("plugin-discovery-use-${candidate.id}"), onClick = {
                         if (!validateFrontend(candidate)) problem = "候选提示已过期或来源已停止，请重新运行前台命令。"
                         else {
-                            attachExisting = true; ipcDirectory = candidate.offer.directory; ipcInstance = candidate.offer.instance
+                            attachExisting = true; useReleaseEvidence = false; executorVariantID = ""; ipcDirectory = candidate.offer.directory; ipcInstance = candidate.offer.instance
                             declaration = null; scopedFiles = false; remoteProcesses = false
                             attachmentAllowed = false; executionAllowed = false; clientAllowed = false
                         }
@@ -810,6 +811,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     Text("请只运行可信包。Node 和 Host SDK 须预先准备，远端会核对版本及摘要；Exec 使用包内匹配系统与架构的入口。修改配置须重新允许；不会自动安装或切换运行档。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                OutlinedTextField(executorVariantID, { executorVariantID = it }, singleLine = true,
+                    modifier = Modifier.testTag("plugin-executor-variant"), label = { Text("Executor variant ID（可选）") })
+                Text("填写所选 Executor manifest 中的准确 variant ID。留空时由执行端检查候选是否唯一；不匹配、缺依赖或多候选均报错，不会切换运行档。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(useReleaseEvidence, { useReleaseEvidence = it }, Modifier.testTag("plugin-executor-release-mode"))
                     Text("核验执行端已安装版本的签名", style = MaterialTheme.typography.bodySmall)
@@ -898,7 +903,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution,
                         if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses, scopedFiles) else null,
                         releaseEvidence = if (!attachExisting && useReleaseEvidence) ExtensionRelayBootstrap.ReleaseEvidence(
-                            releaseDirectory, releasePolicyPath, releasePolicySHA256, releaseEvidenceAllowed) else null)
+                            releaseDirectory, releasePolicyPath, releasePolicySHA256, releaseEvidenceAllowed) else null,
+                        variantID = executorVariantID.takeUnless { attachExisting || it.isEmpty() })
                     if (!groupLaunch) ExtensionRelayBootstrap.build(request)
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }

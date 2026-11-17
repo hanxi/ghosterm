@@ -48,9 +48,27 @@ class ExecutorExecutionTest {
         ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff()
         ui.runOnIdle { assertEquals("/selected/policy.json", launched?.releaseEvidence?.policyPath) }
         ui.onNodeWithTag("plugin-executor-release-allow").performClick()
+        ui.onNodeWithTag("plugin-executor-variant").performScrollTo().performTextReplacement("portable-2")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff()
+        ui.onNodeWithTag("plugin-executor-release-allow").performClick()
         ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextReplacement("b".repeat(64))
         Espresso.closeSoftKeyboard()
         ui.onNodeWithTag("plugin-executor-release-allow").performScrollTo().assertIsOff()
+    }
+    @Test fun productionVariantSelectionPreservesIDAndRevokesExecutionApprovalOnEdits() {
+        var launched: ExtensionRelayBootstrap.Request? = null
+        form { launched = it }; fillCommon(); choose("Exec")
+        ui.onNodeWithTag("plugin-execution-tmpdir").performScrollTo().performTextInput("/stage")
+        ui.onNodeWithTag("plugin-executor-variant").performScrollTo().performTextInput("native-2")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-execution-allow").performScrollTo().assertIsOff().performClick()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle { assertEquals("native-2", launched?.variantID); assertEquals(true, launched?.execution?.authorized) }
+        ui.onNodeWithTag("plugin-executor-variant").performScrollTo().performTextReplacement("native-3")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-execution-allow").performScrollTo().assertIsOff()
+        ui.runOnIdle { assertEquals("native-2", launched?.variantID) }
     }
     @Test fun portableDefaultHasNoProcessExecutionFlags() {
         assertNull(request().execution)

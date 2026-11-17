@@ -100,6 +100,7 @@ public enum ExtensionRelayBootstrap {
         public let execution: Execution?
         public let attachment: Attachment?
         public let releaseEvidence: ReleaseEvidence?
+        public let variantID: String?
         public let command: String
         public let arguments: [String]
 
@@ -112,6 +113,7 @@ public enum ExtensionRelayBootstrap {
                     execution: Execution? = nil,
                     attachment: Attachment? = nil,
                     releaseEvidence: ReleaseEvidence? = nil,
+                    variantID: String? = nil,
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
@@ -123,6 +125,7 @@ public enum ExtensionRelayBootstrap {
             self.execution = execution
             self.attachment = attachment
             self.releaseEvidence = releaseEvidence
+            self.variantID = variantID
             self.command = command; self.arguments = arguments
         }
     }
@@ -281,7 +284,7 @@ public enum ExtensionRelayBootstrap {
                   canonicalDirectory(attachment.directory), request.execution == nil,
                   request.executorDirectory.isEmpty, request.scopedRoots.isEmpty,
                   request.processPrograms.isEmpty, request.processEnvironmentNames.isEmpty,
-                  request.releaseEvidence == nil else {
+                  request.releaseEvidence == nil, request.variantID == nil else {
                 throw invalid("已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程")
             }
             let argv = [request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command] + request.arguments
@@ -291,6 +294,13 @@ public enum ExtensionRelayBootstrap {
         // Keep each expression small for the Swift 6.1 compiler used by CI.
         var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
                               request.executorDigest, "--client-digest", request.clientDigest]
+        if let variant = request.variantID {
+            guard !variant.isEmpty, variant.utf8.count <= 128, variant.utf8.allSatisfy({
+                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ||
+                    $0 == 46 || $0 == 95 || $0 == 45
+            }) else { throw invalid("Executor variant ID 须为 1–128 位 ASCII 字母、数字、点、下划线或连字符") }
+            argv += ["--variant", variant]
+        }
         if let evidence = request.releaseEvidence {
             guard evidence.authorized, canonicalDirectory(evidence.directory), canonicalDirectory(evidence.policyPath),
                   isDigest(evidence.policySHA256) else {

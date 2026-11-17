@@ -63,7 +63,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         return .init(executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
             clientDigest: request.clientDigest, methods: plan.methods, hostMethods: request.hostMethods, clientCapabilities: plan.services,
             scopedRoots: request.scopedRoots, processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-            execution: request.execution, attachment: request.attachment, releaseEvidence: request.releaseEvidence, command: request.command, arguments: request.arguments)
+            execution: request.execution, attachment: request.attachment, releaseEvidence: request.releaseEvidence, variantID: request.variantID, command: request.command, arguments: request.arguments)
     }
     private func launch(_ model: ExtensionInstanceModel, _ selection: ExtensionGroupInvocation, command: String) async {
         let request = selection.request
@@ -72,7 +72,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
             methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
             processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-            executorExecution: request.execution, executorReleaseEvidence: request.releaseEvidence, clientWorkspace: selection.clientWorkspace, localLaunch: selection.localLaunch,
+            executorExecution: request.execution, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID, clientWorkspace: selection.clientWorkspace, localLaunch: selection.localLaunch,
             multiplexedConnectionCommand: command)
     }
     private func observeModels() {

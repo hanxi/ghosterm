@@ -40,6 +40,7 @@ CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 
           'node-development', 'exec-development']
 CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review', 'version-maintenance', 'version-reference', 'version-active', 'node-version-active', 'exec-version-active']
 CASES += ['residue-maintenance', 'residue-reference', 'residue-damaged-intent']
+CASES += ['node-same-multi', 'exec-same-multi']
 FAULT_CASES = ['version-resume', 'residue-resume']
 
 
@@ -431,9 +432,21 @@ def exercise(build, node, sdk, case, work):
             (package / 'executor/main').chmod(0o755)
         manifest['executor']['variants'] = [variant]
         if case.endswith('-multi'):
-            manifest['executor']['variants'].insert(0, dict(id='unselected', runtime='portable-js',
-                entry='executor/unselected.js', requires=['session.rpc']))
-            (package / 'executor/unselected.js').write_text("throw Error('UNSELECTED_VARIANT_ACTIVATED');")
+            if case.endswith('-same-multi'):
+                unselected = dict(variant, id='unselected')
+                if runtime == 'node':
+                    unselected['entry'] = 'executor/unselected.mjs'
+                    (package / unselected['entry']).write_text("throw Error('UNSELECTED_VARIANT_ACTIVATED');")
+                else:
+                    unselected['executable'] = 'executor/unselected'
+                    rejected_program = package / unselected['executable']
+                    rejected_program.write_text('#!/bin/sh\nexit 83\n')
+                    rejected_program.chmod(0o755)
+                manifest['executor']['variants'].insert(0, unselected)
+            else:
+                manifest['executor']['variants'].insert(0, dict(id='unselected', runtime='portable-js',
+                    entry='executor/unselected.js', requires=['session.rpc']))
+                (package / 'executor/unselected.js').write_text("throw Error('UNSELECTED_VARIANT_ACTIVATED');")
     if case == 'unicode-publisher': manifest['publisher'] = '作者 café'
     if runtime != 'portable-js' or case == 'unicode-publisher':
         (package / 'plugin.json').write_text(json.dumps(manifest))
@@ -590,6 +603,16 @@ def exercise(build, node, sdk, case, work):
                     not any(token in process.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']),
                     'installed payload is rechecked with a normal error')
             return
+        if case.endswith('-same-multi'):
+            unpinned = profile.copy()
+            selected_at = unpinned.index('--variant')
+            del unpinned[selected_at:selected_at + 2]
+            rejected = subprocess.run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
+                '--release-evidence', installed_version, policy, release.sha(policy.read_bytes()),
+                *unpinned, '--', installed, *ipc.CALL], input=b'', capture_output=True, env=env, timeout=5)
+            require(rejected.returncode == 5 and b'VARIANT_SELECTION_REQUIRED' in rejected.stderr and
+                not any(token in rejected.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']) and
+                not list(endpoint.iterdir()), 'same-runtime variants need an explicit choice before activation')
         process = subprocess.Popen([binary, *ipc.CALL], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
         try:

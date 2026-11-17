@@ -1356,3 +1356,30 @@ Client 安装策略，也不复制或安装远端文件。
 这只适用于创建新 Executor。已有前台附着继续沿用原进程启动配置，不能在附着时添加
 签名证据或更换策略。普通构建仍 JS-off；完整远端签名 / 混合运行档交互、迟到 / 断线、
 设备与发行矩阵继续按插件计划集中验收，不能把表单编译或参数对拍当成这些验证。
+
+
+## 固定原生启动的 Executor variant
+
+两端新建 Executor 的启动表单提供「Executor variant ID（可选）」。填写执行端 manifest
+中准确的 `executor.variants[].id`，例如 `native_linux-2.1`；ID 为 1–128 位 ASCII 字母、
+数字、点、下划线或连字符，不修剪或改写用户输入。留空表示没有固定选择，执行端仍会
+检查候选是否唯一；即使只安装了一种运行时，多候选也会拒绝，不能据 Node 是否存在
+或声明顺序自动选择。
+
+此 ID 只选择 Executor 变体，不替代 Portable / Node / Exec 运行档、平台、依赖、签名、
+文件 / 进程范围或 Session consent 的检查。修改选择须重新确认相关范围；启动组的
+配置审查展示每项选择，在线添加保留新实例自己的选择，已有实例保持原快照。
+已有前台附着不能在连接时修改 variant，切到附着模式会清除这份新建选择。
+
+CLI 的相同选项为 `--variant ID`，可与 `--release-evidence` 组合。开发期可在独立启用
+JS / 签名的 CLI 构建上执行以下专项（测试全部使用工程内一次性包和内存签名夹具）：
+
+```sh
+python3 scripts/test-gterm-release.py --build 工程tmp下的CLI构建 --node 明确的Node绝对路径 \
+  --sdk 工程tmp下的可信NodeSDK --case exec-same-multi --case node-same-multi
+```
+
+两场景各放入两个同运行档 / 同平台候选；没有选择时应以明确错误拒绝，指定选择后
+通过真实签名安装、前台 IPC、Host Session / consent / RPC 和释放。未选 Node 入口会
+抛错，未选 Exec 入口会以 83 退出，不用成功的占位处理器代替所选业务。
+这不代表原生 App 的系统表单点击、远端 SSH 或混合多实例矩阵已完成。

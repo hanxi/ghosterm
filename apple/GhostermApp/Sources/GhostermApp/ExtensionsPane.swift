@@ -49,6 +49,7 @@ struct ExtensionsPane: View {
         var sshAlias = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var executable = "gterm" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var executorDirectory = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executorVariantID = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var executorDigest = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var command = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var argumentsJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
@@ -63,7 +64,7 @@ struct ExtensionsPane: View {
             clientDirectory.isEmpty ? nil : .init(directory: clientDirectory, authorized: clientAuthorized)
         }
         var executionDraft = ExecutorExecutionDraft() { didSet { releaseEvidenceAllowed = false; localAllowed = false } }
-        var attachExisting = false { didSet { useReleaseEvidence = false; attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
+        var attachExisting = false { didSet { useReleaseEvidence = false; executorVariantID = ""; attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
         var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
@@ -233,6 +234,10 @@ struct ExtensionsPane: View {
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             } else {
                             ExecutorRuntimeFields(draft: $entry.executionDraft, location: entry.localConnection ? "本机" : "远端")
+                            TextField("Executor variant ID（可选）", text: $entry.executorVariantID)
+                                .accessibilityIdentifier("plugin-executor-variant")
+                            Text("填写所选 Executor manifest 中的准确 variant ID。留空时由执行端检查候选是否唯一；不匹配、缺依赖或多候选均报错，不会切换运行档。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
                             TextField("Executor 包目录", text: $entry.executorDirectory)
                                 .accessibilityIdentifier("plugin-executor-directory-\(entry.review.id)")
                             Toggle("核验执行端已安装版本的签名", isOn: $entry.useReleaseEvidence)
@@ -495,6 +500,7 @@ struct ExtensionsPane: View {
             executorDigest: entry.executorDigest, clientDigest: entry.review.digest, methods: methods, hostMethods: hostMethods,
             scopedRoots: roots, processPrograms: processPrograms, processEnvironmentNames: processEnvironment,
             execution: entry.attachExisting ? nil : entry.executionDraft.selection, attachment: entry.attachment, releaseEvidence: entry.releaseEvidence,
+            variantID: entry.executorVariantID.isEmpty ? nil : entry.executorVariantID,
             command: entry.command, arguments: arguments)
         let temporary = entry.localLaunch?.temporaryDirectory ?? entry.executionDraft.selection?.temporaryDirectory ?? entry.multiplexTemporaryDirectory
         return ExtensionGroupInvocation(packageID: entry.review.id, request: request, sshAlias: entry.sshAlias,
@@ -516,7 +522,7 @@ struct ExtensionsPane: View {
                     executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
                     methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
                     processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-                    executorExecution: request.execution, executorAttachment: request.attachment, executorReleaseEvidence: request.releaseEvidence,
+                    executorExecution: request.execution, executorAttachment: request.attachment, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID,
                     clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
@@ -548,6 +554,7 @@ struct ExtensionsPane: View {
                         if let local = launch.localLaunch { Text(verbatim: local.reviewDescription) }
                         if let execution = launch.request.execution { Text(verbatim: execution.reviewDescription) }
                         if let evidence = launch.request.releaseEvidence { Text(verbatim: evidence.reviewDescription) }
+                        Text(verbatim: "Executor variant：" + (launch.request.variantID ?? "未固定，由执行端核对唯一候选"))
                         if let workspace = launch.clientWorkspace { Text(verbatim: workspace.reviewDescription) }
                         ForEach(launch.request.scopedRoots, id: \.id) { root in Text(verbatim: "只读范围：" + root.id + " · " + root.directory) }
                         ForEach(launch.request.processPrograms, id: \.name) { program in

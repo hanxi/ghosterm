@@ -36,6 +36,38 @@ class ExecutorReleaseLaunchTest {
         assertEquals(evidence, request.copy(methods = listOf("fixture.echo")).releaseEvidence)
         assertFalse(ExtensionRelayBootstrap.build(request(null)).contains("--release-evidence"))
     }
+    @Test fun pinnedVariantIsKeptWithEachRuntimeAndTheSignedProfile() {
+        val executions = listOf(null, ExtensionRelayBootstrap.Execution(ExtensionRelayBootstrap.Execution.Runtime.Exec, "/stage", true),
+            ExtensionRelayBootstrap.Execution(ExtensionRelayBootstrap.Execution.Runtime.Node(
+                ExtensionRelayBootstrap.NodeDependency("/node", "26.4.0", digest, "/sdk", digest)), "/stage", true))
+        for (execution in executions) {
+            val selected = request(null).copy(variantID = "native_linux-2.1", execution = execution)
+            val command = ExtensionRelayBootstrap.build(selected)
+            assertTrue(command.contains("'--variant' 'native_linux-2.1'"))
+            assertEquals(execution != null, command.contains("--allow-process-execution"))
+            val profile = ExtensionRelayBootstrap.multiplexProfile(selected)
+            assertEquals(listOf("--variant", "native_linux-2.1"), decode(profile).subList(4, 6))
+            val group = ExtensionRelayBootstrap.buildMultiplex("c".repeat(32),
+                listOf(ExtensionController.MultiplexScope("b".repeat(32), 1uL)), listOf(selected), "/stage", live = true)
+            assertTrue(group.endsWith("'$profile'")); assertEquals(selected.variantID, selected.copy(methods = listOf("fixture.echo")).variantID)
+        }
+        val signed = request().copy(variantID = "signed-variant")
+        assertEquals(evidence, signed.copy(arguments = listOf("new")).releaseEvidence)
+        val argv = decode(ExtensionRelayBootstrap.multiplexProfile(signed))
+        assertTrue(argv.contains("--release-evidence")); assertTrue(argv.contains("signed-variant"))
+        assertFalse(ExtensionRelayBootstrap.build(request()).contains("--variant"))
+    }
+    @Test fun invalidVariantAndForegroundReconfigurationNeverStartOrGrantProcessExecution() {
+        for (id in listOf("", " ", "with space", "a/b", "\"injection", "x;touch BAD", "\u0000", "line\nfeed", "变体", "a".repeat(129))) {
+            reject { ExtensionRelayBootstrap.build(request(null).copy(variantID = id)) }
+            reject { ExtensionRelayBootstrap.multiplexProfile(request(null).copy(variantID = id)) }
+        }
+        ExtensionRelayBootstrap.build(request(null).copy(variantID = "a".repeat(128)))
+        reject { ExtensionRelayBootstrap.build(request(null).copy(variantID = "new", executorDirectory = "",
+            attachment = ExtensionRelayBootstrap.Attachment("/front", "b".repeat(32), true))) }
+        reject { ExtensionRelayBootstrap.build(request(null).copy(variantID = "native",
+            execution = ExtensionRelayBootstrap.Execution(ExtensionRelayBootstrap.Execution.Runtime.Exec, "/stage", false))) }
+    }
     @Test fun invalidOrUnapprovedEvidenceNeverStartsAndCannotAlterForegroundOwner() {
         val invalid = mutableListOf(evidence.copy(authorized = false))
         for (path in listOf("", "relative", "/", "/r/", "/r//x", "/r/../x", "/r/./x", "/r\n", "/r\u0000", "/\uD800")) {

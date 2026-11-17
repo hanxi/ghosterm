@@ -6,10 +6,11 @@ import XCTest
 final class ExecutorReleaseLaunchTests: XCTestCase {
     private let digest = String(repeating: "a", count: 64)
     private func request(_ evidence: ExtensionRelayBootstrap.ReleaseEvidence?, executable: String = "/selected/gterm",
-                         attachment: ExtensionRelayBootstrap.Attachment? = nil) -> ExtensionRelayBootstrap.Request {
+                         attachment: ExtensionRelayBootstrap.Attachment? = nil, variantID: String? = nil,
+                         execution: ExtensionRelayBootstrap.Execution? = nil) -> ExtensionRelayBootstrap.Request {
         .init(executable: executable, executorDirectory: attachment == nil ? "/selected/package" : "",
-            executorDigest: digest, clientDigest: digest, methods: [], attachment: attachment,
-            releaseEvidence: evidence, command: "fixture", arguments: ["", "中'😀"])
+            executorDigest: digest, clientDigest: digest, methods: [], execution: execution, attachment: attachment,
+            releaseEvidence: evidence, variantID: variantID, command: "fixture", arguments: ["", "中'😀"])
     }
     private func decode(_ hex: String) throws -> [String] {
         let chars = Array(hex.utf8)
@@ -55,6 +56,40 @@ final class ExecutorReleaseLaunchTests: XCTestCase {
         XCTAssertEqual(try decode(online), Array(argv.dropFirst(3)))
         XCTAssertEqual(Array(argv[7..<11]), ["--release-evidence", path, path + "/policy.json", digest])
     }
+    func testPinnedVariantSurvivesEveryRuntimeAndMultiplexStartupWithoutChangingGrants() throws {
+        let executions: [ExtensionRelayBootstrap.Execution?] = [nil,
+            .init(runtime: .exec, temporaryDirectory: "/stage", authorized: true),
+            .init(runtime: .node(.init(executable: "/node", version: "26.4.0", sha256: digest,
+                sdkDirectory: "/sdk", sdkCatalogSHA256: digest)), temporaryDirectory: "/stage", authorized: true)]
+        for execution in executions {
+            let selected = request(nil, variantID: "native_linux-2.1", execution: execution)
+            let argv = try ExtensionRelayBootstrap.buildLocal(selected)
+            XCTAssertEqual(Array(argv[7..<9]), ["--variant", "native_linux-2.1"])
+            XCTAssertTrue(try ExtensionRelayBootstrap.build(selected).contains("'--variant' 'native_linux-2.1'"))
+            let profile = try ExtensionRelayBootstrap.multiplexProfile(selected, local: true)
+            XCTAssertEqual(try decode(profile), Array(argv.dropFirst(3)))
+            let scope = ExtensionController.MultiplexScope(instance: String(repeating: "b", count: 32), epoch: 1)
+            let group = try ExtensionRelayBootstrap.buildMultiplex(connection: String(repeating: "c", count: 32),
+                scopes: [scope], requests: [selected], local: true, temporaryDirectory: "/stage", live: true)
+            XCTAssertEqual(group.argv.last, profile)
+            XCTAssertEqual(argv.contains("--allow-process-execution"), execution != nil)
+        }
+        let signed = ExtensionRelayBootstrap.ReleaseEvidence(directory: "/release", policyPath: "/policy.json", policySHA256: digest, authorized: true)
+        let argv = try ExtensionRelayBootstrap.buildLocal(request(signed, variantID: "signed-variant"))
+        XCTAssertTrue(argv.contains("--release-evidence")); XCTAssertTrue(argv.contains("signed-variant"))
+        XCTAssertFalse(try ExtensionRelayBootstrap.build(request(nil)).contains("--variant"))
+    }
+    func testInvalidVariantAndForegroundReconfigurationFailBeforeOpening() throws {
+        for id in ["", " ", "with space", "a/b", "\"injection", "x;touch BAD", "\u{0}", "line\nfeed", "变体", String(repeating: "a", count: 129)] {
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(nil, variantID: id)), id)
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.multiplexProfile(request(nil, variantID: id), local: true), id)
+        }
+        XCTAssertNoThrow(try ExtensionRelayBootstrap.build(request(nil, variantID: String(repeating: "a", count: 128))))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(nil,
+            attachment: .init(directory: "/front", instance: String(repeating: "b", count: 32), authorized: true), variantID: "new")))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(nil, variantID: "native",
+            execution: .init(runtime: .exec, temporaryDirectory: "/stage", authorized: false))))
+    }
     func testInvalidOrUnapprovedEvidenceAndAttachmentNeverFallBack() {
         let valid = ExtensionRelayBootstrap.ReleaseEvidence(directory: "/release", policyPath: "/policy.json", policySHA256: digest, authorized: true)
         var values = [ExtensionRelayBootstrap.ReleaseEvidence(directory: valid.directory, policyPath: valid.policyPath, policySHA256: digest, authorized: false)]
@@ -83,10 +118,13 @@ final class ExecutorReleaseLaunchTests: XCTestCase {
         let snapshot = entry.releaseEvidence
         let edits: [(inout ExtensionsPane.Entry) -> Void] = [
             { $0.sshAlias = "changed" }, { $0.localConnection = true }, { $0.executable = "/other/gterm" },
-            { $0.executorDirectory = "/other/package" }, { $0.releaseDirectory = "/other/release" },
+            { $0.executorDirectory = "/other/package" }, { $0.executorVariantID = "changed-variant" }, { $0.releaseDirectory = "/other/release" },
             { $0.releasePolicyPath = "/other/policy" }, { $0.releasePolicySHA256 = "b" }, { $0.argumentsJSON = "[\"new\"]" }]
         for edit in edits { entry.releaseEvidenceAllowed = true; edit(&entry); XCTAssertFalse(entry.releaseEvidenceAllowed) }
         XCTAssertEqual(snapshot?.directory, "/release"); XCTAssertEqual(snapshot?.authorized, true)
-        entry.attachExisting = true; XCTAssertNil(entry.releaseEvidence)
+        entry.executorVariantID = "pinned"; entry.executionDraft.authorized = true; entry.clientAuthorized = true; entry.localAllowed = true
+        entry.executorVariantID = "changed"
+        XCTAssertFalse(entry.executionDraft.authorized); XCTAssertFalse(entry.clientAuthorized); XCTAssertFalse(entry.localAllowed)
+        entry.attachExisting = true; XCTAssertNil(entry.releaseEvidence); XCTAssertEqual(entry.executorVariantID, "")
     }
 }
