@@ -72,6 +72,14 @@ public final class AppModel: ObservableObject {
     private var extensionObservation: AnyCancellable?
     @Published public internal(set) var extensionConnections: [ExtensionConnectionModel] = []
     @Published public internal(set) var extensionConnectionIssue: String?
+    public struct ExtensionPaneCloseRequest: Identifiable {
+        public let tabID: UUID
+        public let paneID: UUID
+        public let title: String
+        public var id: UUID { paneID }
+    }
+    @Published public private(set) var extensionPaneCloseRequest: ExtensionPaneCloseRequest?
+    private var closingExtensionPanes = Set<UUID>()
     var extensionConnectionObservations: [UUID: AnyCancellable] = [:]
     private var closingExtensionTabs = Set<UUID>()
 
@@ -601,11 +609,32 @@ public final class AppModel: ObservableObject {
         } else if let terminal = target.terminal {
             if !tab.closePane(terminal) { tabs.requestClose(tab) }
         } else if let instance = target.extensionInstance {
-            Task {
-                guard await instance.requestClose(),
-                      tabs.tabs.contains(where: { $0.id == tab.id }) else { return }
-                tab.removeExtensionPane(instance.id)
-            }
+            if instance.closeNeedsConfirmation {
+                guard extensionPaneCloseRequest == nil else { return }
+                extensionPaneCloseRequest = .init(tabID: tab.id, paneID: instance.id,
+                    title: instance.extensionRun?.command ?? "插件实例")
+            } else { closeExtensionPane(tab: tab, instance: instance) }
+        }
+    }
+
+    public func cancelExtensionPaneClose() { extensionPaneCloseRequest = nil }
+
+    public func confirmExtensionPaneClose() {
+        guard let request = extensionPaneCloseRequest else { return }
+        extensionPaneCloseRequest = nil
+        guard let (tab, pane) = resolvePane(tabID: request.tabID, paneID: request.paneID),
+              let instance = pane.extensionInstance else { return }
+        closeExtensionPane(tab: tab, instance: instance)
+    }
+
+    private func closeExtensionPane(tab: TerminalTab, instance: ExtensionInstanceModel) {
+        guard closingExtensionPanes.insert(instance.id).inserted else { return }
+        Task {
+            defer { closingExtensionPanes.remove(instance.id) }
+            guard await instance.requestClose(),
+                  let (_, pane) = resolvePane(tabID: tab.id, paneID: instance.id),
+                  pane.extensionInstance === instance else { return }
+            tab.removeExtensionPane(instance.id)
         }
     }
 

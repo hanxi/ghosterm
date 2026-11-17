@@ -32,6 +32,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     @Published public private(set) var process: ExtensionController.ProcessState?
     @Published public private(set) var temporary: ExtensionLocalTemporaryState?
     public var canDiscard: Bool { closed && !busy && !cleanupPending }
+    public var closeNeedsConfirmation: Bool { !closed && !closing && (busy || instances.contains { $0.closeNeedsConfirmation }) }
     public var canAdd: Bool { nativeReady && !closed && !closing && !busy && !cleanupPending && (state?.error ?? 0) == 0 && instances.filter { !$0.canDiscard }.count < 8 }
     private var launchTask: Task<Void, Never>?
     private var monitor: Task<Void, Never>?

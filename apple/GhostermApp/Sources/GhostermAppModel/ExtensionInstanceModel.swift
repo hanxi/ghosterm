@@ -76,6 +76,7 @@ import GhostermCore
     private var runtimeTask: Task<Void, Never>?
     private var launchGeneration = UUID()
     public var canDiscard: Bool { !extensionRunBusy && launchTask == nil && extensionRun == nil && !cleanupPending }
+    public var closeNeedsConfirmation: Bool { !closeRequested && !canDiscard }
 
     /// Closing keeps this owner until startup, Runtime and local cleanup finish.
     /// A failed cleanup leaves the pane available for an explicit retry.

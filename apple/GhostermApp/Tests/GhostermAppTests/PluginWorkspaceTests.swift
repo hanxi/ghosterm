@@ -83,6 +83,14 @@ import XCTest
         tab.addExtensionPane(instance); tab.addExtensionPane(other); app.tabs.add(tab)
         instance.beginInspection()
         app.closePane(tabID: tab.id, paneID: instance.id)
+        XCTAssertEqual(app.extensionPaneCloseRequest?.paneID, instance.id)
+        XCTAssertFalse(instance.closeRequested, "Opening confirmation must not cancel an active invocation")
+        app.cancelExtensionPaneClose()
+        XCTAssertNil(app.extensionPaneCloseRequest); XCTAssertFalse(instance.closeRequested)
+        app.closePane(tabID: tab.id, paneID: instance.id)
+        tab.activeWorkspacePaneID = other.id
+        app.confirmExtensionPaneClose()
+        XCTAssertNil(app.extensionPaneCloseRequest)
         try await until { instance.closeRequested }
         XCTAssertTrue(tab.workspacePanes.contains { $0.id == instance.id }, "Pending cleanup must retain its pane")
         tab.activeWorkspacePaneID = other.id
@@ -90,6 +98,32 @@ import XCTest
         try await until { !tab.workspacePanes.contains { $0.id == instance.id } }
         XCTAssertEqual(tab.workspacePanes.map(\.id), [other.id]); XCTAssertEqual(tab.activeWorkspacePaneID, other.id)
         XCTAssertFalse(other.closeRequested, "Closing one invocation must not close the newly focused one")
+    }
+
+    func testStaleCloseChoiceDoesNotCloseAnotherPluginPane() throws {
+        let app = try app(), first = app.extensionInstance, other = ExtensionInstanceModel(controller: nil)
+        let tab = TerminalTab(kind: .workspace)
+        tab.addExtensionPane(first); tab.addExtensionPane(other); app.tabs.add(tab)
+        first.beginInspection()
+        app.closePane(tabID: tab.id, paneID: first.id)
+        XCTAssertEqual(app.extensionPaneCloseRequest?.paneID, first.id)
+        first.endInspection(); tab.removeExtensionPane(first.id)
+        tab.activeWorkspacePaneID = other.id
+        app.confirmExtensionPaneClose()
+        XCTAssertNil(app.extensionPaneCloseRequest)
+        XCTAssertFalse(first.closeRequested); XCTAssertFalse(other.closeRequested)
+        XCTAssertEqual(tab.workspacePanes.map(\.id), [other.id])
+    }
+
+    func testIdlePluginPaneClosesWithoutConfirmation() async throws {
+        let app = try app(), first = app.extensionInstance, other = ExtensionInstanceModel(controller: nil)
+        let tab = TerminalTab(kind: .workspace)
+        tab.addExtensionPane(first); tab.addExtensionPane(other); app.tabs.add(tab)
+        XCTAssertFalse(first.closeNeedsConfirmation)
+        app.closePane(tabID: tab.id, paneID: first.id)
+        XCTAssertNil(app.extensionPaneCloseRequest)
+        try await until { !tab.workspacePanes.contains { $0.id == first.id } }
+        XCTAssertFalse(other.closeRequested)
     }
 
     func testTabCloseDefersRemovalUntilPluginCleanupFinishes() async throws {

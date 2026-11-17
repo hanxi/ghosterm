@@ -149,6 +149,12 @@ class ExtensionMixedConnectionTest {
             instances.forEachIndexed { slot, instance -> resource(instance.model, slot) }
             assertEquals(8, main { instances.map { it.model.receivedResources.single().descriptor.sha256 }.distinct().size })
             ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
+            assertFalse(main { instances[3].closeRequested })
+            ui.onNodeWithTag("plugin-close-cancel").performClick()
+            echo(instances[3].model, "close-cancelled", 3)
+            ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
+            main { extensions.selectGroupInstance(instances[0].model) }
+            ui.onNodeWithTag("plugin-close-confirm").performClick()
             await("fourth released") { main { instances[3].closed } }
             val invalid = invocation(3, "node", true, true)
             val rejected = runBlocking { withContext(Dispatchers.Main) { current.add(invalid) } }
@@ -169,6 +175,8 @@ class ExtensionMixedConnectionTest {
             await("empty connection Exec consent") { main { current.instances.lastOrNull()?.id == finalPending.id } }
             val final = main { current.instances.last() }; approve(final); resource(final.model, 0)
             ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
+            assertFalse(main { final.closeRequested }); assertFalse(main { current.closed })
+            ui.onNodeWithTag("plugin-close-confirm").performClick()
             await("group release: ${main { current.issue }}") { main { current.closed } }
             assertFalse(main { current.cleanupPending }); assertTrue(main { current.state?.info?.released == true })
             assertTrue(main { current.state?.transport?.remoteEof == true })

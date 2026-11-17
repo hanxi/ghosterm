@@ -105,6 +105,13 @@ class ExtensionConnectionTest {
                 assertNull(main { table!!.state.value.issue }); assertEquals(index + 1, main { table!!.state.value.descriptor?.total })
             }
             ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
+            ui.onNodeWithTag("plugin-close-confirm").assertIsDisplayed()
+            assertFalse(main { instances[3].closeRequested }); assertFalse(main { instances[3].closed })
+            ui.onNodeWithTag("plugin-close-cancel").performClick()
+            assertEquals(8, runBlocking { current.controller.stepMultiplexConnection().info.instances })
+            ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
+            main { extensions.selectGroupInstance(instances[0].model) }
+            ui.onNodeWithTag("plugin-close-confirm").performClick()
             await("fourth instance released") { main { instances[3].closed } }
             for ((index, instance) in instances.withIndex()) if (index != 3) {
                 val table = main { instance.model.table!! }
@@ -148,6 +155,12 @@ class ExtensionConnectionTest {
             val finalTable = main { finalModel.table!! }; await("final table idle") { main { !finalTable.state.value.busy } }
             runBlocking { main { finalTable.load() }?.join() }; assertEquals(34, main { finalTable.state.value.descriptor?.total })
             ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
+            ui.onNodeWithTag("plugin-close-confirm").assertIsDisplayed()
+            assertFalse(main { current.closed }); assertFalse(main { current.instances.last().closeRequested })
+            ui.onNodeWithTag("plugin-close-cancel").performClick()
+            runBlocking { main { finalTable.load() }?.join() }; assertEquals(34, main { finalTable.state.value.descriptor?.total })
+            ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
+            ui.onNodeWithTag("plugin-close-confirm").performClick()
             await("group release: ${main { current.issue }}") { main { current.closed } }
             assertFalse(main { current.cleanupPending }); assertTrue(main { current.state?.info?.released == true })
             assertTrue("Remote cleanup must precede physical close", main { current.state?.transport?.remoteEof == true })

@@ -36,6 +36,10 @@ internal class ExtensionConnectionModel(private val application: Application,
         val store: ViewModelStore) {
         var closed by mutableStateOf(false)
             internal set
+        var closeRequested by mutableStateOf(false)
+            internal set
+        internal val cleanup = Mutex()
+        val closeNeedsConfirmation get() = !closed && !closeRequested
     }
     val instances = mutableStateListOf<Instance>()
     var title by mutableStateOf("")
@@ -52,7 +56,9 @@ internal class ExtensionConnectionModel(private val application: Application,
         private set
     private var launchJob: Job? = null
     private var monitor: Job? = null
-    private var closing = false
+    private var closing by mutableStateOf(false)
+    val closeNeedsConfirmation get() = !closed && !closing &&
+        (busy || instances.any { it.closeNeedsConfirmation })
     private var nativeReady = false
     private var origin: ExtensionGroupInvocation? = null
     private var nextEpoch = 1uL
@@ -186,11 +192,13 @@ internal class ExtensionConnectionModel(private val application: Application,
     }
     fun requestClose() { scope.launch { close() } }
     fun requestCloseInstance(instance: Instance) { scope.launch {
+        if (instances.none { it === instance }) return@launch
         try { closeInstance(instance) }
         catch (failure: Exception) { issue = "实例释放失败：${failure.message}"; cleanupPending = true }
     } }
-    private suspend fun closeInstance(instance: Instance) {
-        if (instance.closed) return
+    private suspend fun closeInstance(instance: Instance) = instance.cleanup.withLock {
+        if (instance.closed) return@withLock
+        instance.closeRequested = true
         instance.store.clear() // Cancels its UI/RPC pumps before Native owner teardown.
         instance.model.closeInstance()
         instance.closed = true

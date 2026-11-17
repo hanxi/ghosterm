@@ -7,16 +7,46 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 
+private data class PluginCloseRequest(val group: ExtensionConnectionModel,
+    val instance: ExtensionConnectionModel.Instance? = null)
+
 @Composable internal fun PluginConnectionGroupsContent(model: ExtensionPackagesViewModel,
     connectionsBusy: Boolean, onLaunchGroup: (String) -> Unit) {
+    // The pending choice belongs to this view lifetime, never a saved approval.
+    var closeRequest by remember(model) { mutableStateOf<PluginCloseRequest?>(null) }
+    val selected = closeRequest?.takeIf { request ->
+        model.connectionGroups.any { it === request.group } && !request.group.closed &&
+            (request.instance == null || request.group.instances.any { it === request.instance && !it.closed })
+    }
+    if (selected != null) AlertDialog(
+        onDismissRequest = { closeRequest = null },
+        title = { Text(if (selected.instance == null) "停止并关闭插件连接？" else "停止并关闭插件实例？") },
+        text = { Text(if (selected.instance == null)
+            "将停止此连接的全部插件实例并释放资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。"
+            else "将停止「${selected.instance.title}」并释放其资源。其它实例继续运行。已经发生的操作不会撤销，未确认的结果仍按未知保留。") },
+        confirmButton = { TextButton(onClick = {
+            closeRequest = null
+            if (model.connectionGroups.any { it === selected.group } && !selected.group.closed) {
+                val instance = selected.instance
+                if (instance == null) selected.group.requestClose()
+                else if (selected.group.instances.any { it === instance && !it.closed }) selected.group.requestCloseInstance(instance)
+            }
+        }, modifier = Modifier.testTag("plugin-close-confirm")) { Text("停止并关闭") } },
+        dismissButton = { TextButton(onClick = { closeRequest = null },
+            modifier = Modifier.testTag("plugin-close-cancel")) { Text("取消") } })
     if (model.pendingGroup.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("待启动连接组（${model.pendingGroup.size}/8）", style = MaterialTheme.typography.titleSmall)
         model.pendingGroup.toList().forEach { invocation ->
@@ -67,11 +97,17 @@ import org.json.JSONArray
                             ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
                         Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · ${if (instance.closed) "已关闭" else phase}")
                     }
-                    TextButton(onClick = { group.requestCloseInstance(instance) }, enabled = !instance.closed && !group.busy,
+                    TextButton(onClick = {
+                        if (instance.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group, instance)
+                        else group.requestCloseInstance(instance)
+                    }, enabled = !instance.closed && !group.busy,
                         modifier = Modifier.testTag("plugin-instance-close-${instance.id}")) { Text("关闭") }
                 }
             }
-            TextButton(onClick = group::requestClose, enabled = !group.closed,
+            TextButton(onClick = {
+                if (group.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group)
+                else group.requestClose()
+            }, enabled = !group.closed,
                 modifier = Modifier.testTag("plugin-group-close-${group.id}")) { Text(if (group.closed) "已关闭连接" else "停止并关闭连接") }
         }
     }

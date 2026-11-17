@@ -17,6 +17,7 @@ struct ExtensionsPane: View {
     @State private var entries: [Entry] = []
     @State private var issue: String?
     @State private var pendingConnections: [ExtensionGroupInvocation] = []
+    @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspectionTask: Task<Void, Never>?
 
@@ -350,6 +351,18 @@ struct ExtensionsPane: View {
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
                       onCompletion: selectedPackage)
+        .confirmationDialog("停止并关闭插件连接？", isPresented: Binding(
+            get: { connectionToClose.map { !$0.closed } ?? false },
+            set: { if !$0 { connectionToClose = nil } }), titleVisibility: .visible) {
+            Button("停止并关闭", role: .destructive) {
+                let selected = connectionToClose; connectionToClose = nil
+                guard let selected, model.extensionConnections.contains(where: { $0 === selected }) else { return }
+                Task { _ = await selected.close() }
+            }
+            Button("取消", role: .cancel) { connectionToClose = nil }
+        } message: {
+            Text("将停止此连接的全部插件实例并释放资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。")
+        }
         .onDisappear { inspectionTask?.cancel() }
     }
 
@@ -577,7 +590,10 @@ struct ExtensionsPane: View {
                 HStack {
                     Text(verbatim: "连接组：" + connection.title)
                     Spacer()
-                    Button(connection.closed ? "已关闭" : "停止并关闭连接") { Task { _ = await connection.close() } }
+                    Button(connection.closed ? "已关闭" : "停止并关闭连接") {
+                        if connection.closeNeedsConfirmation { connectionToClose = connection }
+                        else { Task { _ = await connection.close() } }
+                    }
                         .disabled(connection.closed)
                 }
                 Text(verbatim: "此连接实际目标：" + connection.targetDescription).font(DS.Font.caption).textSelection(.enabled)

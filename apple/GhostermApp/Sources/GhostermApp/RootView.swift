@@ -142,8 +142,19 @@ struct RootView: View {
             Button("取消", role: .cancel) { tabs.cancelClose() }
         } message: {
             if let tab = tabs.closeRequest {
-                Text("关闭「\(tab.title)」（\(tab.subtitle)）会结束其中的终端连接，并停止尚在建立的文件连接。已入队的文件传输仍由传输队列继续管理。")
+                Text("关闭「\(tab.title)」（\(tab.subtitle)）会结束其中的终端连接，并停止尚在建立的文件连接。已入队的文件传输仍由传输队列继续管理。" +
+                     (tab.workspacePanes.contains { $0.extensionInstance?.closeNeedsConfirmation == true }
+                      ? "其中的插件也会请求停止并释放资源；已经发生的操作不会撤销，未确认的结果仍按未知保留。" : ""))
             }
+        }
+        .alert("停止并关闭插件窗格？", isPresented: Binding(
+            get: { model.extensionPaneCloseRequest != nil },
+            set: { if !$0 { model.cancelExtensionPaneClose() } })) {
+            Button("停止并关闭", role: .destructive) { model.confirmExtensionPaneClose() }
+                .accessibilityIdentifier("plugin-pane-close-confirm")
+            Button("取消", role: .cancel) { model.cancelExtensionPaneClose() }
+        } message: {
+            Text("将停止「\(model.extensionPaneCloseRequest?.title ?? "插件实例")」并释放其资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。")
         }
         .alert("操作失败", isPresented: Binding(
             get: { editError != nil }, set: { if !$0 { editError = nil } })) {
