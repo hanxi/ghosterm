@@ -185,11 +185,17 @@ public enum WorkspaceDockingGeometry {
 @MainActor public enum WorkspacePane {
     case terminal(TerminalPane)
     case files(WorkspaceFilePane)
+    case extensionView(ExtensionInstanceModel)
     public var id: UUID {
-        switch self { case .terminal(let p): return p.id; case .files(let p): return p.id }
+        switch self {
+        case .terminal(let p): return p.id
+        case .files(let p): return p.id
+        case .extensionView(let p): return p.id
+        }
     }
     public var terminal: TerminalPane? { if case .terminal(let p) = self { return p }; return nil }
     public var files: WorkspaceFilePane? { if case .files(let p) = self { return p }; return nil }
+    public var extensionInstance: ExtensionInstanceModel? { if case .extensionView(let p) = self { return p }; return nil }
 }
 
 public struct WorkspacePaneDrag: Codable {

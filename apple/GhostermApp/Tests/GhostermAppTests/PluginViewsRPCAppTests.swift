@@ -98,7 +98,7 @@ import XCTest
         XCTAssertNil(alpha.issue); XCTAssertNil(beta.issue); XCTAssertNil(diff.issue); XCTAssertNil(task.issue)
         XCTAssertEqual(alpha.descriptor?.viewID, "alpha"); XCTAssertEqual(beta.descriptor?.viewID, "beta")
         XCTAssertEqual(diff.page?.rows.map(\.text), ["before", "after"]); XCTAssertEqual(task.snapshot?.phase, .running)
-        let pane = NSHostingView(rootView: ExtensionsPane(model: app).background(Color(nsColor: .windowBackgroundColor)))
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: app).background(Color(nsColor: .windowBackgroundColor)))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 4400)
         let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane; TestWindows.presentOffscreen(window)

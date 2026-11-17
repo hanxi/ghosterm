@@ -33,8 +33,9 @@ struct PaneActionsView: View {
     var preview: (PaneLayout.Axis?) -> Void = { _ in }
 
     var items: [PaneAction] {
-        let file = tab.workspacePanes.first { $0.id == paneID }?.files
-        let canSplit = isAvailable && !tab.isLocked && (file == nil || file?.panel != nil)
+        let pane = tab.workspacePanes.first { $0.id == paneID }
+        let file = pane?.files
+        let canSplit = isAvailable && !tab.isLocked && pane?.extensionInstance == nil && (file == nil || file?.panel != nil)
         var result: [PaneAction] = []
         if file?.remote == true {
             result.append(PaneAction(id: "local-files", symbol: "folder.badge.plus", title: "打开本地文件窗格", enabled: isAvailable) {
@@ -56,7 +57,7 @@ struct PaneActionsView: View {
                 model.toggleZoom(tabID: tab.id, paneID: paneID)
             })
         }
-        if file != nil || tab.isSplit {
+        if file != nil || pane?.extensionInstance != nil || tab.isSplit {
             result.append(PaneAction(id: "close", symbol: "xmark", title: file != nil ? "关闭文件窗格" : "关闭这个窗格", enabled: isAvailable) {
                 model.closePane(tabID: tab.id, paneID: paneID)
             })

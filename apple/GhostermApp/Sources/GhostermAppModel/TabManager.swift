@@ -24,6 +24,8 @@ public final class TabManager: ObservableObject {
     /// （工作线程可能正卡在弹凭据框上——不取消就会「标签页没了还弹口令框」）。
     /// 必须是「关之前」而不是「关之后」：关之后工作线程已经在弹框了。
     public var willClose: ((TerminalTab) -> Void)?
+    /// Asynchronous owners may defer removal until their cleanup is observed.
+    public var shouldClose: ((TerminalTab) -> Bool)?
 
     public init() {}
 
@@ -114,6 +116,7 @@ public final class TabManager: ObservableObject {
     /// 关闭一个标签页：**先停会话再移除**（顺序不能反——移除后没人撑住
     /// transport/surface，读循环会踩已释放内存）。
     public func close(_ tab: TerminalTab) {
+        guard tabs.contains(where: { $0.id == tab.id }), shouldClose?(tab) != false else { return }
         willClose?(tab)   // 取消在途连接（见 willClose 说明），必须在 stop 之前
         tab.stop()
         remove(tab)

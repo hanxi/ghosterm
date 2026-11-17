@@ -17,6 +17,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'
+RUN = 'apple/GhostermApp/Sources/GhostermApp/ExtensionRunView.swift'
 HTML = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLAssets.swift'
 SNAPSHOT = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLSnapshot.swift'
 TEST = 'PluginPaneFlowTests.testPreviewThroughPackageApprovalLaunchConsentAndStopControls'
@@ -57,9 +58,9 @@ def main():
         ('launch', 'Button("连接并启动 Client 命令") { launch(entry) }', 'Button("连接并启动 Client 命令") { }',
          'launch control did not reach consent'),
         ('consent', 'await model.decideExtensionConsent(allow: true)', 'await model.decideExtensionConsent(allow: false)',
-         'Preview did not receive exact owned SSH resource'),
+         'Preview did not receive exact owned SSH resource', selected_markdown, RUN),
         ('stop', 'await model.stopExtensionRun()', 'await Task.yield()',
-         'stop control did not release run'),
+         'stop control did not release run', selected_markdown, RUN),
     ]
     cases.extend([
         ('markdown-image', 'PluginResourceImagePreview(data: asset.data, mime: asset.mime)', 'Text("disabled attachment")',
@@ -166,7 +167,7 @@ def main():
     ])
     if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
         parser.error('--mutation-case requires --mutate and a known case name')
-    originals = {name: (ROOT / name).read_bytes() for name in [PANE, HTML, SNAPSHOT]}
+    originals = {name: (ROOT / name).read_bytes() for name in [PANE, RUN, HTML, SNAPSHOT]}
     for label, old, _new, _expected, *options in cases:
         filename = options[1] if len(options) > 1 else PANE
         assert originals[filename].count(old.encode()) == 1, label

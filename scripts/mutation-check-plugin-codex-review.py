@@ -11,7 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSEMBLER = 'apple/GhostermApp/Sources/GhostermAppModel/CodexChangeReview.swift'
-MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift'
+MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
 VIEW = 'apple/GhostermApp/Sources/GhostermApp/CodexChangeReviewView.swift'
 TEST = 'apple/GhostermApp/Tests/GhostermAppTests/CodexChangeReviewTests.swift'
 CASES = (

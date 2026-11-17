@@ -2,6 +2,29 @@ import AppKit
 import SwiftUI
 import Vision
 import XCTest
+import GhostermAppModel
+@testable import GhostermApp
+
+/// Uses the real generic workspace host after a launch; package review and the
+/// explicit launch form remain on the production settings page before that.
+@MainActor struct PluginWorkspaceTestView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject private var tabs: TabManager
+    var packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)?
+    init(model: AppModel, packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)? = nil) {
+        self.model = model; self.tabs = model.tabs; self.packagePicker = packagePicker
+    }
+    var body: some View {
+        Group {
+            if let tab = tabs.tabs.first(where: { $0.workspacePanes.contains { $0.id == model.extensionInstance.id } }) {
+                WorkspaceView(model: model, tab: tab, isActive: true, opts: .init())
+            } else {
+                ScrollView { ExtensionsPane(model: model, packagePicker: packagePicker) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
 
 /// Local bitmap/OCR clicks on transparent offscreen production controls.
 @MainActor

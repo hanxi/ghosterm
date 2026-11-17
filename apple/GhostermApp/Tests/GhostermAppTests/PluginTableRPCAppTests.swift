@@ -96,14 +96,16 @@ import XCTest
             await table.showPage(offset: table.lastOffset)
             XCTAssertEqual(table.page?.rows.last?.cells, ["1000000", "1000000000000", "1000000000000000000"])
         }
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor)))
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model).background(Color(nsColor: .windowBackgroundColor)))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 2800)
         let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane; TestWindows.presentOffscreen(window)
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(100))
         let words = try PluginTableRendering.words(pane).joined(separator: " ")
-        if count > 0 { XCTAssertTrue(words.contains("Square") && words.contains("Cube"), words) }
+        if count > 0 {
+            XCTAssertTrue(words.contains("Square") && words.contains("Cube"), "root \(pane.bounds); \(words)")
+        }
         else {
             XCTAssertTrue(PluginTableRendering.elements(pane).contains {
                 PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-table-empty"

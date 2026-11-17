@@ -143,10 +143,10 @@ final class PluginPaneFlowTests: XCTestCase {
         let interaction = CodexRouteInteraction()
         model.interaction = interaction
         var selections = 0
-        let pane = NSHostingView(rootView: ScrollView { ExtensionsPane(model: model, packagePicker: { completion in
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model, packagePicker: { completion in
             selections += 1
             completion(.success([package]))
-        }) })
+        }))
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1400),
                                        styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = pane

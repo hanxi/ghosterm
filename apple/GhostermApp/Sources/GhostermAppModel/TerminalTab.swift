@@ -51,6 +51,8 @@ public enum TabKind: Equatable {
     case localShell
     /// 不启动 shell 的本地文件工作区。
     case localFiles
+    /// Generic native workspace without a shell or an implied file endpoint.
+    case workspace
 
     /// SSH 会话。
     case ssh(RemoteTarget)
@@ -61,7 +63,7 @@ public enum TabKind: Equatable {
     /// 远端目标（本地 shell 为 nil）。跳转 / 复建 / 分屏都按它匹配**同一台主机**。
     public var remoteTarget: RemoteTarget? {
         switch self {
-        case .localShell, .localFiles: return nil
+        case .localShell, .localFiles, .workspace: return nil
         case .ssh(let t), .sftp(let t): return t
         }
     }
@@ -71,6 +73,7 @@ public enum TabKind: Equatable {
         switch self {
         case .localShell: return "本地 shell"
         case .localFiles: return "本地文件"
+        case .workspace: return "工作区"
         case .ssh(let t): return t.pattern
         case .sftp(let t): return "SFTP · \(t.pattern)"
         }
@@ -79,7 +82,7 @@ public enum TabKind: Equatable {
     /// 副标题：`user@host` 风格（iGhostVT 截图里标签 `~ zsh` 的位置）。
     public var subtitle: String {
         switch self {
-        case .localShell, .localFiles: return "本机"
+        case .localShell, .localFiles, .workspace: return "本机"
         case .ssh(let t): return Self.describe(t)
         case .sftp(let t): return Self.describe(t)
         }
@@ -91,7 +94,7 @@ public enum TabKind: Equatable {
 
     /// 终端类（可再分屏 / 可喂字节）；SFTP 类只有一个浏览器面。
     public var isTerminal: Bool {
-        switch self { case .localShell, .ssh: return true; case .localFiles, .sftp: return false }
+        switch self { case .localShell, .ssh: return true; case .localFiles, .sftp, .workspace: return false }
     }
 
     /// 图标（侧边栏 / 标签条）。
@@ -100,6 +103,7 @@ public enum TabKind: Equatable {
         case .localShell: return "terminal"
         case .ssh: return "network"
         case .sftp, .localFiles: return "folder"
+        case .workspace: return "rectangle.split.2x1"
         }
     }
 
@@ -463,6 +467,9 @@ public final class TerminalTab: ObservableObject, Identifiable {
             fileObservers = workspacePanes.compactMap(\.files).map { file in
                 file.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             }
+            fileObservers += workspacePanes.compactMap(\.extensionInstance).map { instance in
+                instance.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            }
         }
     }
     @Published public var layoutCustomized = false
@@ -536,7 +543,7 @@ public final class TerminalTab: ObservableObject, Identifiable {
     public var activeWorkspacePane: WorkspacePane? { workspacePanes.first { $0.id == activeWorkspacePaneID } }
     public var visibleWorkspaceLayout: WorkspaceLayout? {
         guard !filesPanelVisible, !panes.isEmpty else { return workspaceLayout }
-        return workspaceLayout?.filtering(Set(panes.map(\.id)))
+        return workspaceLayout?.filtering(Set(workspacePanes.filter { $0.files == nil }.map(\.id)))
     }
     private func terminalProjection(_ node: WorkspaceLayout) -> PaneLayout? {
         switch node {
@@ -569,6 +576,7 @@ public final class TerminalTab: ObservableObject, Identifiable {
     /// 全部窗格都空闲/已退出/失败 → 直接关。
     /// SFTP 类：有在途传输 → 问；没连上（已失败）→ 直接关；还在连 → 问。
     public var closeNeedsConfirmation: Bool {
+        if workspacePanes.compactMap(\.extensionInstance).contains(where: { !$0.canDiscard }) { return true }
         if filePanes.contains(where: {
             if let b = $0.panel?.backend as? TransferBackend { return TransferManager.shared.hasActive(for: b) }
             return $0.remote && $0.error == nil
@@ -580,6 +588,7 @@ public final class TerminalTab: ObservableObject, Identifiable {
 
     /// 当前窗格（焦点所在；分屏关闭后自动收敛）。
     public var activePane: TerminalPane? {
+        if activeWorkspacePane?.extensionInstance != nil { return nil }
         if let id = activePaneID, let p = panes.first(where: { $0.id == id }) { return p }
         return panes.first
     }
@@ -725,6 +734,7 @@ public final class TerminalTab: ObservableObject, Identifiable {
     /// 停止本 tab 的全部窗格（关闭标签页时调用；顺序：先停会话再置 nil）。
     public func stop() {
         for pane in panes { pane.stop() }
+        for instance in workspacePanes.compactMap(\.extensionInstance) { Task { await instance.requestClose() } }
         workspacePanes.removeAll { $0.files != nil }
         workspaceLayout = workspaceLayout?.filtering(Set(panes.map(\.id)))
     }

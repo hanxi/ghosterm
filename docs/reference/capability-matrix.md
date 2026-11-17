@@ -224,6 +224,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 提示符鼠标残留清理 🟡 | 普通本地 zsh 自动加载随包钩子；Bash/远端有带备份的独立安装器。macOS 26.6.2 / tmux 3.6a 的三层隔离 SSH 断线回到本地提示符、真实 AppKit 按下/松开、原 PID/键盘与正常 TUI 字节对照通过；五项启动组合及四组自动接线变异另有记录 | `.direct` / 自定义启动参数（仅 `-i` 除外）/ 其它 shell 不走自动接线；远端需远端安装，前台程序未退出时不触发。实际硬件休眠/用户远端未验，Codex 输入框未复现，不称其缺陷已修复；见[操作与证据](../how-to/mouse-report-recovery.md) |
 | 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
 | 工作区 | `WorkspaceLayout` / `WorkspaceHostView` 为统一终端/文件布局；四边停靠、中央交换、隐藏、缩放与焦点 | 真拖动图像、逐帧零尺寸、跨标签最小尺寸等见工作区交接 |
+| macOS 通用插件工作区 🟡 | `extensionView` 叶子持有独立 `ExtensionInstanceModel`，复用 UUID / 布局 / 聚焦 / 缩放 / 关闭；运行内容移出设置页，关闭需等起停与清理结果。49 项定向、Release 构建与官方 table 本机 / 直连 / ProxyJump 的空表 / 百万行分页六流程通过，见[插件计划 P2 第六十八批](plan-plugin-bridge.md) | 单一 App 活动 Runtime 限制仍在；未交付同连接多实例 mux。焦点为离屏可控 key 状态；本批真实链路以 App API 启动 / 停止，未重跑完整导入 / 启动表单 / 确认弹窗、其它插件或设备 / 变异矩阵。默认 App JS-off，非发行或 macOS 13 证据，不增加 CI 二十份 |
 | 窗格外观 | 跟随终端配色；当前分屏顶部蓝线；gap>0 细框，gap=0 共享分隔线；悬停/菜单分屏预览与 Shift | 离屏像素、可控窗口焦点、真实桌面激活/全屏是不同档证据 |
 | 文件浏览 | `FilesPanelView` 与本地/SFTP 后端；列表/树、搜索、操作、工具条折行、原生单击选择/双击打开与键盘归属 | 远端 cwd 未交付，不能声称与 SSH 当前目录同步 |
 | 目录导航与缓存 | 最新请求、成功后历史提交、排队旧读跳过、刷新 epoch 与树错误重试、cwd 同目标去重 | 🟡 最终 34 项、十组变异、33 项实际本机 SSH/SFTP 组合及 Release；在途后端取消仍待，见[导航说明](macos-files-navigation.md) |

@@ -1,6 +1,27 @@
 import Foundation
 
 @MainActor public extension TerminalTab {
+    func addExtensionPane(_ instance: ExtensionInstanceModel, beside target: UUID? = nil,
+                          axis: PaneLayout.Axis = .horizontal) {
+        guard !workspacePanes.contains(where: { $0.id == instance.id }) else {
+            activeWorkspacePaneID = instance.id; zoomedPaneID = nil; return
+        }
+        let anchor = target ?? activeWorkspacePaneID ?? workspaceLayout?.paneIDs.last
+        workspacePanes.append(.extensionView(instance))
+        if let layout = workspaceLayout, let anchor, layout.paneIDs.contains(anchor) {
+            workspaceLayout = layout.replacing(anchor, with: .group([.leaf(anchor), .leaf(instance.id)], axis: axis))
+        } else { workspaceLayout = .leaf(instance.id) }
+        layoutCustomized = true; activeWorkspacePaneID = instance.id; zoomedPaneID = nil
+    }
+    /// Caller has confirmed cleanup. Removing a view never changes another run.
+    func removeExtensionPane(_ id: UUID) {
+        guard let instance = workspacePanes.first(where: { $0.id == id })?.extensionInstance,
+              instance.canDiscard else { return }
+        workspaceLayout = workspaceLayout?.removing(id, equalize: true)
+        workspacePanes.removeAll { $0.id == id }
+        if activeWorkspacePaneID == id { activeWorkspacePaneID = visibleWorkspaceLayout?.paneIDs.first }
+        if zoomedPaneID == id || workspacePanes.count < 2 { zoomedPaneID = nil }
+    }
     func addFilePane(_ pane: WorkspaceFilePane, beside target: UUID? = nil, axis: PaneLayout.Axis = .horizontal) {
         workspacePanes.append(.files(pane))
         filesPanelVisible = true
@@ -15,12 +36,16 @@ import Foundation
         let local = filePanes.filter { !$0.remote }.map { WorkspaceLayout.leaf($0.id) }
         let remote = filePanes.filter(\.remote).map { WorkspaceLayout.leaf($0.id) }
         let files = local + remote
+        let extensions = workspacePanes.compactMap(\.extensionInstance).map { WorkspaceLayout.leaf($0.id) }
         if terminals.isEmpty {
             workspaceLayout = files.isEmpty ? nil : .group(files, axis: .horizontal)
         } else if files.isEmpty { workspaceLayout = .group(terminals, axis: .horizontal) }
         else {
             workspaceLayout = .group([.group(terminals, axis: .horizontal), .group(files, axis: .vertical)],
                                      axis: .horizontal, weights: [2, 1])
+        }
+        if !extensions.isEmpty {
+            workspaceLayout = .group((workspaceLayout.map { [$0] } ?? []) + extensions, axis: .horizontal)
         }
         layoutCustomized = false; zoomedPaneID = nil
     }

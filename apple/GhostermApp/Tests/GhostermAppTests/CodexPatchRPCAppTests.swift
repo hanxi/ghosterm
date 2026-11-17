@@ -142,7 +142,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let model = isolatedAppModel(configPath: configURL.path, knownHostsPath: known.path)
         let controller = try XCTUnwrap(model.extensionController)
         let interaction = CodexRouteInteraction(); model.interaction = interaction
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model)
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model)
             .background(Color(nsColor: .windowBackgroundColor)))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 2200)
         let window = FixtureWindow(contentRect: pane.frame,

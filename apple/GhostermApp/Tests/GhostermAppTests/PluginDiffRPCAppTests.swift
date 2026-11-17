@@ -108,7 +108,7 @@ import XCTest
         XCTAssertTrue(beforeText.utf8.elementsEqual(old.utf8) && afterText.utf8.elementsEqual(new.utf8), "Native pages must reconstruct both exact texts")
         XCTAssertEqual(consumed, total)
         await diff.showPage(offset: 0)
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor)))
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model).background(Color(nsColor: .windowBackgroundColor)))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 2800)
         let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane; TestWindows.presentOffscreen(window)

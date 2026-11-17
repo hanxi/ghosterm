@@ -143,11 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "退出")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        guard let extensionController = model.extensionController else { return .terminateNow }
+        guard model.extensionController != nil else { return .terminateNow }
         guard !pluginShutdownPending else { return .terminateCancel }
         pluginShutdownPending = true
         Task { @MainActor [weak self, weak sender] in
-            let closed = await extensionController.close()
+            let closed = await model.closeExtensionOwners()
             guard let self, let sender else { return }
             self.pluginShutdownPending = false
             if closed {

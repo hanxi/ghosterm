@@ -51,7 +51,7 @@ final class CodexLiveAppTests: XCTestCase {
         try Data().write(to: config); try Data().write(to: known)
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: known.path)
         let controller = try XCTUnwrap(model.extensionController)
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model)
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model)
             .background(Color(nsColor: .windowBackgroundColor)))
         let ui = ConversationUIProbe(root: pane, width: 1440, height: 2400, captureFailures: false)
         addTeardownBlock {

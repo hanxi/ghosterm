@@ -112,7 +112,7 @@ import XCTest
         } catch { }
         XCTAssertTrue(declaredFailure)
         guard declaredFailure else { return }
-        let pane = NSHostingView(rootView: AnyView(ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor))))
+        let pane = NSHostingView(rootView: AnyView(PluginWorkspaceTestView(model: model).background(Color(nsColor: .windowBackgroundColor))))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 2200)
         let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane; TestWindows.presentOffscreen(window)

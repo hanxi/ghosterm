@@ -27,6 +27,7 @@ struct WorkspaceView: NSViewRepresentable {
 /// 双击、划选统统收不到 mouseDragged。
 @MainActor final class WorkspacePaneHostingView: NSHostingView<WorkspacePaneView> {
     override var mouseDownCanMoveWindow: Bool { false }
+    override var acceptsFirstResponder: Bool { rootView.pane.extensionInstance != nil }
 }
 
 /// 叶子的 NSHostingView 始终是同一父节点的子视图。重排仅修改矩形，不能重新挂终端。
@@ -128,6 +129,9 @@ struct WorkspaceView: NSViewRepresentable {
             if let host = hosts[pane.id] { host.rootView = root }
             else {
                 let host = WorkspacePaneHostingView(rootView: root)
+                // The workspace owns geometry. Long command-review text must
+                // not make an extension host resize itself to intrinsic width.
+                if pane.extensionInstance != nil { host.sizingOptions = [] }
                 if #available(macOS 13.3, *) { host.safeAreaRegions = [] }
                 hosts[pane.id] = host
                 if let frame = tab.visibleWorkspaceLayout?.geometry(
@@ -139,6 +143,16 @@ struct WorkspaceView: NSViewRepresentable {
         }
         needsLayout = true
         claimFilePaneFocus()
+        claimExtensionPaneFocus()
+    }
+    /// A focused native extension must stop routing keystrokes to the previous
+    /// terminal even before its first editable control has been constructed.
+    private func claimExtensionPaneFocus() {
+        guard isActive, let window, window.isKeyWindow, let tab,
+              let id = tab.activeWorkspacePaneID, tab.activeWorkspacePane?.extensionInstance != nil,
+              let host = hosts[id], !(window.firstResponder is PaneActionButton),
+              (window.firstResponder as? NSView)?.isDescendant(of: host) != true else { return }
+        window.makeFirstResponder(host)
     }
     /// 当前窗格是文件时把键盘交给它的列表。
     ///
@@ -184,6 +198,9 @@ struct WorkspaceView: NSViewRepresentable {
             let chrome = file.chromeHeight ?? Self.fallbackFileChrome
             return CGSize(width: 260 + gap,
                           height: title + chrome + Self.fileContentMinimum + gap)
+        }
+        if tab?.workspacePanes.first(where: { $0.id == id })?.extensionInstance != nil {
+            return CGSize(width: 300 + gap, height: 160 + gap)
         }
         return CGSize(width: 120 + gap, height: 80 + gap)
     }
@@ -390,6 +407,9 @@ struct WorkspacePaneView: View {
             case .files(let file):
                 WorkspaceFileView(model: model, tab: tab, file: file, isFocused: isFocused, opts: opts,
                                   chromeChanged: fileChromeChanged, isVisible: isVisible, showsActions: hovering, preview: splitPreview)
+            case .extensionView(let instance):
+                WorkspaceExtensionView(model: model, tab: tab, instance: instance, isFocused: isFocused,
+                                       isVisible: isVisible, opts: opts, showsActions: hovering)
             }
         }
         .environment(\.colorScheme, ChromePalette(model: model).colorScheme)

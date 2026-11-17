@@ -26,8 +26,8 @@ import threading
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginDiff.swift'
-APP = 'apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift'
-PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'
+APP = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
+PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionRunView.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 
 

@@ -11,7 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = 'plugins/official/ai-codex/protocol/client.ts'
-MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift'
+MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
 NODE_TARGET = 'turn completion expires only matching unanswered approvals without writing a decision'
 NODE_CONTROL = 'turn/start emits the stable thread input shape'
 SWIFT_TARGET = 'ExtensionControllerTests.testCodexApprovalButtonsExpireOnCompletionAndUncertainTerminalEvents'

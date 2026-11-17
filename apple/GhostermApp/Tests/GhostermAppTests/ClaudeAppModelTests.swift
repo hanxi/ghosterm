@@ -71,7 +71,7 @@ final class ClaudeAppModelTests: XCTestCase {
         let model = isolatedAppModel(configPath: configURL.path, knownHostsPath: known.path)
         let controller = try XCTUnwrap(model.extensionController)
         let interaction = CodexRouteInteraction(); model.interaction = interaction
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor)))
+        let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model).background(Color(nsColor: .windowBackgroundColor)))
         let probe = ConversationUIProbe(root: pane, width: 1440, height: 2600)
         addTeardownBlock {
             await model.stopExtensionRun(); _ = await controller.close()

@@ -3,7 +3,7 @@ import GhostermAppModel
 import SwiftUI
 
 struct CodexChangeSnapshotControl: View {
-    @ObservedObject var model: AppModel
+    @ObservedObject var model: ExtensionInstanceModel
     let reference: CodexChangeReference
     @State private var expanded = false
 
