@@ -4,6 +4,8 @@
 
 > 状态口径：✅ 已实现且有证据；🟡 已实现但仅在所述证据范围成立；⏳ 契约/占位存在、未实现；❌ 未开始；⛔ WONTFIX 不做并注明原因。平台与历史切片的证据不互相替代。
 
+**Android 验证分工（2026-11-17 用户确认）**：自动化测试只使用模拟器；真机仅安排人工手动测试，不列为自动化开发待办，也不因没有真机自动测试反复报告功能缺失。历史记录保留实际测试环境；人工手测结果单独记账。
+
 ## 核心（C）
 
 目录创建须区分两种能力：旧同步 `gt_sftp_mkdir` 已供 macOS 使用；§9.65 已新增带单次总预算、取消及副作用结果的 `gt_sftp_mkdir_controlled`，Swift/JNI/Kotlin 已绑定并专项验证。Android §9.64 实现 HOME/SAF 单目录原语，§9.65 补远端独立请求；统一目录服务已由 §9.66 接入；任务独立连接已由 §9.67 接入，执行器与页面分别由 §9.69/§9.70 接入。macOS 当前会复用既有目标目录，不具备整树非覆盖提交或独立目录合并确认，见 [实际调用链](../../apple/README.md#目录创建与合并边界)。
@@ -68,7 +70,7 @@
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
 | `ssh_config` 求值（通用视图 = `ssh -G`） | ✅ | `gt_config_effective`：**42 键 × 6 host = 252 项**全表语义对拍（布尔归一化）；支持集双向校验 |
-| 求值配置用于实际 SSH 连接 | 🟡 | 共享检查返回不支持指令及来源，Apple 连接目标携带快照，SSH/SFTP/tmux 在 DNS 前拒绝；Android 主机按钮已展示拒绝原因。高级选项执行未实现，Android 产品连接页面已有定向和完整设备证据，最终目标在同一 AST 上重新检查；native SSH owner 见 §9.25；当前准入档位及 Match/未知指令的保守边界见 [§9.24](android-implementation.md#924-共享连接配置准入与两端接线2026-10-30) |
+| 求值配置用于实际 SSH 连接 | 🟡 | 共享检查返回不支持指令及来源，Apple 连接目标携带快照，SSH/SFTP/tmux 在 DNS 前拒绝；Android 主机按钮已展示拒绝原因。ProxyJump 已由两端路线层消费，普通终端/SFTP/tmux 范围见 [§9.214](android-implementation.md#9214-proxyjump-普通终端sftp-与-tmux2026-11-08)；其余高级选项仍按准入拒绝。Android 产品连接页面已有定向和历史完整设备证据，最终目标在同一 AST 上重新检查；native SSH owner 见 §9.25；当前准入档位及 Match/未知指令的保守边界见 [§9.24](android-implementation.md#924-共享连接配置准入与两端接线2026-10-30) |
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
 | `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令替换/删除已按实际匹配行修复，未知行、注释、CRLF 和相邻块保留，B7/B8 变异护此行为。Android 另验实际保存与编辑器输出保护；来源查询与包含文件/重名块保护已接入；不代表表单已支持全部指令；改名接口另列下行 |
 | 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承已有 32 项设备/32 组配置变异证据，重命名在后续切片单独验收；见 [Android §9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30) |
@@ -144,7 +146,7 @@
 | macOS dev 包 **Homebrew cask** | 🟡 | tap 在独立公开仓库 [`hanxi/homebrew-ghosterm`](https://github.com/hanxi/homebrew-ghosterm)（`Casks/ghosterm-dev.rb`），指向 `dev` 滚动直链。**🟡 成立的证据档**：`brew tap` + `brew trust` + `brew install --cask ghosterm-dev` 在本机装成、`brew style`/`brew audit --cask --strict` 绿、`brew info --cask` 读出 `depends_on arch: :arm64` 与 `depends_on macos: :tahoe`（26.0 下限由内嵌 Homebrew `libcrypto` 抬上去）。**不解决 Gatekeeper**（Homebrew 自己贴 quarantine，见上一行），**`sha256 :no_check`＝故意不校验字节**（滚动资产钉不住，验字节请对 `SHA256SUMS`）；`:latest` cask 默认不进 `brew outdated`，升级要 `--greedy`。**未实测**：Intel 机器与 macOS < 26 的报错路径没有实机可验，只验到声明被正确读出。cask 的 URL 与本轮资产名由 `scripts/check-dev-cask.sh` 在 dev 轨对拍，牙见 `scripts/mutation-check-package-mac.sh` 的 A10 |
 | macOS **release** 包 | 🟡 | tag `v*` / PR / 手动 → `.github/workflows/macos-release.yml`，与 dev 共用同一份可复用工作流 `macos-package.yml`（`channel=release、gates=full`）。**🟡 无 Developer ID 证书 secret ⇒ 目前同样落 ad-hoc**；`--sign` / `--notarize` 分支已就绪，拿到 secret 即用 |
 | macOS **应用内更新** | 🟡 | 本地实现：dev 比随包 commit 与远端 dev；release 比最新正式发布版本。菜单 / 关于主动检查，右下角可收起进度，用户选择下载及重启，保留退出确认。Sparkle 2.10.1 + 固定 Ed25519 公钥校验签名 appcast 和 ZIP，ad-hoc 宿主不要求 Apple 证书。缺更新密钥时明确保留手动下载；首次接入需手装新版本。当前为本地专项证据，生产更新密钥已配置，发行与实际 GitHub 分发端到端证据另记；范围见 [更新说明](../how-to/macos-updates.md) |
-| Android debug APK | 🟡 | `scripts/build-android.sh` 已生成 APK，并在 API 36 arm64 模拟器装载运行；无 Android workflow，无真机/16 KB 页/发行证据 |
+| Android APK 与 release CI | 🟡 | `scripts/build-android.sh` 与 `.github/workflows/android-release.yml` 已接 Debug、优化 Release/R8/资源裁剪、固定密钥签名与 16 KiB 对齐检查；已有云端签名包和 API 29/36、16 KiB 页模拟器历史专项，见 [Android 发行说明](../how-to/android-release.md)。workflow 不执行完整设备套件；历史发行不能代替当前源码的真机/完整发行矩阵 |
 | iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow |
 | 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；full 档共接入 20 份变异，准确清单以 `AGENTS.md` 与 `.github/workflows/macos-package.yml` 为准。标签导航与窗格交互合并在 `tab-chrome`，不再依赖原生多窗口标签组的私有实现。dev/full 都另以本轮 ZIP 验一键安装脚本（签名/SHA/递归 quarantine/回滚），不触碰真实应用目录。接线不等于本轮 CI 通过；`pane-chrome / settings-ui / workspace` 等手工证据与真实系统激活、全屏另行记录。图标脚本缺依赖直接失败，workflow 显式拒绝打包/认证变异日志中的 `SKIP`，Apple 步骤先检查 Swift；尚无所有宿主输出的统一跳过审计，`apple-app-gate.sh` 的 SSH e2e 可因 sshd 失败而跳过后返回成功。不能把配置接线记为完整覆盖，收口见路线图 |
 
@@ -159,7 +161,7 @@
 
 Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；本地终端首片已验，整个 A2 尚未完成，本机/SAF 文件浏览首片已验，远端文件页面已接（§9.52），完整设置与正式图标已由 `29d3f3d` 发行（§9.91），其余设备矩阵仍待完成。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
-A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2 首片完整 63 项设备测试及 21 组终端变异为 §9.13 的历史证据。文本操作切片增加文本操作，最新完整设备结果见页首及 [§9.72](android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)；该轮首次完整运行因模拟器消失中断，原因未知，最终重跑通过。§9.44 工作区曾有 1 项选区失败，偶发原因仍待定位；此前通道/选区早期失败保留在 §9.41，不累加历史测试数量。产品/身份首片原先的完整套件失败已修正测试观测与线程归属后复验，失败记录保留在 §9.27。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
+A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2 首片完整 63 项设备测试及 21 组终端变异为 §9.13 的历史证据。文本操作切片增加文本操作，最近同源完整结果为 `ae164f1` 双系统各 942 项，见[当前状态](current-status.md)；§9.72 的 453 项为历史。A2 首片首次完整运行因模拟器消失中断，原因未知，最终重跑通过。§9.44 工作区曾有 1 项选区失败，偶发原因仍待定位；此前通道/选区早期失败保留在 §9.41，不累加历史测试数量。产品/身份首片原先的完整套件失败已修正测试观测与线程归属后复验，失败记录保留在 §9.27。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
 
 Android 修饰键、数字键盘与组合音符切片已验收，该切片完整结果为 **99 项设备测试，0 失败/错误/跳过**，文本变异选跑 24 组通过，见[§9.18](android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。本片仍限 API 36 arm64 / 4 KB 页模拟器，不改变整个 A2 或下表 macOS 的完成状态。
 

@@ -10,6 +10,8 @@
 - [实现计划与证据](../docs/reference/android-implementation.md)：模块、线程、配置/认证、输入、复制和 A0–A10。
 - [路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
 
+**Android 验证分工（2026-11-17 用户确认）**：自动化测试只使用模拟器；真机仅安排人工手动测试，不列为自动化开发待办，也不因没有真机自动测试反复报告功能缺失。历史记录保留实际测试环境；人工手测结果单独记账。
+
 ## 远端文件页面
 
 位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页取消页面读取并隔离晚到回调，保留 FilesViewModel 持有的独立浏览连接；输入和目标匹配且 native ready 时复用，显式断开或模型清理时释放（§9.202–§9.203）。
@@ -291,6 +293,8 @@ ANDROID_SERIAL=设备 ANDROID_COPY_PROGRESS_MUTATE=1 bash scripts/test-android-s
 
 ## 可选远端后台会话
 
-主机卡片的「后台会话」显式探测远端 tmux，支持路径/版本、真实列表、新建/重命名/确认结束和独立 SSH 客户端连接；不自动安装或修改远端 tmux 配置。关闭客户端不发送结束命令，结果未知不自动重试，断线须刷新重选。手机本地 tmux 未提供。Core 操作由独立 native actor 管理，终端仍消费普通 Transport，详见 [A8 接线与验收](../docs/reference/android-implementation.md#android-tmux)。
+主机点击默认进入统一连接面板，可自动探测/列举远端 tmux，普通终端按钮不等待探测；主机菜单的「打开普通终端」直接连接且不探测，「连接选项」可重开面板并撤销按端点保存的直达偏好。创建/attach/结束仍显式选择，支持路径/版本、真实列表、新建/重命名/确认结束和独立 SSH 客户端连接；不自动安装或修改远端 tmux 配置。关闭客户端不发送结束命令，结果未知不自动重试，断线须刷新重选。手机本地 tmux 未提供。Core 操作由独立 native actor 管理，终端仍消费普通 Transport，详见 [A8 接线与验收](../docs/reference/android-implementation.md#android-tmux)。
+
+统一入口见[§9.211](../docs/reference/android-implementation.md#9211-远端统一连接入口2026-11-06)；两端 ProxyJump 的普通终端/SFTP/tmux 已接，逐跳认证与专项边界见[§9.214](../docs/reference/android-implementation.md#9214-proxyjump-普通终端sftp-与-tmux2026-11-08)。可实施的非插件待办见[两端待办核对](../docs/reference/platform-todos.md)。
 
 临时目录清理后，不应继续依赖旧 `tmp/zig/`。构建前显式设置 `ZIG` 指向已校验的 0.16.0 可执行文件（或在 PATH 提供该版本）；SDK/NDK/JDK/Gradle 等长期工具链放在 `build/android-toolchain/`，不因清理临时取证材料一同删除。

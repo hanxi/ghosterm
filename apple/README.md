@@ -90,7 +90,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 复核项 | 代码现状 | 进度结论 |
 |---|---|---|
 | SSH 配置保存 | `ConfigStore.save` 忽略备份失败，随后删除旧文件再移动新文件 | 强制备份和原子替换仍未完成，不能沿用 Android 的事务保证 |
-| 认证后的 shell/SFTP 打开 | `AppModel` 仍调用不带取消和剩余预算的 `openSSHShell(ssh)` / `ssh.sftp()` | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
+| 认证后的 shell/SFTP 打开 | `AppModel` 仍用旧 `openSSHShell(ssh)`；SFTP 已用 `ssh.sftp(timeoutMilliseconds: 5000)`，但两者都未贯通原认证剩余预算和取消 | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
 | 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
 | 目录导航 | `FilesPanelModel.navigate` 不校验请求代次；后退/前进先改历史，失败不恢复；刷新不失效树缓存 | 仍需导航结果隔离、成功后提交历史与缓存失效；源码复核不作为交互验收 |
 | 冲突与重试 | `TransferManager.applyToAll` 仍是全局属性；目录重试重新展开整棵目录，重试端点为弱引用 | 请求内决策、仅失败项重试和重新认证尚未迁移；Android 队列不改变桌面行为 |
@@ -103,7 +103,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 | 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
 |---|---|---|---|
-| SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 文件工厂仍调无参 `ssh.sftp()` | `files_jni.c` 专用 owner，文件页面已接 |
+| SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 已用固定 5000 ms 的受控打开，未贯通认证剩余预算/取消 | `files_jni.c` 专用 owner，文件页面已接 |
 | 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
 | 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，§9.69 执行器已消费，§9.70 由任务页驱动 |
 | 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，§9.70 已接任务页；§9.71 改为进程共享单活动请求，队列由 §9.72 接入，恢复未接 |
@@ -163,11 +163,11 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 ### SFTP 打开与取消边界
 
-`AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用无参 `ssh.sftp()`，没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
+`AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用 `ssh.sftp(timeoutMilliseconds: 5000)`。已使用受控重载，但新建固定五秒预算，仍没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
 
 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 与主机补丁 libssh2 已完成本机验收，默认 Core 和两个 SwiftPM 包消费同一版本。17 项协议用例、十组接口变异、十一组依赖守卫及既有打包变异通过；此前测试观测面错误已修正。完整证据与构建准备见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
 
-macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.51/§9.52 接入专用文件 owner/JNI 与页面，已传递预算和取消；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
+macOS `makeSFTPFileBackend` 已接固定预算的 `sftp` 重载，剩余预算/取消尚未贯通；Android 后续已由 §9.51/§9.52 接入专用文件 owner/JNI 与页面，已传递预算和取消；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
 ### 目录浏览与元数据接线边界
 
