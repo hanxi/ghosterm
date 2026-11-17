@@ -124,11 +124,17 @@ internal object CodexHostEvents {
             "Codex event sequence is discontinuous"
         }
         require(event.encoded.toByteArray(Charsets.UTF_8).size <= MAX_EVENT_BYTES) { "Codex event exceeds the size limit" }
-        require(state.rawEvents.size < MAX_EVENTS) { "Codex event history is full" }
-        val retained = state.rawEvents.sumOf { it.toByteArray(Charsets.UTF_8).size }
-        require(retained <= MAX_HISTORY_BYTES - event.encoded.toByteArray(Charsets.UTF_8).size) {
-            "Codex event history exceeds the size limit"
+        // Raw history is a recent diagnostic window, not the sequence ledger
+        // or approval owner. Retiring its oldest payload cannot authorize a
+        // replay or resolve a pending approval.
+        val recent = (state.rawEvents + event.encoded).toMutableList()
+        var retained = recent.sumOf { it.toByteArray(Charsets.UTF_8).size }
+        var removed = 0
+        while (recent.size - removed > MAX_EVENTS || retained > MAX_HISTORY_BYTES) {
+            retained -= recent[removed].toByteArray(Charsets.UTF_8).size
+            removed++
         }
+        if (removed != 0) recent.subList(0, removed).clear()
         val approvals = state.approvals.toMutableList()
         when (event.kind) {
             "approval-request" -> {
@@ -154,7 +160,7 @@ internal object CodexHostEvents {
         } else if (event.kind != "approval-request" && event.kind != "approval-resolved") {
             timeline = reduceTimeline(timeline, event.sequence, event.kind, parse(event.encoded) as JSONObject)
         }
-        return state.copy(sequence = event.sequence, rawEvents = state.rawEvents + event.encoded,
+        return state.copy(sequence = event.sequence, rawEvents = recent,
             timeline = timeline, approvals = approvals, turnActive = turnActive)
     }
 

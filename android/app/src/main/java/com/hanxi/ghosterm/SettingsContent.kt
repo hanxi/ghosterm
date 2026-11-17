@@ -979,8 +979,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         }
         if (state.rawEvents.isNotEmpty()) {
             TextButton(onClick = { showEvents = !showEvents }, modifier = Modifier.testTag("plugin-codex-raw-toggle")) {
-                Text(if (showEvents) "收起协议事件" else "原始协议事件（${state.rawEvents.size}）")
+                Text(if (showEvents) "收起协议事件" else "最近原始协议事件（${state.rawEvents.size}）")
             }
+            if (showEvents) Text("仅显示近期原始事件；待处理审批单独保留。", style = MaterialTheme.typography.bodySmall)
             if (showEvents) state.rawEvents.forEachIndexed { index, event ->
                 SelectionContainer { Text(event, Modifier.testTag("plugin-codex-raw-$index"),
                     style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }

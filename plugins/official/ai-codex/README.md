@@ -367,3 +367,21 @@ An explicit Native stop may return cooperative cancellation 130; signal death
 or an unreaped owner fails. Raw model screenshots / OCR captures are disabled.
 Failed-run artifacts stay in their owned tmp tree for diagnosis and are cleaned
 after their processes exit; `--project` can reuse that isolated Swift build.
+
+
+### Recent Native event history
+
+Both Native hosts keep at most 128 recent raw events and 256 KiB of UTF-8
+payloads for inspection. Valid new events retire the oldest displayed payloads
+when either budget fills; the display budget is no longer a lifetime receive
+limit. The 3072-byte single-event limit, exact next-sequence validation, and
+pending approval limits remain. The last accepted sequence and unresolved
+approvals live outside this recent history: retiring an approval's raw payload
+does not resolve it, allow replay, or change a complete file-review snapshot.
+The Native views explicitly label this list as recent events.
+
+The focused Swift component tests exercise more than three history windows and
+Unicode byte pressure. Android `CodexHostEventsTest` also checks an unresolved
+approval surviving eviction, subsequent explicit resolution and turn completion,
+full message-delta assembly, and rejection of replay / gaps after rotation.
+These component checks do not establish the full model / SSH / device matrix.

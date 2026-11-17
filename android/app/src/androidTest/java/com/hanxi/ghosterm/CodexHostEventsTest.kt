@@ -17,6 +17,53 @@ class CodexHostEventsTest {
             JSONObject().put("event", event).toString().toByteArray(Charsets.UTF_8))
     }
 
+    @Test fun longConversationRetiresDiagnosticsButKeepsApprovalAndSequenceOwnership() {
+        val pending = CodexHostEvents.decode(rpc(1, "approval-request",
+            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"change\"}}"))
+        var state = CodexHostEvents.accept(CodexHostState(turnActive = true), pending)
+        for (sequence in 2..302) {
+            val payload = "\"notification\":{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"m\",\"delta\":\"界😀\"}}"
+            state = CodexHostEvents.accept(state, CodexHostEvents.decode(rpc(sequence, "notification", payload)))
+        }
+        assertEquals(302, state.sequence)
+        assertEquals(128, state.rawEvents.size)
+        assertEquals(175, JSONObject(state.rawEvents.first()).getInt("sequence"))
+        assertEquals("界😀".repeat(301), state.timeline.single { it.id == "item:m" }.detail)
+        assertEquals(pending.approval, state.approvals.single())
+        assertTrue(state.rawEvents.none { JSONObject(it).getString("kind") == "approval-request" })
+        val current = state
+        assertThrows(IllegalArgumentException::class.java) { CodexHostEvents.accept(current, pending) }
+        val gap = CodexHostEvents.decode(rpc(304, "closed", "\"outcome\":\"unknown\""))
+        assertThrows(IllegalArgumentException::class.java) { CodexHostEvents.accept(current, gap) }
+        state = CodexHostEvents.accept(state, CodexHostEvents.decode(rpc(303, "approval-resolved", "\"requestID\":42")))
+        assertTrue(state.approvals.isEmpty())
+        state = CodexHostEvents.accept(state, CodexHostEvents.decode(rpc(304, "notification",
+            "\"notification\":{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"id\":\"turn\",\"status\":\"completed\"}}}")))
+        assertTrue(!state.turnActive)
+        assertEquals(304, state.sequence)
+        assertEquals(128, state.rawEvents.size)
+    }
+
+    @Test fun unicodeHistoryBytesRotateWithoutRelaxingSingleEventLimit() {
+        val text = "界😀".repeat(400) + "e\u0301é"
+        val notice = JSONObject().put("method", "thread/status/changed").put("params", JSONObject().put("text", text))
+        var state = CodexHostState()
+        for (sequence in 1..150) state = CodexHostEvents.accept(state,
+            CodexHostEvents.decode(rpc(sequence, "notification", "\"notification\":$notice")))
+        val bytes = state.rawEvents.sumOf { it.toByteArray(Charsets.UTF_8).size }
+        assertTrue(state.rawEvents.size < 128)
+        assertTrue(bytes <= 262144 && bytes > 262144 - 3072)
+        assertEquals(150, JSONObject(state.rawEvents.last()).getInt("sequence"))
+        assertTrue(state.rawEvents.all { JSONObject(it).getJSONObject("notification").getJSONObject("params")
+            .getString("text").toByteArray(Charsets.UTF_8).contentEquals(text.toByteArray(Charsets.UTF_8)) })
+        val oversized = JSONObject().put("method", "thread/status/changed")
+            .put("params", JSONObject().put("text", "😀".repeat(800)))
+        assertThrows(IllegalArgumentException::class.java) {
+            CodexHostEvents.decode(rpc(151, "notification", "\"notification\":$oversized"))
+        }
+        assertEquals(150, state.sequence)
+    }
+
     @Test fun notificationSequenceMergesMessageDeltasAndRejectsGaps() {
         var state = CodexHostState()
         val first = CodexHostEvents.decode(rpc(1, "notification",

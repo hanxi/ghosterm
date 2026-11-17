@@ -606,7 +606,9 @@ struct ExtensionsPane: View {
                 }
             }
             if !run.codexEvents.isEmpty {
-                DisclosureGroup("原始 Codex 协议事件（\(run.codexEvents.count)）") {
+                DisclosureGroup("最近原始 Codex 协议事件（\(run.codexEvents.count)）") {
+                    Text("仅显示近期原始事件；待处理审批单独保留。")
+                        .font(DS.Font.caption).foregroundStyle(.secondary)
                     ForEach(Array(run.codexEvents.enumerated()), id: \.offset) { _, event in
                         Text(event).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
                     }

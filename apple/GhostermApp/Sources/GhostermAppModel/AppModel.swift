@@ -2091,8 +2091,6 @@ public final class AppModel: ObservableObject {
             }
             throw GhostermError.failed("Codex Executor 发送了格式错误的事件")
         }
-        let kinds = ["notification", "approval-request", "approval-resolved", "outcome-unknown", "protocol-error", "closed"]
-        let retainedBytes = run.codexEvents.reduce(0) { $0 + $1.utf8.count }
         let rawEvent = (try? JSONSerialization.jsonObject(with: Data(encoded.utf8))) as? [String: Any]
         var approvalToAdd: CodexPendingApproval?
         var approvalToRemove: String?
@@ -2108,10 +2106,8 @@ public final class AppModel: ObservableObject {
         } else if event.kind == "approval-resolved" {
             approvalToRemove = Self.codexRequestKey(rawEvent?["requestID"])
         }
-        guard lastCodexEventSequence < UInt64.max,
-              event.sequence == lastCodexEventSequence + 1, kinds.contains(event.kind),
-              encoded.utf8.count <= 3072, run.codexEvents.count < 128,
-              retainedBytes <= 262144 - encoded.utf8.count else {
+        guard let history = CodexEventHistory.appending(encoded, kind: event.kind, sequence: event.sequence,
+                                                       after: lastCodexEventSequence, to: run.codexEvents) else {
             let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Invalid or excessive Codex event","effect":"none"}}"#.utf8)
             guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: failure) == 0 else {
                 throw GhostermError.failed("无法拒绝无效的 Codex 事件")
@@ -2131,7 +2127,7 @@ public final class AppModel: ObservableObject {
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
             remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
-            receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
+            receivedResources: run.receivedResources, codexEvents: history)
         if event.kind == "notification" {
             if event.notification?.method == "turn/started" { codexTurnActive = true }
             if event.notification?.method == "turn/completed" { codexTurnActive = false }
