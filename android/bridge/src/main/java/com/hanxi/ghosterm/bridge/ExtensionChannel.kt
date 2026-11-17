@@ -235,7 +235,7 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
                 stderrLimit: Int = 262144): ExtensionChannel {
             val thread = worker(); val route = hops.toList()
             require(route.size in 1..8 && address.size == 16 && family in listOf(4, 6) && route[0].viaHost == null &&
-                route.drop(1).all { !it.viaHost.isNullOrEmpty() } && !bootstrap.contains('\u0000'))
+                route.drop(1).all { !it.viaHost.isNullOrEmpty() } && !bootstrap.contains('\u0000') && bootstrap.toByteArray().size <= 32768)
             val channel = ExtensionChannel(thread, route)
             return created(channel, NativeExtensionChannel.openRoute(route.map { it.host.toByteArray() }.toTypedArray(),
                 route.map { it.port }.toIntArray(), route.map { it.user.toByteArray() }.toTypedArray(),

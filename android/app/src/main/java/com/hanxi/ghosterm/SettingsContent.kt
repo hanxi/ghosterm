@@ -92,6 +92,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onDismissFrontend: (java.util.UUID) -> Unit = {},
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
     onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
+    onLaunchPluginGroup: (String) -> Unit = {},
     onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
@@ -284,53 +285,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         }
                         }
                     }
-                    extensions.activeSession?.let { active ->
-                        Text("Session：${active.info.phase} · ${active.packageID} · ${active.info.peerIdentity}",
-                            Modifier.padding(top = 8.dp).testTag("plugin-session-state"), style = MaterialTheme.typography.bodySmall)
-                        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED ||
-                            active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED) {
-                            Text("Session 结束：${active.info.end} · Core ${active.info.error} · 清理 ${active.info.cleanupError}",
-                                Modifier.testTag("plugin-session-end"), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    if (extensions.activeSession?.clientWorkspace != null && extensions.activeRuntime != null) {
-                        PluginNativeResourcePublisher(extensions)
-                    }
-                    extensions.activeRuntime?.let { active ->
-                        Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
-                            Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
-                        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED ||
-                            active.info.sessionEnd != com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE ||
-                            active.info.sessionError != 0 || active.info.cleanupError != 0) {
-                            Text("Runtime 结果：${active.info.error} · Session ${active.info.sessionEnd}/${active.info.sessionError} · 清理 ${active.info.cleanupError}",
-                                Modifier.testTag("plugin-runtime-result"), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error)
-                        }
-                        PluginResourcesPanel(extensions.receivedResources)
-                        if (active.command == "ai codex") PluginCodexPanel(extensions)
-                        if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
-                        extensions.table?.let { PluginTableContent(it) }
-                        extensions.diff?.let { PluginDiffContent(it) }
-                        extensions.task?.let { PluginTaskContent(it) }
-                        extensions.registeredViews?.let { PluginViewsContent(it) }
-                        if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
-                                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
-                                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
-                            TextButton(onClick = extensions::stopRuntime, enabled = !extensions.launchBusy) { Text("停止插件") }
-                        } else {
-                            TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件资源") }
-                        }
-                    }
-                    if (extensions.activeRuntime == null && (extensions.activeSession?.info?.phase ==
-                            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED || extensions.activeSession?.info?.phase ==
-                            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED)) {
-                        TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件 Session") }
-                    }
-                    if (extensions.activeRuntime == null && extensions.activeSession?.info?.phase ==
-                        com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ACTIVE) {
-                        TextButton(onClick = extensions::stopSession, enabled = !extensions.launchBusy) { Text("停止插件 Session") }
-                    }
+                    PluginConnectionGroupsContent(extensions, connectionsBusy, onLaunchPluginGroup)
+                    PluginActiveInstanceContent(extensions.selectedGroupInstance ?: extensions)
+
                 }
             }
         }
@@ -340,13 +297,18 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     }
     launchSelection?.let { (entry, command) ->
         PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, frontendCandidates = frontendCandidates, validateFrontend = validateFrontend,
+            onEnqueue = { alias, request, workspace, temporary ->
+                extensions.enqueueGroup(entry, command, alias, request, workspace, temporary)
+                launchSelection = null
+            },
             onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
             launchSelection = null
             onLaunchPlugin(entry, command, alias, request, clientWorkspace)
         })
     }
-    extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
-        PluginConsentDialog(active, extensions.launchBusy, extensions::decideConsent)
+    val selectedInstance = extensions.selectedGroupInstance ?: extensions
+    selectedInstance.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
+        PluginConsentDialog(active, selectedInstance.launchBusy, selectedInstance::decideConsent)
     }
     when {
         model.resetConfirmation -> AlertDialog(onDismissRequest = model::cancelReset,
@@ -671,10 +633,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     hostAliases: List<String>,
     onDismiss: () -> Unit,
     onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
+    onEnqueue: ((String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?, String) -> Unit)? = null,
     onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     frontendCandidates: List<FrontendCandidate> = emptyList(),
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
 ) {
+    var groupLaunch by remember { mutableStateOf(false) }
+    var groupTemporaryDirectory by remember { mutableStateOf("") }
     var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
     var hostMenu by remember { mutableStateOf(false) }
     var executable by remember { mutableStateOf("gterm") }
@@ -874,6 +839,14 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；仅在显式启动对话后初始化后端。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (onEnqueue != null && !attachExisting) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(groupLaunch, { groupLaunch = it }, Modifier.testTag("plugin-group-mode"))
+                        Text("加入同一连接的待启动组")
+                    }
+                    if (groupLaunch) OutlinedTextField(groupTemporaryDirectory, { groupTemporaryDirectory = it },
+                        modifier = Modifier.testTag("plugin-group-temporary"), label = { Text("执行端连接临时目录（绝对路径）") })
+                }
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
@@ -894,15 +867,19 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution,
                         if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses, scopedFiles) else null)
-                    ExtensionRelayBootstrap.build(request)
+                    if (!groupLaunch) ExtensionRelayBootstrap.build(request)
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }
                     }
-                    onLaunch(selectedHost, request, clientWorkspace)
+                    if (groupLaunch) {
+                        ExtensionRelayBootstrap.buildMultiplex("1".repeat(32), listOf(ExtensionController.MultiplexScope("2".repeat(32), 1uL)),
+                            listOf(request), groupTemporaryDirectory)
+                        checkNotNull(onEnqueue)(selectedHost, request, clientWorkspace, groupTemporaryDirectory)
+                    } else onLaunch(selectedHost, request, clientWorkspace)
                 } catch (failure: IllegalArgumentException) {
                     problem = failure.message ?: "插件启动参数无效"
                 }
-            }) { Text("连接并请求授权") }
+            }) { Text(if (groupLaunch) "加入待启动组" else "连接并请求授权") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
@@ -1106,4 +1083,56 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 .height(if (p.cursor == TerminalCursor.UNDERLINE) 2.dp else height).background(if (cursorVisible) Color(0xff000000.toInt() or p.terminalTheme.cursorColor) else background))
         }
     }
+}
+
+@Composable internal fun PluginActiveInstanceContent(extensions: ExtensionPackagesViewModel) {
+    extensions.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    extensions.activeSession?.let { active ->
+        Text("Session：${active.info.phase} · ${active.packageID} · ${active.info.peerIdentity}",
+            Modifier.padding(top = 8.dp).testTag("plugin-session-state"), style = MaterialTheme.typography.bodySmall)
+        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED ||
+            active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED) {
+            Text("Session 结束：${active.info.end} · Core ${active.info.error} · 清理 ${active.info.cleanupError}",
+                Modifier.testTag("plugin-session-end"), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    if (extensions.activeSession?.clientWorkspace != null && extensions.activeRuntime != null) {
+        PluginNativeResourcePublisher(extensions)
+    }
+    extensions.activeRuntime?.let { active ->
+        Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
+            Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
+        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED ||
+            active.info.sessionEnd != com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE ||
+            active.info.sessionError != 0 || active.info.cleanupError != 0) {
+            Text("Runtime 结果：${active.info.error} · Session ${active.info.sessionEnd}/${active.info.sessionError} · 清理 ${active.info.cleanupError}",
+                Modifier.testTag("plugin-runtime-result"), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error)
+        }
+        PluginResourcesPanel(extensions.receivedResources)
+        if (active.command == "ai codex") PluginCodexPanel(extensions)
+        if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
+        extensions.table?.let { PluginTableContent(it) }
+        extensions.diff?.let { PluginDiffContent(it) }
+        extensions.task?.let { PluginTaskContent(it) }
+        extensions.registeredViews?.let { PluginViewsContent(it) }
+        if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
+                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
+                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
+            TextButton(onClick = extensions::stopRuntime, enabled = !extensions.launchBusy) { Text("停止插件") }
+        } else {
+            TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件资源") }
+        }
+    }
+    if (extensions.activeRuntime == null && (extensions.activeSession?.info?.phase ==
+            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED || extensions.activeSession?.info?.phase ==
+            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED)) {
+        TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件 Session") }
+    }
+    if (extensions.activeRuntime == null && extensions.activeSession?.info?.phase ==
+        com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ACTIVE) {
+        TextButton(onClick = extensions::stopSession, enabled = !extensions.launchBusy) { Text("停止插件 Session") }
+    }
+
 }

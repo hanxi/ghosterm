@@ -401,7 +401,7 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_openRoute(JNIEnv *e,
     if ((*e)->ExceptionCheck(e)) {
         goto done;
     }
-    bootstrap = extension_text(e, command, 1024);
+    bootstrap = extension_text(e, command, 32768);
     if (!bootstrap) {
         goto done;
     }

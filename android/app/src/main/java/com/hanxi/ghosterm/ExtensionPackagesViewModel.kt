@@ -23,7 +23,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Per-AppModel review state. Trust is deliberately process-local in this slice. */
-class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(application) {
+class ExtensionPackagesViewModel internal constructor(application: Application,
+    internal val controller: ExtensionController?) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, createController(application))
     private val codexExecutorMethods = listOf("codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read")
     private val codexHostMethods = listOf("codex.event")
     private val pendingExtensionRPCHandles = mutableSetOf<Long>()
@@ -54,7 +56,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val executorAttachment: ExtensionRelayBootstrap.Attachment? = null,
     )
 
-    internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
+    companion object {
+        private fun createController(application: Application): ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
         runCatching {
             ExtensionController(
                 ExtensionController.HostProfile(
@@ -63,6 +66,16 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 application.applicationContext)
         }.getOrNull()
     } else null
+
+    }
+
+    internal val connectionGroups = androidx.compose.runtime.mutableStateListOf<ExtensionConnectionModel>()
+    internal var groupLaunchBusy by mutableStateOf(false)
+        private set
+    internal val pendingGroup = androidx.compose.runtime.mutableStateListOf<ExtensionGroupInvocation>()
+    internal var selectedGroupInstance: ExtensionPackagesViewModel? by mutableStateOf(null)
+        private set
+    internal fun selectGroupInstance(instance: ExtensionPackagesViewModel?) { selectedGroupInstance = instance }
 
     val runtimeAvailable get() = controller != null
     var busy by mutableStateOf(false)
@@ -121,6 +134,56 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
         clientWorkspace: ExtensionController.ClientWorkspace? = null) {
         val owner = controller ?: return
+        val prepared = try { prepareLaunch(entry, command, request, clientWorkspace) }
+        catch (failure: IllegalArgumentException) { error = failure.message; return }
+        val selectedCommand = prepared.command; val launchRequest = prepared.request
+        if (launchBusy) return
+        if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
+        if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
+        try { ExtensionRelayBootstrap.build(launchRequest) }
+        catch (failure: IllegalArgumentException) { error = failure.message; return }
+        launchBusy = true; error = null
+        viewModelScope.launch {
+            try {
+                val exact = owner.resolve(selectedCommand.path, entry.review.id, entry.review.digest)
+                check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == selectedCommand) {
+                    "命令声明已变化，请重新核对插件来源"
+                }
+                val decoded = owner.decodeClientArguments(entry.review.id, entry.review.digest,
+                    selectedCommand.path, launchRequest.arguments)
+                val id = sessions.connectExtensionRoute(target, launchRequest) { ready ->
+                    try {
+                        check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
+                        adoptReadyInstance(owner, prepared, decoded, target.alias, ExtensionRelayBootstrap.build(launchRequest))
+                        true
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
+                        launchBusy = false
+                        false
+                    }
+                }
+                if (id == null) {
+                    launchBusy = false
+                    error = "无法开始插件 SSH 连接；请确认没有其它连接正在进行"
+                } else {
+                    while (sessions.connecting?.id == id) delay(25)
+                    if (activeSession == null) launchBusy = false
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                error = "插件参数校验或启动失败：${failure.message ?: failure.javaClass.simpleName}"
+                launchBusy = false
+            }
+        }
+    }
+
+    internal data class PreparedLaunch(val entry: Entry, val command: ExtensionController.Command,
+        val request: ExtensionRelayBootstrap.Request, val clientWorkspace: ExtensionController.ClientWorkspace?)
+    internal fun prepareLaunch(entry: Entry, command: ExtensionController.Command, request: ExtensionRelayBootstrap.Request,
+        clientWorkspace: ExtensionController.ClientWorkspace?): PreparedLaunch {
         val selectedCommand = command.copy(views = command.views.toList())
         val registeredContribution = "ui.views" in entry.review.requiredCapabilities
         val tableContribution = "table" in selectedCommand.views
@@ -133,7 +196,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             (registeredContribution && !tableContribution && !diffContribution && !taskContribution) ||
             request.clientCapabilities.distinct().size != request.clientCapabilities.size ||
             request.clientCapabilities.any { when (it) { "ui.table" -> !tableContribution; "ui.diff" -> !diffContribution; "ui.task" -> !taskContribution; "ui.views" -> !registeredContribution; else -> true } }) {
-            error = "只能启动已批准的准确命令与已声明的 Client 服务"; return
+            throw IllegalArgumentException("只能启动已批准的准确命令与已声明的 Client 服务")
         }
         val baseRequest = if (selectedCommand.path == "ai codex") request.copy(
             methods = (request.methods + codexExecutorMethods).distinct(),
@@ -157,97 +220,117 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             processPrograms = configuredRequest.processPrograms.map { it.copy(prefixArguments = it.prefixArguments.toList()) },
             processEnvironmentNames = configuredRequest.processEnvironmentNames.toList(),
             clientCapabilities = configuredRequest.clientCapabilities.toList())
-        if (launchBusy) return
-        if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
-        if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
         if (entry.decision != "已批准（本进程）" || entry.review.digest != launchRequest.clientDigest ||
             entry.review.commands.none { it.path == selectedCommand.path }) {
-            error = "只能启动本进程已批准摘要中的命令"; return
+            throw IllegalArgumentException("只能启动本进程已批准摘要中的命令")
         }
         if ((launchRequest.methods.isNotEmpty() || launchRequest.hostMethods.isNotEmpty()) &&
             "session.rpc" !in entry.review.requiredCapabilities) {
-            error = "此 Client 包未声明 session.rpc，不能协商 RPC 方法"; return
+            throw IllegalArgumentException("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
         }
         if (selectedCommand.path == "ai codex" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "codex" })) {
-            error = "ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射"; return
+            throw IllegalArgumentException("ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射")
         }
         if (selectedCommand.path == "ai claude" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "claude-node" })) {
-            error = "ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射"; return
+            throw IllegalArgumentException("ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射")
         }
-        if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
         if (selectedCommand.path in listOf("ai codex", "ai claude") && launchRequest.attachment != null && !launchRequest.attachment.remoteProcesses) {
-            error = "此命令需要明确允许沿用前台实例已有的远端业务进程范围"; return
+            throw IllegalArgumentException("此命令需要明确允许沿用前台实例已有的远端业务进程范围")
         }
+        clientWorkspace?.validate(entry.review.requiredCapabilities)
+        if (launchRequest.attachment != null) ExtensionRelayBootstrap.build(launchRequest)
+        return PreparedLaunch(entry.copy(review = entry.review.copy(requiredCapabilities = entry.review.requiredCapabilities.toList(),
+            commands = entry.review.commands.map { it.copy(views = it.views.toList()) })), selectedCommand, launchRequest, clientWorkspace)
+    }
+
+    private suspend fun adoptReadyInstance(owner: ExtensionController, prepared: PreparedLaunch, decoded: String?,
+        peerIdentity: String, remoteCommand: String) {
+        val entry = prepared.entry; val selectedCommand = prepared.command
+        val launchRequest = prepared.request; val clientWorkspace = prepared.clientWorkspace
+        val extraCapabilities = buildList {
+            if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null || launchRequest.attachment?.scopedFiles == true) &&
+                "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
+            if (launchRequest.processPrograms.isNotEmpty() || launchRequest.attachment?.remoteProcesses == true) {
+                add("process.spawn")
+                add("process.pipes")
+            }
+        }
+        val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
+            launchRequest.executorDigest, "0.1.0", peerIdentity,
+            (launchRequest.methods.map { it to ExtensionSession.Role.EXECUTOR } +
+                launchRequest.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
+                ExtensionSession.Method(method, "session.rpc", receiver,
+                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
+            }, additionalRequiredCapabilities = extraCapabilities)
+        sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
+        claudeRPC?.invalidate(); claudeRPC = null
+        claudeConversation?.invalidate(); claudeConversation = null
+        table?.invalidate(); table = null
+        diff?.invalidate(); diff = null
+        registeredViews?.invalidate(); task?.invalidate(); task = null; registeredViews = null
+        codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
+        activeSession = ActiveSession(entry.review.id, entry.review.digest, selectedCommand,
+            launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
+            launchRequest.executorDigest, peerIdentity, remoteCommand,
+            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace, launchRequest.attachment)
+        launchBusy = false
+        handshakeJob?.cancel()
+        handshakeJob = viewModelScope.launch { advanceToConsent(owner) }
+    }
+
+    internal suspend fun startMultiplexInstance(prepared: PreparedLaunch, peerIdentity: String, remoteCommand: String) {
+        val owner = checkNotNull(controller)
+        check(activeSession == null && activeRuntime == null)
+        val exact = owner.resolve(prepared.command.path, prepared.entry.review.id, prepared.entry.review.digest)
+        check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == prepared.command) { "命令声明已变化，请重新核对来源" }
+        val decoded = owner.decodeClientArguments(prepared.entry.review.id, prepared.entry.review.digest, prepared.command.path, prepared.request.arguments)
+        adoptReadyInstance(owner, prepared, decoded, peerIdentity, remoteCommand)
+    }
+
+    internal suspend fun closeInstance() {
+        handshakeJob?.cancel(); handshakeJob?.join(); handshakeJob = null
+        sessionGeneration = Any(); invalidateExtensionCalls()
+        controller?.close()
+        activeRuntime = null; activeSession = null; receivedResources = emptyList()
+        claudeConversation = null; table = null; diff = null; task = null; registeredViews = null
+        launchBusy = false
+    }
+
+    internal fun enqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
+        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String) {
         try {
-            clientWorkspace?.validate(entry.review.requiredCapabilities)
-            ExtensionRelayBootstrap.build(launchRequest)
-        }
-        catch (failure: IllegalArgumentException) { error = failure.message ?: "插件启动参数无效"; return }
-        launchBusy = true; error = null
+            check(pendingGroup.size < 8) { "连接组最多八项" }
+            val prepared = prepareLaunch(entry, command, request, clientWorkspace)
+            check(prepared.request.attachment == null) { "已有前台附着不能加入固定启动组" }
+            val candidate = ExtensionGroupInvocation(alias, prepared, temporaryDirectory)
+            val group = pendingGroup.toList() + candidate
+            require(group.all { it.alias == alias }) { "同一连接组必须选择同一目标" }
+            ExtensionRelayBootstrap.buildMultiplex("1".repeat(32), group.mapIndexed { index, item ->
+                ExtensionController.MultiplexScope(item.id.toString().replace("-", ""), (index + 1).toULong())
+            }, group.map { it.launch.request }, temporaryDirectory)
+            require(group.all { it.temporaryDirectory == temporaryDirectory }) { "同一连接组必须使用相同临时目录" }
+            pendingGroup.add(candidate)
+        } catch (failure: Exception) { error = failure.message ?: "连接组配置无效" }
+    }
+
+    internal fun launchGroup(target: PreparedSSH, sessions: SessionsViewModel) {
+        val snapshot = pendingGroup.toList()
+        if (groupLaunchBusy || snapshot.isEmpty() || sessions.connecting != null || connectionGroups.any { it.busy }) return
+        val owner = controller ?: return
+        if (connectionGroups.count { !it.closed } >= 16) { error = "插件连接数量已达上限"; return }
+        groupLaunchBusy = true
         viewModelScope.launch {
             try {
-                val exact = owner.resolve(selectedCommand.path, entry.review.id, entry.review.digest)
-                check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == selectedCommand) {
-                    "命令声明已变化，请重新核对插件来源"
-                }
-                val decoded = owner.decodeClientArguments(entry.review.id, entry.review.digest,
-                    selectedCommand.path, launchRequest.arguments)
-                val id = sessions.connectExtensionRoute(target, launchRequest) { ready ->
-                    try {
-                        check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
-                        val extraCapabilities = buildList {
-                            if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null || launchRequest.attachment?.scopedFiles == true) &&
-                                "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
-                            if (launchRequest.processPrograms.isNotEmpty() || launchRequest.attachment?.remoteProcesses == true) {
-                                add("process.spawn")
-                                add("process.pipes")
-                            }
-                        }
-                        val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
-                            launchRequest.executorDigest, "0.1.0", target.alias,
-                            (launchRequest.methods.map { it to ExtensionSession.Role.EXECUTOR } +
-                                launchRequest.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
-                                ExtensionSession.Method(method, "session.rpc", receiver,
-                                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
-                            }, additionalRequiredCapabilities = extraCapabilities)
-                        sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
-                        claudeRPC?.invalidate(); claudeRPC = null
-                        claudeConversation?.invalidate(); claudeConversation = null
-                        table?.invalidate(); table = null
-                        diff?.invalidate(); diff = null
-                        registeredViews?.invalidate(); task?.invalidate(); task = null; registeredViews = null
-                        codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
-                        activeSession = ActiveSession(entry.review.id, entry.review.digest, selectedCommand,
-                            launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
-                            launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
-                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace, launchRequest.attachment)
-                        launchBusy = false
-                        handshakeJob?.cancel()
-                        handshakeJob = viewModelScope.launch { advanceToConsent(owner) }
-                        true
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Throwable) {
-                        error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
-                        launchBusy = false
-                        false
-                    }
-                }
-                if (id == null) {
-                    launchBusy = false
-                    error = "无法开始插件 SSH 连接；请确认没有其它连接正在进行"
-                } else {
-                    while (sessions.connecting?.id == id) delay(25)
-                    if (activeSession == null) launchBusy = false
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Throwable) {
-                error = "插件参数校验或启动失败：${failure.message ?: failure.javaClass.simpleName}"
-                launchBusy = false
-            }
+                val group = ExtensionConnectionModel(getApplication(), owner.makeInvocationController(), viewModelScope)
+                connectionGroups.add(group)
+                group.start(snapshot, target, sessions)
+                if (group.instances.isNotEmpty() && !group.closed) pendingGroup.removeAll(snapshot.toSet())
+                if (selectedGroupInstance == null) selectedGroupInstance = group.instances.firstOrNull()?.model
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { error = "连接组启动失败：${failure.message}" }
+            finally { groupLaunchBusy = false }
         }
     }
 
@@ -847,6 +930,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     }
 
     override fun onCleared() {
+        connectionGroups.forEach { it.dispose() }
         sessionGeneration = Any(); invalidateExtensionCalls()
         super.onCleared()
     }

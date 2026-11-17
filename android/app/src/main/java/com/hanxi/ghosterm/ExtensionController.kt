@@ -15,6 +15,7 @@ import android.database.Cursor
 import com.hanxi.ghosterm.bridge.ExtensionPackage
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
+import com.hanxi.ghosterm.bridge.ExtensionMultiplexer
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.ExtensionFileSource
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
@@ -40,8 +41,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** App-side Client package owner. Native package and registry calls stay on one
  * non-UI worker. Reviewing never grants source trust or activates JavaScript. */
-class ExtensionController(profile: HostProfile, context: Context,
-    private val versionDirectory: File = File(context.applicationContext.filesDir, "plugin-releases")) {
+class ExtensionController private constructor(private val shared: Shared, private val ownsLibrary: Boolean,
+    private val parent: ExtensionController? = null) {
+    constructor(profile: HostProfile, context: Context,
+        versionDirectory: File = File(context.applicationContext.filesDir, "plugin-releases")) : this(Shared(profile, context, versionDirectory), true)
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(
@@ -143,10 +146,52 @@ class ExtensionController(profile: HostProfile, context: Context,
     }
     private data class CheckedVersion(val packageBytes: ExtensionPackage, val value: SignedArchiveReview, val payload: PluginReleaseCatalog.Identity)
 
-    private val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
-    private val dispatcher: CoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
-    private val appContext = context.applicationContext
-    private val releaseProfile = profile.copy(protocols = profile.protocols.toList(), runtimes = profile.runtimes.toList(), capabilities = profile.capabilities.toList())
+    private class Shared(profile: HostProfile, context: Context, val versionDirectory: File) {
+        val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
+        val handler = Handler(thread.looper)
+        val dispatcher: CoroutineDispatcher = handler.asCoroutineDispatcher("ghosterm-extension-controller")
+        val appContext = context.applicationContext
+        val releaseProfile = profile.copy(protocols = profile.protocols.toList(), runtimes = profile.runtimes.toList(), capabilities = profile.capabilities.toList())
+        val closing = AtomicBoolean(false)
+        val controllers = linkedSetOf<ExtensionController>()
+        val hostJSON = releaseProfile.json()
+        val hostCapabilities = releaseProfile.capabilities
+        val records = linkedMapOf<Key, Record>()
+        val managedIDs = mutableSetOf<String>()
+        val registeredDigests = mutableMapOf<String, String>()
+        var policyRequest: String? = null
+        var pendingPolicyReview: PluginPolicyReview? = null
+        var pendingVersion: PendingVersion? = null
+        var pendingRemoval: Pair<String, PluginReleaseRemoval>? = null
+        var registry: ExtensionRegistry? = null
+    }
+    private val thread get() = shared.thread
+    private val dispatcher get() = shared.dispatcher
+    private val appContext get() = shared.appContext
+    private val releaseProfile get() = shared.releaseProfile
+    private val versionDirectory get() = shared.versionDirectory
+    private val hostJSON get() = shared.hostJSON
+    private val hostCapabilities get() = shared.hostCapabilities
+    private val records get() = shared.records
+    private val managedIDs get() = shared.managedIDs
+    private val registeredDigests get() = shared.registeredDigests
+    private var policyRequest: String?
+        get() = shared.policyRequest
+        set(value) { shared.policyRequest = value }
+    private var pendingPolicyReview: PluginPolicyReview?
+        get() = shared.pendingPolicyReview
+        set(value) { shared.pendingPolicyReview = value }
+    private var pendingVersion: PendingVersion?
+        get() = shared.pendingVersion
+        set(value) { shared.pendingVersion = value }
+    private var pendingRemoval: Pair<String, PluginReleaseRemoval>?
+        get() = shared.pendingRemoval
+        set(value) { shared.pendingRemoval = value }
+    private var registry: ExtensionRegistry?
+        get() = shared.registry
+        set(value) { shared.registry = value }
+
+    init { shared.controllers.add(this) }
     /** An independent worker keeps archive IO away from an active Client pump. */
     internal fun newReleaseInspector(): ExtensionController {
         check(!closed.get()) { "插件控制器已关闭" }
@@ -160,19 +205,13 @@ class ExtensionController(profile: HostProfile, context: Context,
     }
     private val resolver: ContentResolver = appContext.contentResolver
     private val resourceDirectory = File(appContext.cacheDir, "plugin-resources-${UUID.randomUUID()}")
-    private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
-    private val hostJSON = profile.json()
-    private val hostCapabilities = profile.capabilities.toList()
+    private val stagingRoot = File(appContext.cacheDir, "extension-package-review")
     private val closed = AtomicBoolean(false)
     private val cleanupComplete = AtomicBoolean(false)
-    private val records = linkedMapOf<Key, Record>() // worker-confined
-    private val managedIDs = mutableSetOf<String>()
-    private val registeredDigests = mutableMapOf<String, String>()
-    private var policyRequest: String? = null
-    private var pendingPolicyReview: PluginPolicyReview? = null
-    private var pendingVersion: PendingVersion? = null
-    private var pendingRemoval: Pair<String, PluginReleaseRemoval>? = null
-    private var registry: ExtensionRegistry? = null // worker-confined
+    private var multiplexer: ExtensionMultiplexer? = null
+    private var muxPump: Runnable? = null
+    private var muxDrainDeadline = 0L
+    private var finalMultiplexState: MultiplexState? = null
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
     private var foregroundInspectionReader: Any? = null
     @Volatile private var session: ExtensionSession? = null
@@ -192,11 +231,44 @@ class ExtensionController(profile: HostProfile, context: Context,
     private var clientPublicationDeadline = 0L
     private var resourceStore: ExtensionResourceStore? = null
 
+    data class MultiplexScope(val instance: String, val epoch: ULong)
+    data class MultiplexState(val info: ExtensionMultiplexer.Info, val transport: ExtensionChannel.Info)
+
+    suspend fun makeInvocationController(): ExtensionController = onWorker {
+        check(shared.controllers.size < 145) { "插件运行 owner 数量已达上限" }
+        ExtensionController(shared, false)
+    }
+    suspend fun adoptMultiplexConnection(connection: String, scopes: List<MultiplexScope>): List<ExtensionController> = onWorker {
+        require(scopes.size in 1..8 && scopes.map { it.instance }.distinct().size == scopes.size && scopes.map { it.epoch }.distinct().size == scopes.size)
+        check(parent == null && multiplexer == null && session == null && runtime == null && shared.controllers.size + scopes.size <= 145)
+        val mux = ExtensionMultiplexer.adopt(checkNotNull(channel), connection)
+        channel = null; multiplexer = mux
+        val children = scopes.map { scope ->
+            ExtensionController(shared, false, this).also { it.channel = mux.openChannel(scope.instance, scope.epoch) }
+        }
+        val pump = object : Runnable {
+            override fun run() {
+                if (multiplexer !== mux) return
+                try { if (mux.step() != 0) mux.stop() } catch (_: Exception) { mux.stop() }
+                shared.handler.postDelayed(this, 2)
+            }
+        }
+        muxPump = pump; shared.handler.post(pump)
+        children
+    }
+    private fun multiplexState(mux: ExtensionMultiplexer) = MultiplexState(mux.info(), mux.transportInfo())
+    suspend fun stepMultiplexConnection(): MultiplexState = onWorker {
+        val mux = checkNotNull(multiplexer); mux.step(); multiplexState(mux)
+    }
+    suspend fun multiplexObservation(): MultiplexState? = withContext(dispatcher) {
+        checkWorker(); multiplexer?.let { multiplexState(it) } ?: finalMultiplexState
+    }
+
     /** Create an explicitly requested gterm relay route. This does not install,
      * discover, or start a remote Executor; the caller supplies its exact command. */
     suspend fun openSSHChannel(hops: List<ExtensionChannel.Hop>, family: Int, address: ByteArray,
         scope: Int = 0, bootstrap: String): ChannelState = onWorker {
-        check(channel == null) { "已有插件通道占用此控制器" }
+        check(parent == null && multiplexer == null && channel == null) { "已有插件通道占用此控制器" }
         val opened = ExtensionChannel.ssh(hops, family, address.copyOf(), scope, bootstrap)
         channel = opened
         try {
@@ -532,7 +604,7 @@ class ExtensionController(profile: HostProfile, context: Context,
             }
             if (current.closeStep()) { released = true; break }
         }
-        check(released && clientSource == null) { "运行时与发布资源仍在释放，保留 owner" }
+        if (!released || clientSource != null) throw CleanupPending("运行时与发布资源仍在释放，保留 owner")
         runtimeVersionLease?.close(); runtimeVersionLease = null
         clientPublication = null
         runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null
@@ -824,19 +896,21 @@ class ExtensionController(profile: HostProfile, context: Context,
                     if (owner.selection().revision != pending.value.revision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
                     owner.openVersion(pending.value.releaseID).use { named -> check(named.identity == pending.version.identity) { "候选版本已被替换" } }
                     val fresh = checkedVersion(owner, pending.version, pending.policy)
-                    var sessionReference: ParcelFileDescriptor? = null
-                    var runtimeReference: ParcelFileDescriptor? = null
+                    val sessionReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
+                    val runtimeReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
                     try {
                         check(fresh.value == pending.value.candidate && fresh.payload == pending.payload) { "候选包或完整声明已变化" }
                         val key = Key(fresh.value.review.id, fresh.value.review.digest)
-                        if (sessionPackageKey == key && sessionVersionLease == null) sessionReference = pending.version.borrow()
-                        if (runtimePackageKey == key && runtimeVersionLease == null) runtimeReference = pending.version.borrow()
+                        shared.controllers.forEach { run ->
+                            if (run.sessionPackageKey == key && run.sessionVersionLease == null) sessionReferences[run] = pending.version.borrow()
+                            if (run.runtimePackageKey == key && run.runtimeVersionLease == null) runtimeReferences[run] = pending.version.borrow()
+                        }
                         val before = owner.observe()
                         val result = owner.change(fresh.value.review.id, pending.value.releaseID, true, pending.value.revision,
                             checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync = parentSync)
                         invalidateVersionSources(fresh.value.review.id)
-                        sessionReference?.let { sessionVersionLease = it; sessionReference = null }
-                        runtimeReference?.let { runtimeVersionLease = it; runtimeReference = null }
+                        sessionReferences.forEach { (run, reference) -> run.sessionVersionLease = reference }; sessionReferences.clear()
+                        runtimeReferences.forEach { (run, reference) -> run.runtimeVersionLease = reference }; runtimeReferences.clear()
                         val record = records[key] ?: Record(fresh.packageBytes, fresh.value.review, Source.UNKNOWN).also { records[key] = it }
                         record.managedReleaseID = pending.value.releaseID
                         record.selectionGeneration = result.selection.choices.getValue(fresh.value.review.id).generation
@@ -844,7 +918,7 @@ class ExtensionController(profile: HostProfile, context: Context,
                         VersionSelectionResult(fresh.value.review.id, fresh.value.review,
                             before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
                     } finally {
-                        sessionReference?.close(); runtimeReference?.close()
+                        sessionReferences.values.forEach { it.close() }; runtimeReferences.values.forEach { it.close() }
                         if (records[Key(fresh.value.review.id, fresh.value.review.digest)]?.packageBytes !== fresh.packageBytes) fresh.packageBytes.close()
                     }
                 }
@@ -1174,68 +1248,87 @@ class ExtensionController(profile: HostProfile, context: Context,
         record.packageBytes.decodeCommandArguments(command, arguments)
     }
 
-    suspend fun close() {
+    private class CleanupPending(message: String) : IllegalStateException(message)
+    suspend fun close() = withContext(NonCancellable) {
+        val deadline = SystemClock.elapsedRealtime() + 3000
+        while (true) {
+            try { closeAttempt(); return@withContext }
+            catch (failure: Exception) {
+                val draining = failure is CleanupPending || (failure is com.hanxi.ghosterm.bridge.ExtensionChannelException && failure.status == 3)
+                if (!draining || SystemClock.elapsedRealtime() >= deadline) throw failure
+                delay(10)
+            }
+        }
+    }
+    private suspend fun closeAttempt() {
         closed.set(true)
+        if (ownsLibrary) shared.closing.set(true)
         if (cleanupComplete.get()) return
         try {
             withContext(NonCancellable + dispatcher) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
-                policyRequest = null; pendingPolicyReview = null
-                pendingVersion?.close(); pendingVersion = null
-                pendingRemoval?.second?.close(); pendingRemoval = null
-                // Close consumers before the transport/package owners they borrow.
-                runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null }
-                session?.let { current ->
-                    current.close(); session = null; sessionPackageKey = null
-                    sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
+                val dependents = shared.controllers.filter { it !== this@ExtensionController && (ownsLibrary || it.parent === this@ExtensionController) }
+                // Logical owners must release before their physical connection.
+                dependents.sortedBy { if (it.parent != null) 0 else 1 }.forEach { it.closeOnWorker() }
+                closeOnWorker()
+                if (ownsLibrary) {
+                    policyRequest = null; pendingPolicyReview = null
+                    pendingVersion?.close(); pendingVersion = null
+                    pendingRemoval?.second?.close(); pendingRemoval = null
+                    var failure: Throwable? = null
+                    fun recordFailure(next: Throwable) {
+                        val previous = failure
+                        if (previous == null) failure = next else previous.addSuppressed(next)
+                    }
+                    registry?.let { current ->
+                        val status = current.closeStatus(); registry = null
+                        if (status != ExtensionRegistry.Status.OK) recordFailure(IllegalStateException("插件注册表关闭失败：$status"))
+                    }
+                    val iterator = records.iterator()
+                    while (iterator.hasNext()) {
+                        val record = iterator.next().value
+                        try { record.packageBytes.close(); iterator.remove() }
+                        catch (error: Throwable) { recordFailure(error); if (!record.packageBytes.hasOwner) iterator.remove() }
+                    }
+                    if (records.isNotEmpty()) {
+                        val error = IllegalStateException("仍有插件包 owner 未释放；保留 controller worker 供重试")
+                        failure?.let(error::addSuppressed); throw error
+                    }
+                    cleanupComplete.set(true)
+                    failure?.let { throw it }
                 }
-                // Channel close can retain its native owner while it drains.
-                // Do not release packages or stop this worker until a retry
-                // actually reports that the channel owner is gone.
-                channel?.let { current -> current.close(); channel = null }
+            }
+        } finally { if (ownsLibrary && cleanupComplete.get()) thread.quitSafely() }
+    }
 
-                var failure: Throwable? = null
-                fun recordFailure(next: Throwable) {
-                    val previous = failure
-                    if (previous == null) failure = next else previous.addSuppressed(next)
-                }
-                resourceStore?.let { current -> current.close(); resourceStore = null }
-                if (resourceDirectory.exists() && !resourceDirectory.deleteRecursively()) {
-                    throw IllegalStateException("插件资源私有目录清理失败")
-                }
-                // Registry owns references to approved packages; release it first.
-                registry?.let { current ->
-                    val status = current.closeStatus()
-                    registry = null
-                    if (status != ExtensionRegistry.Status.OK) {
-                        recordFailure(IllegalStateException("插件注册表关闭失败：$status"))
-                    }
-                }
-                val iterator = records.iterator()
-                while (iterator.hasNext()) {
-                    val record = iterator.next().value
-                    try {
-                        record.packageBytes.close()
-                        iterator.remove()
-                    } catch (error: Throwable) {
-                        recordFailure(error)
-                        if (!record.packageBytes.hasOwner) iterator.remove()
-                    }
-                }
-                if (records.isNotEmpty()) {
-                    val error = IllegalStateException("仍有插件包 owner 未释放；保留 controller worker 供重试")
-                    failure?.let(error::addSuppressed)
-                    throw error
-                }
-                cleanupComplete.set(true)
-                failure?.let { throw it }
-            }
-        } finally {
-            if (cleanupComplete.get()) {
-                thread.quitSafely()
-            }
+    private fun closeOnWorker() {
+        checkWorker(); closed.set(true)
+        if (cleanupComplete.get()) return
+        runtime?.let { current -> closeClientRuntime(current) }
+        session?.let { current ->
+            current.close(); session = null; sessionPackageKey = null
+            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
         }
+        channel?.let { current -> current.close(); channel = null }
+        multiplexer?.let { mux ->
+            mux.step()
+            val observation = multiplexState(mux)
+            if (muxDrainDeadline == 0L) muxDrainDeadline = SystemClock.elapsedRealtime() + 1000
+            if (!observation.transport.remoteEof && observation.info.error == 0 && SystemClock.elapsedRealtime() < muxDrainDeadline) {
+                throw CleanupPending("等待共享执行端清理完成；请重试关闭")
+            }
+            finalMultiplexState = observation
+            if (!mux.closeStep()) throw CleanupPending("共享连接仍在释放，保留 owner")
+            finalMultiplexState = observation.copy(info = observation.info.copy(released = true))
+            multiplexer = null
+            muxPump?.let(shared.handler::removeCallbacks); muxPump = null
+        }
+        if (parent == null) {
+            resourceStore?.let { current -> current.close(); resourceStore = null }
+            if (resourceDirectory.exists() && !resourceDirectory.deleteRecursively()) throw IllegalStateException("插件资源私有目录清理失败")
+        }
+        if (!ownsLibrary) { cleanupComplete.set(true); shared.controllers.remove(this) }
     }
 
     private suspend fun setSource(id: String, digest: String, source: Source): ExtensionRegistry.Status = onWorker {
@@ -1265,6 +1358,7 @@ class ExtensionController(profile: HostProfile, context: Context,
 
     private fun resourceStoreOnWorker(): ExtensionResourceStore {
         checkWorker()
+        parent?.let { return it.resourceStoreOnWorker() }
         resourceStore?.let { return it }
         check(resourceDirectory.exists() || resourceDirectory.mkdirs()) { "无法创建插件资源私有目录" }
         Os.chmod(resourceDirectory.path, 448)
@@ -1275,7 +1369,7 @@ class ExtensionController(profile: HostProfile, context: Context,
                 "插件资源私有路径不是目录"
             }
             ParcelFileDescriptor.dup(fd).use { descriptor ->
-                ExtensionResourceStore(descriptor.fd, totalBytes = RESOURCE_SESSION_BYTES,
+                ExtensionResourceStore(descriptor.fd, totalBytes = RESOURCE_SESSION_BYTES * (if (multiplexer != null) 8 else 1),
                     resourceBytes = RESOURCE_BYTES, slots = 64).also { resourceStore = it }
             }
         } finally { Os.close(fd) }
@@ -1286,9 +1380,12 @@ class ExtensionController(profile: HostProfile, context: Context,
         return registry ?: ExtensionRegistry().also { registry = it }
     }
 
-    private fun checkOpen() { check(!closed.get()) { "插件控制器已关闭" }; checkWorker() }
+    private fun checkOpen() { check(!closed.get() && !shared.closing.get()) { "插件控制器已关闭" }; checkWorker() }
     private fun checkWorker() { check(Thread.currentThread() === thread && Looper.myLooper() != Looper.getMainLooper()) }
-    private suspend fun <T> onWorker(block: () -> T): T = withContext(dispatcher) { checkOpen(); block() }
+    private suspend fun <T> onWorker(block: () -> T): T = withContext(dispatcher) {
+        checkOpen(); parent?.multiplexer?.step()
+        try { block() } finally { parent?.multiplexer?.step() }
+    }
 
     private fun overlaps(lhs: String, rhs: String) = lhs == rhs || lhs.startsWith("$rhs ") || rhs.startsWith("$lhs ")
 

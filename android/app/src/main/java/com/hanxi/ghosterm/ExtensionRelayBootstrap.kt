@@ -181,6 +181,49 @@ object ExtensionRelayBootstrap {
     }
 
     fun build(request: Request): String {
+        val argv = arguments(request)
+        val environment = request.execution?.let { "TMPDIR=" + quote(it.temporaryDirectory) + " " }.orEmpty()
+        return (environment + "exec " + argv.joinToString(" ", transform = ::quote)).also {
+            require(it.toByteArray().size <= 1024) { "远端启动命令超过 SSH 插件路由上限" }
+        }
+    }
+
+    fun buildMultiplex(connection: String, scopes: List<ExtensionController.MultiplexScope>, requests: List<Request>, temporaryDirectory: String): String {
+        fun identity(value: String) = value.matches(Regex("[a-f0-9]{32}")) && value.any { it != '0' }
+        require(identity(connection) && requests.size in 1..8 && scopes.size == requests.size &&
+            scopes.map { it.instance }.distinct().size == scopes.size && scopes.map { it.epoch }.distinct().size == scopes.size &&
+            scopes.all { identity(it.instance) && it.epoch != 0uL } &&
+            requests.all { it.executable == requests.first().executable && it.attachment == null } && absolutePath(temporaryDirectory) &&
+            requests.all { it.execution == null || it.execution.temporaryDirectory == temporaryDirectory }) {
+            "启动组需要同一 gterm、明确临时目录与一至八个独立实例，不能包含已有前台附着"
+        }
+        val hexDigits = "0123456789abcdef"
+        val argv = buildList {
+            addAll(listOf(requests.first().executable, "relay", "--multiplex", "--connection", connection))
+            scopes.zip(requests).forEach { (scope, request) ->
+                val profile = arguments(request).drop(3)
+                require(profile.size in 1..256)
+                val encoded = java.io.ByteArrayOutputStream()
+                fun u16(value: Int) { encoded.write(value ushr 8); encoded.write(value and 255) }
+                encoded.write(1); u16(profile.size)
+                profile.forEach { value ->
+                    val bytes = value.toByteArray(Charsets.UTF_8); require(bytes.size <= 65535)
+                    u16(bytes.size); encoded.write(bytes)
+                }
+                val hex = buildString { encoded.toByteArray().forEach { byte ->
+                    val value = byte.toInt() and 255; append(hexDigits[value ushr 4]); append(hexDigits[value and 15])
+                } }
+                require(hex.length <= 4096) { "单个实例启动配置超过 Native 参数预算" }
+                addAll(listOf("--instance", scope.instance, scope.epoch.toString(), hex))
+            }
+        }
+        require(argv.size <= 64 && argv.sumOf { it.toByteArray().size + 1 } <= 16384) { "连接启动配置超过 Native 参数预算" }
+        return ("TMPDIR=" + quote(temporaryDirectory) + " exec " + argv.joinToString(" ", transform = ::quote)).also {
+            require(it.toByteArray().size <= 32768) { "连接启动命令超过 32 KiB" }
+        }
+    }
+
+    private fun arguments(request: Request): List<String> {
         require(request.clientCapabilities.size <= 4 && request.clientCapabilities.distinct().size == request.clientCapabilities.size &&
             request.clientCapabilities.all { it in listOf("ui.table", "ui.diff", "ui.task", "ui.views") }) {
             "此 Host 仅支持显式声明的标准 Client 服务"
@@ -219,9 +262,7 @@ object ExtensionRelayBootstrap {
             }
             val argv = listOf(request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command) + request.arguments
             require(argv.all { validArgument(it, 4096) }) { "连接参数包含不支持的字符或过长" }
-            return ("exec " + argv.joinToString(" ", transform = ::quote)).also {
-                require(it.toByteArray().size <= 1024) { "远端连接命令超过 SSH 插件路由上限" }
-            }
+            return argv
         }
         val argv = buildList {
             add(request.executable)
@@ -260,10 +301,7 @@ object ExtensionRelayBootstrap {
         require(argv.all { validArgument(it, 4096) }) {
             "远端启动参数包含不支持的字符或过长"
         }
-        val environment = request.execution?.let { "TMPDIR=" + quote(it.temporaryDirectory) + " " }.orEmpty()
-        return (environment + "exec " + argv.joinToString(" ", transform = ::quote)).also {
-            require(it.toByteArray().size <= 1024) { "远端启动命令超过 SSH 插件路由上限" }
-        }
+        return argv
     }
 
     private fun absolutePath(value: String): Boolean = value.startsWith('/') && validArgument(value, 4096)

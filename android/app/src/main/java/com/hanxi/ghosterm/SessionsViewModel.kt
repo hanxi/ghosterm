@@ -298,20 +298,21 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
      * must adopt the ready channel into a Session before ownership transfers. */
     internal fun connectExtensionRoute(target: PreparedSSH, request: ExtensionRelayBootstrap.Request,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
-        return connectExtensionBootstrap(target, ExtensionRelayBootstrap.build(request), onReady)
+        return connectExtensionBootstrap(target, ExtensionRelayBootstrap.build(request), onReady = onReady)
     }
 
     /** The ready callback must finish inspection and close its channel before
      * returning true. It does not create or authorize a plugin Session. */
     internal fun inspectExtensionRoute(target: PreparedSSH, executable: String, directory: String, instance: String,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
-        return connectExtensionBootstrap(target, PluginForegroundDeclaration.bootstrap(executable, directory, instance), onReady)
+        return connectExtensionBootstrap(target, PluginForegroundDeclaration.bootstrap(executable, directory, instance), onReady = onReady)
     }
 
-    private fun connectExtensionBootstrap(target: PreparedSSH, bootstrap: String,
+    internal fun connectExtensionBootstrap(target: PreparedSSH, bootstrap: String,
+        controller: ExtensionController? = extensionController,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
         if (connecting != null) return null
-        val owner = extensionController ?: return null
+        val owner = controller ?: return null
         if (!BuildConfig.PLUGIN_JS_ENABLED) return null
         val attempt = SSHAttempt(target).also {
             it.extensionBootstrap = bootstrap
