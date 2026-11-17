@@ -118,16 +118,8 @@ final class AboutWindowTests: XCTestCase {
                              "关于窗口画出来几乎是空白（非白像素 \(nonWhite)）")
     }
 
-    /// 关于窗口必须画得出「检查更新」那颗按钮，并且**画不出**任何「安装」类按钮。
-    ///
-    /// 前者：那一行整个没画出来就等于入口不存在——用户问「检测更新入口在哪个界面」
-    /// 时能得到的答案必须是「关于窗口里，就在版本号下面」。
-    /// 后者：dev 包 ad-hoc + 未公证，替换二进制的按钮点了也装不上，给一个点不动的
-    /// 按钮比不给更糟（AGENTS.md 铁律 #6：能力缺失要显式说，不许假装能装）。
-    ///
-    /// SwiftUI 随系统改变控件实现：同时识别原生 NSButton 和 KeyViewProxy。
-    /// 原生按钮量自身边界；自绘按钮量配套焦点圈。两档都必须恰好一个控件、
-    /// 边界在窗口内，不能靠某个系统版本的私有类名把入口缺失判成通过。
+    /// Before a check, About shows a single update action and the local receipt.
+    /// Download / restart actions appear only for an available / prepared update.
     @MainActor
     func testAboutWindowDrawsUpdateEntryAndNoInstallButton() throws {
         AboutWindow.open()
@@ -141,9 +133,9 @@ final class AboutWindowTests: XCTestCase {
         let buttons = hostedButtonFrames(in: root)
         XCTAssertEqual(buttons.count, 2,
                        "关于窗口的「更新」那行必须**恰好**一颗按钮：0 颗＝入口整个没画出来，"
-                       + "整张窗口另有一颗字体许可按钮；除此之外不允许增加「安装」。"
+                       + "整张窗口另有一颗字体许可按钮；未检查时不应增加下载或重启操作。"
                        + "（这一眼取在「未检查」状态：真查出有新版时那一行会另挂「打开下载页」"
-                       + "直链，那是允许的——不允许的是替用户动二进制。）实测 \(buttons)；视图树：\(viewTree(root))")
+                       + "直链，那是允许的——下载与重启必须由用户显式选择。）实测 \(buttons)；视图树：\(viewTree(root))")
 
         let rings = hostedFrames(containing: "_FocusRingView", in: root)
             + nativeButtonFrames(in: root)

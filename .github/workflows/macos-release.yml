@@ -70,5 +70,5 @@ jobs:
           esac
           NOTES="$(cat dist/BUILD-INFO.txt)"
           gh release create "$TAG" --draft --title "Ghosterm $TAG" --notes "$NOTES" \
-            dist/*.dmg dist/*.zip dist/SHA256SUMS \
-          || gh release upload "$TAG" --clobber dist/*.dmg dist/*.zip dist/SHA256SUMS
+            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml \
+          || gh release upload "$TAG" --clobber dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml

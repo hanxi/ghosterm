@@ -7,7 +7,8 @@ RESOURCES = ROOT / 'apple/GhostermApp/Sources/GhostermAppModel/Resources/ShellIn
 
 
 def check(bundle=None):
-    destination = bundle / 'ShellIntegration' if bundle else RESOURCES
+    resources = bundle / 'Contents/Resources' if bundle and (bundle / 'Contents/Resources').is_dir() else bundle
+    destination = resources / 'ShellIntegration' if resources else RESOURCES
     for shell in ('zsh',):
         name = 'mouse-recovery.' + shell
         if (destination / name).read_bytes() != (ROOT / 'scripts/shell-integration' / name).read_bytes():

@@ -128,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 启动行为：默认开一个本地 shell（可在设置里关掉）。
         model.startInitialSessions()
+        NativeUpdater.shared.configure()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

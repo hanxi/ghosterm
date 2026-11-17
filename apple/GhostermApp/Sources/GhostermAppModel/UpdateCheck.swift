@@ -1,20 +1,9 @@
-// UpdateCheck — dev 渠道的「有没有新版」。
-//
-// **只检测，不安装**：dev 包是 ad-hoc 签名、未公证，每轮 cdhash 都不同，替换二进制
-// 的动作必被 Gatekeeper 拦下。清单里的 `signature` / `notarized` 就是这条的机器可读
-// 声明，界面必须照着它说话（AGENTS.md 铁律 #6：能力缺失要显式说，不许假装能装）。
-//
-// 为什么以 commit 为锚、不以版本号：`CFBundleVersion` = `GITHUB_RUN_NUMBER` 是按
-// workflow 文件计数的，dev 与 release 两轨不同源单调，拿它比「谁新」会把更旧的读成
-// 更新（见 docs/how-to/dev-build.md）。commit 全局唯一，且**本机那份包里有记录**
-// ——`Contents/Resources/BUILD-INFO.txt` 的 `源码: git <短 sha>`。
-//
-// 三态不折叠：查不出来 ≠ 已是最新。本机没有 commit 记录（源码直跑）、包是 dirty 的、
-// 网络失败、清单字段不对——全都如实返回「查不出来 + 原因」，绝不返回 upToDate。
+// Channel comparison and shared update presentation. Installation is handled by Sparkle in the macOS host.
 import Foundation
 
 /// 本机这份包的安装信息（来自随包 `BUILD-INFO.txt`）。
 public struct InstalledBuild: Equatable {
+    public var channel: String?
     public var version: String?
     public var build: Int?
     /// `源码: git <短 sha>` 里那串，原样保留（CI 用 `--short=12`）。脏包带 `+dirty`。
@@ -22,7 +11,8 @@ public struct InstalledBuild: Equatable {
     /// `构建时刻: <ISO-8601 UTC>`。展示用；本机 commit 缺失时**不拿它猜**。
     public var builtAt: Date?
 
-    public init(version: String? = nil, build: Int? = nil, commit: String? = nil, builtAt: Date? = nil) {
+    public init(version: String? = nil, build: Int? = nil, commit: String? = nil, builtAt: Date? = nil, channel: String? = "dev") {
+        self.channel = channel
         self.version = version
         self.build = build
         self.commit = commit
@@ -33,7 +23,7 @@ public struct InstalledBuild: Equatable {
     public static func fromBundle(_ bundle: Bundle = .main) -> InstalledBuild {
         guard let path = bundle.path(forResource: "BUILD-INFO", ofType: "txt"),
               let text = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return InstalledBuild()
+            return InstalledBuild(channel: nil)
         }
         return parse(text)
     }
@@ -65,6 +55,7 @@ public struct InstalledBuild: Equatable {
             out.commit = source.split(separator: " ").dropFirst().first.map(String.init)
         }
         if let stamp = value("构建时刻"), let date = Self.timestamp(stamp) { out.builtAt = date }
+        out.channel = value("渠道") ?? out.version.map { $0.contains("-dev") ? "dev" : "release" }
         return out
     }
 
@@ -92,12 +83,11 @@ public struct RemoteBuild: Equatable {
     public var assetSha256: String
     public var downloadBase: String
 
-    /// 装到机器上的这份能不能被 Gatekeeper 放行：**必须 Developer ID 签名且已公证**。
-    /// `signature` 的取值见 `scripts/package-mac.sh`：`adhoc` / `dev`（免费个人账号的
-    /// Apple Development，不可公证）/ `id` / `none`。判据写成「不等于 `id` 就拦」而不是
-    /// 枚举已知不可装的档——将来新增的档位默认落在「不许自动装」那一侧（铁律 #6）。
-    /// 界面上「有新版」必须连带这句话，否则等于给了个点了装不上的按钮。
-    public var installBlocked: Bool { signature != "id" || !notarized }
+    /// Apple code signing is independent of Sparkle archive signing. An ad-hoc
+    /// package is eligible when it has an Ed25519 archive signature.
+    public var updateVersion: String?
+    public var updateSignature: String?
+    public var installBlocked: Bool { updateSignature == nil || updateVersion?.allSatisfy(\.isNumber) != true || updateVersion?.isEmpty != false }
 
     public var downloadURL: URL? { URL(string: downloadBase + "/" + assetName) }
 
@@ -115,6 +105,10 @@ public struct RemoteBuild: Equatable {
                 throw Self.missing(json)
             }
             return value
+        }
+        updateVersion = raw["update_version"] as? String
+        updateSignature = (raw["update_signature"] as? String).flatMap {
+            Data(base64Encoded: $0)?.count == 64 ? $0 : nil
         }
         channel = try text(.channel, "channel")
         version = try text(.version, "version")
@@ -135,6 +129,11 @@ public struct RemoteBuild: Equatable {
         guard let sums = raw["sha256"] as? [String: String], let sum = sums[dmg], sum.count == 64 else {
             throw Self.missing("sha256[\(dmg)]")
         }
+        guard sum.allSatisfy({ "0123456789abcdefABCDEF".contains($0) }),
+              gitCommit.count == 40, gitCommit.allSatisfy({ "0123456789abcdefABCDEF".contains($0) }),
+              let base = URL(string: downloadBase), base.scheme == "https", base.host == "github.com",
+              downloadBase.hasPrefix("https://github.com/hanxi/ghosterm/releases/download/"),
+              !dmg.contains("/"), !dmg.contains("\\") else { throw Self.missing("asset/source") }
         assetSha256 = sum
     }
 
@@ -159,6 +158,8 @@ public enum UpdateQuery: Equatable {
     case cannotTell(Reason)
 
     public enum Reason: Equatable, Error {
+        case localChannelUnknown
+        case localVersionUnknown
         case localCommitUnknown
         case localBuildDirty(commit: String)
         case channelMismatch(found: String)
@@ -174,9 +175,33 @@ public enum UpdateCheck {
     public static let manifestURL = URL(
         string: "https://github.com/hanxi/ghosterm/releases/download/dev/version.json")!
 
+    public static func manifestURL(channel: String) -> URL {
+        channel == "dev" ? manifestURL : URL(string:
+            "https://github.com/hanxi/ghosterm/releases/latest/download/version.json")!
+    }
+
+    public static func feedURL(channel: String) -> URL {
+        URL(string: channel == "dev"
+            ? "https://github.com/hanxi/ghosterm/releases/download/dev/appcast.xml"
+            : "https://github.com/hanxi/ghosterm/releases/latest/download/appcast.xml")!
+    }
+
     /// 纯判据，不碰网络也不碰 bundle：变异验证与单测都在这一层做。
     public static func compare(local: InstalledBuild, remote: RemoteBuild) -> UpdateQuery {
-        guard remote.channel == "dev" else { return .cannotTell(.channelMismatch(found: remote.channel)) }
+        guard let channel = local.channel, ["dev", "release"].contains(channel) else {
+            return .cannotTell(.localChannelUnknown)
+        }
+        guard remote.channel == channel else { return .cannotTell(.channelMismatch(found: remote.channel)) }
+        if local.commit?.hasSuffix("+dirty") == true {
+            return .cannotTell(.localBuildDirty(commit: local.commit!))
+        }
+        if channel == "release" {
+            guard let mine = local.version, stableVersion(mine), stableVersion(remote.version) else {
+                return .cannotTell(.localVersionUnknown)
+            }
+            return remote.version.compare(mine, options: .numeric) == .orderedDescending
+                ? .newer(remote) : .upToDate
+        }
         guard let raw = local.commit, raw != "unknown" else { return .cannotTell(.localCommitUnknown) }
         if raw.hasSuffix("+dirty") { return .cannotTell(.localBuildDirty(commit: raw)) }
         let mine = raw.lowercased()
@@ -188,9 +213,18 @@ public enum UpdateCheck {
         return theirs.hasPrefix(mine) ? .upToDate : .newer(remote)
     }
 
+    public static func stableVersion(_ version: String) -> Bool {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 3 && parts.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) && Int($0) != nil }
+    }
+
     /// 取清单 → 解码 → 比对。任何一步不成都返回 `.cannotTell`，不抛、不静默。
     public static func query(local: InstalledBuild, timeout: TimeInterval = 10) async -> UpdateQuery {
-        var request = URLRequest(url: manifestURL)
+        guard let channel = local.channel, ["dev", "release"].contains(channel) else {
+            return .cannotTell(.localChannelUnknown)
+        }
+        var request = URLRequest(url: manifestURL(channel: channel))
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = timeout
         let data: Data
         do {
@@ -252,12 +286,16 @@ public extension UpdateQuery {
 private extension UpdateQuery.Reason {
     var text: String {
         switch self {
+        case .localChannelUnknown:
+            return "本机渠道无记录，无法选择更新渠道"
+        case .localVersionUnknown:
+            return "正式版本号无记录或格式不受支持"
         case .localCommitUnknown:
             return "本机这份包里没有 commit 记录，无从比较"
         case .localBuildDirty(let commit):
             return "本机这份带未提交改动（\(commit)），与任何发布版都不同源"
         case .channelMismatch(let found):
-            return "清单渠道是「\(found)」，不是 dev"
+            return "清单渠道「\(found)」与本机不同"
         case .manifestUnreachable(let detail):
             return "取不到 version.json（\(detail)）"
         case .manifestInvalid(let detail):
@@ -266,30 +304,62 @@ private extension UpdateQuery.Reason {
     }
 }
 
-/// 关于窗口那个按钮背后的状态机。
-///
-/// **只在用户点「检查更新」时打网络**：没有启动时自动检查、没有后台轮询。
-/// dev 包 ad-hoc + 未公证，检测出来也装不上，静默联网换不来任何用户能用的东西。
+/// One app-wide model: closing About or a terminal window does not cancel a download.
 @MainActor
 public final class UpdateChecker: ObservableObject {
+    public static let shared = UpdateChecker()
     @Published public private(set) var isChecking = false
     @Published public private(set) var query: UpdateQuery?
-    /// 本机这份包的信息：开窗口就按 bundle 里的 `BUILD-INFO.txt` 填好，不等检查。
-    /// （检查时再快照一次，保证结论与显示同源。）
     @Published public private(set) var installed = InstalledBuild.fromBundle()
+    @Published public var noticeVisible = false
+    @Published public var phase: UpdatePhase = .idle
+    public var downloadAction: ((RemoteBuild) -> Void)?
+    public var cancelAction: (() -> Void)?
+    public var restartAction: (() -> Void)?
 
     public init() {}
 
-    /// 在途时重复点不算第二次检查（与 songloft 的 memoized Future 同口径，
-    /// 但这里只是不重发，不缓存结论——用户就是要再问一次网络）。
     public func checkNow(local: InstalledBuild = InstalledBuild.fromBundle()) {
-        guard !isChecking else { return }
+        noticeVisible = true
+        guard !isChecking, !phase.isBusy else { return }
+        if case .ready = phase { return }
         installed = local
         query = nil
+        phase = .idle
         isChecking = true
         Task { @MainActor in
             self.query = await UpdateCheck.query(local: local)
             self.isChecking = false
+        }
+    }
+
+    public func download() {
+        guard !phase.isBusy, case .newer(let remote) = query else { return }
+        noticeVisible = true
+        guard !remote.installBlocked else {
+            phase = .failed("此发布尚未提供更新签名，请从下载页手动安装。")
+            return
+        }
+        guard let downloadAction else {
+            phase = .failed("此构建未配置更新公钥，请从下载页手动安装。")
+            return
+        }
+        downloadAction(remote)
+    }
+}
+
+public enum UpdatePhase: Equatable {
+    case idle
+    case downloading(received: UInt64, total: UInt64?)
+    case extracting(Double)
+    case ready
+    case installing
+    case failed(String)
+
+    public var isBusy: Bool {
+        switch self {
+        case .downloading, .extracting, .installing: return true
+        default: return false
         }
     }
 }

@@ -71,57 +71,15 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          ls -1 *.dmg *.zip SHA256SUMS BUILD-INFO.txt > /dev/null
+          ls -1 *.dmg *.zip SHA256SUMS BUILD-INFO.txt version.json appcast.xml > /dev/null
           shasum -a 256 -c SHA256SUMS
           grep -Eq '签名: *adhoc' BUILD-INFO.txt || {
             echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
           echo "dev 产物 $(ls -1 *.dmg | tr '\n' ' ') 校验通过"
 
-      # 渠道检测用的机读清单。**为什么以 git_commit 为锚而不是 build 号**：
-      # CFBundleVersion = GITHUB_RUN_NUMBER 是按 workflow 文件计数的，dev 与 release
-      # 两轨不同源单调，拿它比「谁新」会把更旧的读成更新；commit 全局唯一，客户端
-      # 只需比对随包 BUILD-INFO 里的那条。固定 URL（releases/download/dev/version.json）
-      # 不需要 GitHub API，也就没有未认证 60 次/小时的配额问题。
-      # 口径与 songloft-player 的 dev 渠道一致：只解决「检测」，**不做自动安装**
-      # （ad-hoc 每轮 cdhash 变、未公证，替换二进制会被 Gatekeeper 拦）。
-      # 字段解析不到一律当场红——写「unknown」蒙过去等于把检测做成永远「已是最新」。
-      - name: 生成 version.json
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json,os,re,pathlib
-          info=pathlib.Path('dist/BUILD-INFO.txt').read_text(encoding='utf-8')
-          def grab(pattern,what):
-            m=re.search(pattern,info,re.M)
-            if not m: raise SystemExit(f'BUILD-INFO 里缺「{what}」：{pattern}')
-            return m.groups()
-          (version,build)=grab(r'^版本: *(\S+) \(build *([0-9]+)\)', '版本/build')
-          # 兜底锚与**装到用户机器上的那一刻**同语义：两侧都是打包时刻，都来自
-          # BUILD-INFO（`scripts/package-mac.sh` 里写的那行）。不用 github.run_started_at：
-          # 那是 workflow 排队时刻，且 CI 实测（run 40157658884）它在 step 级 env 里
-          # 展开成空串——留空等于把「拿不到 commit 时比时间」这条路悄悄拆掉。
-          (stamp,)=grab(r'^构建时刻: *(\S+)', '构建时刻')
-          if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',stamp):
-            raise SystemExit(f'构建时刻不是 ISO-8601 UTC（客户端要拿它解析）：{stamp!r}')
-          (arch,)=grab(r'^架构: *(\S+)', '架构')
-          (minos,)=grab(r'^最低系统: *(\S+)', '最低系统')
-          (sig,)=grab(r'^签名: *(\S+)', '签名')
-          (notary,)=grab(r'^公证: *(.+)$', '公证')
-          sums={}
-          for line in pathlib.Path('dist/SHA256SUMS').read_text(encoding='utf-8').splitlines():
-            if line.strip(): h,name=line.split(None,1); sums[name.strip()]=h.strip()
-          dmg=[n for n in sums if n.endswith('.dmg')]; zip_=[n for n in sums if n.endswith('.zip')]
-          if len(dmg)!=1 or len(zip_)!=1: raise SystemExit(f'SHA256SUMS 里 dmg/zip 不是一份：{sorted(sums)}')
-          out={'channel':'dev','version':version,'build':int(build),'git_commit':os.environ['GITHUB_SHA'],
-               'build_time':stamp,
-               'arch':arch,'min_macos':minos,'signature':sig,'notarized':False,'notarization_note':notary,
-               'assets':{'dmg':dmg[0],'zip':zip_[0],'checksums':'SHA256SUMS','build_info':'BUILD-INFO.txt'},
-               'sha256':{n:sums[n] for n in (dmg[0],zip_[0])},
-               'download_base':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/dev"}
-          pathlib.Path('dist/version.json').write_text(json.dumps(out,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
-          print(json.dumps(out,ensure_ascii=False))
-          PY
-
+      # dev 比随包 commit；workflow build 只用于追溯，不跨轨比大小。
+      # version.json / appcast.xml 由共用打包 job 从实际 ZIP 生成并独立签名。
+      # Apple ad-hoc 身份与 Ed25519 更新签名分开记账。
       - name: 原位更新 dev Release
         run: |
           set -euo pipefail
@@ -138,14 +96,14 @@ jobs:
           fi
 
           if [ "$EXISTS" = yes ]; then
-            gh release upload dev dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json --clobber
+            gh release upload dev dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml --clobber
             gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/dev-uploaded.json
             python3 scripts/check-dev-release-assets.py --platform macos --assets-file tmp/dev-uploaded.json --obsolete-macos > tmp/obsolete-macos.txt
             while IFS= read -r asset; do gh release delete-asset dev "$asset" --yes; done < tmp/obsolete-macos.txt
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true
             gh release edit dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md
           else
-            gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
+            gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml
           fi
 
       - name: 复验 dev Release 指向本轮

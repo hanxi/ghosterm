@@ -209,6 +209,13 @@ step "4/9 组装 .app（图标 / Info.plist / 可执行）"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$FW"
 cp "$BIN" "$MAIN_EXE"
+SPARKLE_ROOT="$ROOT/apple/GhostermApp/.build/artifacts/sparkle/Sparkle"
+SPARKLE_FRAMEWORK="$SPARKLE_ROOT/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+[ -d "$SPARKLE_FRAMEWORK" ] || fail "缺锁定的 Sparkle.framework"
+ditto "$SPARKLE_FRAMEWORK" "$FW/Sparkle.framework"
+# Preserve the upstream helper signatures for ad-hoc builds; hardened runtime
+# distributions re-sign every nested component with their own identity below.
+cp "$ROOT/apple/GhostermApp/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 # SwiftPM does not stage resource bundles into a hand-built .app automatically.
 FONT_BUNDLE_NAME="GhostermApp_GhostermAppModel.bundle"
 FONT_BUNDLE_SRC="$(dirname "$BIN")/$FONT_BUNDLE_NAME"
@@ -301,23 +308,25 @@ else
   [ "$HIGHEST" = "$MIN_OS" ] \
     || fail "--min-os ${MIN_OS} 低于依赖实际要求 ${REAL_MIN_OS}（${MIN_OS_SRC}）：拒绝谎报可运行范围"
 fi
-sed -e "s/@VERSION@/${VERSION}/" -e "s/@BUILD@/${BUILD_NUMBER}/" -e "s/@MIN_OS@/${MIN_OS}/" \
+UPDATE_VERSION="$(date -u +%s)"
+sed -e "s/@UPDATE_VERSION@/${UPDATE_VERSION}/" -e "s/@VERSION@/${VERSION}/" -e "s/@BUILD@/${BUILD_NUMBER}/" -e "s/@MIN_OS@/${MIN_OS}/" \
   "$TEMPLATE" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist 不合法"
-note "CFBundleShortVersionString=${VERSION} · CFBundleVersion=${BUILD_NUMBER} · LSMinimumSystemVersion=${MIN_OS}"
+python3 "$ROOT/scripts/configure-macos-update.py" "$APP/Contents/Info.plist" "$PACKAGE_CHANNEL"
+note "CFBundleShortVersionString=${VERSION} · CFBundleVersion=${UPDATE_VERSION} · LSMinimumSystemVersion=${MIN_OS}"
 
 # 构建信息：**必须在签名前**写进 bundle —— 签名后再加文件会破坏 sealed resource
 # （codesign 报 "a sealed resource is missing or invalid / file added"，实测被
 #  dmg 挂载复验抓到）。所以这里生成一次，bundle 内与 dist/ 用同一份内容。
 INFO="$WORK/BUILD-INFO.txt"
-# 打包时刻（UTC）：这是**本机装的这份包**唯一可用的时间锚。dev 渠道的检测在拿不到
-# commit 时要拿 `version.json` 的 build_time 和本地这一刻比大小（见
-# .github/workflows/dev-build.yml 与 docs/how-to/dev-build.md）——两侧必须是同一个
-# 语义（都是「这份包打出来的时刻」），否则兜底那条路永远在比错的东西。
+# 打包时刻用于展示与收据；dev 的来源判断仍只比较 commit。
+# Sparkle 的安装序号另以同一打包过程的 Unix 秒数写入 CFBundleVersion。
 BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 {
   echo "Ghosterm macOS 包"
   echo "版本:        ${VERSION} (build ${BUILD_NUMBER})"
+  echo "渠道:        ${PACKAGE_CHANNEL}"
+  echo "更新序号:    ${UPDATE_VERSION}"
   echo "构建时刻:    ${BUILD_STAMP}"
   echo "架构:        ${ARCH}"
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
@@ -352,7 +361,7 @@ case "$SIGN_MODE" in
     SIGN_ARGS=(-s "$SIGN_ID" --options runtime --timestamp)
     note "Apple Development 签名（免费个人账号）+ hardened runtime：${SIGN_ID}"
     note "   这一档**不能公证**：用户下载来仍会被 Gatekeeper 拦（同 ad-hoc，看取包工具贴不贴 quarantine）；"
-    note "   BUILD-INFO 与 version.json 记的是 dev，不是 id，app 侧照样不许自动安装。"
+    note "   BUILD-INFO 与 version.json 如实记 dev；应用内更新另验 Ed25519，不要求 Apple 证书。"
     ;;
   none)
     note "跳过签名（--no-sign）：产物未签名，不能分发"
@@ -364,6 +373,16 @@ if [ "$SIGN_MODE" != "none" ]; then
     [ -e "$lib" ] || continue
     codesign --force "${SIGN_ARGS[@]}" "$lib" >/dev/null 2>&1 || fail "签名失败：$lib"
   done
+  if [ "$SIGN_MODE" != "adhoc" ]; then
+    for component in \
+      "$FW/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc" \
+      "$FW/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" \
+      "$FW/Sparkle.framework/Versions/B/Autoupdate" \
+      "$FW/Sparkle.framework/Versions/B/Updater.app" \
+      "$FW/Sparkle.framework"; do
+      codesign --force "${SIGN_ARGS[@]}" "$component" || fail "Sparkle 签名失败"
+    done
+  fi
   codesign --force "${SIGN_ARGS[@]}" "$APP" >/dev/null 2>&1 || fail "签名失败：$APP"
   codesign --verify --strict --deep --verbose=2 "$APP" 2>&1 | sed 's/^/   /'
   if [ "$SIGN_MODE" = "adhoc" ]; then

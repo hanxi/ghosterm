@@ -149,54 +149,32 @@ curl -fsSL https://github.com/hanxi/ghosterm/releases/download/dev/version.json
 | `build_time` | 打包时刻，ISO-8601 UTC，取自随包 `BUILD-INFO.txt` 的 `构建时刻`——**与本机那份同一个语义**，空串或格式不对一律判红。它只做展示与对账：判据不拿时间比「谁新」（rolling 的 `dev` tag 会被重打，晚打包的可能是更旧的 commit） |
 | `version` / `build` | `0.1.0-dev` 与该 workflow 文件的运行编号，**不可跨轨比大小** |
 | `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
-| `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |
+| `signature` / `notarized` | Apple 代码签名与公证状态；与独立 Ed25519 更新签名分开判断 |
 | `assets` + `sha256` + `download_base` | 拼出 dmg/zip 直链并自行校验，不走 API 拿 `browser_download_url` |
 
-清单由 `.github/workflows/dev-build.yml` 的「生成 version.json」step 从**随包
-`BUILD-INFO.txt` 与 `SHA256SUMS`** 解析而来（不是第二份真相），解析不到任何一项
-就当场红——写 `unknown` 蒙过去等于把检测做成永远「已是最新」。同一 job 的「复验」
-step 再从固定 URL 把它取回来对答案（commit、渠道、架构、sha256 形状），取不到或
-对不上就判失败。
+清单由共用 `macos-package.yml` 的更新签名步骤从实际 ZIP 的随包信息及 SHA256SUMS
+生成。dev 发布 job 再从固定 URL 取回比对。`update_signature` 与 `update_version` 分别
+记录独立的 Ed25519 更新签名与安装序号；Apple 证书不是应用内更新的前提。
 
-## 在 app 里看：关于窗口的那一行
+## 应用内下载和重启更新
 
-清单是给机器读的，机器读它的是 app。**入口在「关于 Ghosterm」窗口**（菜单栏
-`Ghosterm → 关于 Ghosterm`），版本号下面那一行：
+入口在 `Ghosterm → 检查更新…` 及关于窗口。主动检查后，右下角提示可用新版；选择
+「下载更新」后显示进度，收起提示继续下载。完成校验后可选择「重启并更新」或「稍后」，
+重启保留普通会话与传输的退出确认。没有后台检查、强制下载或强制重启。
 
-```
-更新    有新版（9ef21070d320…）        [检查更新]
-本机    0.1.0-dev (23) · d3e9fde742bd · 2026-10-25T03:17:24Z
-```
+dev 比 commit，正式版比最新正式发布版本，不混用渠道。来源未知、dirty、网络和清单错误
+显示「查不出来」。解析同时约束 commit、摘要字符及 GitHub 下载来源；不同 dev commit
+只表示远端发生变化，不证明提交祖先关系。
 
-口径（实现在 `apple/GhostermApp/Sources/GhostermAppModel/UpdateCheck.swift`，
-UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
+无 Apple 证书的 ad-hoc 包使用独立 Ed25519 签名完成应用内更新。尚未配置更新公钥 / 私钥
+的构建和旧版应用保留手动下载路径；首次接入需手动安装一次带公钥和更新引擎的版本。
+配置步骤、发布闭包和测试范围见 [macOS 应用内更新](macos-updates.md)。
 
-- **只在点「检查更新」时联网**：没有启动时检查、没有后台轮询。dev 包 ad-hoc 且未
-  公证，当前产品只提供手动下载与用户主动执行的安装入口。
-- **结论三态，不折叠**：`有新版` / `已是最新` / `查不出来（+原因）`。「本机这份包
-  里没有 commit 记录」「带未提交改动（`+dirty`）」「清单渠道不是 dev」「取不到
-  version.json」「version.json 读不懂」全都如实报，**绝不报成「已是最新」**。
-- **主锚是 commit**：本机记的是短 sha（`--short=12`），清单里是整条 40 位，比前缀。
-  不比 `version`/`build`——那两条跨轨不可比（见上面 [`BUILD-INFO.txt`](#确认这个包是怎么来的读-build-infotxt)）。
-- **没有「安装」按钮**：清单里 `signature=adhoc` + `notarized=false` 表示当前渠道不允许自动安装，
-  不表示用户无法手动安装。界面只给「打开下载页」这一条直链；有新版时另外写明
-  首次打开会被 Gatekeeper 拦、要怎么放行（口径同上面 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)）。
-- 「本机」那行是**可复制**的：要用户自己核对 commit，报「查不出来」时才有的放矢。
+## dev 包的边界
 
-**当前校验边界**：发布脚本生成/复验清单、安装脚本验包和 App 解码是三条不同路径。`RemoteBuild.decode` 会拒绝缺字段、空字符串、不可解析时间及非 64 位摘要，但尚未检查远端 `git_commit` 为 40 位十六进制、摘要的十六进制字符集，也没有约束 `download_base` 的来源。`compare` 按 commit 前缀相同/不同作判断，不验证提交祖先关系；因此“有新版”实际表示“与本机不同的 dev 提交”。这些校验缺口列入[路线图](../reference/roadmap.md#macos-下一步与共享缺口)，不能把已有缺字段测试扩大为全部畸形输入都返回“查不出来”。
-
-闸门：`bash scripts/mutation-check-app-update.sh`——七组变异（把「查不出来」折成
-「已是最新」、拿版本号当判据、解码给默认值、`installBlocked` 恒 false、文案撒谎、
-那一行整个不画、多给一颗「安装」按钮），每组都要让对应断言变红并带一条指向性对照。
-
-## dev 包的边界（不是缺陷，是现状）
-
-- **本页说明 macOS 安装**。共用 dev Release 另有独立 CI 生成的 Android 签名 release APK，见 [Android 发行说明](android-release.md)；iOS 无可用构建入口。
-- **`dev` 不能当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，而 `dev` tag 会被
-  原位更新指向 macOS 发布提交；做自动更新要等 Developer ID 签名 + 公证（见
-  [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，
-  见上面 [version.json](#有没有新版的机读入口versionjson)——它只给直链，装不装由人。
-- 普通终端构建细节，见 [CI 出包口径](#ci-是怎么串起来的)。
+- 本页说明 macOS 安装；Android APK 见 [Android 发行说明](android-release.md)。
+- 目前仅 arm64；首次安装的系统放行取决于 Apple 签名、公证及 quarantine，不由 Ed25519 替代。
+- dev 仍为滚动发布，发布未成功时可能落后 main；普通终端不跨重启恢复。
 
 ## 签名档位：`adhoc` / `dev` / `id` / `none`
 
@@ -212,7 +190,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 
 - **决定「首次打开要不要放行」的是下载工具贴不贴 `com.apple.quarantine`，不是换渠道**：
   `brew install --cask` 也贴（Homebrew 自己调 LSQuarantine，agent 写 `Homebrew Cask`），
-  所以 `adhoc` + brew **照样拦**，仍然不等于能自动安装（`signature=adhoc` 的判断不变）。
+  所以 `adhoc` + brew **照样拦**，首次安装与应用内更新验签是独立机制。
   实测细节与免弹窗的 `curl` + `ditto` 装法见上面 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)。
 
 - **免费账号买到的只有「签名身份稳定」这一件事**：同一 Team ID、同一 designated

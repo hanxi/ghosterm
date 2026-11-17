@@ -152,22 +152,52 @@ final class UpdateCheckTests: XCTestCase {
         }
     }
 
-    func testAdhocUnnotarizedManifestBlocksInstall() throws {
-        // 「有新版」必须连带说清装不装得上：dev 轨恒 ad-hoc + 未公证。
-        let build = try remote()
-        XCTAssertTrue(build.installBlocked)
-        XCTAssertEqual(build.downloadURL?.absoluteString,
-                       "https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.1.0-dev-arm64.dmg")
-        // 免费个人账号的 Apple Development 档（`scripts/package-mac.sh` 记为 `dev`）：
-        // 证书是真的，但这一档不能公证，用户下载来照样被 Gatekeeper 拦——判据写成
-        // 「不等于 id 就拦」，所以任何没枚举过的新档位都默认落在「不许自动装」一侧。
-        let devSigned = try remote { $0["signature"] = "dev" }
-        XCTAssertTrue(devSigned.installBlocked)
+    func testUnsignedUpdateIsBlocked() throws {
+        XCTAssertTrue(try remote().installBlocked, "An unsigned update must never be installable")
+    }
+
+    func testAdhocUpdateNeedsIndependentArchiveSignature() throws {
+        XCTAssertTrue(try remote().installBlocked)
         let signed = try remote {
-            $0["signature"] = "id"
-            $0["notarized"] = true
+            $0["update_signature"] = Data(repeating: 7, count: 64).base64EncodedString()
+            $0["update_version"] = "1794879958"
         }
-        XCTAssertFalse(signed.installBlocked)
+        XCTAssertFalse(signed.installBlocked, "Ed25519 updates must work without an Apple certificate")
+        XCTAssertTrue(try remote { $0["update_signature"] = "bad signature" }.installBlocked)
+        XCTAssertTrue(try remote { $0["signature"] = "id"; $0["notarized"] = true }.installBlocked,
+                      "An Apple certificate must not bypass archive authentication")
+    }
+
+    func testReleaseUsesStableVersionAndIgnoresWorkflowNumbers() throws {
+        let release = try remote { $0["channel"] = "release"; $0["version"] = "1.10.0" }
+        XCTAssertEqual(UpdateCheck.compare(local: InstalledBuild(version: "1.9.0", build: 999999, channel: "release"),
+                                           remote: release), .newer(release))
+        for version in ["1.10.0", "2.0.0"] {
+            XCTAssertEqual(UpdateCheck.compare(local: InstalledBuild(version: version, channel: "release"),
+                                               remote: release), .upToDate)
+        }
+        guard case .cannotTell = UpdateCheck.compare(local: InstalledBuild(version: "bad", channel: "release"), remote: release)
+        else { return XCTFail("unknown release version was accepted") }
+    }
+
+    func testChannelsChooseSeparatePublishedFeeds() {
+        XCTAssertTrue(UpdateCheck.manifestURL(channel: "dev").path.contains("/download/dev/"))
+        XCTAssertTrue(UpdateCheck.manifestURL(channel: "release").path.contains("/latest/download/"))
+        XCTAssertTrue(UpdateCheck.feedURL(channel: "dev").path.contains("/download/dev/"))
+        XCTAssertTrue(UpdateCheck.feedURL(channel: "release").path.contains("/latest/download/"))
+        XCTAssertEqual(InstalledBuild.parse("版本: 1.0.0 (build 4)\n渠道: dev").channel, "dev")
+        XCTAssertEqual(InstalledBuild.parse("版本: 1.0.0 (build 4)\n渠道: release").channel, "release")
+        XCTAssertNil(InstalledBuild.parse("no receipt").channel)
+    }
+
+    func testMalformedSourceAndDownloadOriginAreRejected() {
+        for punch: (inout [String: Any]) -> Void in [
+            { $0["git_commit"] = "not a commit" },
+            { $0["download_base"] = "https://evil.invalid/payload" },
+            { $0["download_base"] = "http://github.com/hanxi/ghosterm/releases/download/dev" },
+            { $0["assets"] = ["dmg": "../Ghosterm.dmg"] },
+            { $0["sha256"] = ["Ghosterm-0.1.0-dev-arm64.dmg": String(repeating: "z", count: 64)] },
+        ] { XCTAssertThrowsError(try remote(punch)) }
     }
 
     // MARK: 展示口径（文案也是判据的一部分）

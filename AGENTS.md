@@ -134,13 +134,19 @@ dev 轨另有一条 Homebrew 分发链：公开 tap `hanxi/homebrew-ghosterm` �
 从 raw 取回 cask，比资产名 / `:latest` / `:no_check` / 下限），它红只红这一步，不回滚 release。
 dev Release 另挂一份机读清单 `version.json`（固定 URL，不走 API）：**新旧以 `git_commit` 为主锚**
 ——`build` 号按 workflow 文件计数，跨轨不可比；清单由随包 `BUILD-INFO.txt`/`SHA256SUMS` 解析而来
-（不是第二份真相），解析不到即当场红，「复验」step 再从固定 URL 取回对答案。它只解决**检测**，
-`signature=adhoc` + `notarized=false` 就是「不许自动安装」的机器可读声明。
-app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Ghosterm`）版本号下面那一行，
-**只在用户点「检查更新」时联网**（无启动检查、无后台轮询）；结论三态不折叠，
-「本机没 commit 记录 / 包带未提交改动 / 渠道不对 / 取不到 / 读不懂」全都报「查不出来」，
-不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
-`docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
+（不是第二份真相），解析不到即当场红，「复验」step 再从固定 URL 取回对答案。
+**2026-11-17 按用户要求调整应用内更新**：没有 Apple 证书的 ad-hoc 包也须支持用户选择的
+下载与重启更新；不再把 `signature=adhoc` / `notarized=false` 当作更新能力禁止条件。
+采用锁定 Sparkle 引擎与独立 Ed25519 更新签名：本机公钥固定，appcast 与 ZIP 都须验签；
+密钥缺失或验证失败显式报错，禁止跳过校验。Apple 签名 / 公证状态仍如实记账，首次安装的
+系统放行规则保持。dev 比随包 commit 与远端 dev 清单；正式版比 GitHub 最新正式发布的
+版本号，不混用渠道或 workflow 运行号。`CFBundleVersion` / `update_version` 改为同源打包
+Unix 秒数，供 Sparkle 安装校验；workflow build 仍在随包信息中用于追溯。
+入口为关于窗口与应用菜单，仍仅主动检查联网；下载、校验及重启提示在右下角，允许收起、
+取消下载和稍后重启，重启保留原退出确认。规则调整原因：用户明确要求无证书包也能正常
+应用内更新；Ed25519 信任链独立于 Apple 证书。发布闭包、密钥配置和本地证据口径见
+`docs/how-to/macos-updates.md`，变异入口仍为 `scripts/mutation-check-app-update.sh`。
+这组规则变更应与实现一起经 PR 审阅，不据本地验证声称已经发行。
 
 > **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **20 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、

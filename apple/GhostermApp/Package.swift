@@ -30,6 +30,7 @@ let package = Package(
     dependencies: [
         .package(path: "../GhostermCore"),
         .package(path: "../GhostermTerminal"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         // 把业务逻辑放进 library 目标，这样测试与可执行都复用同一份，
@@ -49,8 +50,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "GhostermApp",
-            dependencies: ["GhostermAppModel"],
-            path: "Sources/GhostermApp"
+            dependencies: ["GhostermAppModel", .product(name: "Sparkle", package: "Sparkle")],
+            path: "Sources/GhostermApp",
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         // 测试依赖**可执行目标**：顶栏 / 侧栏是 SwiftUI 视图，几何与高亮
         // 只有把真视图渲染成位图才验得到（PixelRenderTests 同口径）。
