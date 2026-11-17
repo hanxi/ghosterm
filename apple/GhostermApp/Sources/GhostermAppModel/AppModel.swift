@@ -99,6 +99,7 @@ public final class AppModel: ObservableObject {
         public let paramsJSON: String
         public let itemID: String?
         public let identity: CodexApprovalIdentity?
+        public let permissionReviewID: String?
         public var stableID: String { Data(id.utf8).base64EncodedString() }
     }
 
@@ -1622,7 +1623,8 @@ public final class AppModel: ObservableObject {
     }
 
     public func codexApprovalSnapshot(_ approval: CodexPendingApproval) -> String? {
-        approval.identity?.reviewedSnapshot(codexChangeReview, isCurrent: currentCodexChange)
+        if approval.method == "item/permissions/requestApproval" { return approval.permissionReviewID }
+        return approval.identity?.reviewedSnapshot(codexChangeReview, isCurrent: currentCodexChange)
     }
 
     public func respondCodexApproval(id: String, allow: Bool, snapshotID: String? = nil) async {
@@ -1631,6 +1633,11 @@ public final class AppModel: ObservableObject {
               let approval = codexPendingApprovals.first(where: { $0.id.utf8.elementsEqual(id.utf8) }),
               run.methods.contains("codex.approval.respond") else { return }
         let fileApproval = approval.method == "item/fileChange/requestApproval"
+        let permissionApproval = approval.method == "item/permissions/requestApproval"
+        if permissionApproval && (snapshotID == nil || snapshotID != approval.permissionReviewID) {
+            extensionRunIssue = "权限请求已更新，请重新核对当前完整权限范围。"
+            return
+        }
         if allow && fileApproval && (snapshotID == nil || snapshotID != codexApprovalSnapshot(approval)) {
             extensionRunIssue = "请先读取并核对当前完整补丁，再批准此版本。"
             return
@@ -1643,7 +1650,7 @@ public final class AppModel: ObservableObject {
             let decisionJSON = String(data: try JSONEncoder().encode(allow ? "accept" : "decline"), encoding: .utf8)!
             let result: Responded = try await callCodexExecutor("codex.approval.respond",
                 input: ["requestID": id, "decisionJSON": decisionJSON,
-                        "snapshotID": allow && fileApproval ? snapshotID! : ""])
+                        "snapshotID": permissionApproval || (allow && fileApproval) ? snapshotID! : ""])
             guard result.accepted else { throw GhostermError.failed("Executor 未接受审批决定") }
             codexPendingApprovals.removeAll { $0.id.utf8.elementsEqual(id.utf8) }
         } catch {
@@ -2172,20 +2179,34 @@ public final class AppModel: ObservableObject {
         guard let object = value as? [String: Any],
               let id = codexRequestKey(object["id"]),
               let method = object["method"] as? String,
-              method == "item/commandExecution/requestApproval" || method == "item/fileChange/requestApproval",
+              ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"].contains(method),
               let params = object["params"], JSONSerialization.isValidJSONObject(params),
               let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
               let paramsJSON = String(data: data, encoding: .utf8) else { return nil }
         let itemID = (object["params"] as? [String: Any])?["itemId"] as? String
         var identity: CodexApprovalIdentity?
-        if method == "item/fileChange/requestApproval" {
+        var permissionReviewID: String?
+        if method == "item/fileChange/requestApproval" || method == "item/permissions/requestApproval" {
             let fields = object["params"] as? [String: Any]
             guard let thread = fields?["threadId"] as? String, !thread.isEmpty, thread.utf8.count <= 128,
                   let turn = fields?["turnId"] as? String, !turn.isEmpty, turn.utf8.count <= 128,
                   let itemID, !itemID.isEmpty, itemID.utf8.count <= 128 else { return nil }
-            identity = CodexApprovalIdentity(threadID: thread, turnID: turn, itemID: itemID)
+            if method == "item/fileChange/requestApproval" {
+                identity = CodexApprovalIdentity(threadID: thread, turnID: turn, itemID: itemID)
+            } else {
+                guard let fields, let profile = fields["permissions"] as? [String: Any],
+                      Set(profile.keys) == ["network", "fileSystem"],
+                      ["network", "fileSystem"].allSatisfy({ profile[$0] is NSNull || profile[$0] is [String: Any] }),
+                      fields["cwd"] is String,
+                      let token = object["permissionReviewID"] as? String,
+                      token.hasPrefix("permissions."), (1...20).contains(token.dropFirst(12).count),
+                      token.dropFirst(12).first != "0",
+                      token.dropFirst(12).allSatisfy({ $0 >= "0" && $0 <= "9" }) else { return nil }
+                permissionReviewID = token
+            }
         }
-        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON, itemID: itemID, identity: identity)
+        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON, itemID: itemID,
+                                    identity: identity, permissionReviewID: permissionReviewID)
     }
 
     static func codexRequestKey(_ value: Any?) -> String? {

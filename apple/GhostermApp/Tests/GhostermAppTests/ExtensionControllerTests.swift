@@ -71,6 +71,29 @@ final class ExtensionControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexPermissionApprovalRetainsCompleteScopeAndRequiresReviewReference() throws {
+        let params: [String: Any] = ["threadId": "thread", "turnId": "turn", "itemId": "permissions",
+            "cwd": "/owned", "permissions": ["network": NSNull(),
+                "fileSystem": ["read": NSNull(), "write": ["/owned/e\u{301}", "/owned/é"]]]]
+        var request: [String: Any] = ["id": "permission", "method": "item/permissions/requestApproval",
+            "permissionReviewID": "permissions.41", "params": params]
+        let approval = try XCTUnwrap(AppModel.decodeCodexApproval(request))
+        XCTAssertEqual(approval.permissionReviewID, "permissions.41")
+        XCTAssertNil(approval.identity, "permission scope is not a proposed file patch")
+        let roundtrip = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(approval.paramsJSON.utf8)) as? [String: Any])
+        let profile = try XCTUnwrap(roundtrip["permissions"] as? [String: Any])
+        let fileSystem = try XCTUnwrap(profile["fileSystem"] as? [String: Any])
+        let paths = try XCTUnwrap(fileSystem["write"] as? [String])
+        XCTAssertEqual(paths.map { Data($0.utf8) }, [Data("/owned/e\u{301}".utf8), Data("/owned/é".utf8)])
+        for token in ["", "permissions.0", "permissions.41\n", "file.41"] {
+            request["permissionReviewID"] = token
+            XCTAssertNil(AppModel.decodeCodexApproval(request))
+        }
+        request.removeValue(forKey: "permissionReviewID")
+        XCTAssertNil(AppModel.decodeCodexApproval(request))
+    }
+
+    @MainActor
     func testCodexApprovalRejectsMalformedIDsAndUnknownMethods() {
         XCTAssertNil(AppModel.decodeCodexApproval([
             "id": NSNumber(value: true), "method": "item/fileChange/requestApproval", "params": [:],

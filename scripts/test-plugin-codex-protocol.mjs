@@ -830,3 +830,50 @@ test("runs the production process helper against the pinned real server, without
   assert.deepEqual(server.exit?.state, "exited");
   assert.equal(server.reaped, true);
 });
+
+
+test("permissions retain immutable scope, use their own envelope, and cannot expand or persist grants", async () => {
+  const { client, writes } = await fakeActiveClient();
+  let request;
+  client.onServerRequest(value => { request = value; });
+  const params = { threadId: "thread-a", turnId: "turn-b", itemId: "permission-1", environmentId: null,
+    startedAtMs: 1, cwd: "/owned", reason: "only this turn", permissions: {
+      network: null, fileSystem: { read: ["/owned/e\u0301"], write: ["/owned/é"], entries: [
+        { path: { type: "glob_pattern", pattern: "/owned/*.txt" }, access: "write" },
+        { path: { type: "special", value: { kind: "project_roots", subpath: null } }, access: "read" }] } } };
+  client.receiveLine(JSON.stringify({ id: "permissions-1", method: "item/permissions/requestApproval", params }));
+  assert.equal(request.method, "item/permissions/requestApproval");
+  assert.throws(() => { request.params.permissions.fileSystem.write.push("/"); }, TypeError);
+  for (const decision of ["accept", { permissions: {}, scope: "session" },
+    { permissions: { network: { enabled: true } }, scope: "turn" },
+    { permissions: { fileSystem: { read: null, write: ["/"] } }, scope: "turn" },
+    { permissions: {}, scope: "turn", strictAutoReview: false }]) {
+    const count = writes.length;
+    assert.throws(() => client.respond("permissions-1", decision), /permission decision/);
+    assert.equal(writes.length, count, "invalid permission scope must never reach the child");
+  }
+  const grant = { permissions: { fileSystem: params.permissions.fileSystem }, scope: "turn" };
+  client.respond("permissions-1", grant);
+  assert.deepEqual(writes.at(-1), { jsonrpc: "2.0", id: "permissions-1", result: grant });
+  assert.throws(() => client.respond("permissions-1", grant), /unknown/);
+  client.receiveLine(JSON.stringify({ id: 99, method: "item/permissions/requestApproval", params }));
+  client.respond(99, { permissions: {}, scope: "turn" });
+  assert.deepEqual(writes.at(-1).result, { permissions: {}, scope: "turn" }, "denial grants no overlay");
+  const { environmentId, reason, ...minimal } = params;
+  client.receiveLine(JSON.stringify({ id: "optional-nulls", method: "item/permissions/requestApproval", params: {
+    ...minimal, permissions: { fileSystem: { write: ["/owned"], entries: null } } } }));
+  assert.deepEqual(request.params.permissions, { network: null, fileSystem: { read: null, write: ["/owned"] } },
+    "official JSON Schema permits omitted nullable defaults");
+  client.respond("optional-nulls", { permissions: { fileSystem: { read: null, write: ["/owned"] } }, scope: "turn" });
+  assert.deepEqual(writes.at(-1).result.permissions, { fileSystem: { read: null, write: ["/owned"] } });
+});
+
+test("permissions reject unknown scope fields before any approval reaches a listener", async () => {
+  const { client } = await fakeActiveClient();
+  let count = 0, failure;
+  client.onServerRequest(() => count++); client.onProtocolError(error => { failure = error; });
+  client.receiveLine(JSON.stringify({ id: 1, method: "item/permissions/requestApproval", params: {
+    threadId: "t", turnId: "u", itemId: "i", environmentId: null, startedAtMs: 1, cwd: "/owned", reason: null,
+    permissions: { network: { enabled: true, hiddenGrant: true }, fileSystem: null } } }));
+  assert.equal(count, 0); assert.match(failure.message, /invalid or unsupported/);
+});

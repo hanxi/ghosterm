@@ -1,5 +1,6 @@
 import { BoundaryError, boolean, commandArguments, option, encode, integer, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
   type RequestContext } from "@ghosterm/plugin-sdk";
+import { permissionResponse } from "../protocol/permissions.ts";
 import type { ApprovalDecision, RequestID, ServerRequest } from "../protocol/client.ts";
 import { CodexProtocolError } from "../protocol/client.ts";
 import type { CodexConversationEvent } from "../protocol/conversation.ts";
@@ -112,7 +113,7 @@ function boundedFileChangeParams(params: unknown, sequence: number, method: stri
   return fitEvent({ sequence, kind: "notification", notification: { method, params: minimalParams } });
 }
 
-function eventPayload(event: CodexConversationEvent, changes: CodexChangeStore): string {
+function eventPayload(event: CodexConversationEvent, changes: CodexChangeStore, permissionReviewID?: string): string {
   let value: unknown;
   const notificationParams = event.kind === "notification"
     ? changes.capture(event.notification.method, event.notification.params) : undefined;
@@ -123,7 +124,8 @@ function eventPayload(event: CodexConversationEvent, changes: CodexChangeStore):
       break;
     case "approval-request":
       value = { sequence: event.sequence, kind: event.kind,
-        request: { id: event.request.id, method: event.request.method, params: event.request.params } };
+        request: { id: event.request.id, method: event.request.method, params: event.request.params,
+          ...(permissionReviewID ? { permissionReviewID } : {}) } };
       break;
     case "approval-resolved":
       value = { sequence: event.sequence, kind: event.kind, threadID: event.threadID,
@@ -177,6 +179,7 @@ export function activate(context: PluginContext): Disposable {
   let interruptPromise: Promise<void> | undefined;
   const events: string[] = [];
   const approvals = new Map<string, ServerRequest>();
+  const permissionReviews = new Map<string, string>();
   const changes = new CodexChangeStore();
   const eventMethod = { name: "codex.event", input: object({ event: eventText }), output: eventAck } as const;
 
@@ -187,6 +190,7 @@ export function activate(context: PluginContext): Disposable {
     unsubscribe = undefined;
     events.length = 0;
     approvals.clear();
+    permissionReviews.clear();
     changes.clear();
     flight?.cancel();
     const active = conversation;
@@ -230,17 +234,26 @@ export function activate(context: PluginContext): Disposable {
       unsubscribe = conversation.onEvent(event => {
         lastEventSequence = Math.max(lastEventSequence, event.sequence);
         try {
+          let permissionReviewID: string | undefined;
           if (event.kind === "approval-request") {
-            approvals.set(requestKey(event.request.id), event.request);
+            const key = requestKey(event.request.id);
+            approvals.set(key, event.request);
+            permissionReviews.delete(key);
+            if (event.request.method === "item/permissions/requestApproval") {
+              permissionReviewID = `permissions.${event.sequence}`;
+              permissionReviews.set(key, permissionReviewID);
+            }
             if (approvals.size > 32) throw new CodexProtocolError("too many pending Codex approvals");
           } else if (event.kind === "approval-resolved") {
             approvals.delete(requestKey(event.requestID));
+            permissionReviews.delete(requestKey(event.requestID));
           } else if ((event.kind === "notification" && event.notification.method === "turn/completed") ||
                      event.kind === "protocol-error" || event.kind === "closed" || event.kind === "outcome-unknown") {
             approvals.clear();
+            permissionReviews.clear();
           }
           if (events.length >= EVENT_QUEUE_LIMIT) throw new CodexProtocolError("Codex event queue is full");
-          events.push(eventPayload(event, changes));
+          events.push(eventPayload(event, changes, permissionReviewID));
         } catch (error) {
           failure = error instanceof Error ? error : new Error(String(error));
         }
@@ -291,8 +304,16 @@ export function activate(context: PluginContext): Disposable {
     request.check();
     const pending = approvals.get(input.requestID);
     if (!conversation || closing || failure || !pending) throw new CodexProtocolError("Codex approval is unknown or expired");
-    const decision = JSON.parse(input.decisionJSON) as ApprovalDecision;
-    if (pending.method === "item/fileChange/requestApproval" && decision !== "decline" && decision !== "cancel") {
+    let decision = JSON.parse(input.decisionJSON) as ApprovalDecision;
+    if (pending.method === "item/permissions/requestApproval") {
+      if (decision !== "accept" && decision !== "decline" && decision !== "cancel") {
+        throw new CodexProtocolError("Permissions require an explicit requested-scope decision");
+      }
+      if (!input.snapshotID || input.snapshotID !== permissionReviews.get(input.requestID)) {
+        return { accepted: false };
+      }
+      decision = permissionResponse(pending.params, decision === "accept");
+    } else if (pending.method === "item/fileChange/requestApproval" && decision !== "decline" && decision !== "cancel") {
       const params = pending.params;
       if (!changes.isCurrent(input.snapshotID, params.threadId, params.turnId, params.itemId)) {
         // This check precedes any child write. Express a business refusal;
@@ -305,6 +326,7 @@ export function activate(context: PluginContext): Disposable {
     // No asynchronous work between checking the captured revision and enqueueing its response.
     conversation.respondApproval(pending.id, decision);
     approvals.delete(input.requestID);
+    permissionReviews.delete(input.requestID);
     return { accepted: true };
   });
 

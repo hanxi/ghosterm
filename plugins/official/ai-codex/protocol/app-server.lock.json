@@ -16,7 +16,8 @@
   ],
   "serverRequests": [
     "item/commandExecution/requestApproval",
-    "item/fileChange/requestApproval"
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval"
   ],
   "serverNotifications": [
     "turn/started",
@@ -117,6 +118,20 @@
       "path",
       "kind",
       "diff"
+    ],
+    "PermissionsRequestApprovalParams": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "environmentId",
+      "startedAtMs",
+      "cwd",
+      "reason",
+      "permissions"
+    ],
+    "PermissionsRequestApprovalResponse": [
+      "permissions",
+      "scope"
     ]
   },
   "requiredDecisions": {
@@ -133,6 +148,10 @@
       "acceptForSession",
       "decline",
       "cancel"
+    ],
+    "PermissionGrantScope": [
+      "turn",
+      "session"
     ]
   },
   "lockedTypeExpressions": {
@@ -142,7 +161,18 @@
     "NetworkPolicyRuleAction": "\"allow\"|\"deny\"",
     "PatchChangeKind": "{\"type\":\"add\"}|{\"type\":\"delete\"}|{\"type\":\"update\",move_path:string|null,}",
     "TextElement": "{byteRange:ByteRange,placeholder:string|null,}",
-    "ByteRange": "{start:number,end:number,}"
+    "ByteRange": "{start:number,end:number,}",
+    "PermissionsRequestApprovalParams": "{threadId:string,turnId:string,itemId:string,environmentId:string|null,startedAtMs:number,cwd:LegacyAppPathString,reason:string|null,permissions:RequestPermissionProfile,}",
+    "PermissionsRequestApprovalResponse": "{permissions:GrantedPermissionProfile,scope:PermissionGrantScope,strictAutoReview?:boolean,}",
+    "PermissionGrantScope": "\"turn\"|\"session\"",
+    "RequestPermissionProfile": "{network:AdditionalNetworkPermissions|null,fileSystem:AdditionalFileSystemPermissions|null,}",
+    "GrantedPermissionProfile": "{network?:AdditionalNetworkPermissions,fileSystem?:AdditionalFileSystemPermissions,}",
+    "AdditionalNetworkPermissions": "{enabled:boolean|null,}",
+    "AdditionalFileSystemPermissions": "{read:Array<LegacyAppPathString>|null,write:Array<LegacyAppPathString>|null,globScanMaxDepth?:number,entries?:Array<FileSystemSandboxEntry>,}",
+    "FileSystemSandboxEntry": "{path:FileSystemPath,access:FileSystemAccessMode,}",
+    "FileSystemPath": "{\"type\":\"path\",path:LegacyAppPathString,}|{\"type\":\"glob_pattern\",pattern:string,}|{\"type\":\"special\",value:FileSystemSpecialPath,}",
+    "FileSystemAccessMode": "\"read\"|\"write\"|\"deny\"",
+    "FileSystemSpecialPath": "{\"kind\":\"root\"}|{\"kind\":\"minimal\"}|{\"kind\":\"project_roots\",subpath:LegacyAppPathString|null,}|{\"kind\":\"tmpdir\"}|{\"kind\":\"slash_tmp\"}|{\"kind\":\"unknown\",path:string,subpath:LegacyAppPathString|null,}"
   },
   "lockedFieldDeclarations": {
     "InitializeResponse": [

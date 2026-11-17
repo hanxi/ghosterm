@@ -1,4 +1,5 @@
 /** Stable Codex app-server JSON-RPC client. Process ownership and pipe IO belong to the host. */
+import { permissionRequest, validatePermissionResponse, type PermissionResponse } from "./permissions.ts";
 import { utf8ByteLength } from "./utf8.ts";
 
 export type RequestID = string | number;
@@ -45,7 +46,7 @@ export interface TurnInterruptParams {
 
 export interface ServerRequest {
   readonly id: RequestID;
-  readonly method: "item/commandExecution/requestApproval" | "item/fileChange/requestApproval";
+  readonly method: "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" | "item/permissions/requestApproval";
   readonly params: Readonly<Record<string, unknown>>;
 }
 
@@ -61,7 +62,7 @@ export type CommandExecutionApprovalDecision = BasicApprovalDecision |
   { readonly acceptWithExecpolicyAmendment: ExecPolicyAmendment } |
   { readonly applyNetworkPolicyAmendment: { readonly network_policy_amendment: NetworkPolicyAmendment } };
 export type FileChangeApprovalDecision = BasicApprovalDecision;
-export type ApprovalDecision = CommandExecutionApprovalDecision | FileChangeApprovalDecision;
+export type ApprovalDecision = CommandExecutionApprovalDecision | FileChangeApprovalDecision | PermissionResponse;
 
 export interface ServerNotification {
   readonly method: string;
@@ -92,6 +93,7 @@ type Phase = "new" | "initializing" | "active" | "closed" | "failed";
 const SERVER_REQUESTS = new Set([
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
 ]);
 const CLIENT_METHODS = new Set<AppServerMethod>(["thread/start", "turn/start", "turn/interrupt"]);
 const MAX_LINE_BYTES = 1_048_576;
@@ -244,6 +246,14 @@ export class CodexAppServerClient {
     if (key === null || !request) {
       throw new CodexProtocolError("unknown, expired, or already answered app-server request");
     }
+    if (request.method === "item/permissions/requestApproval") {
+      let result: PermissionResponse;
+      try { result = validatePermissionResponse(request.params, decision); }
+      catch { throw new CodexProtocolError("permission decision does not match the pending request scope"); }
+      this.serverRequests.delete(key);
+      this.write({ jsonrpc: "2.0", id: requestID, result });
+      return;
+    }
     const validBasic = decision === "accept" || decision === "acceptForSession" ||
       decision === "decline" || decision === "cancel";
     let valid = validBasic;
@@ -337,8 +347,13 @@ export class CodexAppServerClient {
       return;
     }
     if (this.serverRequests.has(key)) { this.protocolFailure("duplicate app-server request id"); return; }
-    const request = { id: message.id as RequestID,
-      method: message.method as ServerRequest["method"], params: message.params };
+    let params = message.params;
+    if (message.method === "item/permissions/requestApproval") {
+      try { params = permissionRequest(params); }
+      catch { this.protocolFailure("invalid or unsupported Codex permission request"); return; }
+    }
+    const request = Object.freeze({ id: message.id as RequestID,
+      method: message.method as ServerRequest["method"], params });
     this.serverRequests.set(key, request);
     for (const listener of this.requests) listener(request);
   }

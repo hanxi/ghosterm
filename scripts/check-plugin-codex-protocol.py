@@ -90,6 +90,8 @@ def main():
             "FileUpdateChange": types / "v2/FileUpdateChange.ts",
             "PatchChangeKind": types / "v2/PatchChangeKind.ts",
         }
+        for name in ['PermissionsRequestApprovalParams', 'PermissionsRequestApprovalResponse', 'PermissionGrantScope', 'RequestPermissionProfile', 'GrantedPermissionProfile', 'AdditionalNetworkPermissions', 'AdditionalFileSystemPermissions', 'FileSystemSandboxEntry', 'FileSystemPath', 'FileSystemAccessMode', 'FileSystemSpecialPath']:
+            type_paths[name] = types / "v2" / (name + ".ts")
         for name, required in lock["requiredFields"].items():
             text = type_paths[name].read_text(encoding="utf-8")
             missing = [field for field in required if not re.search(rf"\b{re.escape(field)}\s*:", text)]
@@ -203,6 +205,18 @@ def main():
                        network_properties.get("action", {}).get("$ref", "").endswith("/NetworkPolicyRuleAction") and
                        set(definitions.get("NetworkPolicyRuleAction", {}).get("enum", [])) == {"allow", "deny"},
                        "NetworkPolicyAmendment host/action")
+
+        permission_request = definitions.get("PermissionsRequestApprovalParams", {})
+        permission_response = definitions.get("PermissionsRequestApprovalResponse", {})
+        schema_require({"cwd", "itemId", "permissions", "startedAtMs", "threadId", "turnId"} <= set(permission_request.get("required", [])) and
+                       permission_request.get("properties", {}).get("permissions", {}).get("$ref", "").endswith("/RequestPermissionProfile"),
+                       "PermissionsRequestApprovalParams complete requested overlay")
+        schema_require({"permissions"} <= set(permission_response.get("required", [])) and
+                       permission_response.get("properties", {}).get("permissions", {}).get("$ref", "").endswith("/GrantedPermissionProfile") and
+                       any(part.get("$ref", "").endswith("/PermissionGrantScope") for part in
+                           permission_response.get("properties", {}).get("scope", {}).get("allOf", [])) and
+                       permission_response.get("properties", {}).get("scope", {}).get("default") == "turn",
+                       "PermissionsRequestApprovalResponse independent grant envelope")
 
         turn_schema = definitions.get("TurnStartParams", {})
         turn_properties = turn_schema.get("properties", {})

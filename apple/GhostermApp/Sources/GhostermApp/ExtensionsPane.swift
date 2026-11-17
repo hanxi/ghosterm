@@ -633,12 +633,21 @@ struct ExtensionsPane: View {
                         } else if approval.method == "item/fileChange/requestApproval" {
                             Text("正在等待 Codex 提供补丁内容。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
+                        } else if approval.method == "item/permissions/requestApproval" {
+                            ConversationReadOnlyText(text: approval.paramsJSON,
+                                identifier: "plugin-codex-permissions-\(approval.stableID)", label: "本轮完整权限请求")
+                                .id(approval.permissionReviewID).frame(height: 160)
                         } else {
                             Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                         }
+                        if approval.method == "item/permissions/requestApproval" {
+                            Text("以下完整权限范围仅用于当前轮，可能允许范围内后续操作。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
+                        }
                         ConversationDecisionButtons(prefix: "plugin-codex-approval", busy: model.codexCallBusy,
-                            canAllow: approval.method != "item/fileChange/requestApproval" || snapshotID != nil,
-                            deny: { Task { await model.respondCodexApproval(id: approval.id, allow: false) } },
+                            canAllow: approval.method == "item/commandExecution/requestApproval" || snapshotID != nil,
+                            allowLabel: approval.method == "item/permissions/requestApproval" ? "允许本轮所列权限" : "批准一次",
+                            deny: { Task { await model.respondCodexApproval(id: approval.id, allow: false, snapshotID: snapshotID) } },
                             allow: { Task { await model.respondCodexApproval(id: approval.id, allow: true, snapshotID: snapshotID) } })
                         if approval.method == "item/fileChange/requestApproval" && snapshotID == nil {
                             Text("先读取并核对当前完整补丁，才能批准此版本。")

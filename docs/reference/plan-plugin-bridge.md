@@ -2,9 +2,9 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 的本机 Native stdio 真实账号 chat 已通过；P4 Claude 的真实模型请求被所选服务 TLS 连接阻塞。两者仍缺真实工具批准及完整双端启动 UI 验收；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；CLI 版本清单、跨进程引用与显式隔离清理已接，未知暂存 / 损坏意图维护和完整故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 的本机 Native stdio 真实账号 chat、完整文件审批及本轮权限 / 实际命令已通过；P4 Claude 的真实模型请求仍被所选服务 TLS 连接阻塞。双端完整启动 UI、真实交互 / 中断 / 断线矩阵继续；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；CLI 版本清单、跨进程引用与显式隔离清理已接，未知暂存 / 损坏意图维护和完整故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
-**最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。第四十九批补本机 Native Client Runtime / gterm / 真 CLI 的真实账号 chat、实际策略确认与终态错误；真实工具批准、双端 App 模型 / 安装入口、完整交互 / 性能矩阵仍未验收，不能据此关闭 P3。
+**最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。第四十九批补真实账号 chat / 策略确认与终态错误，第五十批接稳定权限审批与双端审阅引用，并通过本机 Native / gterm / 真 CLI 的完整文件审批和本轮权限 / 实际命令。双端 App 模型 / 完整启动 / 中断 / 断线、性能与设备矩阵仍未验收，不能据此关闭 P3。
 
 **最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十八批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器、双向资源及受控进程服务。第十八批将通用运行档接到公开 runtime 门面与 gterm 显式启动，组合 session.rpc、原生 ResourceBroker 与 ProcessService；第十九至二十四批已接两端实验入口的运行档 / 依赖 / 显式允许、真实直连 / ProxyJump、受控业务进程，以及 Native Host 本机文件发布的双向资源；Client 不获得 file.* 或本机目录。后续完整资源 / 进程预算、tmux / 设备矩阵、官方 Agent 运行档与真实模型继续待验；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末各批。
 
@@ -11889,3 +11889,97 @@ macOS 26 下限仍在，不称 macOS 13 分发物。C 格式 / Python 语法 / d
 - `format.log`：`cc659971e5877aaf1423410186049b7b5937c4a0823e27f39e39bce55cf083b0`
 
 - 普通 gterm：`d68d612ed30ca295ca862d0b22a4c4533cf803b1e1ab48869590a6444c931009`；Node：`v26.4.0`。
+
+
+### P3 实施第五十批：本轮权限审批与真实文件 / 工具闭环（2026-11-17）
+
+按用户加速要求，一批实现协议 → Executor → 双端原生显示 / 决定，再编译与跑关键
+专项；完整平台 / 变异矩阵仍集中收口。稳定 CLI 0.166.0 的官方生成类型 / JSON Schema
+包含 item/permissions/requestApproval，原适配只接受 command / file 两类，本批补独立
+权限响应，不套用 `{decision: ...}`。新增私有协议模块，无新 C ABI / SDK / wire v1。
+
+严格识别请求 profile 的当前字段、literal / glob 与已知 special 路径，不在 Host 展开 /
+规范化路径或折叠 Unicode；已知 nullable / 缺省字段归一为其空值，未知字段 / 别名
+显式失败。请求复制并深冻结，回调不能修改捕获范围。允许仅回送完整捕获 overlay、
+scope=turn；拒绝回送空 overlay。没有 session 授予、任意局部改写或 strictAutoReview
+覆盖，后端其它约束保持。permissions 超过完整事件额度时关闭并报错，不生成可批准
+的截断范围。它不发放 Ghosterm 自己的本机文件 / 网络能力。
+
+每次权限事件带 permissionReviewID，经既有 snapshotID 字段确认；允许和拒绝均须
+当前引用，后端 ID 复用获得新引用，旧决定 accepted=false 且不写 child。检查到实际
+入队之间无 await；过期 / turn 完成 / unknown / 关闭清引用。普通 command 仍空引用，
+file 仍要求已读完整补丁的当前版本。原生完整参数与“允许本轮所列权限”明确区分
+一次命令批准；macOS 复用只读 Native 文本组件、按审阅引用重建，避免规范等价文本
+的复制内容滞后。Android 编译同一行为，新解码测试本批只编译，未冒充设备运行。
+
+实际排障发现测试配置误关了 CLI 默认开启的稳定 code_mode_host，且实验模型工具
+request_permissions_tool 默认关闭。最初真实调用只有文字、无审批 / 命令 / 文件，
+断言失败未记绿。修正 harness 保留工具宿主；请求权限工具需显式实验测试参数，
+产品包不自动启用。工具测试先无模型核对实际 features，再发 prompt。最后改用单项
+features override 保留其它用户配置；无模型复验 file / permission 分别 15 / 12 个
+固定 argv，仍在既有 16 项预算内，所需 feature 值与真实调用一致。
+
+最终真实专项（本机 macOS arm64、已选账号 / 服务、锁定 codex-cli 0.166.0）：
+
+- Native Client Runtime → Session / gterm → 编译官方 Executor / QuickJS → 真 app-server /
+  服务模型。file 档使用工作区写入基线与所选私有 sibling 目标：完整补丁分页读取、
+  精确 thread / turn / item / 目标、当前 snapshot 决定、一次批准、实际 nonce 文件 /
+  关联回复 / turn completed、显式停止与 owner 回收通过。没有修改用户仓库文件。
+- permission 档保留只读基线 / on-request / user reviewer，显式启用实验模型工具。
+  最终收据有 **1 个确认的 permissions 请求、1 次权限允许、1 条实际 command item**，
+  没有其它审批类别；控制器核对全部 scope 只含本次私有目录 / 目标、无额外网络，
+  检查业务 accepted=true、确切 printf argv / cwd、单个目标精确字节、关联回复 /
+  completed / 停止回收。不是只看到 reply 或仅看到工具排队就记成功。
+- 最初启用权限工具的一轮确有文件结果，但计数未细分审批方法；后续加强判据并
+  重跑上面这一轮，前轮不重复算独立通过。本批不修改服务端安全检查或审核策略。
+
+file 专项之后仅更新 PACKAGE / 随包 README，未为文档重复请求模型：用当前全部
+编译 JS / schema 与原 README 重新构造旧完整性索引，SHA256 与当时包 D 完全一致，
+证明全部其它成员不变；当前 permission 专项使用新 D。复核收据单列，不把不同 D
+写成同包，也不借文档变化宣称新代码已运行。真实账号测试始终保留实际 HOME /
+CODEX_HOME，不复制凭据文件，原始账号 / token / 模型回复不进收据。
+
+本批其它证据：官方锁定类型 / JSON Schema 对拍、协议 **33 项**、编译后 Executor
+入口（含缺引用 / 旧允许 / 旧拒绝 / ID 复用 / 精确 grant 与空 deny）通过；协议套件
+包括原有无模型 CLI 隔离夹具，不外推为真实账号。Swift 新解码 / Unicode 与旧两项
+共 **3 项**、普通 arm64 Release 通过；UI 最后复用只读控件后再次 Release 通过。
+Android 显式 JS-on Debug / 测试 APK、未签名 Release / 实际 R8 与四模块 lint 通过；
+随后恢复默认 JS-off 两 Debug APK，并在修正新测试的异常分类后重编测试 APK。
+没有本批 Android 设备或真实原生按钮点击；Swift 测试与全部构建无前台窗口。
+
+首轮 schema 守卫误把 TS nullable 字段当成 JSON 必填（schema 实际可省 environment /
+reason 等、scope 默认 turn），修正检查与归一规则后通过；未降掉字段 / 语义检查。
+后端模型工具未启用、旧 harness 误关工具宿主和未确认工具结果的失败均保留。
+
+完整 App 登录 / 启动 / 页面 / 键盘 / 拒绝 / 中断 / SSH / tmux / 断线 unknown、压力 /
+内存故障与原生设备矩阵仍待集中验收；Claude 所选服务 TLS 阻碍未恢复。不据本批
+关闭 P1–P6，不增加 CI 二十份；根 Core 仍 JS-off / tests-on，仅本地提交，不推送 /
+发行。所属 CLI / 模型 owner / 构建退出后清理本轮 tmp，开发工具缓存继续复用。
+
+最终原件 SHA256（清理后仅保留身份，不冒充可审阅日志）：
+
+- `package-final-artifact.log`：`051d4b5ea0db15761fb7f1b55463d76c2abb4d797be10cbdd646fcdced31a5c7`
+
+- `lock-check-final.log`：`436636521abc2a22c5d6f36fce636d22df4bcdbbe30649921aa8ed36b226986a`
+
+- `protocol-current.log`：`968c37a82657c7c6938d72d3930b2d6bb561254e5d7e38b489a75e5afd4b35c7`
+
+- `live-file-tools.json`：`ca4e93735e3729d9c8ce96741791c10b8523790ac74f1d86cb4ae816df75307d`
+
+- `live-permission-final.json`：`a41826347adfc0c483def7a6d3e7a1cb8d1b50ef6e83bcbe4547167f20d31d74`
+
+- `file-artifact-equivalence.json`：`8ead74d93b77a4460ca77069be35a39d9c1978720ac82feb99fb81a2d6e1e90c`
+
+- `configuration-final.log`：`ccf35194fbecac840562b569725e1d598c6cfb8b9c8d1945cfd29a2c16ad35ff`
+
+- `apple-release-current.log`：`3b420b120f763fe05ba2541bfeccb0e71bf5adb134080cb4e423951d95500eb4`
+
+- `apple-tests-final.log`：`1cce3bdfb3acda687a420b57818536bcaf076d87438d05889b2bf5887bc602d9`
+
+- `android-final-enabled.log`：`4db47a23fc0d7b1ef2057d8de228a9a112c52dd94c08dde5d33a39eff172d189`
+
+- `android-default.log`：`7105fa5aeb2819eaee700a9109a5b753b2091d9be0edd855d6fdc148f2a7709d`
+
+- `android-test-compile-final.log`：`f58b8bc3d35088f804c2f35806849b3d902e1b6d35b019e70d953f5776f781e9`
+
+- `format.log`：`cc659971e5877aaf1423410186049b7b5937c4a0823e27f39e39bce55cf083b0`

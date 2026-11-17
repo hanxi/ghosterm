@@ -136,16 +136,50 @@ python3 -B scripts/test-plugin-codex-live.py --live --build tmp/codex-gterm --mo
 The selected developer tools must match the locked fixture manifests and
 TypeScript version. The runner keeps HOME / CODEX_HOME unchanged, disables
 configured MCP servers and optional hooks/plugins, requests an ephemeral thread,
-and confirms the actual read-only / on-request / user-review policy before a
-model turn. Temporary workspace, process logs and receipts belong under project
+and confirms the requested sandbox / on-request / user-review policy before a
+model turn. Chat, command and permission tests use read-only; file approval uses
+workspace-write with an owned sibling target outside the writable cwd. Temporary workspace, process logs and receipts belong under project
 tmp. It does not copy credential files; provider traffic is real. No model test
 runs without `--live`. `--mode file` and `--mode command` require a real approval
 plus exact owned-file contents; a completed model reply alone cannot pass them.
-The chat result is scoped to this native stdio harness, not App UI or SSH.
+The live results are scoped to this Native stdio harness, not App UI or SSH.
+The runner preserves the CLI's stable tool host instead of disabling it; before
+any tool test it checks the actual feature configuration without a model call.
+The current pinned CLI defaults `code_mode_host` to true and
+`request_permissions_tool` to false.
+
+Stable `item/permissions/requestApproval` is now wired independently of command
+and complete-patch approval. Both Native Hosts show the complete overlay and
+label its duration for this turn. Allow echoes the exact normalized requested
+overlay; deny sends an empty overlay. The backend's other restrictions are
+unchanged. Unknown fields/special aliases and oversized approval data fail
+explicitly; no partial hidden scope is approved. The `permissionReviewID` in the
+Native event must be echoed as `snapshotID` for either decision. Reused backend
+IDs get a new reference, and old allow/deny decisions return `accepted: false`
+before writing a response. No session grant, arbitrary subset, extra scope or
+`strictAutoReview` override is emitted. This business use of snapshotID does not
+change the C ABI, wire v1 or ordinary file-revision check.
+
+A separate opt-in live test enables the pinned CLI's experimental model-facing
+tool only for its isolated invocation:
+
+```sh
+python3 -B scripts/test-plugin-codex-live.py --live --build tmp/codex-gterm --mode file
+python3 -B scripts/test-plugin-codex-live.py --live --build tmp/codex-gterm --mode permission --enable-permission-tool
+```
+
+Without that flag the permission test requires the selected tool feature to
+already be enabled and fails before a model call otherwise. It preserves the
+read-only base, accepts only owned fixture filesystem paths and no extra network
+permission, checks the confirmed permission decision separately from command
+approvals, and requires one exact command plus actual file contents. Product
+builds do not automatically enable this experimental backend tool. The pinned
+stable RPC exists independently of its model-tool availability.
 
 The protocol client initializes each connection once, sends `initialized`, and exposes the locked `thread/start`, `turn/start`, and `turn/interrupt` calls. The first turn input is text with the official `text_elements` field; the current `turn/start` helper exposes only thread ID and input rather than forwarding thread-level configuration. It preserves each server-initiated approval request id and validates the distinct stable command/file response shapes. `serverRequest/resolved` expires a pending approval; pipe closure rejects unfinished outbound calls as unknown without replay. `protocol/stdio.ts` composes that client and the bounded line decoder over a Host-injected nonblocking pipe surface. It limits each IO slice, bounds queued writes, and drains stderr without retaining it, including after stdout EOF. `protocol/process.ts` passes complete POSIX argv (`["codex", "app-server"]`, including argv[0]) to the portable Host process contract; Core's QuickJS Runtime supplies that contract only when its checked Executor package, live grants, Host executable mapping, and authorized workspace root all agree. After natural child exit, the helper drains both pipes and automatically releases/reaps once both reach EOF; callers can still explicitly stop a running child. Before release, the helper retains the last exit snapshot; after release it never polls the invalidated Native child handle. A previously running child is known to have exited/reaped, but its final code and signal remain unknown (`null`) unless observed beforehand. Core Runtime also enforces a finite per-child lifetime and aggregate stdout/stderr read quota. The Codex helper compares the Host-reported verified version with the app-server lock before sending initialize; after initialization it also parses the server-reported version token from the required `InitializeResponse.userAgent` and rejects a mismatch before exposing `ready` to callers. Either mismatch terminates and reaps the child. The lock checker pins `InitializeResponse.userAgent` as a required string against the official generated TypeScript and JSON Schema. The production-helper test initializes and starts a thread with the pinned real CLI, checking its live version report; a separate fake-child test proves mismatch cleanup. Core checks the Host-supplied executable SHA-256 when Runtime opens and rejects path/file identity changes observed before spawn. These checks do not prove the product App Hosts supply a verified mapping, that exec is descriptor-pinned, or that a live Codex turn, approval UI, or GUI event delivery works.
 
-The locked schema and conversation facade do not claim a real model turn or approval action. The conversation tests use isolated protocol events; the real CLI test stops after `thread/start`. Native approval buttons, activity views, and bounded patch previews are wired, but live product turn / approval round trips and complete diff review remain unverified P3 work. `codex.event` uses an object input with an `event` JSON string so it matches the Native / gterm object method registry; the complete encoded input must fit the Core 3072-byte RPC limit. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
+The locked schema and conversation facade do not claim a real model turn or approval action. The conversation tests use isolated protocol events; the real CLI test stops after `thread/start`. Native approval buttons, activity views, and bounded patch previews are wired, while complete App turn / approval UI, transport and device acceptance remain P3 work.
+Native stdio real-model file and permission/tool results are recorded in P3 batch 50. `codex.event` uses an object input with an `event` JSON string so it matches the Native / gterm object method registry; the complete encoded input must fit the Core 3072-byte RPC limit. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
 
 
 Exercise the built package with real Native Client / Executor Runtimes and the
@@ -153,7 +187,7 @@ pinned local CLI (initialize and thread/start only; no model request):
 
 ```sh
 cmake -S cli/gterm -B tmp/codex-gterm -DGHOSTERM_GTERM_TESTS=ON -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=OFF
-cmake --build tmp/codex-gterm --target gterm test_gterm_codex
+cmake --build tmp/codex-gterm --target gterm test_gterm_codex test_gterm_codex_peer
 python3 -B scripts/test-plugin-codex-runtime.py --build tmp/codex-gterm
 ```
 

@@ -32,7 +32,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def backend_arguments(workspace, scratch, mode):
+def backend_arguments(workspace, scratch, mode, enable_permission_tool=False):
     # Read configuration as data solely to disable named MCP servers. Values,
     # account information and credentials are neither copied nor printed.
     names = set()
@@ -52,10 +52,12 @@ def backend_arguments(workspace, scratch, mode):
     servers = '{' + ','.join(json.dumps(name, ensure_ascii=False) + '={enabled=false}' for name in sorted(names)) + '}'
     values = [
         'mcp_servers=' + servers,
-        'features={apps=false,plugins=false,hooks=false,multi_agent=false,code_mode_host=false,plugin_discovery_prefetch=false}',
+        'features.apps=false', 'features.plugins=false', 'features.hooks=false',
+        'features.multi_agent=false', 'features.plugin_discovery_prefetch=false',
         'history.persistence="none"', 'analytics.enabled=false', 'web_search="disabled"',
         'log_dir=' + json.dumps(str(scratch / 'logs')), 'model_reasoning_effort="low"',
     ]
+    if enable_permission_tool: values.append('features.request_permissions_tool=true')
     if mode == 'file':
         values += ['sandbox_mode="workspace-write"', 'approval_policy="on-request"', 'approvals_reviewer="user"',
             'sandbox_workspace_write={writable_roots=[],network_access=false,exclude_tmpdir_env_var=true,exclude_slash_tmp=true}']
@@ -82,11 +84,20 @@ def run(args, scratch):
     authenticated = subprocess.run([codex, 'login', 'status'], capture_output=True, env=environment, timeout=15)
     require(authenticated.returncode == 0, 'SELECTED_CLI_AUTHENTICATION_UNAVAILABLE')
     if args.mode == 'file': environment['GHOSTERM_CODEX_LIVE_FILE_SCOPE'] = '1'
-    prefix = backend_arguments(workspace, scratch, args.mode)
+    prefix = backend_arguments(workspace, scratch, args.mode, args.enable_permission_tool)
     # Validate overrides before the real app-server; never print startup data.
     validation = subprocess.run([codex, 'app-server', '--strict-config', '--print-startup-config', *prefix],
                                 capture_output=True, env=environment, timeout=15)
     require(validation.returncode == 0, 'EXPLICIT_BACKEND_CONFIGURATION')
+    configured = subprocess.run([codex, 'features', 'list', *prefix], capture_output=True, env=environment, timeout=15)
+    require(configured.returncode == 0, 'BACKEND_TOOL_CONFIGURATION')
+    tool_features = {}
+    for row in configured.stdout.decode('utf-8',errors='strict').splitlines():
+        parts = row.split()
+        if len(parts) >= 3 and parts[0] in ('code_mode_host','request_permissions_tool') and parts[-1] in ('true','false'):
+            tool_features[parts[0]] = parts[-1] == 'true'
+    if args.mode != 'chat': require(tool_features.get('code_mode_host') is True, 'BACKEND_TOOL_HOST_DISABLED')
+    if args.mode == 'permission': require(tool_features.get('request_permissions_tool') is True, 'PERMISSION_TOOL_DISABLED_ENABLE_EXPLICITLY')
     command = [args.build / 'test_gterm_codex_peer', args.build / 'gterm', package,
                sha(package / 'integrity.json'), workspace, codex, version, sha(codex), *prefix]
     events, methods = [], {}
@@ -143,14 +154,46 @@ def run(args, scratch):
                 'Use apply_patch to add exactly one file at ' + str(expected_path) + ', containing exactly ' + token +
                 ' followed by one newline. This isolated target is deliberately outside the writable current workspace, so request file-change approval. '
                 'The user authorizes only this exact proposed file. Do not use shell commands, read other files, create other files or use subagents. Then reply with exactly ' + token + '.')
-            if args.mode == 'command':
+            if args.mode in ('command', 'permission'):
                 command = "/usr/bin/printf '%s\\n' '" + token + "' > probe.txt"
                 prompt = ('Use the command execution tool to run exactly this command in the current workspace: ' + command +
                     '. The base sandbox is read-only: request approval for this exact command using sandbox_permissions=require_escalated. '
                     'Do not run other commands or use other tools. After this command succeeds reply with exactly ' + token + '.')
+                if args.mode == 'permission':
+                    prompt = ('Use request_permissions to request filesystem write permission only for ' + str(workspace) +
+                        ' for this turn. Request no network access or paths outside this isolated directory. After approval, use the command tool '
+                        'to run exactly this command in that directory: ' + command + '. Do not run other commands or inspect other files. '
+                        'If the permission tool is unavailable, report that explicitly. After successful execution reply with exactly ' + token + '.')
+            def owned_command(raw, cwd):
+                parsed = shlex.split(raw)
+                if len(parsed) == 3 and parsed[0] in ('/bin/sh','/bin/bash','/bin/zsh') and parsed[1] in ('-c','-lc'):
+                    parsed = shlex.split(parsed[2])
+                return cwd and Path(cwd).resolve() == workspace and parsed == ['/usr/bin/printf', '%s\\n', token, '>', 'probe.txt']
+            def owned_permissions(value):
+                if not isinstance(value, dict) or set(value) != {'network','fileSystem'}: return False
+                if value['network'] not in (None, {'enabled': None}, {'enabled': False}): return False
+                files = value['fileSystem']
+                if not isinstance(files, dict) or set(files) - {'read','write','entries','globScanMaxDepth'}: return False
+                def owned_path(path):
+                    return isinstance(path,str) and Path(path).is_absolute() and Path(path).resolve() in (workspace, expected_path)
+                writes = files.get('write')
+                reads = files.get('read')
+                if writes is not None and (not isinstance(writes,list) or not all(owned_path(path) for path in writes)): return False
+                if reads is not None and (not isinstance(reads,list) or not all(owned_path(path) for path in reads)): return False
+                has_write = bool(writes)
+                entries = files.get('entries')
+                if entries is not None:
+                    if not isinstance(entries,list): return False
+                    for entry in entries:
+                        if not isinstance(entry,dict) or set(entry) != {'path','access'} or entry['access'] not in ('read','write','deny'): return False
+                        path = entry['path']
+                        if not isinstance(path,dict) or set(path) != {'type','path'} or path['type'] != 'path' or not owned_path(path['path']): return False
+                        has_write = has_write or entry['access'] == 'write'
+                return has_write
             turn = rpc('codex.turn.send', {'text': prompt})['turnID']
             end = time.monotonic() + 180
-            cursor = approvals = 0
+            cursor = approvals = permission_grants = 0
+            approval_methods = {}
             documents = {}
             command_items = {}
             complete = False
@@ -166,6 +209,9 @@ def run(args, scratch):
                         item = params.get('item') or {}
                         if method == 'item/started' and item.get('type') == 'commandExecution':
                             command_items[item.get('id')] = item
+                            if args.mode == 'permission':
+                                require(params.get('threadId') == thread and params.get('turnId') == turn and
+                                        owned_command(item.get('command',''), item.get('cwd')), 'OBSERVED_OWNED_COMMAND_ONLY')
                         if method == 'ghosterm/threadConfigured':
                             require(params.get('sandboxType') == expected_sandbox and params.get('approvalsReviewer') == 'user' and
                                     params.get('approvalPolicy') == 'on-request', 'OBSERVED_BACKEND_POLICY')
@@ -183,18 +229,21 @@ def run(args, scratch):
                             complete = True
                     elif kind == 'approval-request':
                         request = event['request']; params = request['params']
+                        approval_methods[request['method']] = approval_methods.get(request['method'],0) + 1
                         require(params.get('threadId') == thread and params.get('turnId') == turn, 'APPROVAL_CORRELATION')
                         decision, snapshot = 'decline', ''
-                        if args.mode == 'command' and request['method'] == 'item/commandExecution/requestApproval':
+                        if request['method'] == 'item/permissions/requestApproval':
+                            snapshot = request.get('permissionReviewID','')
+                            require(re.fullmatch(r'permissions\.[1-9][0-9]{0,19}', snapshot), 'CURRENT_PERMISSION_REVIEW')
+                        if args.mode in ('command','permission') and request['method'] == 'item/commandExecution/requestApproval':
                             observed = command_items.get(params.get('itemId'), {})
                             cwd = params.get('cwd') or observed.get('cwd')
                             raw = params.get('command') or observed.get('command', '')
-                            parsed = shlex.split(raw)
-                            if len(parsed) == 3 and parsed[0] in ('/bin/sh','/bin/bash','/bin/zsh') and parsed[1] in ('-c','-lc'):
-                                parsed = shlex.split(parsed[2])
-                            require(cwd and Path(cwd).resolve() == workspace and
-                                parsed == ['/usr/bin/printf', '%s\\n', token, '>', 'probe.txt'], 'OWNED_COMMAND_SCOPE')
-                            decision = 'accept'; approvals += 1
+                            require(owned_command(raw,cwd), 'OWNED_COMMAND_SCOPE')
+                            decision = 'accept'
+                        if args.mode == 'permission' and request['method'] == 'item/permissions/requestApproval':
+                            require(owned_permissions(params.get('permissions')), 'OWNED_PERMISSION_SCOPE')
+                            decision = 'accept'
                         if args.mode == 'file' and request['method'] == 'item/fileChange/requestApproval':
                             snapshot = documents.get(params.get('itemId'), '')
                             require(snapshot, 'PROPOSED_CHANGE_NOT_AVAILABLE')
@@ -213,10 +262,14 @@ def run(args, scratch):
                                     token in change['diff'], 'OWNED_CHANGE_SCOPE')
                             require(not params.get('grantRoot') or Path(params['grantRoot']).resolve() == expected_path.parent,
                                     'OWNED_FILE_GRANT_ROOT')
-                            decision = 'accept'; approvals += 1
+                            decision = 'accept'
                         request_id = request['id']
                         request_key = ('s:' if isinstance(request_id, str) else 'n:') + str(request_id)
-                        rpc('codex.approval.respond', {'requestID': request_key, 'decisionJSON': json.dumps(decision), 'snapshotID': snapshot})
+                        replied = rpc('codex.approval.respond', {'requestID': request_key, 'decisionJSON': json.dumps(decision), 'snapshotID': snapshot})
+                        require(replied.get('accepted') is True, 'CURRENT_APPROVAL_DECISION_ACCEPTED')
+                        if decision == 'accept':
+                            approvals += 1
+                            if request['method'] == 'item/permissions/requestApproval': permission_grants += 1
                     elif kind in ('protocol-error', 'closed', 'outcome-unknown'):
                         if kind == 'protocol-error':
                             # Only the adapter's own fixed diagnostic is retained.
@@ -225,7 +278,8 @@ def run(args, scratch):
                                 methods['adapterDiagnostic:' + message] = 1
                         raise AssertionError('MODEL_' + kind)
             require(complete and token in text, 'CORRELATED_MODEL_REPLY')
-            if args.mode in ('file','command'):
+            if args.mode in ('file','command','permission'):
+                if args.mode == 'permission': require(permission_grants > 0 and len(command_items) == 1 and sorted(p.name for p in workspace.iterdir()) == ['probe.txt'], 'ONE_ACTUAL_OWNED_COMMAND_RESULT')
                 require(approvals > 0 and expected_path.is_file() and not expected_path.is_symlink() and
                         expected_path.read_text() == token + '\n', 'APPROVED_ACTUAL_FILE_CONTENT')
             else:
@@ -236,16 +290,21 @@ def run(args, scratch):
                 if value.get('closed'): break
             require(peer.wait(timeout=15) == 0, 'NATIVE_EXPLICIT_STOP_AND_REAP')
             return dict(backend='codex', realModel=True, mode=args.mode, modelTurnCompleted=True,
-                        correlatedReply=True, approvals=approvals, eventMethods=methods,
-                        credentialFilesCopied=False, ephemeral=True, nativeOwnerReaped=True)
+                        correlatedReply=True, approvals=approvals, permissionGrants=permission_grants, approvalMethods=approval_methods, commandItems=len(command_items), eventMethods=methods,
+                        credentialFilesCopied=False, ephemeral=True, nativeOwnerReaped=True, toolFeatures=tool_features)
         except BaseException:
             errors.flush(); errors.seek(0)
             diagnostic = errors.read(2097152).decode('utf-8', errors='replace')
             safe = '\n'.join(line for line in diagnostic.splitlines() if line.startswith(('FAIL codex-peer:', 'gterm:', 'Runtime phase ')))
+            observed_reply = locals().get('text','')
             if args.receipt and args.receipt.absolute().parent.resolve().is_relative_to(ROOT / 'tmp'):
                 args.receipt.with_suffix('.native-error.log').write_text(safe + '\n')
                 summary = dict(complete=locals().get('complete'), approvals=locals().get('approvals'),
-                    replyBytes=len(locals().get('text', '').encode()), expectedFilePresent=expected_path.is_file(), eventMethods=methods)
+                    replyBytes=len(locals().get('text', '').encode()), expectedFilePresent=expected_path.is_file(), eventMethods=methods,
+                    commandItems=len(locals().get('command_items',{})),
+                    permissionGrants=locals().get('permission_grants',0), approvalMethods=locals().get('approval_methods',{}),
+                    replyIndicators={name:bool(re.search(pattern,observed_reply,re.I)) for name,pattern in
+                        [('toolUnavailable', r'unavailable|not available|cannot|can.t|无法|不能|不可用'),('permissionsMentioned',r'permissions?|权限')]})
                 args.receipt.with_suffix('.failure.json').write_text(json.dumps(summary,indent=2)+'\n')
             raise
         finally:
@@ -264,10 +323,12 @@ def main():
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-codex')
     parser.add_argument('--codex', default='codex')
-    parser.add_argument('--mode', choices=['chat', 'file', 'command'], default='chat')
+    parser.add_argument('--enable-permission-tool', action='store_true', help='explicitly enable the pinned CLI experimental request_permissions_tool for this owned live test only')
+    parser.add_argument('--mode', choices=['chat', 'file', 'command', 'permission'], default='chat')
     parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
     if not args.live: parser.error('real account use requires --live; no automatic model test')
+    if args.enable_permission_tool and args.mode != 'permission': parser.error('--enable-permission-tool requires --mode permission')
     args.build = args.build.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='codex-live-', dir=ROOT / 'tmp') as directory:
         result = run(args, Path(directory))

@@ -47,6 +47,25 @@ class CodexHostEventsTest {
         assertTrue(state.approvals.isEmpty())
     }
 
+    @Test fun permissionApprovalRetainsCompleteScopeAndReviewReference() {
+        fun request(token: Any?) = JSONObject().put("id", "permission").put("method", "item/permissions/requestApproval")
+            .put("permissionReviewID", token).put("params", JSONObject().put("threadId", "thread").put("turnId", "turn")
+                .put("itemId", "permissions").put("cwd", "/owned").put("permissions", JSONObject()
+                    .put("network", JSONObject.NULL).put("fileSystem", JSONObject().put("read", JSONObject.NULL)
+                        .put("write", org.json.JSONArray().put("/owned/e\u0301").put("/owned/é")))))
+        val approval = requireNotNull(CodexHostEvents.decode(rpc(1, "approval-request", "\"request\":" + request("permissions.41"))).approval)
+        assertEquals("permissions.41", approval.permissionReviewID)
+        assertEquals(null, approval.identity)
+        val paths = JSONObject(approval.paramsJSON).getJSONObject("permissions").getJSONObject("fileSystem").getJSONArray("write")
+        assertTrue(paths.getString(0).toByteArray().contentEquals("/owned/e\u0301".toByteArray()))
+        assertTrue(paths.getString(1).toByteArray().contentEquals("/owned/é".toByteArray()))
+        for (token in listOf(null, "", "permissions.0", "permissions.41\n", "file.41")) {
+            assertThrows(RuntimeException::class.java) {
+                CodexHostEvents.decode(rpc(1, "approval-request", "\"request\":" + request(token)))
+            }
+        }
+    }
+
     @Test fun approvalRejectsBooleanIDsAndUnknownMethods() {
         assertThrows(IllegalArgumentException::class.java) {
             CodexHostEvents.decode(rpc(1, "approval-request",

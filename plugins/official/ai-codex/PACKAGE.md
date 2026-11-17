@@ -50,6 +50,29 @@ Stopping the Runtime closes the protocol and terminates/reaps the owned child.
 Unsupported backend requests produce a terminal protocol error before the owned
 child closes; they do not leave the native conversation silently busy.
 
+
+Stable `item/permissions/requestApproval` is a separate approval class. Native
+Hosts display the complete requested filesystem/network overlay and label the
+decision for the current turn. Allow repeats that exact normalized overlay;
+deny sends an empty overlay. Neither response is a command/file decision
+wrapper. No session grant or review-policy override is sent. Unsupported scope
+fields or special aliases fail explicitly; oversized approvals are not truncated
+into an approvable request. This does not grant Ghosterm local file/network
+capabilities or change the backend's other restrictions.
+
+Every permission event carries an opaque `permissionReviewID`. Both allow and
+deny must echo that current reference in `codex.approval.respond.snapshotID`;
+a stale reference returns `accepted: false` before a child write. A reused vendor
+request ID receives a fresh reference. File decisions retain their existing
+complete-patch revision checks; command decisions continue to use an empty
+snapshot ID. Optional nullable wire fields are normalized to their documented
+empty/default meaning without expanding paths or folding Unicode.
+
+The pinned CLI exposes this stable RPC, while its model-facing
+`request_permissions_tool` feature is experimental and disabled by default.
+This package does not enable it. Select that backend feature explicitly when
+needed; ordinary file/command approval does not depend on it.
+
 This is an unsigned candidate package. Integrity detects changed content; it does
 not authenticate its publisher or authorize execution. Compiled-package fixture
 checks do not prove a live model turn, real approval round trip, Android device

@@ -163,11 +163,47 @@ const unsupportedDisposable = activate(unsupported.context);
 let unsupportedStarted = false;
 unsupported.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { unsupportedStarted = true; });
 await driveUntil(unsupportedDisposable, () => unsupportedStarted, "unsupported request thread");
-unsupported.child.line({ id: "unsupported-1", method: "item/permissions/requestApproval", params: {} });
+unsupported.child.line({ id: "unsupported-1", method: "item/tool/call", params: {} });
 await driveUntil(unsupportedDisposable, () => unsupported.child.reaped, "unsupported backend request must notify and stop");
 const terminalErrors = unsupported.events.map(event => JSON.parse(event.input)).filter(event => event.kind === "protocol-error");
 assert.equal(terminalErrors.length, 1, "Native must receive one terminal protocol observation before close");
-assert.match(terminalErrors[0].message, /unsupported.*item\/permissions\/requestApproval/);
+assert.match(terminalErrors[0].message, /unsupported.*item\/tool\/call/);
+
+
+const permissions = fixtureContext();
+const permissionsDisposable = activate(permissions.context);
+let permissionsStarted = false, permissionsTurn = false;
+permissions.handlers.get("codex.thread.start")({}, { check() {} }).then(() => { permissionsStarted = true; });
+await driveUntil(permissionsDisposable, () => permissionsStarted, "permission thread");
+permissions.handlers.get("codex.turn.send")({ text: "owned permission fixture" }, { check() {} }).then(() => { permissionsTurn = true; });
+await driveUntil(permissionsDisposable, () => permissionsTurn, "permission turn");
+const permissionParams = { threadId: "thread-test", turnId: "turn-test", itemId: "permission-a", environmentId: null,
+  startedAtMs: 1, cwd: "/owned", reason: "owned fixture", permissions: { network: null, fileSystem: { read: null, write: ["/owned/é"] } } };
+const permissionEvent = () => permissions.events.map(event => JSON.parse(event.input)).filter(event =>
+  event.kind === "approval-request" && event.request.method === "item/permissions/requestApproval").at(-1);
+permissions.child.line({ id: "permissions-42", method: "item/permissions/requestApproval", params: permissionParams });
+await driveUntil(permissionsDisposable, () => !!permissionEvent(), "complete permission event");
+const firstPermission = permissionEvent().request;
+assert.match(firstPermission.permissionReviewID, /^permissions\.[1-9][0-9]*$/);
+assert.deepEqual(firstPermission.params.permissions, permissionParams.permissions);
+const respondPermission = (snapshotID, decision = "accept") => permissions.handlers.get("codex.approval.respond")({
+  requestID: "s:permissions-42", decisionJSON: JSON.stringify(decision), snapshotID }, { check() {} });
+assert.deepEqual(respondPermission(""), { accepted: false }, "grant requires the exact captured permission review");
+assert(!permissions.child.writes.some(value => value.id === "permissions-42"));
+assert.deepEqual(respondPermission(firstPermission.permissionReviewID), { accepted: true });
+await driveUntil(permissionsDisposable, () => permissions.child.writes.some(value => value.id === "permissions-42"), "actual permission pipe response");
+assert.deepEqual(permissions.child.writes.find(value => value.id === "permissions-42").result,
+  { permissions: { fileSystem: permissionParams.permissions.fileSystem }, scope: "turn" });
+permissions.child.line({ id: "permissions-42", method: "item/permissions/requestApproval", params: {
+  ...permissionParams, itemId: "permission-b", permissions: { network: { enabled: true }, fileSystem: null } } });
+await driveUntil(permissionsDisposable, () => permissionEvent()?.request.permissionReviewID !== firstPermission.permissionReviewID, "reused request id gets a fresh permission review");
+assert.deepEqual(respondPermission(firstPermission.permissionReviewID), { accepted: false }, "old scope cannot authorize a reused backend id");
+assert.deepEqual(respondPermission(firstPermission.permissionReviewID, "decline"), { accepted: false }, "old denial cannot resolve a reused backend id");
+assert.deepEqual(respondPermission(permissionEvent().request.permissionReviewID, "decline"), { accepted: true });
+await driveUntil(permissionsDisposable, () => permissions.child.writes.filter(value => value.id === "permissions-42").length === 2, "empty-overlay denial pipe response");
+assert.deepEqual(permissions.child.writes.filter(value => value.id === "permissions-42").at(-1).result,
+  { permissions: {}, scope: "turn" });
+await permissionsDisposable.dispose();
 
 const turn = fixture.handlers.get("codex.turn.send")({ text: "hello" }, { check() {} });
 let turnResult;

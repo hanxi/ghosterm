@@ -951,9 +951,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                             Text(approval.paramsJSON, style = MaterialTheme.typography.bodySmall,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
+                        if (approval.method == "item/permissions/requestApproval") {
+                            Text("以下完整权限范围仅用于当前轮，可能允许范围内后续操作。", style = MaterialTheme.typography.bodySmall)
+                        }
                         ConversationDecisions("plugin-codex-approval", state.callBusy,
-                            approval.method != "item/fileChange/requestApproval" || snapshotID != null,
-                            deny = { extensions.respondCodexApproval(approval.id, false) },
+                            approval.method == "item/commandExecution/requestApproval" || snapshotID != null,
+                            allowLabel = if (approval.method == "item/permissions/requestApproval") "允许本轮所列权限" else "批准一次",
+                            deny = { extensions.respondCodexApproval(approval.id, false, snapshotID) },
                             allow = { extensions.respondCodexApproval(approval.id, true, snapshotID) })
                         if (approval.method == "item/fileChange/requestApproval" && snapshotID == null) {
                             Text("先读取并核对当前完整补丁，才能批准此版本。", style = MaterialTheme.typography.bodySmall)

@@ -17,7 +17,7 @@ internal data class CodexTimelineEntry(val id: String, val title: String, val de
     val fileChanges: List<CodexFileChange> = emptyList(), val omittedChangeCount: Int = 0,
     val changeReference: CodexChangeReference? = null, val changeUnavailable: Boolean = false)
 internal data class CodexPendingApproval(val id: String, val method: String, val paramsJSON: String,
-    val itemID: String?, val identity: CodexApprovalIdentity? = null)
+    val itemID: String?, val identity: CodexApprovalIdentity? = null, val permissionReviewID: String? = null)
 internal data class CodexHostState(
     val sequence: Long = 0,
     val rawEvents: List<String> = emptyList(),
@@ -50,7 +50,7 @@ internal object CodexHostEvents {
 
     private val eventKinds = setOf("notification", "approval-request", "approval-resolved",
         "outcome-unknown", "protocol-error", "closed")
-    private val approvalMethods = setOf("item/commandExecution/requestApproval", "item/fileChange/requestApproval")
+    private val approvalMethods = setOf("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval")
 
     fun decodeOutcome(bytes: ByteArray): JSONObject {
         val outcome = parse(strictUtf8(bytes)) as? JSONObject ?: error("Codex RPC outcome must be an object")
@@ -98,7 +98,21 @@ internal object CodexHostEvents {
                     }
                     CodexApprovalIdentity(part("threadId"), part("turnId"), part("itemId"))
                 } else null
-                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams), itemID, identity)
+                val permissionReviewID = if (requestMethod == "item/permissions/requestApproval") {
+                    val fields = requestParams as? JSONObject ?: error("Permission params must be an object")
+                    for (name in listOf("threadId", "turnId", "itemId")) {
+                        val part = fields.opt(name) as? String ?: error("Permission identity is invalid")
+                        require(part.isNotEmpty() && codexChangeUtf8(part).size <= 128)
+                    }
+                    val profile = fields.optJSONObject("permissions") ?: error("Permission profile is missing")
+                    require(profile.keys().asSequence().toSet() == setOf("network", "fileSystem"))
+                    require(listOf("network", "fileSystem").all { profile.opt(it) === JSONObject.NULL || profile.opt(it) is JSONObject })
+                    require(fields.opt("cwd") is String)
+                    (requestObject.opt("permissionReviewID") as? String)?.also {
+                        require(Regex("permissions\\.[1-9][0-9]{0,19}").matches(it))
+                    } ?: error("Permission review reference is missing")
+                } else null
+                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams), itemID, identity, permissionReviewID)
             }
             "approval-resolved" -> resolved = requestKey(event.opt("requestID"))
         }
