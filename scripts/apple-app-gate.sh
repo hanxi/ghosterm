@@ -169,7 +169,9 @@ SWIFT_TEST_ARGS=()
 if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
   SWIFT_TEST_ARGS+=(--filter "$GHOSTERM_APP_TEST_FILTER")
 fi
-( cd "$PKG" && "${ENVARGS[@]}" swift test "${SWIFT_TEST_ARGS[@]}" ) >"$TMP/apple-app-test.log" 2>&1 || {
+# Bash 3.2 treats an empty array as unset under nounset. Expand optional argv
+# only when populated; preserve each environment assignment/filter as one word.
+( cd "$PKG" && ${ENVARGS[@]+"${ENVARGS[@]}"} swift test ${SWIFT_TEST_ARGS[@]+"${SWIFT_TEST_ARGS[@]}"} ) >"$TMP/apple-app-test.log" 2>&1 || {
   echo "apple-app-gate: swift test 失败" >&2
   grep -E "(^|: )error:|Test Case .* failed|Fatal error:|unexpected signal|panic" "$TMP/apple-app-test.log" >&2 | head -30
   exit 1

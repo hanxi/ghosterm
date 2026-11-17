@@ -329,6 +329,8 @@ dev 的 main push 和 release 的 PR 都有路径过滤，连续 dev 运行还�
 
 子检查失败传播已于 2026-11-17 修复：ABI 或 HTML 子检查失败时，`apple-app-gate.sh` 保留其非零退出码并停止，不打印 `APPLE APP GATE PASS`。`python3 scripts/test-apple-app-gate.py -v` 使用工程 tmp 下的真实闸门副本及 shell 依赖桩，五项检查覆盖全成功、ABI/Core/Swift/HTML 失败；两组撤回修复各得到单条正常断言红、同夹具成功对照绿、恢复绿与源码 SHA256。此证据只针对脚本控制流，没有执行原生编译、SSH 或插件业务；SSH 必跑策略仍按上一段单独收口。
 
+后续兼容批修复系统 Bash 3.2 / `set -u` 下空环境/过滤器数组展开失败；使用有条件数组展开保留原有参数边界。上述 shell 检查新增带空格/竖线的过滤器传参，Bash 3.2 与 PATH Bash 5.3.20 各六项通过：`python3 scripts/test-apple-app-gate.py --shell /bin/bash -v` 及默认命令。一组撤回修复在 Bash 3.2 单条正常断言红、独立 ABI 失败传播对照绿、恢复绿与 SHA256；不改变 SSH 跳过策略。
+
 构建 Core 与 App 时须使用一致的 Xcode 环境。此次文档核对中，系统 `xcode-select` 指向 Command Line Tools，默认 `gate.sh` 链接 Xcode 27 SDK 的 TBD 时失败（`unknown architecture`）；在同一命令设置完整 Xcode 的 `DEVELOPER_DIR` 后 46 项 Core 测试与 88 ABI 闸门通过。不能从脚本使用了 `xcrun` 推定编译器、链接器和缓存 SDK 已一致，也不固定假设 Xcode SDK 一定是 26.5。
 
 仅安装 Command Line Tools 时，`swift build` 成功不代表 XCTest 可用；本机曾在测试编译时报 `no such module 'XCTest'`。有完整 Xcode 时可对单次命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，临时目录设为工程 `tmp/`，无需更改全局 `xcode-select`。共享 C archive 更新后的绑定测试需确保重新链接；旧 SwiftPM 测试可执行文件不能作为新 C 实现的证据。
