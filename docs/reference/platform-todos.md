@@ -21,7 +21,7 @@
 
 | 顺序 / 优先级 | 可做切片 | 源码落点与缺口 | 本片交付 / 验证边界 |
 |---|---|---|---|
-| 1 / P0 | SSH 配置保存事务与模型发布 | [ConfigStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) 忽略备份失败、先删后移；`AppModel.applyEdits/addHost` 先改内存后落盘 | 备份失败阻断，同目录原子替换，候选落盘成功后才发布；覆盖备份/替换/并发变化/提交后错误。可先做，不等表单重构 |
+| 1 / P0（存储已修） | SSH 配置候选模型发布 | [ConfigStore.swift](../../apple/GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) 已独立补强写盘事务；`AppModel.applyEdits/addHost` 仍先改内存后落盘 | 下一片待插件对 AppModel 的修改稳定后，再接候选落盘后发布；本片验证范围及未收口边界见[写盘事务](macos-config-store.md)，不扩大为整个表单已完成 |
 | 2 / P0 | 主机表单保真 | [HostListModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/HostListModel.swift) 简化扫描，[HostEditorSheet.swift](../../apple/GhostermApp/Sources/GhostermApp/HostEditorSheet.swift) 提交全部字段、多条身份只回显最后一条 | 共享语法/来源与脏字段接线，未改保存不变；Include/重复块保持归属保护。别名改名依赖此片与事务片 |
 | 3 / P0 | 私钥安全存储生产接线 | [SSHCredentialSelector.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) 从受限磁盘文件读 PEM，Keychain 生产路径保存口令/密码 | 私钥导入→安全存储→解锁→认证，引用/取消/错误明确；不把 Android 容器引用当本端路径，不放宽铁律 #5 |
 | 4 / P1 | 宿主闸门必跑项 | [apple-app-gate.sh](../../scripts/apple-app-gate.sh) 的 ABI/HTML 子检查失败传播已修；sshd 失败可 SKIP 后 PASS 的策略仍未收口 | 失败传播五项 shell 检查与两组撤回修复验证已通过，非原生业务证据。后续明确 full 档 SSH 必跑策略，独立验证缺环境会失败；不删测试或把缺环境改成通过 |
@@ -58,3 +58,4 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 文档批 `06dee62a`：同步非插件现状与 Android 模拟器自动化/真机人工手测分工。
 - 闸门失败传播批：仅改 `apple-app-gate.sh` 的子检查返回值处理，保留现有入口、过滤器和 SSH 跳过策略；独立 shell 验证不执行插件。依赖桩最初遗漏 PATH 工具及误选系统 Bash 3.2 的失败未计有效红；修正夹具后，原实现只有 ABI/HTML 两条正常断言失败，Core/Swift 错误与全成功对照通过。最终 PATH Bash 5.3.20 五项通过；两组撤回修复分别正常断言红/对照绿/恢复绿及 SHA256。未运行完整原生宿主或 CI。系统 Bash 3.2 的空数组兼容由下一独立批处理。
 - Bash 3.2 兼容批：修复环境/测试过滤器空数组在 nounset 下的展开，过滤器仍按一个参数传递。Bash 3.2 / 5.3.20 各六项 shell 检查通过，一组撤回修复单条正常断言红/独立对照绿/恢复绿/SHA256。未改插件代码或 SSH 跳过策略，未执行原生业务。
+- ConfigStore 独立写盘批：强制备份、稳定非阻塞保存锁、字节/身份快照、原子替换、首次创建排他提交、提交后错误和重载保护已接。最终同源 43 项与 22 组完整 native 变异、arm64 Release、隔离 Core 589/185 与 C 格式 276 通过；不改 AppModel 或插件。完整范围/前置失败与剩余模型发布见[写盘事务](macos-config-store.md)。

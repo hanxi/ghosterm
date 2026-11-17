@@ -49,7 +49,7 @@ apple/
 
 `7939ef8` 交付的 Bash/Zsh 提示符鼠标清理脚本仍可独立安装。当前 App 的普通本地 zsh 入口已自动加载随包钩子：系统 SSH 异常断开回到本地提示符时清理移动/点击残留，无需修改用户启动文件；`.direct`、其它 shell 及远端仍保留原启动方式，Bash/远端需手工集成。macOS 26.6.2 / tmux 3.6a 已有三层隔离 SSH 断线、真实 AppKit 点击及正常 TUI 字节对照；真实硬件休眠和用户远端另验。随包资源对拍、自动接线与包内检查见[鼠标残留恢复](../docs/how-to/mouse-report-recovery.md)。这项提示符钩子不提供远端 cwd 上报，也不补齐 OSC 133 集成。
 
-共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
+共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 已独立补强制备份、原子替换和明确提交结果，见[写盘事务](../docs/reference/macos-config-store.md)；`AppModel` 的候选模型发布与私钥安全存储接线仍待修，不能将本片写盘保障扩大为整个表单已完成。
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。
 多条身份路径有具体的表单缺口：`loadInitial` 对每条 `IdentityFile` 都重新赋值给同一个输入框，最后只显示最后一条；保存再提交这一列表。因此原有两行身份路径不能因输入框标着“逗号分隔多条”就视为会无损保留。新增的共享来源查询尚未替换此读取路径；修复需覆盖未改保存、多条身份顺序、继承/Include 和路径引用，不能只增加控件。
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
@@ -57,7 +57,7 @@ apple/
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
 已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定为 80 / 78+2，已验通道取消切片为 81 / 79+2；受控 SFTP 切片为 82 / 80+2（§9.47），接口协议验证不表示产品接线已完成。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
-共享 TOFU 写入现与 `KnownHosts.remove(path:expected:index:)` 使用同一事务；删除绑定返回 status、committed 与 conflict，提交后的 IO 错误不能解释为未改动。确认期间重新核对撤销/冲突，备份、锁、原子替换与故障验证见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。本端仍没有信任记录管理页面；这项 shared known_hosts 事务不修复 `ConfigStore` 的 SSH 配置保存缺口。
+共享 TOFU 写入现与 `KnownHosts.remove(path:expected:index:)` 使用同一事务；删除绑定返回 status、committed 与 conflict，提交后的 IO 错误不能解释为未改动。确认期间重新核对撤销/冲突，备份、锁、原子替换与故障验证见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。本端仍没有信任记录管理页面；这项 shared known_hosts 事务与 `ConfigStore` 的独立写盘事务分开验收，也不修复 `AppModel` 的配置模型发布顺序。
 
 共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接共享判定，见实现计划 §9.24。
 
@@ -77,7 +77,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 | 文件 | 当前生产写入路径 | 尚未完成的保障 |
 |---|---|---|
-| SSH `config` | `ConfigStore.save`；备份错误被忽略，删除旧文件后移动新文件 | 强制备份、原子替换、冲突与失败后内存恢复；M3 仍未收口 |
+| SSH `config` | `ConfigStore.save`；稳定保存锁、完整字节/身份快照、强制备份、同目录原子替换；提交后错误单独报告 | `AppModel` 仍先改内存后落盘；表单与候选模型发布未收口。存储专项及非协作写者边界见[写盘事务](../docs/reference/macos-config-store.md) |
 | `known_hosts` | `ssh.c` → `known_hosts_store.c`；TOFU 与删除绑定共用协调、备份和原子替换 | 本端管理 UI 未接；备份清理、任意非协作写者与断电边界未收口 |
 | Ghostty `ghostty.conf` | `SettingsStore.saveTerminalConfig`；备份失败抛错，已有文件经 `replaceItemAt` 替换 | 重复键、读取错误、外部新建冲突与引擎拒绝后的恢复仍待修 |
 
@@ -89,7 +89,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 | 复核项 | 代码现状 | 进度结论 |
 |---|---|---|
-| SSH 配置保存 | `ConfigStore.save` 忽略备份失败，随后删除旧文件再移动新文件 | 强制备份和原子替换仍未完成，不能沿用 Android 的事务保证 |
+| SSH 配置保存 | `ConfigStore.save` 已补强制备份、同步和原子替换；失败保留未提交目标，提交后失败明确报告 | 仅为本端存储层交付；`AppModel` 失败后的内存状态、表单保真另行修复 |
 | 认证后的 shell/SFTP 打开 | `AppModel` 仍用旧 `openSSHShell(ssh)`；SFTP 已用 `ssh.sftp(timeoutMilliseconds: 5000)`，但两者都未贯通原认证剩余预算和取消 | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
 | 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
 | 目录导航 | `FilesPanelModel.navigate` 不校验请求代次；后退/前进先改历史，失败不恢复；刷新不失效树缓存 | 仍需导航结果隔离、成功后提交历史与缓存失效；源码复核不作为交互验收 |
@@ -135,7 +135,7 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 
 `CGhostty/shim.c` 已接引擎标准文本剪贴板回调：OSC 52 写入系统剪贴板，读取按引擎策略默认逐次确认，确认使用原始快照，隐藏/销毁取消未决请求。大小沿用引擎与系统剪贴板边界；选区剪贴板和二进制表示不支持。该专项不证明全局菜单路由、选中自动复制或 Cocoa 菜单粘贴确认完整验收，见 [OSC 52 接线与验证](../docs/reference/osc52.md)。文件路径复制与文件传输也有各自的接线，不能互相替代验收。
 
-修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
+修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。`ConfigStore` 的强制备份/原子替换已有独立 native XCTest 与隔离故障验证；`AppModel.applyEdits/addHost` 仍先改内存再保存，不能据存储修复宣布 M3 已完成。
 
 **配置求值不等于连接执行**：共享 `gt_config_check_connection` 检查当前普通 SSH 档位可执行的显式指令，并返回关键词及来源；`HostListModel` 在求值同一份配置时复制结果，`SSHConnectionTarget` / `RemoteTarget` 携带该快照。`SSHAuthenticationFlow.start` 在创建定时器及解析器前拒绝不支持项，普通 SSH、独立/内嵌 SFTP 和 tmux 共用。macOS 普通终端、独立/内嵌 SFTP 另由 `SSHConfiguredRoute` 和 `SSHRouteAuthenticationFlow` 消费 ProxyJump：每跳独立身份、信任和凭据，只有首跳本机 DNS，目标复核后交接受管路线。原单跳底层仍拒绝 ProxyJump；tmux 管理和 attach 同样通过独立的受管路线认证；探测/列举不创建服务器，创建/attach 仍需显式选择。转发、环境注入等其它未实现项仍拒绝。
 
@@ -194,7 +194,7 @@ macOS `makeSFTPFileBackend` 已接固定预算的 `sftp` 重载，剩余预算/�
 
 设置窗口实际有通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；“只有新开的标签页会读到改动”的 UI 提示仍待修正，文档不沿用这条过时文案。
 
-终端配置存储与 SSH 配置存储须分开核对：`SettingsStore.saveTerminalConfig` 的备份失败会抛错，提交使用 `replaceItemAt`；没有 `ConfigStore` 的先删后移流程。但 `rawConfig()` 将目录/读取错误折为空文本，加载时 stat 缺失后即使文件被外部创建也不报冲突。`merging` 只改首个同名键，而 `value` 读取最后一个：两行 `font-size = 10` / `font-size = 12` 改成 18 后，回读仍为 12。2026-10-30 直接编译生产 `SettingsStore.swift` 的隔离探针已复现这些结果；正常单键改为 18 和首次创建均成功。这是存储/文本处理证据，未替代真实引擎或页面验收。
+终端配置存储与 SSH 配置存储须分开核对：`SettingsStore.saveTerminalConfig` 的备份失败会抛错，提交使用 `replaceItemAt`；该存储与已补强的 SSH `ConfigStore` 分开验收。但 `rawConfig()` 将目录/读取错误折为空文本，加载时 stat 缺失后即使文件被外部创建也不报冲突。`merging` 只改首个同名键，而 `value` 读取最后一个：两行 `font-size = 10` / `font-size = 12` 改成 18 后，回读仍为 12。2026-10-30 直接编译生产 `SettingsStore.swift` 的隔离探针已复现这些结果；正常单键改为 18 和首次创建均成功。这是存储/文本处理证据，未替代真实引擎或页面验收。
 
 `AppModel.applyTerminalSettings` 写盘后才请求引擎重载，重载失败没有恢复旧文件；`replaceTerminalConfig` 尝试恢复旧文件但忽略恢复错误。因此“错误已提示”不等于“磁盘与已有 surface 都保持旧值”。修复与失败注入条件纳入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
