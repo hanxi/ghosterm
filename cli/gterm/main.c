@@ -36,6 +36,9 @@ static int usage(void) {
         "       gterm plugin remove-installed --catalog DIRECTORY --store DIRECTORY --version "
         "SHA256 "
         "--expect-revision N --review-digest SHA256\n"
+        "       gterm plugin review-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY\n"
+        "       gterm plugin remove-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY "
+        "--expect-revision N --review-digest SHA256\n"
         "       gterm plugin review-policy --catalog DIRECTORY --policy JSON\n"
         "       gterm plugin disable-denied --catalog DIRECTORY --policy JSON "
         "--expect-revision N --expect-policy-digest SHA256 --review-digest SHA256\n"
@@ -530,7 +533,8 @@ int main(int argc, char **argv) {
         result = available ? 0 : 4;
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
                (!strcmp(argv[2], "versions") || !strcmp(argv[2], "review-installed") ||
-                !strcmp(argv[2], "remove-installed"))) {
+                !strcmp(argv[2], "remove-installed") || !strcmp(argv[2], "review-residue") ||
+                !strcmp(argv[2], "remove-residue"))) {
         result = gterm_release_manage(argv[2], argc - 3, argv + 3, &interrupted);
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") &&
                (!strcmp(argv[2], "review-policy") || !strcmp(argv[2], "disable-denied"))) {

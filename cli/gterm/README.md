@@ -432,8 +432,35 @@ owner，不是 OS 沙箱，也不追踪旧二进制、手工进程或任意配�
 
 中断后的原目录、隔离目录或“目录已无、意图尚在”均须再次 review-installed，再使用
 新的确认。复核展示全部当前剩余内容；新增内容会使旧确认失效，显式新确认才授权
-该次完整清单。不会启动时自动继续删除；损坏 / 归属不明意图、无意图的孤立隔离目录
-与未知安装暂存保留。完整磁盘故障、挂载、并发和其它 OS 矩阵仍待集中验收。
+该次完整清单。不会启动时自动继续删除。完整磁盘故障、挂载、并发和其它 OS 矩阵
+仍待集中验收。
+
+安装中断留下的条目须另外完整核对，再明确删除单个条目：
+
+```text
+gterm plugin review-residue --store ABSOLUTE_INSTALL_ROOT --catalog ABSOLUTE_CATALOG \
+  --name ENTRY_NAME
+gterm plugin remove-residue --store ABSOLUTE_INSTALL_ROOT --catalog ABSOLUTE_CATALOG \
+  --name ENTRY_NAME --expect-revision REVIEW_REVISION --review-digest REVIEW_SHA256
+```
+
+只接受规范的小写十六进制 `.prepare-32HEX` 暂存目录、`.intent-32HEX` 安装意图、
+`.remove-64HEX` 孤立隔离目录和 `.remove-64HEX.intent` 删除意图；其它名称保留。
+名字不证明归属，始终报告 `ownershipKnown=false`。核对展示全部当前路径 / 文件摘要，
+根文件另给 `rootSHA256`，确认绑定所选条目、登记修订、身份 / 权限 / 时间和所有字节。
+沿用上述预算，不跟链接、不跨文件系统，不接受多链接普通文件，不修改普通文件权限。
+暂存目录与文件额外允许私有可写权限 0700 / 0600。登记引用或实际协作锁阻止删除。
+
+安装意图须等对应暂存目录不存在才可删除；孤立隔离目录须等原版本槽不存在。
+删除意图须等隔离目录不存在。若原版本还在，核对同时展示它的完整清单并检查引用 / 锁；
+`preservedVersion` 指出保留版本，提交只删意图，不改版本内容。关联版本发生变化同样使
+旧确认失效。`fileBytes` 包含全部核对文件，`targetFileBytes` 只计所选删除条目的文件；
+两者都不是实际可释放磁盘空间。残留维护不推断有效删除协议，`pendingRemoval`、
+`versionAbsent`、`intentRetained` 为 null；伴随条目保留并须分别核对。
+
+维护不重命名或自动重放残留任务。取消 / 进程死亡可能留下部分已删、部分仍在的目录，
+旧确认随清单变化失效；再次完整核对后才能继续。不会将未知条目收养为成功安装，
+不认证发布者或授予执行能力，不操作用户未指定的安装根 / 登记目录。
 
 定向场景使用工程内签名夹具，不操作用户安装根、账号或外部主机：
 
@@ -441,6 +468,8 @@ owner，不是 OS 沙箱，也不追踪旧二进制、手工进程或任意配�
 python3 -B scripts/test-gterm-release.py --build tmp/gterm-build --node 已安装Node路径 \
   --sdk 已构建HostSDK目录 --case version-maintenance --case version-reference \
   --case version-active --case node-version-active --case exec-version-active
+python3 -B scripts/test-gterm-release.py --build tmp/gterm-build --node 已安装Node路径 \
+  --case residue-maintenance --case residue-reference --case residue-damaged-intent
 # 仅显式夹具构建提供删除一次后的暂停；真实 SIGKILL 后重新复核继续。
 cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_TESTS=ON -DGHOSTERM_GTERM_STORE_FAULTS=ON
 cmake --build tmp/gterm-build --target gterm

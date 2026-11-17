@@ -44,11 +44,11 @@ typedef struct {
     char quarantine[80], intent[88], location[80];
     struct stat identity, intent_identity;
     unsigned char intent_bytes[INTENT_BYTES];
-    bool pending, in_use, removed, quarantined;
+    bool pending, in_use, removed, quarantined, residue, root_file;
     unsigned references, count;
     uint64_t bytes, path_bytes;
     item_t *items;
-    char digest[65];
+    char digest[65], root_hash[65], associated_version[65];
 } review_t;
 
 static bool same(const struct stat *a, const struct stat *b) {
@@ -377,7 +377,7 @@ walk(review_t *r, int fd, const char *prefix, unsigned depth, volatile sig_atomi
             break;
         }
         if (S_ISDIR(s->st_mode)) {
-            if (mode != 0500 && !(r->pending && mode == 0700)) {
+            if (mode != 0500 && !((r->pending || r->residue) && mode == 0700)) {
                 result = 6;
                 break;
             }
@@ -393,7 +393,9 @@ walk(review_t *r, int fd, const char *prefix, unsigned depth, volatile sig_atomi
             if (close(child)) {
                 result = 5;
             }
-        } else if (S_ISREG(s->st_mode) && s->st_nlink == 1 && (mode == 0400 || mode == 0500)) {
+        } else if (S_ISREG(s->st_mode) && s->st_nlink == 1 &&
+                   (mode == 0400 || mode == 0500 ||
+                    (r->residue && (mode == 0600 || mode == 0700)))) {
             if (s->st_size < 0 || (uint64_t)s->st_size > TREE_BYTES - r->bytes) {
                 result = 2;
                 break;
@@ -446,14 +448,21 @@ static uint64_t decode64(const unsigned char *p) {
 static unsigned references(const gterm_catalog_t *c,
                            const char *store,
                            const char *version,
-                           const struct stat *identity) {
-    char root[3600];
+                           const struct stat *identity,
+                           const char *alternate) {
+    char root[3600], other[3600] = {0};
     snprintf(root, sizeof(root), "%s/%s", store, version);
     size_t n = strlen(root);
+    if (alternate) {
+        snprintf(other, sizeof(other), "%s/%s", store, alternate);
+    }
+    size_t m = strlen(other);
     unsigned count = 0;
     for (uint32_t i = 0; i < c->count; i++) {
         const gterm_catalog_entry_t *e = &c->entries[i];
         bool used = !strncmp(e->directory, root, n) && (!e->directory[n] || e->directory[n] == '/');
+        used = used || (m && !strncmp(e->directory, other, m) &&
+                        (!e->directory[m] || e->directory[m] == '/'));
         for (uint32_t j = 0; j < e->profile_count && !used;) {
             int arity = gterm_stdio_option_arity(e->profile[j]);
             if (arity < 0 || (uint32_t)arity >= e->profile_count - j) {
@@ -462,7 +471,8 @@ static unsigned references(const gterm_catalog_t *c,
             if (!strcmp(e->profile[j], "--release-evidence")) {
                 const char *path = e->profile[j + 1];
                 struct stat s;
-                used = !strcmp(path, root) || (identity && !lstat(path, &s) && same(identity, &s));
+                used = !strcmp(path, root) || (m && !strcmp(path, other)) ||
+                       (identity && !lstat(path, &s) && same(identity, &s));
             }
             j += (uint32_t)arity + 1;
         }
@@ -529,11 +539,12 @@ static int fingerprint(review_t *r, const gterm_catalog_t *c) {
     bool ok =
         append_hash(bytes,
                     &at,
-                    "ghosterm-cli-remove-review-v1",
-                    sizeof("ghosterm-cli-remove-review-v1") - 1) &&
+                    r->residue ? "ghosterm-cli-residue-review-v1" : "ghosterm-cli-remove-review-v1",
+                    r->residue ? sizeof("ghosterm-cli-residue-review-v1") - 1
+                               : sizeof("ghosterm-cli-remove-review-v1") - 1) &&
         append_hash(bytes, &at, r->store.path, strlen(r->store.path)) &&
         append_hash(bytes, &at, c->path, strlen(c->path)) &&
-        append_hash(bytes, &at, r->version, 64) &&
+        append_hash(bytes, &at, r->version, strlen(r->version)) &&
         append_hash(bytes, &at, r->location, strlen(r->location)) &&
         append_hash(bytes, &at, facts, (size_t)n) && hash_stat(bytes, &at, &c->original) &&
         append_hash(bytes, &at, &r->store.identity.st_dev, sizeof(r->store.identity.st_dev)) &&
@@ -543,6 +554,9 @@ static int fingerprint(review_t *r, const gterm_catalog_t *c) {
         hash_stat(bytes, &at, &r->identity) && hash_stat(bytes, &at, &r->intent_identity) &&
         hash_stat(bytes, &at, &r->store.locked) &&
         append_hash(bytes, &at, r->intent_bytes, r->pending ? INTENT_BYTES : 0);
+    if (ok && r->residue) {
+        ok = append_hash(bytes, &at, r->root_hash, strlen(r->root_hash));
+    }
     for (unsigned i = 0; ok && i < r->count; i++) {
         item_t *item = &r->items[i];
         ok = append_hash(bytes, &at, item->path, strlen(item->path)) &&
@@ -699,8 +713,161 @@ observe(review_t *r, const gterm_catalog_t *c, bool removing, volatile sig_atomi
             return 9;
         }
     }
-    r->references = references(c, r->store.path, r->version, &r->identity);
+    r->references = references(c, r->store.path, r->version, &r->identity, NULL);
     if (!current(&r->store)) {
+        return 9;
+    }
+    return fingerprint(r, c);
+}
+
+/* Names only identify a maintenance candidate. They never establish ownership,
+ * a valid install, or authority to erase it without a complete fresh review. */
+static bool residue_name(const char *name) {
+    if (!name) {
+        return false;
+    }
+    size_t length = strlen(name), start, digits;
+    if (length == 41 && !strncmp(name, ".prepare-", 9)) {
+        start = 9;
+        digits = 32;
+    } else if (length == 40 && !strncmp(name, ".intent-", 8)) {
+        start = 8;
+        digits = 32;
+    } else if ((length == 72 || (length == 79 && !strcmp(name + 72, ".intent"))) &&
+               !strncmp(name, ".remove-", 8)) {
+        start = 8;
+        digits = 64;
+    } else {
+        return false;
+    }
+    for (size_t i = start; i < start + digits; i++) {
+        if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int require_absent(int root, const char *name) {
+    struct stat s;
+    if (!fstatat(root, name, &s, AT_SYMLINK_NOFOLLOW)) {
+        return 8;
+    }
+    return errno == ENOENT ? 0 : 5;
+}
+
+static int observe_residue(review_t *r,
+                           const gterm_catalog_t *c,
+                           bool removing,
+                           volatile sig_atomic_t *cancelled) {
+    const char *name = r->version;
+    char related[80], version[65] = {0};
+    int result = 0;
+    bool preparation = !strncmp(name, ".prepare-", 9);
+    bool install_intent = !strncmp(name, ".intent-", 8);
+    if (install_intent) {
+        snprintf(related, sizeof(related), ".prepare-%s", name + 8);
+        result = require_absent(r->store.root, related);
+    } else if (!preparation) {
+        memcpy(version, name + 8, 64);
+        version[64] = 0;
+        result = require_absent(r->store.root, version);
+        if (result == 8 && strlen(name) == 79) {
+            /* A damaged pre-rename intent must not trap an existing version
+             * forever. Its complete tree, references and live lock become
+             * part of this review; deleting the intent preserves the tree. */
+            strcpy(r->associated_version, version);
+            result = 0;
+        }
+        if (!result && strlen(name) == 79) {
+            snprintf(related, sizeof(related), ".remove-%s", version);
+            result = require_absent(r->store.root, related);
+        }
+    }
+    if (result) {
+        return result;
+    }
+    strcpy(r->location, name);
+    strcpy(r->quarantine, name); // No rename: these names are not published install slots.
+    if (fstatat(r->store.root, name, &r->identity, AT_SYMLINK_NOFOLLOW)) {
+        return errno == ENOENT ? 10 : 5;
+    }
+    mode_t mode = r->identity.st_mode & 07777;
+    if (r->identity.st_uid != geteuid() || r->identity.st_dev != r->store.identity.st_dev) {
+        return 6;
+    }
+    if (S_ISDIR(r->identity.st_mode) && !install_intent && strlen(name) != 79 &&
+        (mode == 0500 || mode == 0700)) {
+        r->directory = openat(r->store.root, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        struct stat actual;
+        if (r->directory < 0 || fstat(r->directory, &actual) || !stable(&actual, &r->identity)) {
+            return 9;
+        }
+        result = directory_lock(r->directory, true);
+        if (result == 11 && !removing) {
+            r->in_use = true;
+            result = directory_lock(r->directory, false);
+        }
+        if (result) {
+            return result;
+        }
+        r->items = calloc(TREE_ITEMS, sizeof(*r->items));
+        if (!r->items) {
+            return 5;
+        }
+        result = walk(r, r->directory, "", 0, cancelled);
+        if (result) {
+            return result;
+        }
+        qsort(r->items, r->count, sizeof(*r->items), compare);
+    } else if (S_ISREG(r->identity.st_mode) && (install_intent || strlen(name) == 79) &&
+               r->identity.st_nlink == 1 && (mode == 0400 || mode == 0600)) {
+        r->root_file = true;
+        result = hash_file(r->store.root, name, &r->identity, r->root_hash, cancelled);
+        if (result) {
+            return result;
+        }
+        r->bytes = (uint64_t)r->identity.st_size;
+    } else {
+        return 6;
+    }
+    if (r->associated_version[0]) {
+        r->items = calloc(TREE_ITEMS, sizeof(*r->items));
+        if (!r->items) {
+            return 5;
+        }
+        item_t *item = &r->items[r->count++];
+        item->path = strdup(r->associated_version);
+        r->path_bytes = 65;
+        r->directory = openat(
+            r->store.root, r->associated_version, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (!item->path || r->directory < 0 || fstat(r->directory, &item->identity)) {
+            return 5;
+        }
+        struct stat *s = &item->identity;
+        if (s->st_uid != geteuid() || s->st_dev != r->identity.st_dev ||
+            ((s->st_mode & 07777) != 0500 && (s->st_mode & 07777) != 0700) ||
+            !named(r->store.root, r->associated_version, s)) {
+            return 6;
+        }
+        result = directory_lock(r->directory, true);
+        if (result == 11 && !removing) {
+            r->in_use = true;
+            result = directory_lock(r->directory, false);
+        }
+        if (!result) {
+            result = walk(r, r->directory, r->associated_version, 0, cancelled);
+        }
+        if (result) {
+            return result;
+        }
+        if (!named(r->store.root, r->associated_version, s)) {
+            return 9;
+        }
+        qsort(r->items, r->count, sizeof(*r->items), compare);
+    }
+    r->references = references(c, r->store.path, name, &r->identity, version[0] ? version : NULL);
+    if (!current(&r->store) || !named(r->store.root, name, &r->identity)) {
         return 9;
     }
     return fingerprint(r, c);
@@ -725,15 +892,38 @@ static bool review_close(review_t *r) {
 }
 
 static void print_review(const review_t *r, const gterm_catalog_t *c) {
-    printf("{\"result\":\"reviewed\",\"revision\":\"%" PRIu64 "\",\"version\":", c->revision);
+    printf("{\"result\":\"reviewed\",\"revision\":\"%" PRIu64 "\",\"%s\":",
+           c->revision,
+           r->residue ? "entryName" : "version");
     gterm_json_string(r->version);
+    if (r->residue) {
+        printf(",\"ownershipKnown\":false,\"rootKind\":\"%s\",\"rootSHA256\":",
+               r->root_file ? "file" : "directory");
+        if (r->root_file) {
+            gterm_json_string(r->root_hash);
+        } else {
+            fputs("null", stdout);
+        }
+        printf(",\"targetFileBytes\":%" PRIu64,
+               r->root_file ? (uint64_t)r->identity.st_size : r->bytes);
+        fputs(",\"preservedVersion\":", stdout);
+        if (r->associated_version[0]) {
+            gterm_json_string(r->associated_version);
+        } else {
+            fputs("null", stdout);
+        }
+    }
     fputs(",\"reviewDigest\":", stdout);
     gterm_json_string(r->digest);
     printf(",\"pendingRemoval\":%s,\"quarantined\":%s,\"versionAbsent\":%s,\"inUse\":%s,"
            "\"catalogReferences\":%u,\"removable\":%s,\"fileBytes\":%" PRIu64 ",\"entries\":[",
-           r->pending ? "true" : "false",
+           r->residue   ? "null"
+           : r->pending ? "true"
+                        : "false",
            r->quarantined ? "true" : "false",
-           r->removed ? "true" : "false",
+           r->residue   ? "null"
+           : r->removed ? "true"
+                        : "false",
            r->in_use ? "true" : "false",
            r->references,
            !r->in_use && !r->references ? "true" : "false",
@@ -1033,6 +1223,43 @@ static int remove_version(review_t *r, volatile sig_atomic_t *cancelled) {
     return fsync(r->store.root) ? 5 : 0;
 }
 
+static int remove_residue(review_t *r, volatile sig_atomic_t *cancelled) {
+    if (r->references) {
+        return 8;
+    }
+    if (r->in_use) {
+        return 11;
+    }
+    if (*cancelled) {
+        return 130;
+    }
+    if (!current(&r->store) || !named(r->store.root, r->location, &r->identity)) {
+        return 9;
+    }
+    if (!r->root_file) {
+        return remove_tree(r, cancelled);
+    }
+    char hash[65];
+    int result = hash_file(r->store.root, r->location, &r->identity, hash, cancelled);
+    if (result) {
+        return result;
+    }
+    if (strcmp(hash, r->root_hash)) {
+        return 9;
+    }
+    if (*cancelled) {
+        return 130;
+    }
+    if (!current(&r->store) || !named(r->store.root, r->location, &r->identity)) {
+        return 9;
+    }
+    if (unlinkat(r->store.root, r->location, 0)) {
+        return 5;
+    }
+    r->removed = true;
+    return fsync(r->store.root) ? 5 : 0;
+}
+
 typedef struct {
     char *name;
     struct stat identity;
@@ -1108,7 +1335,7 @@ static int list_versions(review_t *r, gterm_catalog_t *c, volatile sig_atomic_t 
             }
         }
         if (item->version[0]) {
-            item->references = references(c, r->store.path, item->version, &item->identity);
+            item->references = references(c, r->store.path, item->version, &item->identity, NULL);
         }
         if (item->version[0] && S_ISDIR(item->identity.st_mode) &&
             item->identity.st_uid == geteuid()) {
@@ -1203,7 +1430,9 @@ static int report(int status, const char *code, const review_t *r) {
            "\"authorizationGranted\":false,\"publisherAuthenticated\":false}\n",
            r->quarantined ? "true" : "false",
            r->removed ? "true" : "false",
-           r->pending ? "true" : "false",
+           r->residue   ? "null"
+           : r->pending ? "true"
+                        : "false",
            !status ? "true" : "false");
     return status;
 }
@@ -1214,17 +1443,18 @@ int gterm_release_manage(const char *operation,
                          volatile sig_atomic_t *cancelled) {
     const char *path = NULL, *store = NULL, *version = NULL, *revision = NULL, *digest = NULL;
     bool listing = !strcmp(operation, "versions"),
-         removing = !strcmp(operation, "remove-installed");
+         residue = !strcmp(operation, "review-residue") || !strcmp(operation, "remove-residue"),
+         removing = !strcmp(operation, "remove-installed") || !strcmp(operation, "remove-residue");
     for (int i = 0; i < argc; i += 2) {
         if (i + 1 == argc) {
             return gterm_catalog_report(2, "VERSION_OPTIONS", NULL);
         }
-        const char **field = !strcmp(argv[i], "--catalog")           ? &path
-                             : !strcmp(argv[i], "--store")           ? &store
-                             : !strcmp(argv[i], "--version")         ? &version
-                             : !strcmp(argv[i], "--expect-revision") ? &revision
-                             : !strcmp(argv[i], "--review-digest")   ? &digest
-                                                                     : NULL;
+        const char **field = !strcmp(argv[i], "--catalog")                        ? &path
+                             : !strcmp(argv[i], "--store")                        ? &store
+                             : !strcmp(argv[i], residue ? "--name" : "--version") ? &version
+                             : !strcmp(argv[i], "--expect-revision")              ? &revision
+                             : !strcmp(argv[i], "--review-digest")                ? &digest
+                                                                                  : NULL;
         if (!field || *field) {
             return gterm_catalog_report(2, "VERSION_OPTIONS", NULL);
         }
@@ -1235,7 +1465,9 @@ int gterm_release_manage(const char *operation,
     }
     uint64_t expected = 0;
     if (!gterm_catalog_path(path) || !gterm_catalog_path(store) || strlen(store) > 3500 ||
-        (listing ? (version || revision || digest) : !gterm_catalog_digest(version)) ||
+        (listing   ? (version || revision || digest)
+         : residue ? !residue_name(version)
+                   : !gterm_catalog_digest(version)) ||
         (removing ? (!gterm_catalog_revision(revision, &expected) || !gterm_catalog_digest(digest))
                   : (revision || digest))) {
         return gterm_catalog_report(2, "VERSION_OPTIONS", NULL);
@@ -1243,7 +1475,8 @@ int gterm_release_manage(const char *operation,
     if (!gterm_release_supported()) {
         return gterm_catalog_report(4, "RELEASE_VERIFY_UNAVAILABLE", NULL);
     }
-    review_t r = {.directory = -1, .version = version, .store = {.root = -1, .lock = -1}};
+    review_t r = {
+        .directory = -1, .version = version, .residue = residue, .store = {.root = -1, .lock = -1}};
     gterm_catalog_t c;
     int result = gterm_catalog_open(&c, path, removing);
     const char *code = "CATALOG_OPEN";
@@ -1265,7 +1498,8 @@ int gterm_release_manage(const char *operation,
         code = "VERSION_LIST";
         goto done;
     }
-    result = observe(&r, &c, removing, cancelled);
+    result = residue ? observe_residue(&r, &c, removing, cancelled)
+                     : observe(&r, &c, removing, cancelled);
     code = "VERSION_REVIEW";
     if (result) {
         goto done;
@@ -1288,7 +1522,7 @@ int gterm_release_manage(const char *operation,
         code = "VERSION_CONFIRMATION";
         goto done;
     }
-    result = remove_version(&r, cancelled);
+    result = residue ? remove_residue(&r, cancelled) : remove_version(&r, cancelled);
     code = "VERSION_REMOVE";
 done:;
     bool closed = review_close(&r);

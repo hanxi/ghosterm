@@ -39,7 +39,8 @@ CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 
           'node-active-cancel', 'exec-roundtrip', 'exec-deny', 'exec-active-cancel',
           'node-development', 'exec-development']
 CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review', 'version-maintenance', 'version-reference', 'version-active', 'node-version-active', 'exec-version-active']
-FAULT_CASES = ['version-resume']
+CASES += ['residue-maintenance', 'residue-reference', 'residue-damaged-intent']
+FAULT_CASES = ['version-resume', 'residue-resume']
 
 
 def require(value, label):
@@ -258,6 +259,158 @@ def version_workflow(run, build, node, signer, work, catalog, store, endpoint, e
     run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version],10)
 
 
+def residue_workflow(run, build, work, catalog, store, env, installed_version, case, digest, host, profile, description):
+    import fcntl
+    name = '.prepare-' + 'a' * 32
+    stage = store / name
+    stage.mkdir(mode=0o700)
+    nested = stage / 'payload'; nested.mkdir(mode=0o700)
+    leaf = nested / 'cafe\u0301-文件'
+    leaf.write_bytes(b'partial installation'); leaf.chmod(0o600)
+    intent = store / ('.intent-' + 'a' * 32)
+    intent.write_text(name); intent.chmod(0o400)
+    original_catalog = (catalog / 'executor-catalog-v1').read_bytes()
+    def observe(selected=name, expected=0):
+        return run(['plugin','review-residue','--catalog',catalog,'--store',store,'--name',selected], expected)
+    def remove(review, expected=0):
+        return run(['plugin','remove-residue','--catalog',catalog,'--store',store,'--name',review['entryName'],
+                    '--expect-revision',review['revision'],'--review-digest',review['reviewDigest']],expected)
+    if case == 'residue-damaged-intent':
+        damaged = store / ('.remove-' + installed_version.name + '.intent')
+        damaged.write_bytes(b'incomplete pre-rename intent'); damaged.chmod(0o600)
+        registered = observe(damaged.name)
+        require(registered['preservedVersion'] == installed_version.name and
+                registered['catalogReferences'] == 1 and not registered['removable'] and
+                any(p['path'] == installed_version.name+'/payload/plugin.json' for p in registered['entries']),
+                'intent review binds complete associated version and registration')
+        remove(registered,8)
+        run(['plugin','unregister','--catalog',catalog,'--expect-revision','1',
+             '--id',description['pluginId'],'--expect-digest',digest])
+        remove(registered,9)
+        fd = os.open(installed_version, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            active = observe(damaged.name)
+            require(active['inUse'] and not active['removable'],'associated version lock prevents clearing its intent')
+            remove(active,11)
+        finally:
+            os.close(fd)
+        remove(active,9)
+        reviewed = observe(damaged.name)
+        actual = installed_version/'payload/README'
+        original = actual.read_bytes()
+        actual.chmod(0o600); actual.write_bytes(original+b'changed'); actual.chmod(0o400)
+        remove(reviewed,9)
+        reviewed = observe(damaged.name)
+        before = {str(p.relative_to(installed_version)):release.sha(p.read_bytes())
+                  for p in installed_version.rglob('*') if p.is_file()}
+        require(remove(reviewed)['removed'] and not damaged.exists() and installed_version.is_dir(),
+                'explicit repair clears only the damaged intent')
+        after = {str(p.relative_to(installed_version)):release.sha(p.read_bytes())
+                 for p in installed_version.rglob('*') if p.is_file()}
+        require(before == after,'associated version contents are preserved exactly')
+        actual.chmod(0o600); actual.write_bytes(original); actual.chmod(0o400)
+        require(remove(observe())['removed'] and remove(observe(intent.name))['removed'],'separate fixture residue cleanup')
+        print('PASS damaged intent: complete preserved version, catalog and live lock guards, stale associated bytes, explicit intent-only deletion',flush=True)
+        return
+    if case == 'residue-reference':
+        import shutil
+        leaf.unlink()
+        shutil.copytree(installed_version/'payload', nested, dirs_exist_ok=True)
+        run(['plugin','register-development','--catalog',catalog,'--expect-revision','1',
+             '--expect-digest',digest,'--host-json',host,'--trust-development-digest',digest,
+             '--',nested,*profile])
+        selected = (catalog/'executor-catalog-v1').read_bytes()
+        referenced = observe()
+        require(referenced['catalogReferences'] == 1 and not referenced['removable'],
+                'real registered development selection protects a residue path')
+        remove(referenced,8)
+        require((catalog/'executor-catalog-v1').read_bytes() == selected and nested.is_dir(),
+                'denied maintenance preserves actual selection and files')
+        run(['plugin','unregister','--catalog',catalog,'--expect-revision','2',
+             '--id',description['pluginId'],'--expect-digest',digest])
+        remove(referenced,9)
+        require(remove(observe())['removed'] and remove(observe(intent.name))['removed'],
+                'unregister and fresh review explicitly release the protected residue')
+        require(installed_version.is_dir(),'installed package retained after residue selection changes')
+        print('PASS residue reference: actual registered package, conflict, catalog CAS, explicit unregister and fresh removal',flush=True)
+        return
+    fresh = observe()
+    require(fresh['entryName'] == name and not fresh['ownershipKnown'] and fresh['removable'] and
+            fresh['rootKind'] == 'directory' and fresh['fileBytes'] == len(leaf.read_bytes()) and
+            [p['path'] for p in fresh['entries']] == ['payload', 'payload/' + leaf.name] and
+            fresh['entries'][1]['sha256'] == release.sha(leaf.read_bytes()), 'complete byte-exact unknown-stage inventory')
+    require(observe()['reviewDigest'] == fresh['reviewDigest'], 'stable residue review')
+    observe(intent.name, 8)
+    if case == 'residue-resume':
+        marker = work / 'residue-paused'
+        args = [build/'gterm','plugin','remove-residue','--catalog',catalog,'--store',store,'--name',name,
+                '--expect-revision',fresh['revision'],'--review-digest',fresh['reviewDigest']]
+        operation = subprocess.Popen(list(map(str,args)),stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                                    env={**env,'GTERM_TEST_STORE_PAUSE':str(marker)})
+        try:
+            ipc.wait(lambda:marker.exists() or operation.poll() is not None,'residue durable unlink checkpoint')
+            require(marker.exists() and operation.poll() is None,'explicit fault build paused after deleting an actual file')
+            operation.kill(); require(operation.wait(timeout=5) == -9,'actual residue-cleaner SIGKILL')
+        finally:
+            ipc.terminate(operation); operation.stdout.close(); operation.stderr.close()
+        require(stage.is_dir() and nested.is_dir() and not leaf.exists() and intent.exists(),'partial cleanup retained for explicit review')
+        remove(fresh,9)
+        final = observe()
+        require([p['path'] for p in final['entries']] == ['payload'],'fresh remaining inventory after death')
+        require(remove(final)['removed'] and not stage.exists() and intent.exists(),'explicit continuation only removes reviewed remainder')
+    else:
+        leaf.write_bytes(b'changed contents'); remove(fresh,9)
+        fresh = observe()
+        extra = stage / 'new-file'; extra.write_bytes(b'new'); extra.chmod(0o600)
+        remove(fresh,9); extra.unlink()
+        outside = work / 'outside-residue'; outside.write_bytes(b'keep'); outside.chmod(0o600)
+        link = stage / 'link'; link.symlink_to(outside)
+        observe(expected=6); link.unlink()
+        os.link(outside, link); observe(expected=6); link.unlink()
+        require(outside.read_bytes() == b'keep' and stat.S_IMODE(outside.stat().st_mode) == 0o600,'external link bytes and permissions retained')
+        # A real separate directory description holds the same cooperative lock
+        # used by pending and active CLI version owners.
+        fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            active = observe()
+            require(active['inUse'] and not active['removable'],'actual held residue lock is visible')
+            remove(active,11)
+        finally:
+            os.close(fd)
+        remove(active,9)
+        require(remove(observe())['removed'] and not stage.exists() and intent.exists(),'only confirmed stage is removed')
+        # A partially written / corrupt delete intent cannot enable maintenance
+        # to bypass an existing installed slot or quarantined directory.
+        protected = store / ('.remove-' + installed_version.name + '.intent')
+        protected.write_bytes(b'corrupt'); protected.chmod(0o600)
+        protected_review = observe(protected.name)
+        require(protected_review['catalogReferences'] == 1 and not protected_review['removable'],
+                'associated version registration blocks intent deletion')
+        remove(protected_review,8)
+        require(installed_version.is_dir() and protected.read_bytes() == b'corrupt','existing installed slot blocks damaged-intent deletion')
+        protected.unlink()
+        orphan_name = '.remove-' + 'c' * 64
+        orphan = store / orphan_name; orphan.mkdir(mode=0o500)
+        damaged = store / (orphan_name + '.intent'); damaged.write_bytes(b'incomplete'); damaged.chmod(0o600)
+        observe(damaged.name,8)
+        require(remove(observe(orphan_name))['removed'] and damaged.exists(),'orphan quarantine removed independently of damaged intent')
+        damaged_review = observe(damaged.name)
+        require(damaged_review['rootKind'] == 'file' and damaged_review['rootSHA256'] == release.sha(b'incomplete'),'damaged intent hashes actual bytes without adopting its claims')
+        damaged.write_bytes(b'changed'); remove(damaged_review,9)
+        require(remove(observe(damaged.name))['removed'] and not damaged.exists(),'new explicit damaged-intent confirmation')
+        for invalid in ['.store.lock', installed_version.name, '../outside-residue', '.prepare-'+'z'*32]:
+            observe(invalid,2)
+    intent_review = observe(intent.name)
+    require(intent_review['rootSHA256'] == release.sha(name.encode()),'orphan install intent has a separate complete review')
+    require(remove(intent_review)['removed'] and not intent.exists(),'explicit orphan intent deletion')
+    observe(expected=10)
+    require((catalog/'executor-catalog-v1').read_bytes() == original_catalog and installed_version.is_dir(),
+            'maintenance leaves catalog and installed version unchanged')
+    print('PASS residue workflow: complete inventory, stale confirmations, references, typed cleanup and explicit continuation',flush=True)
+
+
 def exercise(build, node, sdk, case, work):
     package, digest = ipc.package(work)
     manifest = json.loads((package / 'plugin.json').read_text())
@@ -409,6 +562,10 @@ def exercise(build, node, sdk, case, work):
             require(result['committed'] and result['durabilityConfirmed'] and result['publisherAuthenticated'] != development, 'authenticated durable registration')
         listing = run(['plugin', 'list', '--catalog', catalog])
         require(listing['entries'][0]['source'] == ('explicit-development-digest' if development else 'signed-release-record') and not listing['publisherAuthenticated'], 'listing is a declaration, not current authentication')
+        if case.startswith('residue-'):
+            residue_workflow(run, build, work, catalog, store, env, installed_version, case,
+                             digest, host, profile, description)
+            return
         if case.startswith('version-') or '-version-' in case:
             version_workflow(run, build, node, signer, work, catalog, store, endpoint, env,
                 installed_version, package, digest, host, profile, policy, description, case[case.index('version-'):])
