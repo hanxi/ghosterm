@@ -2,6 +2,7 @@
 #define _DARWIN_C_SOURCE
 #define _GNU_SOURCE
 #include "ipc.h"
+#include "foreground.h"
 #include "stdio.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -9,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -22,6 +24,8 @@
 static const char socket_name[] = "channel.sock", permit_name[] = "permit";
 static const unsigned char magic[8] = {'G', 'T', 'E', 'R', 'M', 'I', 'P', '2'};
 static const unsigned char acknowledged[8] = {'G', 'T', 'E', 'R', 'M', 'O', 'K', '2'};
+static const unsigned char inspect_magic[8] = {'G', 'T', 'E', 'R', 'M', 'Q', '0', '1'};
+static const unsigned char declaration_magic[8] = {'G', 'T', 'E', 'R', 'M', 'D', '0', '1'};
 
 typedef struct {
     unsigned char bytes[56]; /* magic, public instance (16), private permit (32) */
@@ -382,12 +386,30 @@ int gterm_ipc_listen(const char *directory,
         }
         bool ok = nonblocking(e.peer) && peer_user(e.peer) &&
                   exchange(e.peer, &received, sizeof(received), false, admission, cancelled);
+        bool inspecting = !memcmp(received.bytes, inspect_magic, sizeof(inspect_magic));
         unsigned difference = 0;
-        for (size_t i = 0; i < sizeof(permit); i++) {
+        for (size_t i = inspecting ? 8 : 0; i < sizeof(permit); i++) {
             difference |= received.bytes[i] ^ permit.bytes[i];
         }
         memset(&received, 0, sizeof(received));
-        ok = ok && !difference && boundary >= 0 &&
+        if (ok && !difference && inspecting && entry(e.directory, socket_name, &e.socket) &&
+            entry(e.directory, permit_name, &e.permit)) {
+            unsigned char bytes[GTERM_FOREGROUND_MAX], header[12];
+            size_t size = 0;
+            if (gterm_foreground_encode(argc, argv, bytes, &size)) {
+                memcpy(header, declaration_magic, 8);
+                for (size_t i = 0; i < 4; i++) {
+                    header[8 + i] = (unsigned char)(size >> (24 - i * 8));
+                }
+                if (exchange(e.peer, header, sizeof(header), true, admission, cancelled)) {
+                    (void)exchange(e.peer, bytes, size, true, admission, cancelled);
+                }
+            }
+            close(e.peer);
+            e.peer = -1;
+            continue;
+        }
+        ok = ok && !difference && boundary >= 0 && !inspecting &&
              invocation(
                  e.peer, argc - boundary - 2, argv + boundary + 2, false, admission, cancelled) &&
              entry(e.directory, socket_name, &e.socket) &&
@@ -515,14 +537,17 @@ static int pump(int socket, volatile sig_atomic_t *cancelled) {
     return *cancelled ? 130 : 5;
 }
 
-int gterm_ipc_attach(const char *directory,
-                     const char *instance,
-                     int argc,
-                     char **argv,
-                     volatile sig_atomic_t *cancelled) {
+static int connect_endpoint(const char *directory,
+                            const char *instance,
+                            int argc,
+                            char **argv,
+                            bool inspecting,
+                            volatile sig_atomic_t *cancelled) {
     endpoint_t e = {.directory = -1, .listener = -1, .peer = -1, .cwd = -1};
     permit_t permit = {0};
     int result = 5;
+    char *json = NULL;
+    size_t json_size = 0;
     struct stat input, output, socket_info;
     if (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO) || fstat(STDIN_FILENO, &input) ||
         fstat(STDOUT_FILENO, &output) || (!S_ISFIFO(input.st_mode) && !S_ISSOCK(input.st_mode)) ||
@@ -558,12 +583,36 @@ int gterm_ipc_attach(const char *directory,
             goto done;
         }
     }
+    if (inspecting) {
+        memcpy(permit.bytes, inspect_magic, sizeof(inspect_magic));
+    }
     if (!peer_user(e.peer) || !entry(e.directory, socket_name, &socket_info) ||
         !exchange(e.peer, &permit, sizeof(permit), true, end, cancelled) ||
-        !invocation(e.peer, argc, argv, true, end, cancelled)) {
+        (!inspecting && !invocation(e.peer, argc, argv, true, end, cancelled))) {
         goto done;
     }
     memset(&permit, 0, sizeof(permit));
+    if (inspecting) {
+        unsigned char header[12], bytes[GTERM_FOREGROUND_MAX], extra;
+        if (!exchange(e.peer, header, sizeof(header), false, end, cancelled) ||
+            memcmp(header, declaration_magic, 8)) {
+            goto done;
+        }
+        size_t size = 0;
+        for (size_t i = 8; i < 12; i++) {
+            size = size << 8 | header[i];
+        }
+        if (size > sizeof(bytes) || !exchange(e.peer, bytes, size, false, end, cancelled) ||
+            !wait_fd(e.peer, POLLIN, end, cancelled) || read(e.peer, &extra, 1) != 0) {
+            goto done;
+        }
+        json = gterm_foreground_json(bytes, size, instance, &json_size);
+        if (!json) {
+            goto done;
+        }
+        result = 0;
+        goto done;
+    }
     unsigned char ack[8];
     if (!exchange(e.peer, ack, sizeof(ack), false, end, cancelled) ||
         memcmp(ack, acknowledged, sizeof(ack)) || fchdir(e.cwd) || !nonblocking(STDIN_FILENO) ||
@@ -575,10 +624,33 @@ done:
     memset(&permit, 0, sizeof(permit));
     if (!cleanup(&e)) {
         fputs("gterm: local IPC cleanup incomplete\n", stderr);
+        free(json);
         return 5;
     }
+    /* Do not publish a successful observation before closing borrowed owners.
+     * A pipe that does not drain must not pin the inspector indefinitely. */
+    if (!result && inspecting &&
+        (!nonblocking(STDOUT_FILENO) ||
+         !exchange(STDOUT_FILENO, json, json_size, true, now() + 2000, cancelled))) {
+        result = 5;
+    }
+    free(json);
     if (*cancelled) {
         return 130;
     }
     return result == 5 ? error() : result;
+}
+
+int gterm_ipc_attach(const char *directory,
+                     const char *instance,
+                     int argc,
+                     char **argv,
+                     volatile sig_atomic_t *cancelled) {
+    return connect_endpoint(directory, instance, argc, argv, false, cancelled);
+}
+
+int gterm_ipc_inspect(const char *directory,
+                      const char *instance,
+                      volatile sig_atomic_t *cancelled) {
+    return connect_endpoint(directory, instance, 0, NULL, true, cancelled);
 }

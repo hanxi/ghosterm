@@ -9,7 +9,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../packages/plugin-sdk/sdk-version.json" sdk_identity)
 string(JSON sdk_version GET "${sdk_identity}" sdkApiVersion)
 string(JSON sdk_protocol GET "${sdk_identity}" bridgeProtocol)
-add_executable(gterm main.c stdio.c ipc.c catalog.c catalog-store.c)
+add_executable(gterm main.c stdio.c ipc.c foreground.c catalog.c catalog-store.c)
 target_compile_definitions(gterm PRIVATE GTERM_SDK_VERSION="${sdk_version}" GTERM_PROTOCOL="${sdk_protocol}")
 target_link_libraries(gterm PRIVATE ghosterm_core)
 target_compile_options(gterm PRIVATE -Wall -Wextra -Werror)

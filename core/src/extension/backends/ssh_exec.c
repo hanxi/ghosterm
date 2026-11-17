@@ -394,6 +394,13 @@ static int pump(ssh_stream_t *s) {
     if (s->rx_used == s->rx_size && libssh2_channel_eof(s->channel)) {
         s->info.remote_eof = true;
     }
+    /* Passive packet-backed observation: EOF or an absent status never proves
+     * exit zero. The pinned extension distinguishes an explicit zero packet. */
+    int exit_status = 0;
+    if (libssh2_ghosterm_channel_exit_status(s->channel, &exit_status) == 1) {
+        s->info.exit_status_known = true;
+        s->info.exit_status = exit_status;
+    }
     return out > 0 || err > 0;
 }
 
@@ -441,6 +448,11 @@ static gt_bridge_io_t transfer(ssh_stream_t *s, void *p, size_t n, int ms, bool 
             return io(GT_BRIDGE_DATA, n, GT_OK);
         }
         if (!writing && s->info.remote_eof) {
+            /* Output EOF can precede the separate exit-status packet. Keep
+             * bounded reads able to pump that fact without sending CLOSE. */
+            if (!s->info.exit_status_known && pump(s) < 0) {
+                return io(GT_BRIDGE_ERROR, 0, s->info.error);
+            }
             return io(GT_BRIDGE_EOF, 0, GT_OK);
         }
         int progress = pump(s);

@@ -18,13 +18,14 @@ struct ExtensionsPane: View {
     @State private var issue: String?
     @State private var resourceSelection = PluginResourceSelection()
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
+    @State private var inspectionTask: Task<Void, Never>?
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var signatureDraft = PluginSignatureDraft()
         var installation: ExtensionController.InstalledRelease?
         var decision: String = "尚未批准"
-        var localConnection = false { didSet { localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var localConnection = false { didSet { localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
         var localWorkingDirectory = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
         var localTemporaryDirectory = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
@@ -35,8 +36,8 @@ struct ExtensionsPane: View {
                 authorized: localAllowed) : nil
         }
 
-        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
+        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
@@ -53,12 +54,33 @@ struct ExtensionsPane: View {
         }
         var executionDraft = ExecutorExecutionDraft() { didSet { localAllowed = false } }
         var attachExisting = false { didSet { attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
-        var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
-        var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
+        var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
+        var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
+        var scopedFiles = false { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
         var attachmentAllowed = false
+        var foregroundDeclaration: PluginForegroundDeclaration?
+        var foregroundKey: [Data]?
+        var foregroundIssue: String?
+        var inspectionKey: [Data] {
+            [localConnection ? "local" : "ssh", sshAlias, executable, ipcDirectory, ipcInstance,
+             localDigest, localWorkingDirectory, localTemporaryDirectory].map { Data($0.utf8) }
+        }
+        mutating func adoptForegroundDeclaration() throws {
+            guard foregroundKey == inspectionKey, let value = foregroundDeclaration,
+                  value.clientDigest == review.digest, review.commands.contains(where: { $0.path == value.command }) else {
+                throw GhostermError.failed("声明已过期，或与所选 Client 摘要和命令不匹配")
+            }
+            executorDigest = value.executorDigest; command = value.command
+            let encoder = JSONEncoder()
+            argumentsJSON = String(decoding: try encoder.encode(value.arguments), as: UTF8.self)
+            methodsJSON = String(decoding: try encoder.encode(value.methods), as: UTF8.self)
+            hostMethodsJSON = String(decoding: try encoder.encode(value.hostMethods), as: UTF8.self)
+            remoteProcesses = false; scopedFiles = false; attachmentAllowed = false; localAllowed = false
+            executionDraft.authorized = false; clientAuthorized = false
+        }
         var attachment: ExtensionRelayBootstrap.Attachment? {
-            attachExisting ? .init(directory: ipcDirectory, instance: ipcInstance, authorized: attachmentAllowed, remoteProcesses: remoteProcesses) : nil
+            attachExisting ? .init(directory: ipcDirectory, instance: ipcInstance, authorized: attachmentAllowed, remoteProcesses: remoteProcesses, scopedFiles: scopedFiles) : nil
         }
         init(review: ExtensionController.PackageReview) {
             self.review = review
@@ -167,6 +189,9 @@ struct ExtensionsPane: View {
                                     .accessibilityIdentifier("plugin-ipc-directory")
                                 TextField("前台显示的 32 位实例标识", text: $entry.ipcInstance)
                                     .accessibilityIdentifier("plugin-ipc-instance")
+                                foregroundInspection($entry)
+                                Toggle("允许沿用此实例已选工作区的只读文件范围", isOn: $entry.scopedFiles)
+                                    .accessibilityIdentifier("plugin-ipc-files")
                                 Toggle("允许沿用此实例已有的业务进程范围", isOn: $entry.remoteProcesses)
                                     .accessibilityIdentifier("plugin-ipc-processes")
                                 Toggle("明确连接所选位置的该前台实例", isOn: $entry.attachmentAllowed)
@@ -258,6 +283,53 @@ struct ExtensionsPane: View {
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
                       onCompletion: selectedPackage)
+        .onDisappear { inspectionTask?.cancel() }
+    }
+
+    private func foregroundInspection(_ binding: Binding<Entry>) -> some View {
+        let entry = binding.wrappedValue
+        return VStack(alignment: .leading, spacing: DS.Padding.s) {
+            Button("检查此位置的前台实例") {
+                let key = entry.inspectionKey, id = entry.id
+                inspectionTask = Task {
+                    do {
+                        let value = try await model.inspectForegroundPlugin(sshAlias: entry.sshAlias,
+                            executable: entry.executable, directory: entry.ipcDirectory, instance: entry.ipcInstance,
+                            localLaunch: entry.localLaunch)
+                        try Task.checkCancellation()
+                        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].inspectionKey == key else { return }
+                        entries[index].foregroundDeclaration = value; entries[index].foregroundKey = key
+                        entries[index].foregroundIssue = nil
+                    } catch {
+                        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].inspectionKey == key else { return }
+                        entries[index].foregroundDeclaration = nil; entries[index].foregroundIssue = String(describing: error)
+                    }
+                }
+            }
+            .disabled(model.extensionRunBusy || model.extensionRun != nil || (entry.localConnection && !entry.localAllowed))
+            .accessibilityIdentifier("plugin-ipc-inspect")
+            if let value = entry.foregroundDeclaration, entry.foregroundKey == entry.inspectionKey {
+                Text("当前声明：\(value.command) · \(value.runtime)\nExecutor：\(value.executorDigest)\nClient：\(value.clientDigest)")
+                    .font(DS.Font.caption).textSelection(.enabled)
+                    .accessibilityIdentifier("plugin-ipc-declaration")
+                Text("参数：\(String(decoding: (try? JSONEncoder().encode(value.arguments)) ?? Data(), as: UTF8.self))")
+                    .font(DS.Font.caption).textSelection(.enabled)
+                Text("Executor RPC：\(value.methods.joined(separator: ", "))\nHost RPC：\(value.hostMethods.joined(separator: ", "))\nClient 服务：\(value.clientCapabilities.joined(separator: ", "))")
+                    .font(DS.Font.caption).textSelection(.enabled)
+                Button("将核对后的命令和参数填入表单") {
+                    do { try binding.wrappedValue.adoptForegroundDeclaration() }
+                    catch { binding.wrappedValue.foregroundIssue = String(describing: error) }
+                }
+                .disabled(model.extensionRunBusy || value.clientDigest != entry.review.digest || !entry.review.commands.contains(where: { $0.path == value.command }))
+                .accessibilityIdentifier("plugin-ipc-adopt")
+            }
+            if let issue = entry.foregroundIssue {
+                Text(issue).foregroundStyle(.red).font(DS.Font.caption)
+                    .accessibilityIdentifier("plugin-ipc-inspection-issue")
+            }
+            Text("检查只读取当前声明，不启动插件或批准附着。填入后请重新确认本次连接；工作区与业务进程仍沿用前台配置。")
+                .font(DS.Font.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func selectedPackage(_ result: Result<[URL], Error>) {

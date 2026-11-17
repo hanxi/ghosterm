@@ -421,6 +421,11 @@ python3 scripts/test-plugin-dev-scenarios.py --tools tmp/plugin-dev/tools --core
 目录信任与 Session consent 分开；此入口尚不自动发现或连接 App，不能把普通
 命令成功解析当成实际业务成功。验证范围见插件计划 P2 第六十四批。
 
+macOS 的“连接已有前台 gterm 实例”现在可以在选定主机 / 本机程序、私有目录和公开实例标识后，
+点击“检查此位置的前台实例”，再核对并填入命令、参数、摘要与 RPC 方法。检查通过独立通道，
+不启动插件；填入会撤回旧批准，需要重新明确允许连接，之后仍有 Session consent。
+声明只描述前台固定配置；不自动选主机、不授予工作区或业务进程权限，也不等于检查了当前包内容。
+
 已有补丁版 `build/GhosttyKit.xcframework` 与锁定的主机 SSH 依赖后，可以用以下手工
 专项验证官方 Preview 的页面接线：
 

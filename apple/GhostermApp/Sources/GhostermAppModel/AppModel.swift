@@ -1128,6 +1128,41 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    /// Metadata only, through a caller-selected native route. Never adopts a
+    /// Session or infers a host from the observed declaration.
+    public func inspectForegroundPlugin(sshAlias: String, executable: String, directory: String,
+                                         instance: String, localLaunch: ExtensionLocalLaunch? = nil) async throws -> PluginForegroundDeclaration {
+        guard let extensionController, !extensionRunBusy, extensionRun == nil else { throw GhostermError.failed("已有插件运行或授权流程") }
+        extensionRunBusy = true; extensionRunIssue = nil
+        defer { extensionRunBusy = false }
+        var opened = false
+        do {
+            if let localLaunch {
+                let argv = try PluginForegroundDeclaration.inspectionArguments(executable: executable, directory: directory, instance: instance, local: true)
+                _ = try await extensionController.openLocalChannel(executable: executable, arguments: argv, launch: localLaunch)
+            } else {
+                let command = try PluginForegroundDeclaration.inspectionBootstrap(executable: executable, directory: directory, instance: instance)
+                _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: command)
+            }
+            opened = true
+            let value = try await extensionController.readForegroundDeclaration(instance: instance)
+            try await extensionController.stopSSHChannel()
+            try await extensionController.releaseFinished()
+            return value
+        } catch {
+            if opened || localLaunch != nil {
+                if opened { try? await extensionController.stopSSHChannel() }
+                do { try await extensionController.releaseFinished() }
+                catch { extensionRunIssue = "前台检查资源仍待释放：\(error.localizedDescription)" }
+                if localLaunch != nil {
+                    extensionLastLocalProcess = try? await extensionController.localProcessState()
+                    extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
+                }
+            }
+            throw error
+        }
+    }
+
     /// Reviews the exact approved Client command, starts its remote Executor,
     /// completes SSH authentication and Native Session negotiation, then
     /// leaves the UI at the explicit Native consent decision.
@@ -1197,7 +1232,7 @@ public final class AppModel: ObservableObject {
                 throw GhostermError.failed("本机宿主与 Executor 必须使用同一显式临时目录")
             }
             let peerIdentity = localLaunch.map { "local:" + $0.executableSHA256 } ?? sshAlias
-            let additionalCapabilities = ((scopedRoots.isEmpty && clientWorkspace == nil) || !selected.requiredCapabilities.contains("resource.receive")
+            let additionalCapabilities = ((scopedRoots.isEmpty && clientWorkspace == nil && executorAttachment?.scopedFiles != true) || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
             if let localLaunch, let argv {

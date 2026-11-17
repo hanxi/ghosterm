@@ -6,12 +6,13 @@ import GhostermCore
 public enum ExtensionRelayBootstrap {
     public struct Attachment: Sendable, Equatable {
         public let directory, instance: String
-        public let authorized, remoteProcesses: Bool
-        public init(directory: String, instance: String, authorized: Bool, remoteProcesses: Bool = false) {
+        public let authorized, remoteProcesses, scopedFiles: Bool
+        public init(directory: String, instance: String, authorized: Bool, remoteProcesses: Bool = false, scopedFiles: Bool = false) {
             self.directory = directory; self.instance = instance; self.authorized = authorized; self.remoteProcesses = remoteProcesses
+            self.scopedFiles = scopedFiles
         }
         public var reviewDescription: String {
-            "连接已有前台实例：\(instance)\n私有目录：\(directory)\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n执行端业务进程服务：" + (remoteProcesses ? "明确允许沿用实例范围" : "未允许")
+            "连接已有前台实例：\(instance)\n私有目录：\(directory)\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n已有只读文件范围：\(scopedFiles ? "明确允许沿用" : "未允许")\n执行端业务进程服务：\(remoteProcesses ? "明确允许沿用实例范围" : "未允许")"
         }
     }
     public struct ScopedRoot: Sendable, Equatable {

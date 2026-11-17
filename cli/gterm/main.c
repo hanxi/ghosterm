@@ -36,6 +36,7 @@ static int usage(void) {
           "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
           "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
           "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
+          "       gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32\n"
           "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
           "[ARG...]\n"
           "       gterm relay --stdio [--runtime node|exec --allow-process-execution] "
@@ -495,6 +496,10 @@ int main(int argc, char **argv) {
     if (argc >= 8 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--attach") &&
         !strcmp(argv[4], "--instance") && !strcmp(argv[6], "--")) {
         return gterm_ipc_attach(argv[3], argv[5], argc - 7, argv + 7, &interrupted);
+    }
+    if (argc == 6 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--inspect") &&
+        !strcmp(argv[4], "--instance")) {
+        return gterm_ipc_inspect(argv[3], argv[5], &interrupted);
     }
     if (argc >= 3 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--stdio")) {
         return gterm_stdio(argc - 3, argv + 3, &interrupted);

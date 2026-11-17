@@ -85,7 +85,10 @@ def main():
             return output
         compiler=shlex.split((build/'CMakeFiles/gterm.dir/link.txt').read_text())[0]
         flags=[compiler,'-std=c11','-g','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-fno-sanitize-recover=all','-fno-omit-frame-pointer','-I'+str(ROOT/'core/include'),'-DGTERM_SDK_VERSION="1.0.0"','-DGTERM_PROTOCOL="1"']
-        for name in ['main','stdio']:run('compile-'+name,[*flags,'-c',source/(name+'.c'),'-o',binary/(name+'.o')])
+        # Match every current production object; catalog / inspection helpers
+        # are part of the CLI even when the target mutation is confined to IPC.
+        helpers=[p.stem for p in sorted(source.glob('*.c')) if p.stem not in ('main','ipc')]
+        for name in helpers:run('compile-'+name,[*flags,'-c',source/(name+'.c'),'-o',binary/(name+'.c.o')])
         link=shlex.split((build/'CMakeFiles/gterm.dir/link.txt').read_text());link.insert(1,'-fsanitize=address,undefined')
         at=link.index('-o');link[at+1]=str(binary/'gterm')
         for i,part in enumerate(link):
@@ -98,7 +101,6 @@ def main():
             run(label+'-link',link)
             return sha(binary/(filename+'.o')),sha(binary/'gterm')
         # Match the original CMake object names for the one unchanged link command.
-        for name in ['main','stdio']:(binary/(name+'.o')).rename(binary/(name+'.c.o'))
         baseline=compile('baseline')
         run('baseline',['python3',ROOT/'scripts/test-gterm-ipc.py','--build',binary,*(['--case',cases[0][2]] if args.group else [])])
         results=[]

@@ -245,7 +245,7 @@ static void cancelled(gt_bridge_stream_t *s, bool admission) {
     close_stream(s);
 }
 
-static void expect_end(gt_bridge_stream_t *s, bool clean) {
+static void expect_end(gt_bridge_stream_t *s, bool clean, int expected_status) {
     uint64_t end = now() + 5000;
     uint8_t bytes[128];
     for (;;) {
@@ -258,7 +258,16 @@ static void expect_end(gt_bridge_stream_t *s, bool clean) {
                     : (r.state == GT_BRIDGE_ERROR && r.error == GT_ERR_IO));
         break;
     }
-    CHECK(!info(s).exit_status_known); /* Getter's default 0 is never success. */
+    if (expected_status >= 0) {
+        while (!info(s).exit_status_known) {
+            CHECK(now() < end);
+            gt_bridge_io_t r = gt__bridge_stream_read(s, bytes, sizeof(bytes), 0);
+            CHECK(r.state == GT_BRIDGE_EOF);
+        }
+        CHECK(info(s).exit_status == expected_status);
+    } else {
+        CHECK(!info(s).exit_status_known); /* No packet is never a default zero. */
+    }
 }
 
 static void terminal_echo(gt_transport_t *t, const char *marker) {
@@ -512,7 +521,7 @@ static void client(int argc, char **argv) {
                     cancelled(s, false);
                 } else if (!strcmp(mode, "reset")) {
                     send_frame(s, (const uint8_t *)"reset-ack", 9);
-                    expect_end(s, false);
+                    expect_end(s, false, -1);
                     close_stream(s);
                 } else if (!strcmp(mode, "truncated")) {
                     gt_bridge_decoder_t *d;
@@ -532,8 +541,10 @@ static void client(int argc, char **argv) {
                                   used == r.count);
                         }
                     }
-                    CHECK(gt__bridge_decoder_finish(d) == GT_ERR_PROTOCOL &&
-                          !info(s).exit_status_known);
+                    CHECK(gt__bridge_decoder_finish(d) == GT_ERR_PROTOCOL);
+                    /* The owned worker exits zero despite its truncated frame;
+                     * a packet-backed exit code cannot repair that protocol error. */
+                    CHECK(!info(s).exit_status_known || info(s).exit_status == 0);
                     gt__bridge_decoder_free(d);
                     close_stream(s);
                 } else {
@@ -570,9 +581,11 @@ static void client(int argc, char **argv) {
                               info(s).diagnostic_truncated);
                     }
                     if (!strcmp(mode, "exit") || !strcmp(mode, "missing-exit")) {
-                        expect_end(s, true);
+                        expect_end(s, true, !strcmp(mode, "exit") ? 23 : -1);
                     }
-                    CHECK(!info(s).exit_status_known);
+                    CHECK(!strcmp(mode, "exit")
+                              ? (info(s).exit_status_known && info(s).exit_status == 23)
+                              : !info(s).exit_status_known);
                     close_stream(s);
                 }
             }

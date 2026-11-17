@@ -23,6 +23,9 @@ final class PluginPaneFlowTests: XCTestCase {
     func testPreviewThroughPackageApprovalLaunchConsentAndStopControls() async throws {
         try await runPreview(.markdown, jump: false)
     }
+    func testForegroundInspectionAndAttachmentThroughControls() async throws {
+        try await runPreview(.markdown, jump: false, foreground: true)
+    }
     func testMarkdownAttachmentsThroughProxyJumpControls() async throws {
         try await runPreview(.markdown, jump: true)
     }
@@ -71,7 +74,7 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -218,6 +221,49 @@ final class PluginPaneFlowTests: XCTestCase {
             try press("plugin-client-workspace-allow")
             try await Task.sleep(for: .milliseconds(25))
         }
+        var frontend: Process?
+        if foreground {
+            guard host == "127.0.0.1", user == NSUserName() else { throw XCTSkip("foreground fixture requires owned same-user loopback SSH") }
+            let endpoint = root.appendingPathComponent("e")
+            try FileManager.default.createDirectory(at: endpoint, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            let process = Process(); process.executableURL = URL(fileURLWithPath: gterm)
+            process.arguments = ["relay", "--listen", endpoint.path, "--trust-development-digest", digest,
+                "--client-digest", digest, "--root", "workspace", workspace.path, "--", package.path, "preview"] + arguments
+            process.standardInput = FileHandle.nullDevice; process.standardOutput = Pipe(); process.standardError = Pipe()
+            try process.run(); frontend = process
+            addTeardownBlock {
+                if process.isRunning { process.terminate() }
+                let deadline = ProcessInfo.processInfo.systemUptime + 5
+                while process.isRunning, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(10)) }
+                XCTAssertFalse(process.isRunning, "owned foreground fixture must exit")
+            }
+            let permitURL = endpoint.appendingPathComponent("permit")
+            guard try await until({ (try? Data(contentsOf: permitURL).count) == 56 }) else { XCTFail("foreground endpoint did not become ready"); return }
+            let permit = try Data(contentsOf: permitURL)
+            let instance = permit[8..<24].map { String(format: "%02x", $0) }.joined()
+            try press("plugin-ipc-mode")
+            try await Task.sleep(for: .milliseconds(30))
+            try set("plugin-ipc-directory", endpoint.path)
+            try set("plugin-ipc-instance", instance)
+            try await Task.sleep(for: .milliseconds(30))
+            try press("plugin-ipc-inspect")
+            guard try await until({ node("plugin-ipc-declaration") != nil && !model.extensionRunBusy }) else {
+                let issue = node("plugin-ipc-inspection-issue").flatMap { PluginTableRendering.attribute($0, "accessibilityValue") }
+                XCTFail("inspection did not display live declaration: \(issue ?? model.extensionRunIssue ?? "none")"); return
+            }
+            XCTAssertNil(model.extensionRun, "inspection must not create a Session or Runtime")
+            XCTAssertEqual(try Data(contentsOf: permitURL), permit, "inspection must leave attach capability intact")
+            try press("plugin-ipc-adopt")
+            try await Task.sleep(for: .milliseconds(30))
+            XCTAssertEqual(PluginTableRendering.attribute(try XCTUnwrap(node("plugin-arguments-" + id)), "accessibilityValue"), argumentsJSON)
+            let allow = try XCTUnwrap(node("plugin-ipc-allow"))
+            let allowed = allow.perform(NSSelectorFromString("accessibilityValue"))?.takeUnretainedValue() as? NSNumber
+            XCTAssertEqual(allowed?.intValue, 0, "adopting declaration must clear attachment approval")
+            try press("plugin-ipc-files")
+            try await Task.sleep(for: .milliseconds(30))
+            try press("plugin-ipc-allow")
+            try await Task.sleep(for: .milliseconds(30))
+        }
         XCTAssertNil(model.extensionRun, "editing the launch form must not connect")
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
@@ -230,7 +276,11 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertEqual(model.extensionRun?.arguments, arguments)
         XCTAssertEqual(interaction.hosts.map(\.port), jump ? [UInt16(env["GHOSTERM_SSH_JUMP_PORT"]!)!, UInt16(port)!] : [UInt16(port)!],
                        "actual host-key prompts must prove the configured route and order")
-        XCTAssertTrue(model.extensionRun?.remoteCommand.contains("'--root' 'workspace' '\(workspace.path)'") == true)
+        if foreground {
+            XCTAssertTrue(model.extensionRun?.remoteCommand.contains("'--attach'") == true)
+        } else {
+            XCTAssertTrue(model.extensionRun?.remoteCommand.contains("'--root' 'workspace' '\(workspace.path)'") == true)
+        }
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
         try press("plugin-consent-allow")
@@ -399,6 +449,9 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue)
         for item in resources { XCTAssertNil(node("plugin-resource-select-" + item.resourceID)) }
         XCTAssertNil(node("plugin-consent-allow"))
+        if let frontend {
+            guard try await until({ !frontend.isRunning }) else { XCTFail("stopping attached runtime must release original frontend"); return }
+        }
         if let managed {
             let revision = try await controller.installedVersions().revision
             let preview = try await controller.previewVersionRemoval(releaseID: managed.signature.descriptorSHA256, expectedRevision: revision)

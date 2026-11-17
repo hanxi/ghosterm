@@ -544,6 +544,10 @@ public actor ExtensionController {
         try await worker.stepSSHChannel(milliseconds: milliseconds)
     }
 
+    public func readForegroundDeclaration(instance: String) async throws -> PluginForegroundDeclaration {
+        try await worker.readForegroundDeclaration(instance: instance)
+    }
+
     public func decideSSHHost(hop: UInt32, challenge: UInt64, decision: UInt32) async throws -> Int32 {
         try await worker.decideSSHHost(hop: hop, challenge: challenge, decision: decision)
     }
@@ -676,6 +680,8 @@ public actor ExtensionController {
         private var closeComplete = false
         private var closeResult = false
         private var channel: ExtensionChannel?
+        private var foregroundInspectionData = Data()
+        private var foregroundInspectionReading = false
         private var local = false
         private var lastLocalProcess: ProcessState?
         private var localTemporary: ExtensionLocalTemporaryDirectory?
@@ -1329,6 +1335,50 @@ public actor ExtensionController {
                 guard milliseconds >= 0, let channel = self.channel else { throw ControllerError.channelUnavailable }
                 _ = try channel.step(milliseconds: milliseconds)
                 return try self.channelState(channel)
+            }
+        }
+
+        func readForegroundDeclaration(instance: String) async throws -> PluginForegroundDeclaration {
+            try await perform {
+                try self.checkOpen()
+                guard !self.foregroundInspectionReading, self.channel != nil, self.session == nil, self.runtime == nil else { throw ControllerError.channelUnavailable }
+                self.foregroundInspectionReading = true
+                self.foregroundInspectionData.removeAll(keepingCapacity: false)
+            }
+            let deadline = ProcessInfo.processInfo.systemUptime + 8
+            do {
+                while true {
+                    try Task.checkCancellation()
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { throw GhostermError.failed("前台实例检查超时") }
+                    let value: PluginForegroundDeclaration? = try await perform {
+                        try self.checkOpen()
+                        guard self.session == nil, self.runtime == nil, let channel = self.channel else { throw ControllerError.channelUnavailable }
+                        _ = try channel.step(milliseconds: 0)
+                        let (io, bytes) = try channel.read(milliseconds: 0)
+                        guard io.state == .data || io.state == .wait || io.state == .eof,
+                              bytes.count <= PluginForegroundDeclaration.maximumBytes - self.foregroundInspectionData.count else {
+                            throw GhostermError.failed("前台检查通道失败或声明超过上限")
+                        }
+                        self.foregroundInspectionData.append(bytes)
+                        let info = try channel.info()
+                        if io.state == .eof, let code = info.exitStatus {
+                            guard code == 0, info.error == 0, info.cleanupError == 0 else { throw GhostermError.failed("前台实例未确认在线或声明读取失败") }
+                            let value = try PluginForegroundDeclaration.parse(self.foregroundInspectionData, expectedInstance: instance)
+                            self.foregroundInspectionData.removeAll(keepingCapacity: false)
+                            self.foregroundInspectionReading = false
+                            return value
+                        }
+                        return nil
+                    }
+                    if let value { return value }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+            } catch {
+                try? await perform {
+                    self.foregroundInspectionData.removeAll(keepingCapacity: false)
+                    self.foregroundInspectionReading = false
+                }
+                throw error
             }
         }
 

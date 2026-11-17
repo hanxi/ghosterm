@@ -60,6 +60,7 @@ Host 必须管理专属 stdio 的对端归属；`--stdio` 本身不实现 socket
 
 ```text
 gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [与 --stdio 相同的显式包/运行档参数]
+gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32
 gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND [ARG...]
 ```
 
@@ -69,6 +70,12 @@ attach 由明确选定目标的无 PTY SSH / 原生管道启动，stdin / stdout
 两端核对系统提供的对端 UID；临时 0600 permit 保存独立的 256 位随机秘密，不进 argv、TTY 或日志。
 attach 必须提供本次公开实例标识与精确的命令 / 原始 argv，包括空字符串和 Unicode 字节。
 同一目录后来重新启动的进程拥有新标识；旧页面或命令 / 参数不匹配在 Session 前拒绝，不能消费或激活现有实例。
+`--inspect` 使用同一私有目录、系统 UID 和凭据校验，只从仍在线的 listener 读取固定调用声明，
+不消费 permit、不启动模块、不延长等待期限；重复检查也计入 16 次连接上限。
+输出为最多 150 KiB 的 ASCII JSON，包含公开实例、两端摘要、运行档、命令、原始参数、
+RPC 方法和 Client 服务要求；不包含凭据、包 / 根目录、程序映射、环境或固定进程参数。
+这只是前台启动配置的声明，不重新检查包内容、不证明兼容或授予来源 / Session 权限。
+与 attach 相同，它拒绝 TTY / 普通文件 stdin/stdout，须由明确选择目标的 Native pipe 或无 PTY SSH 调用。
 **BREAKING（未冻结的 IPC 原型）**：不再接受省略实例与调用的旧 attach 命令，私有准入前缀为版本 2；Core wire v1 不变，不回退旧入口。
 正确接入后，先移除 permit 和 socket 名字，再交给既有 stdio Session；包摘要匹配、consent、
 能力与资源授权全部照常执行。接入不等于来源信任，也不授予插件运行许可。
@@ -81,13 +88,16 @@ attach 的 0 只表示传输结束，业务成功仍看 Session 结果及原前�
 SIGKILL 可能留下无效文件，进程退出即无可附着的 listener，不自动删残留、重启或复用。
 
 实验 App 的插件页可明确选择已有前台实例、目录与公开标识，另行允许连接；修改主机 / 调用 / 实例配置会撤回允许。
+macOS 页支持先检查在线声明，再明确填入命令 / 参数 / 摘要 / RPC 表；填入要求匹配所选 Client
+摘要与命令，并清除此前连接、已有只读范围、业务进程与 Native 工作区批准。更改位置后旧声明不能再填入。
 仍需选择已批准的 Client 包、预期 Executor 摘要和 RPC 方法，保持真实 Session consent。
-前台的运行档、根目录和程序映射不能从此连接页重配；若需要远端业务进程服务，须单独允许沿用实例范围。
-App 本机直接启动 / 自动发现、App TerminalSurface 和已有 tmux pane 尚未接线；
+前台的运行档、根目录和程序映射不能从此连接页重配；需要沿用前台已选只读文件范围或业务进程服务时，分别明确允许。
+macOS 已有显式本机启动和附着；自动发现与 App TerminalSurface 上的入口尚未接线；
 不从终端输出猜测目标，不自动 SSH 转发或恢复旧会话。复现：
 
 ```sh
 python3 scripts/test-gterm-ipc.py --build tmp/gterm-build
+python3 scripts/test-gterm-inspect.py --build tmp/gterm-build
 python3 scripts/mutation-check-gterm-ipc.py --build tmp/gterm-build
 python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --build tmp/gterm-build --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
