@@ -3,6 +3,10 @@
 #include "../../core/tests/process-runtime-peer.c"
 #undef main
 
+#ifndef GT_DEV_RESOURCE_TIMEOUT_MS
+#define GT_DEV_RESOURCE_TIMEOUT_MS 1000
+#endif
+
 static void dev_stop(int signal_number) {
     (void)signal_number;
     _exit(0);
@@ -197,11 +201,13 @@ static void dev_business(uint64_t *sequence, const char *kind, char outcome[3073
 
 static void dev_publish(uint64_t *sequence) {
     char reply[8193], fields[512], handle[32];
-    call(sequence,
-         "\"op\":\"resource\",\"action\":\"publish\",\"root\":\"workspace\",\"path64\":"
-         "\"ZmlsZS5iaW4=\",\"mime\":\"application/"
-         "octet-stream\",\"limit\":\"262144\",\"timeoutMs\":1000",
-         reply);
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"publish\",\"root\":\"workspace\",\"path64\":"
+                   "\"ZmlsZS5iaW4=\",\"mime\":\"application/"
+                   "octet-stream\",\"limit\":\"262144\",\"timeoutMs\":%u",
+                   (unsigned)GT_DEV_RESOURCE_TIMEOUT_MS) > 0);
+    call(sequence, fields, reply);
     app_json_t *json = app_parse(reply);
     uint16_t value = app_member(json, 1, "value"), ref = app_member(json, value, "handle");
     CHECK(app_string(json, app_member(json, value, "status"), "ok") && ref &&

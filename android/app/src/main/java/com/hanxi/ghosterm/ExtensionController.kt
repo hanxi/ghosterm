@@ -674,8 +674,12 @@ class ExtensionController private constructor(private val shared: Shared, privat
         // budget is checked between calls; native CPU limits still apply.
         val deadline = SystemClock.elapsedRealtimeNanos() + 5_000_000L
         for (step in 0 until 32) {
+            // The shared worker's timer cannot flush a logical channel's one
+            // pending frame while this bounded Runtime batch owns the worker.
+            parent?.multiplexer?.step()
             stepClientPublication()
             val phase = current.step()
+            parent?.multiplexer?.step()
             if (phase != ExtensionRuntime.Phase.STARTING && phase != ExtensionRuntime.Phase.ACTIVE) {
                 clientSource?.cancel(); stepClientPublication(); break
             }

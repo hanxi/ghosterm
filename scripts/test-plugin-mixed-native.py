@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+"""Real macOS App-owned mixed groups over local/direct/two-hop owned channels.
+
+Fixtures, packages and logs stay in project tmp. SSH/signing private material
+stays in memory; no user service, account, device or foreground window is used.
+"""
+import argparse
+import base64
+from contextlib import ExitStack
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import platform
+import pwd
+import re
+import secrets
+import shutil
+import signal
+import socketserver
+import struct
+import subprocess
+import sys
+import threading
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load(name, filename):
+    spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / filename)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build', required=True, type=Path)
+    parser.add_argument('--node', required=True, type=Path)
+    parser.add_argument('--sdk', required=True, type=Path)
+    parser.add_argument('--out', required=True, type=Path)
+    parser.add_argument('--route', action='append', choices=('local', 'direct', 'jump'))
+    parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
+    parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
+    args = parser.parse_args()
+    build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
+    if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
+        parser.error('build, SDK and new output must be in project tmp')
+    if out.exists() or out.is_symlink():
+        parser.error('output must be a new owned directory')
+    cache = (build / 'CMakeCache.txt').read_text()
+    for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2', 'GHOSTERM_WITH_RELEASE_SIGNATURE'):
+        if option + ':BOOL=ON' not in cache:
+            parser.error('requires explicit JS/SSH/signature-enabled gterm')
+    crypto = next(Path(line.split('=', 1)[1]) for line in cache.splitlines() if line.startswith('OPENSSL_CRYPTO_LIBRARY:FILEPATH='))
+    if not crypto.is_file():
+        parser.error('enabled build must identify its actual OpenSSL crypto library')
+    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal',
+        'core/include', 'core/src', 'core/tests', 'cli/gterm', 'packages/plugin-sdk') for p in (ROOT / folder).rglob('*')
+        if p.is_file() and not any(part in ('.build', '.swiftpm', '__pycache__') for part in p.parts)}
+    for filename in ('test-plugin-mixed-native.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py', 'test-plugin-route.py',
+        'test-plugin-release.py', 'fixtures/plugin-dev-executor.c', 'fixtures/plugin-release-agent.mjs'):
+        inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
+    source = args.project.absolute() if args.project else out / 'project'
+    marker = source / '.mixed-fixture-project.json'
+    if not source.is_relative_to(ROOT / 'tmp') or source.is_symlink():
+        parser.error('copied project must be in project tmp')
+    if source.exists() and (not marker.is_file() or json.loads(marker.read_text()) != {'root': str(ROOT)}):
+        parser.error('refuse to overwrite an unmarked copied project')
+    out.mkdir(parents=True, mode=0o700)
+    logs = out / 'logs'; logs.mkdir()
+    env = dict(os.environ, TMPDIR=str(out), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
+        GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+    commands = []
+
+    def run(label, command, seconds=300, input_bytes=None, assertion=False):
+        process = subprocess.Popen(list(map(str, command)), cwd=ROOT, env=env, stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            output, errors = process.communicate(input_bytes, timeout=seconds)
+        except BaseException:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.communicate(timeout=3)
+            raise
+        text = (output + errors).decode('utf-8', errors='replace')
+        (logs / (label + '.log')).write_text(text)
+        commands.append(dict(label=label, returncode=process.returncode))
+        abnormal = any(mark in text for mark in ('AddressSanitizer', 'runtime error:', 'unexpected signal', 'fatalError'))
+        if assertion:
+            failures = re.findall(r'^.*: error: .* : XCTAssert\w+ failed[^\n]*', text, re.M)
+            if process.returncode != 1 or abnormal or len(failures) != 1 or 'Executed 1 test, with 1 failure (0 unexpected)' not in text:
+                raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-12000:])
+        elif process.returncode or abnormal:
+            raise RuntimeError(label + '\n' + text[-12000:])
+        return output, text
+
+    peer = out / 'executor'
+    run('exec-build', ['xcrun', '--sdk', 'macosx', 'clang', '-std=c11', '-Wall', '-Wextra', '-Werror',
+        '-DGT_DEV_RESOURCE_TIMEOUT_MS=10000', '-I' + str(ROOT / 'core/src'), ROOT / 'scripts/fixtures/plugin-dev-executor.c', build / 'core/libghosterm_core.a', '-lpthread', '-lm', '-o', peer])
+    package = out / 'package'; package.mkdir()
+    code = """import {object,text,integer} from '@ghosterm/plugin-sdk';
+export function activate(ctx){
+ const codec=object({text:text(64),count:integer(0,100)});
+ ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{
+  c.check(); if(v.text==='resource'){
+   try {
+    const result=await ctx.resources.publish({root:'workspace',relativePath:'file.bin',mediaType:'application/octet-stream'},
+     {byteLimit:'262144',timeoutMs:10000}).outcome;
+    if(result.kind!=='success')return {text:'publish:'+result.kind+':'+(result.error?.code||result.reason||''),count:v.count};
+    if(result.value.size.kind!=='known'||result.value.size.bytes!=='262144')return {text:'publish:invalid-size',count:v.count};
+   } catch(error){return {text:'publish:threw:'+String(error).slice(0,40),count:v.count};}
+  } c.check(); return v;
+ }); return {dispose(){}};
+}
+"""
+    requires = ['session.rpc', 'resource.receive', 'file.readScoped']
+    variants = [dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=requires),
+        dict(id='node', runtime='node', entry='executor/index.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0', requires=requires),
+        dict(id='exec', runtime='exec', executable='executor/main', requires=requires,
+            os=[{'Darwin': 'macos', 'Linux': 'linux'}[platform.system()]],
+            arch=[{'arm64': 'aarch64', 'aarch64': 'aarch64', 'x86_64': 'x86_64'}[platform.machine()]])]
+    manifest = dict(schemaVersion=1, id='org.ghosterm.mixed-fixture', pluginVersion='0.1.0', sdkApiRange='^1.0.0',
+        bridgeProtocolRange=[1], publisher='fixture', license='MIT',
+        commands=[dict(path=['fixture'], title='Owned mixed-runtime fixture', argsSchema='schemas/input.json')],
+        client=dict(runtime='portable-js', entry='client/index.js', requires=['session.rpc', 'resource.receive']),
+        executor=dict(variants=variants), permissions=[dict(side='executor', capability='file.readScoped',
+            purpose='Only the selected disposable workspace', scope='instance')])
+    schema = dict(type='object', properties={}, required=[], additionalProperties=False, **{'x-ghosterm-cli': dict(version=1, fields={})})
+    files = {'plugin.json': json.dumps(manifest).encode(), 'schemas/input.json': json.dumps(schema).encode(),
+        'client/index.js': b'export function activate(ctx){if(ctx.resources.workspaces.length)throw Error("Client roots");return {dispose(){}}}',
+        'executor/index.js': code.encode(), 'executor/index.mjs': code.encode(), 'executor/main': peer.read_bytes(),
+        'README': b'Owned mixed-runtime conformance fixture; not an official business plugin', 'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes()}
+    for name, data in files.items():
+        path = package / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+    (package / 'executor/main').chmod(0o700)
+    (package / 'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=[
+        dict(path=name, bytes=len(data), sha256=hashlib.sha256(data).hexdigest()) for name, data in sorted(files.items())])))
+    digest = sha(package / 'integrity.json')
+    artifact = out / 'plugin.zip'
+    with zipfile.ZipFile(artifact, 'w') as archive:
+        for path in sorted(package.rglob('*')):
+            if path.is_file():
+                info = zipfile.ZipInfo(path.relative_to(package).as_posix(), date_time=(2020, 1, 1, 0, 0, 0))
+                info.create_system = 3; info.external_attr = (0o100755 if path.name == 'main' else 0o100644) << 16
+                archive.writestr(info, path.read_bytes())
+    host = out / 'host.json'
+    host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'],
+        capabilities=requires, variantId='portable')))
+    run('package-check', [build / 'gterm', 'plugin', 'check', '--host-json', host, '--', package])
+    sdk_hash = hashlib.sha256()
+    for path in sorted((p for p in sdk.rglob('*') if p.is_file()), key=lambda p: p.relative_to(sdk).as_posix().encode()):
+        name = path.relative_to(sdk).as_posix().encode()
+        sdk_hash.update(len(name).to_bytes(4, 'big') + path.stat().st_size.to_bytes(8, 'big') + name + sha(path).encode())
+    node_version = run('node-version', [node, '--version'])[0].decode().strip()[1:]
+    release = load('mixed_signing', 'test-plugin-release.py')
+    keys = load('mixed_keys', 'test-plugin-ssh.py')
+    streams = load('mixed_streams', 'test-plugin-ssh-stream.py')
+    routes = load('mixed_routes', 'test-plugin-route.py')
+    with ExitStack() as stack:
+        public, signer = stack.enter_context(release.agent(node, out))
+        key_id = hashlib.sha256(base64.b64decode(public)).hexdigest()
+        policy = out / 'policy.json'
+        policy.write_text(json.dumps(dict(schemaVersion=1, channel='fixture', keys=[dict(id=key_id, algorithm='ed25519', publicKey=public,
+            publisher=manifest['publisher'], pluginIds=[manifest['id']])], revokedKeyIds=[])))
+        descriptor = out / 'release.json'
+        descriptor.write_text(json.dumps(dict(schemaVersion=1, channel='fixture', keyId=key_id, pluginId=manifest['id'],
+            pluginVersion=manifest['pluginVersion'], publisher=manifest['publisher'], packageSHA256=digest,
+            artifact=dict(format='zip-v1', bytes=artifact.stat().st_size, sha256=sha(artifact)))))
+        # The client subcommand returns a signature only; never write signing private material.
+        signed = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', signer],
+            input=release.DOMAIN + descriptor.read_bytes(), capture_output=True, check=True, timeout=5)
+        signature = out / 'release.sig'; signature.write_bytes(signed.stdout)
+        store, catalog, install_root = out / 'store', out / 'catalog', out / 'install-root'
+        catalog.mkdir(mode=0o700); install_root.mkdir(mode=0o700); (install_root / 'file.bin').write_bytes(b'owned preflight')
+        result = json.loads(run('install', [build / 'gterm', 'plugin', 'install', '--catalog', catalog, '--expect-revision', '0',
+            '--store', store, '--artifact', artifact, '--descriptor', descriptor, '--signature', signature, '--policy', policy,
+            '--host-json', host, '--', '--client-digest', digest, '--variant', 'portable', '--root', 'workspace', install_root,
+            '--method', 'fixture.echo'])[0])
+        if not result.get('installed') or not result.get('committed'):
+            raise RuntimeError('fixture signed version was not installed and registered')
+        installed = store / sha(descriptor)
+        for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal'):
+            # Refresh only fixture-source links; leave compiled-cache links alone.
+            copied = source / folder
+            if copied.exists():
+                for link in copied.rglob('*'):
+                    if link.is_symlink() and not any(part in ('.build', '.swiftpm') for part in link.relative_to(copied).parts):
+                        link.unlink()
+            shutil.copytree(ROOT / folder, source / folder, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'), dirs_exist_ok=True)
+        shutil.copytree(ROOT / 'core/include', source / 'core/include', dirs_exist_ok=True)
+        core_link = source / 'core/build'
+        if core_link.is_symlink(): core_link.unlink()
+        core_link.symlink_to(build / 'core', target_is_directory=True)
+        for folder in ('build', 'patches'):
+            link = source / folder
+            if link.is_symlink(): link.unlink()
+            link.symlink_to(ROOT / folder, target_is_directory=True)
+        (source / 'tmp').mkdir(exist_ok=True)
+        marker.write_text(json.dumps({'root': str(ROOT)}))
+        for name, digest in inputs.items():
+            copied = source / name
+            if name.startswith(('apple/', 'core/include/')) and (not copied.is_file() or sha(copied) != digest):
+                raise RuntimeError('copied input mismatch: ' + name)
+        # Crypto comes from the explicitly enabled CMake build, never a guessed library.
+        command = ['xcrun', 'swift', 'test', '--package-path', source / 'apple/GhostermApp', '-Xlinker', crypto,
+            '--filter', 'ExtensionMixedConnectionTests.testEightMixedExecutorsKeepResourcesAndAdmissionFailuresIndependent']
+        run('compile', ['xcrun', 'swift', 'build', '--build-tests', '--package-path', source / 'apple/GhostermApp', '-Xlinker', crypto], seconds=600)
+        private, client_public = streams.memory_identity()
+        agent = stack.enter_context(keys.owned_agent(out, 'a'))
+        host_keys = [keys.add_memory_key(agent, 'mixed-hop-' + str(i)) for i in range(2)]
+        route_root = out / 'r'; route_root.mkdir()
+        ports, _, _ = stack.enter_context(routes.chain(route_root, 2, client_public, host_keys, agent, 'echo'))
+        completed = []
+        def actual(route, label, assertion=False, compile=False):
+            scratch = out / label; scratch.mkdir(); (scratch / 'stage').mkdir()
+            for slot in range(8):
+                root = scratch / ('workspace-' + str(slot)); root.mkdir()
+                (root / 'file.bin').write_bytes(bytes((i + slot * 17) % 251 for i in range(262144)))
+            token = secrets.token_hex(24)
+            payload = dict(route=route, scratch=str(scratch), package=str(package), installed=str(installed / 'payload'),
+                release=str(installed), policy=str(policy), policySHA256=sha(policy), ports=ports,
+                hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
+                gterm=str(build / 'gterm'), gtermSHA256=sha(build / 'gterm'), node=str(node), nodeVersion=node_version,
+                nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_hash.hexdigest())
+            class Handler(socketserver.StreamRequestHandler):
+                def handle(self):
+                    self.connection.settimeout(5)
+                    if self.rfile.readline(128).rstrip(b'\n') != token.encode():
+                        return
+                    body = json.dumps(payload, separators=(',', ':')).encode()
+                    self.wfile.write(struct.pack('>I', len(body)) + body)
+            with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
+                thread = threading.Thread(target=server.serve_forever); thread.start()
+                env.update(GHOSTERM_MIXED_PORT=str(server.server_address[1]), GHOSTERM_MIXED_TOKEN=token)
+                try:
+                    selected = command if compile else [command[0], *command[1:3], '--skip-build', *command[3:]]
+                    _, text = run(label, selected, seconds=180, assertion=assertion)
+                finally:
+                    server.shutdown(); thread.join(5)
+            if thread.is_alive() or (not assertion and ('Executed 1 test, with 0 failures' not in text or 'skipped' in text.lower())):
+                raise RuntimeError(label + ': exact discovery/no-skip evidence missing')
+        for route in args.route or ('local', 'direct', 'jump'):
+            actual(route, route)
+            completed.append(route)
+            print('PASS mixed Native ' + route, flush=True)
+        mutations = []
+        if args.mutate:
+            filename = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
+            target = source / filename; original = target.read_bytes()
+            anchor = b'                    _ = try self.run.parent?.multiplexer?.step()\n'
+            if original.count(anchor) != 2:
+                raise RuntimeError('ambiguous Runtime parent-pump mutation')
+            objects = list((source / 'apple/GhostermApp/.build').rglob('ExtensionController.o'))
+            before = {str(p): sha(p) for p in objects}
+            if not before: raise RuntimeError('missing compiled worker object')
+            try:
+                target.write_bytes(original.replace(anchor, b'') + b'\n// GT_MIXED_PARENT_PUMP_MUTATION\n')
+                actual('local', 'parent-pump-red', assertion=True, compile=True)
+                if not any(p.is_file() and sha(p) != before[str(p)] for p in objects):
+                    raise RuntimeError('mutated worker did not recompile')
+                _, control = run('parent-pump-control', [*command[:-2], '--filter', 'HostListTests.testReadingDoesNotMutateConfig'])
+                if 'Executed 1 test, with 0 failures' not in control or 'skipped' in control.lower():
+                    raise RuntimeError('independent configuration control did not pass')
+            finally:
+                target.write_bytes(original)
+            actual('local', 'parent-pump-restored', compile=True)
+            if sha(target) != inputs[filename]: raise RuntimeError('worker restoration mismatch')
+            mutations.append('parent-pump')
+            print('PASS parent-pump: compiled ordinary assertion / independent config / restore / object / SHA256', flush=True)
+    if any(sha(ROOT / name) != digest for name, digest in inputs.items()):
+        raise RuntimeError('root input changed')
+    for path in logs.iterdir():
+        if b'PRIVATE KEY-----' in path.read_bytes():
+            raise RuntimeError('fixture private material leaked to a log')
+    receipt = dict(accepted=True, inputs=inputs, commands=commands, routes=completed, mutations=mutations,
+        artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
+        logs={path.name: sha(path) for path in logs.iterdir()},
+        scope='macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; no Android, system picker, mutations, model, fault/performance/device matrix')
+    (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+
+
+if __name__ == '__main__':
+    def interrupted(number, frame):
+        raise KeyboardInterrupt(str(number))
+    signal.signal(signal.SIGINT, interrupted)
+    signal.signal(signal.SIGTERM, interrupted)
+    main()

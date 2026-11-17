@@ -1383,3 +1383,42 @@ python3 scripts/test-gterm-release.py --build 工程tmp下的CLI构建 --node �
 通过真实签名安装、前台 IPC、Host Session / consent / RPC 和释放。未选 Node 入口会
 抛错，未选 Exec 入口会以 83 退出，不用成功的占位处理器代替所选业务。
 这不代表原生 App 的系统表单点击、远端 SSH 或混合多实例矩阵已完成。
+
+
+## 验证 macOS 同连接混合运行与资源隔离
+
+`scripts/test-plugin-mixed-native.py` 创建带 Portable / Node / Exec 三个 variant 的一次性
+RPC / 文件资源夹具，通过实际 AppModel 的连接组消费；不操作用户包、主机、账号或设备。
+CLI 构建须显式启用 JS、SSH 和 release signature，SDK 使用锁定工具构建：
+
+```sh
+mkdir -p tmp/plugin-mixed
+export TMPDIR="$PWD/tmp/plugin-mixed"
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+node build/plugin-sdk-tools/node_modules/typescript/bin/tsc \
+  -p packages/plugin-sdk/tsconfig.json --outDir tmp/plugin-mixed/sdk
+cmake -S cli/gterm -B tmp/plugin-mixed/cli -DCMAKE_BUILD_TYPE=Debug \
+  -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON \
+  -DGHOSTERM_WITH_RELEASE_SIGNATURE=ON -DGHOSTERM_BUILD_TESTS=OFF
+cmake --build tmp/plugin-mixed/cli --target gterm -j 4
+node scripts/build-plugin-node-sdk.mjs --tools build/plugin-sdk-tools --out tmp/plugin-mixed/node-sdk
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-mixed-native.py \
+  --build tmp/plugin-mixed/cli --node 明确的Node绝对路径 --sdk tmp/plugin-mixed/node-sdk \
+  --out tmp/plugin-mixed/native --mutate
+```
+
+`--out` 必须是工程 tmp 下的新目录；省略 `--route` 运行本机、直连和两跳，也可重复指定
+所需路线。`--mutate` 在隔离 Swift 副本撤回批处理内的父连接推进，要求真实编译后单条
+正常断言红、独立 HostList 配置绿、恢复绿与对象 / 源码 SHA256。失败会保留本次日志和
+副本供诊断；任务结束后核对活动引用并清理本次目录。重复开发可用 `--project` 明确选择
+本工具带标记的复制工程缓存，源码仍从根工程刷新并比对，不覆盖未标记工程。
+
+每路线有八个独立审批的实际实例，交替使用开发目录与已签名安装版本。各实例返回
+自己的 RPC 回包和 256 KiB 资源，核对完整字节 / 摘要；关闭一项后注入错误策略摘要，
+其它七项继续 RPC，再在线添加已签名 Node，全关后复用原连接创建已签名 Exec，最后
+确认 finish / EOF / 本机 reap 与暂存为空。发布操作使用显式 10 秒期限；测试 Exec 的
+`GT_DEV_RESOURCE_TIMEOUT_MS=10000` 只配置本次夹具，原默认仍为 1000，不调整生产
+CPU / 内存 / 流控上限。源码 / 实际构件 / 日志收据留在 `--out/receipt.json`。
+
+本专项不启动 Android 或系统选包器，也不代表官方业务插件、并发资源压力、完整
+断线 / OOM / 性能 / 设备矩阵通过。普通 App 的 JS / 签名开关保持原配置。

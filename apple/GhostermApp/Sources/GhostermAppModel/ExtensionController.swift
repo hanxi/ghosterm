@@ -1894,8 +1894,13 @@ public actor ExtensionController {
                 // budget applies between calls; each call retains its CPU guard.
                 let deadline = ProcessInfo.processInfo.systemUptime + 0.005
                 for _ in 0..<32 {
+                    // A logical channel has one pending outbound frame. Its
+                    // physical owner shares this queue, so its timer cannot
+                    // flush credit/data while this bounded batch is running.
+                    _ = try self.run.parent?.multiplexer?.step()
                     try self.stepClientPublication()
                     let phase = try runtime.step()
+                    _ = try self.run.parent?.multiplexer?.step()
                     if phase != .starting && phase != .active {
                         try self.clientSource?.cancel(); try self.stepClientPublication(); break
                     }
