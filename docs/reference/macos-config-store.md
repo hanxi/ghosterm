@@ -41,3 +41,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 收尾：最终 32 项 ConfigStore、6 项 ConfigEdit 与 5 项 HostList，共 **43 项通过，零失败/跳过**；最终同源 **22 组**完整变异均实际编译后单条正常断言红、独立主机配置读取绿、复原绿和 SHA256。此前 19 组无锁扫描为前置历史，不与最终 22 组累加。macOS arm64 Release 原生构建通过，clang-format 19.1.7 对隔离基线的 276 文件只读检查通过；首轮缺格式工具未执行，安装同版本到本轮 tmp 后才记通过。没有修改 C 或扩大为完整宿主/发行验收。
 
 最终生产源 SHA256：`989d4b24ede190ebdf4e4a23cc4de1a0a1d9d9918c1246e0195dd9bad125dab2`；测试源 SHA256：`9bcbd9499dc2bd4de03693de071203f15086a924433f58a7f0b318fd84b6440c`。
+
+工具与清理收尾：首次补装格式工具遗漏安装器 TMPDIR，未将其计为完整隔离证据；随后以工程 TMPDIR、工程缓存目录及 pip `--no-cache-dir` 重建锁定 19.1.7 工具，276 文件检查再次通过。`tmp/cfg17` 与 `tmp/set17` 两个本轮隔离 worktree 已移除；仅清理本轮 25412 普通文件 / 5794 目录 / 95 链接 / 2217035124 逻辑字节，不代表 APFS 实际回收量。主生产/测试/文案/变异脚本摘要前后不变，其它 session 工作区和 tmp 内容保留。临时日志/截图已随隔离目录清理，以上为入库摘要，不再将旧路径当现存附件。
