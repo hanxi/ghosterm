@@ -4,28 +4,17 @@
 #include "extension/route.h"
 #include "extension/channel-owner.h"
 #include "extension/process-stream.h"
+#include "extension/multiplex.h"
 #include "base/secure-random.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-struct gt_ext_channel {
-    gt_bridge_stream_t *stream;
-    gt_bridge_stream_t *process_stream; /* borrowed until retained channel retires */
-    bool ssh, closed;
-    gt_ext_channel_info_t info;
-    uint64_t challenge_counter;
-    uint32_t wait_hop;
-    gt_ssh_auth_phase_t wait_phase;
-    bool waiting;
-    uint8_t write_buffer[GT_EXT_IO_MAX];
-    size_t write_size, write_at;
-};
-
 static atomic_uint channel_count;
 
 static bool channel_stopped(const gt_ext_channel_t *c) {
-    return atomic_load_explicit(&c->stream->stopping, memory_order_acquire);
+    return atomic_load_explicit(&c->stream->stopping, memory_order_acquire) ||
+           (c->multiplexed && gt__bridge_mux_branch_status(c->stream) == GT_ERR_CANCELLED);
 }
 #ifdef GT_HAVE_PLUGIN_CHANNEL
 static bool channel_clock(void *ctx, uint64_t *out) {
@@ -49,14 +38,33 @@ static gt_ext_channel_t *channel_new(void) {
     gt_ext_channel_t *c = gt__plugin_memory_calloc(1, sizeof(*c));
     if (!c) {
         atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);
+    } else {
+        c->counted = true;
     }
     return c;
 }
 #endif
 static void channel_free(gt_ext_channel_t *c) {
+    bool counted = c->counted;
+    if (c->did_retire) {
+        c->did_retire(c->retire_context);
+    }
     gt__secure_erase(c, sizeof(*c));
     gt__plugin_memory_free(NULL, c, sizeof(*c));
-    atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);
+    if (counted) {
+        atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);
+    }
+}
+
+gt_ext_channel_t *gt__ext_channel_new_branch(bool ssh) {
+    gt_ext_channel_t *channel = gt__plugin_memory_calloc(1, sizeof(*channel));
+    if (channel) {
+        channel->multiplexed = true;
+        channel->ssh = ssh;
+        channel->info.phase = GT_EXT_READY;
+        channel->info.stage = GT_EXT_STAGE_STREAM;
+    }
+    return channel;
 }
 
 static gt_ext_stage_t channel_stage(gt_bridge_route_phase_t p) {
@@ -128,7 +136,7 @@ static void channel_fail(gt_ext_channel_t *c, gt_status_t status) {
     c->waiting = false;
 }
 
-static bool channel_refresh(gt_ext_channel_t *c) {
+static bool channel_refresh_from(gt_ext_channel_t *c, gt_bridge_stream_t *stream) {
     if (c->process_stream) {
         gt_ext_transport_process_info_t p;
         if (gt_ext_channel_process_info(c, &p) != GT_OK) {
@@ -145,11 +153,22 @@ static bool channel_refresh(gt_ext_channel_t *c) {
             channel_fail(c, p.error);
         }
     }
+    if (c->multiplexed) {
+        gt_bridge_mux_branch_info_t state;
+        if (!gt__bridge_mux_branch_info(stream, &state)) {
+            return false;
+        }
+        gt_status_t status = gt__bridge_mux_branch_status(stream);
+        if (status != GT_OK) {
+            channel_fail(c, status);
+        }
+        return true;
+    }
     if (!c->ssh) {
         return true;
     }
     gt_bridge_route_info_t r;
-    if (!gt__bridge_route_info(c->stream, &r) || !r.count || r.count > GT_EXT_MAX_HOPS ||
+    if (!gt__bridge_route_info(stream, &r) || !r.count || r.count > GT_EXT_MAX_HOPS ||
         r.hop >= r.count) {
         return false;
     }
@@ -201,6 +220,27 @@ static bool channel_refresh(gt_ext_channel_t *c) {
     c->waiting = wait;
     c->wait_hop = (uint32_t)r.hop;
     c->wait_phase = phase;
+    return true;
+}
+
+static bool channel_refresh(gt_ext_channel_t *c) {
+    return channel_refresh_from(c, c->stream);
+}
+
+bool gt__ext_channel_retained_info(gt_ext_channel_t *channel,
+                                   gt_bridge_stream_t *stream,
+                                   gt_ext_channel_info_t *out) {
+    if (!channel || !stream || !out || !channel_refresh_from(channel, stream)) {
+        return false;
+    }
+    *out = channel->info;
+    if (stream->closed) {
+        out->phase = GT_EXT_CLOSED;
+    } else if (atomic_load_explicit(&stream->stopping, memory_order_acquire) &&
+               out->phase != GT_EXT_FAILED) {
+        out->phase = GT_EXT_STOPPED;
+        out->error = GT_ERR_CANCELLED;
+    }
     return true;
 }
 
@@ -431,6 +471,13 @@ bool gt_ext_channel_info(const gt_ext_channel_t *c, gt_ext_channel_info_t *out) 
         return false;
     }
     *out = c->info;
+    if (c->multiplexed && !c->closed) {
+        gt_status_t status = gt__bridge_mux_branch_status(c->stream);
+        if (status != GT_OK && out->phase != GT_EXT_FAILED) {
+            out->phase = status == GT_ERR_CANCELLED ? GT_EXT_STOPPED : GT_EXT_FAILED;
+            out->error = status;
+        }
+    }
     if (c->closed) {
         out->phase = GT_EXT_CLOSED;
     } else if (channel_stopped(c) && out->phase != GT_EXT_FAILED) {
@@ -446,7 +493,7 @@ channel_reply(gt_ext_channel_t *c, uint32_t hop, uint64_t challenge, gt_ssh_auth
     if (!c) {
         return GT_ERR_INVALID_ARG;
     }
-    if (!c->ssh) {
+    if (!c->ssh || c->multiplexed) {
         return GT_ERR_UNSUPPORTED;
     }
     if (c->closed || channel_stopped(c)) {
@@ -645,6 +692,12 @@ gt_status_t gt__ext_channel_admit(gt_ext_channel_t *c, bool ssh, gt_bridge_strea
     if (!c || !out || !c->stream || c->closed || c->ssh != ssh || c->info.phase != GT_EXT_READY ||
         channel_stopped(c) || c->info.accepted || c->info.received || c->write_size) {
         return GT_ERR_INVALID_ARG;
+    }
+    if (c->multiplexed) {
+        gt_status_t status = gt__bridge_mux_branch_status(c->stream);
+        if (status != GT_OK) {
+            return status;
+        }
     }
     *out = c->stream;
     return GT_OK;

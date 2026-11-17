@@ -171,8 +171,19 @@ static gt_status_t ext_session_open_owned(gt_ext_channel_t **owned,
         m->output = ext_output;
         m->context = &s->methods[i];
     }
-    status = gt__bridge_session_open(
-        &stream, role == GT_EXT_HOST ? GT_BRIDGE_HOST : GT_BRIDGE_EXECUTOR, &c, NULL, &s->inner);
+    status =
+        (*owned)->multiplexed
+            ? gt__bridge_session_open_multiplexed(&stream,
+                                                  role == GT_EXT_HOST ? GT_BRIDGE_HOST
+                                                                      : GT_BRIDGE_EXECUTOR,
+                                                  &c,
+                                                  NULL,
+                                                  &s->inner)
+            : gt__bridge_session_open(&stream,
+                                      role == GT_EXT_HOST ? GT_BRIDGE_HOST : GT_BRIDGE_EXECUTOR,
+                                      &c,
+                                      NULL,
+                                      &s->inner);
     if (status != GT_OK) {
         gt__secure_erase(s, sizeof(*s));
         gt__plugin_memory_free(NULL, s, sizeof(*s));

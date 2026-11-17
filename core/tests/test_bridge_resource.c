@@ -707,6 +707,9 @@ static void resource_test_shared(const char *root) {
     extra = f.lease;
     extra.epoch++;
     CHECK(gt__bridge_resource_bind(f.store, &extra, 16, &owner) == GT_BRIDGE_RESOURCE_DENIED);
+    CHECK(gt__bridge_resource_bind_multiplexed(f.store, &extra, 16, &owner) ==
+              GT_BRIDGE_RESOURCE_DENIED &&
+          !owner);
     gt_bridge_resource_ref_t refs[3];
     gt_bridge_resource_descriptor_t d = resource_test_descriptor(1, false, 0, abc_digest);
     for (size_t i = 0; i < 2; i++) {

@@ -302,7 +302,9 @@ static gt_status_t transfer_bind(gt_bridge_transfer_t *t) {
         return GT_ERR_AUTH;
     }
     gt_bridge_resource_status_t status =
-        gt__bridge_resource_bind(t->store, &t->lease, t->scope_budget, &t->owner);
+        gt__bridge_session_multiplexed(t->session)
+            ? gt__bridge_resource_bind_multiplexed(t->store, &t->lease, t->scope_budget, &t->owner)
+            : gt__bridge_resource_bind(t->store, &t->lease, t->scope_budget, &t->owner);
     return status == GT_BRIDGE_RESOURCE_OK   ? GT_OK
            : status == GT_BRIDGE_RESOURCE_IO ? GT_ERR_IO
                                              : GT_ERR_UNSUPPORTED;

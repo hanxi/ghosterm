@@ -22,6 +22,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val externalProcess: Boolean, val activated: Boolean, val childExited: Boolean, val probeVerified: Boolean,
         val executionError: Int, val exitCode: Int, val termSignal: Int, val groupSignalError: Int,
         val stdoutBytes: ULong, val stderrBytes: ULong)
+    private var multiplexOwner: ExtensionMultiplexer? = null
     @Volatile private var handle = 0L
     private var finalTransportProcessObservation: Array<Any>? = null
     fun transportProcessObservation(): ExtensionChannel.ProcessObservation {
@@ -128,7 +129,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         if (handle == 0L) return true
         owner(); val observation = arrayOfNulls<Any>(1)
         return when (NativeExtensionRuntime.close(handle, observation)) {
-            0 -> false
+            0 -> { multiplexOwner?.step(); false }
             1 -> { handle = 0L; borrowedLease?.bytes?.fill(0); borrowedLease = null
                 @Suppress("UNCHECKED_CAST")
                 val snapshot = observation[0] as Array<Any>?
@@ -166,6 +167,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val limits = longArrayOf(role.ordinal.toLong(), memoryBytes, stackBytes, cpuMilliseconds.toLong(), jobsPerStep.toLong(), activationMilliseconds.toLong())
             val invocationBytes = invocationBytes(invocation)
             val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
+            result.multiplexOwner = session.multiplexOwner
             val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "插件包运行时未接管会话")
@@ -193,6 +195,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val invocationBytes = invocationBytes(config.invocation)
             // Allocate Java owner and all arguments before Core takes Session.
             val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
+            result.multiplexOwner = session.multiplexOwner
             val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "运行时未接管会话")

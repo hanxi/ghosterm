@@ -24,7 +24,7 @@ struct gt_bridge_session {
     bool rpc_sending, resource_sending, prefer_resource;
     atomic_bool stopping;
     gt_bridge_session_phase_t after_send;
-    bool released, close_queued, tx_exhausted, rx_exhausted;
+    bool released, close_queued, tx_exhausted, rx_exhausted, multiplexed;
     uint64_t now, network_end, wait_started, wait_end, ending_end, tx_sequence, rx_sequence;
     uint32_t consent_ms;
     char host_nonce[33], executor_nonce[33], challenge[33], ticket[33], lease[33];
@@ -876,6 +876,10 @@ gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *s, int ms
     return s->info.phase;
 }
 
+bool gt__bridge_session_multiplexed(const gt_bridge_session_t *s) {
+    return s && s->multiplexed;
+}
+
 bool gt__bridge_session_info(const gt_bridge_session_t *s, gt_bridge_session_info_t *out) {
     if (out) {
         memset(out, 0, sizeof(*out));
@@ -1105,6 +1109,7 @@ static gt_status_t construct_session(gt_bridge_stream_t **owned,
     s->info.budgets = config->budgets;
     s->info.peer = config->peer;
     if (identity) {
+        s->multiplexed = true;
         memcpy(s->info.connection, identity->connection, 33);
         memcpy(s->info.instance, identity->instance, 33);
         s->info.epoch = identity->epoch;

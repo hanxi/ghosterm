@@ -4,7 +4,8 @@ import android.os.Looper
 
 /** Native consent/lifecycle worker, never an App view or JS permission bypass.
  * Only stop is cross-thread. Explicit close retains draining/error ownership. */
-class ExtensionSession private constructor(private val worker: Thread, private val resourceStore: ExtensionResourceStore? = null) : AutoCloseable {
+class ExtensionSession private constructor(private val worker: Thread, private val resourceStore: ExtensionResourceStore? = null,
+    internal val multiplexOwner: ExtensionMultiplexer? = null) : AutoCloseable {
     enum class Role { HOST, EXECUTOR }
     enum class PeerKind { LOCAL, SSH }
     enum class Decision { UNKNOWN, ALLOW, DENY }
@@ -141,7 +142,7 @@ class ExtensionSession private constructor(private val worker: Thread, private v
         owner(); require(milliseconds >= 0)
         val observation = arrayOfNulls<Any>(1)
         return when (NativeExtensionSession.close(handle, milliseconds, observation)) {
-            0 -> false
+            0 -> { multiplexOwner?.step(); false }
             1 -> { handle = 0L
                 @Suppress("UNCHECKED_CAST")
                 val snapshot = observation[0] as Array<Any>?
@@ -156,7 +157,7 @@ class ExtensionSession private constructor(private val worker: Thread, private v
          * copied from a trusted package/endpoint snapshot, never peer output. */
         fun adopt(channel: ExtensionChannel, role: Role, config: Config, resourceStore: ExtensionResourceStore? = null, resourceScopeBytes: Long = 1048576): ExtensionSession {
             val store = resourceStore?.nativeHandle() ?: 0L
-            val result = ExtensionSession(Thread.currentThread(), resourceStore)
+            val result = ExtensionSession(Thread.currentThread(), resourceStore, channel.multiplexOwner)
             val texts = arrayOf(config.pluginId, config.pluginVersion, config.clientDigest, config.executorDigest,
                 config.hostVersion, config.sdkVersion, config.peerIdentity).map { it.toByteArray() }.toTypedArray()
             val numbers = intArrayOf(config.peerKind.ordinal, config.budgets.fragmentBytes, config.budgets.messageBytes,

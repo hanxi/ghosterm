@@ -127,6 +127,8 @@ gt_status_t gt__bridge_session_open_multiplexed(gt_bridge_stream_t **,
                                                 gt_bridge_session_t **);
 gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *, int ms);
 bool gt__bridge_session_info(const gt_bridge_session_t *, gt_bridge_session_info_t *);
+/* True only for a locally admitted mux branch, never peer metadata. */
+bool gt__bridge_session_multiplexed(const gt_bridge_session_t *);
 bool gt__bridge_session_runtime_admissible(const gt_bridge_session_t *);
 /* Compare the locally retained handshake metadata, never peer self-claims.
  * Separate from current lease/scope checks; no authorization is granted here. */

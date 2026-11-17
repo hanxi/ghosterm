@@ -321,7 +321,7 @@ public final class ExtensionRuntime {
     @discardableResult public func closeStep() throws -> Bool {
         let p = try pointer(); let close = gt_ext_runtime_close(p)
         if close == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("运行时关闭错误，保留 owner") }
-        guard close == GT_EXT_RELEASED else { return false }
+        guard close == GT_EXT_RELEASED else { session?.stepMultiplexerForCleanup(); return false }
         var observation = gt_ext_transport_process_info_t()
         if gt_ext_runtime_transport_process_info(p, &observation) == GT_OK { finalTransportProcessObservation = try ExtensionChannel.ProcessObservation(observation) }
         stopLock.lock(); let status = gt_ext_runtime_destroy(&raw); stopLock.unlock()
@@ -354,6 +354,7 @@ private final class ExtensionRuntimeCleanup {
         guard let raw else { return }; gt_ext_runtime_stop(raw)
         for _ in 0..<32 {
             let close = gt_ext_runtime_close(raw)
+            if close == GT_EXT_DRAINING { session?.stepMultiplexerForCleanup() }
             if close == GT_EXT_CLOSE_ERROR { return }
             if close == GT_EXT_RELEASED {
                 guard gt_ext_runtime_destroy(&self.raw) == GT_OK else { return }

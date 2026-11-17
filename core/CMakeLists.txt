@@ -24,6 +24,7 @@ add_library(ghosterm_core STATIC
   src/extension/fd-stream.c
   src/extension/frame.c
   src/extension/multiplex.c
+  src/extension/multiplex-api.c
   src/extension/wire.c
   src/extension/package-snapshot.c
   src/extension/package-json.c
@@ -507,6 +508,15 @@ add_executable(test_ext_session tests/test_ext_session.c)
 target_link_libraries(test_ext_session PRIVATE ghosterm_core)
 target_compile_options(test_ext_session PRIVATE -Wall -Wextra -Werror)
 if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  add_executable(test_ext_multiplex tests/test_ext_multiplex.c)
+  target_link_libraries(test_ext_multiplex PRIVATE ghosterm_core)
+  target_compile_options(test_ext_multiplex PRIVATE -Wall -Wextra -Werror)
+  foreach(mode roundtrip capacity)
+    add_test(NAME ext_multiplex_${mode} COMMAND test_ext_multiplex ${mode})
+    set_tests_properties(ext_multiplex_${mode} PROPERTIES TIMEOUT 20)
+  endforeach()
+  add_test(NAME ext_multiplex_source_borrow COMMAND test_ext_multiplex source-borrow ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  set_tests_properties(ext_multiplex_source_borrow PROPERTIES TIMEOUT 20)
   add_executable(test_ext_session_boundary tests/test_ext_session_boundary.c)
   target_include_directories(test_ext_session_boundary PRIVATE src)
   target_link_libraries(test_ext_session_boundary PRIVATE ghosterm_core)

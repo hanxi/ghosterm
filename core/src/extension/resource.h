@@ -70,6 +70,14 @@ gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t 
                                                      const gt_bridge_lease_t *,
                                                      uint64_t scope_budget,
                                                      uint64_t *owner);
+/* Only locally admitted mux Sessions may use per-instance native epochs.
+ * First binding fixes this policy and connection for the Store lifetime;
+ * strict single-stream and mux bindings cannot mix. Full lease comparisons,
+ * active instance uniqueness, budgets and retained pins still apply. */
+gt_bridge_resource_status_t gt__bridge_resource_bind_multiplexed(gt_bridge_resource_store_t *,
+                                                                 const gt_bridge_lease_t *,
+                                                                 uint64_t scope_budget,
+                                                                 uint64_t *owner);
 /* Per-scope generation is a strict increasing high-water mark (not per name).
  * Failed begins do not advance it; successful begin consumes it even on abort.
  * Known sizes reserve their full length; unknown sizes reserve resource_bytes.

@@ -36,6 +36,7 @@ struct gt_bridge_mux {
     size_t writing_slot;
     bool writing, writing_close, released;
     uint64_t highest_epoch, admitted_epochs, received, sent, rejected;
+    uint64_t accepted_bytes, sent_bytes, received_bytes;
     uint8_t input[GT_BRIDGE_IO_QUANTUM];
     size_t input_size, input_used;
 };
@@ -47,6 +48,10 @@ static void count_one(uint64_t *value) {
     if (*value != UINT64_MAX) {
         (*value)++;
     }
+}
+
+static void count_bytes(uint64_t *value, size_t size) {
+    *value = UINT64_MAX - *value < size ? UINT64_MAX : *value + size;
 }
 
 static void *allocate(void *context, size_t size) {
@@ -206,6 +211,7 @@ static void branch_destroy(gt_bridge_stream_t *stream) {
         &mux->allocator, branch->incoming, stride(mux) * mux->config.receive_frames);
     branch->outgoing = NULL;
     branch->incoming = NULL;
+    branch->head = branch->count = branch->offset = 0;
     branch->live = false;
     mux->live--;
 }
@@ -298,12 +304,7 @@ bool gt__bridge_mux_branch_identity(const gt_bridge_stream_t *stream,
     return true;
 }
 
-bool gt__bridge_mux_branch_info(const gt_bridge_stream_t *stream,
-                                gt_bridge_mux_branch_info_t *out) {
-    if (!out || !gt__bridge_mux_branch_identity(stream, &out->identity)) {
-        return false;
-    }
-    const mux_branch_t *branch = (const mux_branch_t *)stream;
+static void branch_info(const mux_branch_t *branch, gt_bridge_mux_branch_info_t *out) {
     *out = (gt_bridge_mux_branch_info_t){
         .identity = branch->identity,
         .error = branch->error,
@@ -312,9 +313,56 @@ bool gt__bridge_mux_branch_info(const gt_bridge_stream_t *stream,
         .received = branch->received,
         .sent = branch->sent,
         .rejected = branch->rejected,
-        .closing = branch->closing || atomic_load_explicit(&stream->stopping, memory_order_acquire),
-        .close_sent = branch->close_sent};
+        .closing =
+            branch->closing || atomic_load_explicit(&branch->stream.stopping, memory_order_acquire),
+        .close_sent = branch->close_sent,
+        .released = !branch->live || branch->stream.closed};
+}
+
+bool gt__bridge_mux_branch_info(const gt_bridge_stream_t *stream,
+                                gt_bridge_mux_branch_info_t *out) {
+    if (!out || !gt__bridge_mux_branch_identity(stream, &out->identity)) {
+        return false;
+    }
+    branch_info((const mux_branch_t *)stream, out);
     return true;
+}
+
+gt_status_t gt__bridge_mux_branch_status(const gt_bridge_stream_t *stream) {
+    gt_bridge_mux_identity_t identity;
+    if (!gt__bridge_mux_branch_identity(stream, &identity)) {
+        return GT_ERR_INVALID_ARG;
+    }
+    const mux_branch_t *branch = (const mux_branch_t *)stream;
+    if (branch->mux->error != GT_OK) {
+        return branch->mux->error;
+    }
+    if (branch->error != GT_OK) {
+        return branch->error;
+    }
+    return stopped(branch->mux) || atomic_load_explicit(&stream->stopping, memory_order_acquire)
+               ? GT_ERR_CANCELLED
+               : GT_OK;
+}
+
+gt_status_t gt__bridge_mux_scope_info(const gt_bridge_mux_t *mux,
+                                      const char *instance,
+                                      uint64_t epoch,
+                                      gt_bridge_mux_branch_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!mux || !out || !valid_id(instance) || !epoch) {
+        return GT_ERR_INVALID_ARG;
+    }
+    for (size_t i = 0; i < mux->config.instances; i++) {
+        const mux_branch_t *branch = &mux->branches[i];
+        if (branch->identity.epoch == epoch && !strcmp(branch->identity.instance, instance)) {
+            branch_info(branch, out);
+            return GT_OK;
+        }
+    }
+    return GT_ERR_NOT_FOUND;
 }
 
 static bool ready(const mux_branch_t *branch) {
@@ -343,6 +391,7 @@ static gt_status_t queue_close(gt_bridge_mux_t *mux, mux_branch_t *branch, size_
     }
     gt_status_t status = gt__bridge_writer_queue(mux->writer, bytes, (size_t)size);
     if (status == GT_OK) {
+        count_bytes(&mux->accepted_bytes, (size_t)size + 4);
         mux->writing = true;
         mux->writing_close = true;
         mux->writing_slot = slot;
@@ -404,6 +453,7 @@ static gt_status_t choose_write(gt_bridge_mux_t *mux) {
         if (status != GT_OK) {
             return status;
         }
+        count_bytes(&mux->accepted_bytes, size + 4);
         mux->writing = true;
         mux->writing_slot = slot;
         mux->writing_close = branch->close_queued;
@@ -472,6 +522,9 @@ gt_status_t gt__bridge_mux_step(gt_bridge_mux_t *mux, int ms) {
     }
     if (status == GT_OK && mux->writing) {
         gt_bridge_io_t result = gt__bridge_writer_step(mux->writer, mux->stream, 0);
+        if (result.state == GT_BRIDGE_DATA) {
+            count_bytes(&mux->sent_bytes, result.count);
+        }
         if (result.state != GT_BRIDGE_DATA && result.state != GT_BRIDGE_WAIT) {
             status = result.error == GT_OK ? GT_ERR_IO : result.error;
         } else if (!gt__bridge_writer_pending(mux->writer)) {
@@ -505,6 +558,7 @@ gt_status_t gt__bridge_mux_step(gt_bridge_mux_t *mux, int ms) {
         }
         mux->input_used = 0;
         mux->input_size = result.count;
+        count_bytes(&mux->received_bytes, result.count);
     }
     const uint8_t *bytes;
     size_t size;
@@ -531,6 +585,10 @@ bool gt__bridge_mux_info(const gt_bridge_mux_t *mux, gt_bridge_mux_info_t *out) 
                                   .received = mux->received,
                                   .sent = mux->sent,
                                   .rejected = mux->rejected,
+                                  .accepted_bytes = mux->accepted_bytes,
+                                  .sent_bytes = mux->sent_bytes,
+                                  .received_bytes = mux->received_bytes,
+                                  .buffered = (uint32_t)gt__bridge_writer_pending(mux->writer),
                                   .stopping = stopped(mux),
                                   .released = mux->released};
     return true;

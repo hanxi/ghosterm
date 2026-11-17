@@ -63,6 +63,7 @@ public final class ExtensionSession {
     public struct Lease { fileprivate let raw: gt_ext_lease_t }
     private let owner: DispatchQueue, stopLock = NSLock()
     private let resourceStore: ExtensionResourceStore?
+    private let multiplexOwner: ExtensionMultiplexer?
     private var raw: OpaquePointer?
     private var finalProcessObservation: ExtensionChannel.ProcessObservation?
     private var runtimeBorrowedRaw: OpaquePointer?
@@ -74,7 +75,7 @@ public final class ExtensionSession {
     /// Consumes the channel only on success. Caller supplies a verified native
     /// package/endpoint snapshot; matching peer metadata is not package hashing.
     public init(channel: ExtensionChannel, role: Role, config: Config, resourceStore: ExtensionResourceStore? = nil, resourceScopeBytes: UInt64 = 1048576) throws {
-        owner = channel.sessionOwner; self.resourceStore = resourceStore
+        owner = channel.sessionOwner; self.resourceStore = resourceStore; self.multiplexOwner = channel.multiplexOwner
         var c = gt_ext_session_config_t()
         try sessionPut(config.pluginID, into: &c.plugin_id); try sessionPut(config.pluginVersion, into: &c.plugin_version)
         try sessionPut(config.clientDigest, into: &c.client_digest); try sessionPut(config.executorDigest, into: &c.executor_digest)
@@ -301,6 +302,7 @@ public final class ExtensionSession {
         let (p, lease) = try runtimePointer(); var l = lease.raw
         return RPCStatus(rawValue: gt_ext_session_cancel_request(p, &l, handle).rawValue) ?? .invalid
     }
+    internal func stepMultiplexerForCleanup() { _ = try? multiplexOwner?.step() }
     internal func runtimeRequestResult(handle: UInt64) throws -> (RPCStatus, RPCResult?) {
         let (p, lease) = try runtimePointer(); var l = lease.raw, value = gt_ext_rpc_result_t()
         let status = RPCStatus(rawValue: gt_ext_session_request_result(p, &l, handle, &value).rawValue) ?? .invalid
@@ -374,7 +376,7 @@ public final class ExtensionSession {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }
         let result = gt_ext_session_close(p, milliseconds)
         if result == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("会话释放失败，仍保留所有权") }
-        guard result == GT_EXT_RELEASED else { return false }
+        guard result == GT_EXT_RELEASED else { _ = try multiplexOwner?.step(); return false }
         var observation = gt_ext_transport_process_info_t()
         if gt_ext_session_process_info(p, &observation) == GT_OK { finalProcessObservation = try ExtensionChannel.ProcessObservation(observation) }
         stopLock.lock(); defer { stopLock.unlock() }
@@ -382,7 +384,7 @@ public final class ExtensionSession {
     }
     public static var pendingCloseCount: Int { ExtensionSessionCleanup.count }
     public static func retryPendingClose(on owner: DispatchQueue) { ExtensionSessionCleanup.retry(owner) }
-    deinit { if let raw { ExtensionSessionCleanup.enqueue(raw, owner: owner) } }
+    deinit { if let raw { ExtensionSessionCleanup.enqueue(raw, owner: owner, multiplex: multiplexOwner) } }
 }
 /// Native private-directory owner. A Store never renews remote authorization.
 /// Snapshot reads/releases and Session adoption must use this same serial queue.
@@ -521,10 +523,11 @@ private final class ExtensionSessionCleanup {
     private static var entries: [UUID: ExtensionSessionCleanup] = [:]
     private let id = UUID(), owner: DispatchQueue
     private var raw: OpaquePointer?
-    init(_ raw: OpaquePointer, owner: DispatchQueue) { self.raw = raw; self.owner = owner }
+    private let multiplex: ExtensionMultiplexer?
+    init(_ raw: OpaquePointer, owner: DispatchQueue, multiplex: ExtensionMultiplexer?) { self.raw = raw; self.owner = owner; self.multiplex = multiplex }
     static var count: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
-    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue) {
-        let item = ExtensionSessionCleanup(raw, owner: owner); lock.lock(); entries[item.id] = item; lock.unlock()
+    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue, multiplex: ExtensionMultiplexer?) {
+        let item = ExtensionSessionCleanup(raw, owner: owner, multiplex: multiplex); lock.lock(); entries[item.id] = item; lock.unlock()
         owner.async { item.run() }
     }
     static func retry(_ owner: DispatchQueue) {
@@ -536,7 +539,7 @@ private final class ExtensionSessionCleanup {
         guard let raw else { return }; gt_ext_session_stop(raw)
         for _ in 0..<32 {
             let result = gt_ext_session_close(raw, 0)
-            if result == GT_EXT_DRAINING { ExtensionFileSource.reapDroppedSources(on: owner) }
+            if result == GT_EXT_DRAINING { ExtensionFileSource.reapDroppedSources(on: owner); _ = try? multiplex?.step() }
             if result == GT_EXT_CLOSE_ERROR { return }
             if result == GT_EXT_RELEASED {
                 guard gt_ext_session_destroy(&self.raw) == GT_OK else { return }

@@ -61,6 +61,7 @@ public final class ExtensionChannel {
     private let owner: DispatchQueue
     private let stopLock = NSLock()
     private var raw: OpaquePointer?
+    internal private(set) var multiplexOwner: ExtensionMultiplexer?
     private var finalProcessObservation: ProcessObservation?
     private var hops: [Hop] = []
     private func checkOwner() {
@@ -72,6 +73,16 @@ public final class ExtensionChannel {
     // Transactional transfer: exclude every cross-thread stop while C changes
     // ownership. On failure raw is unchanged; on success this wrapper is inert.
     var sessionOwner: DispatchQueue { checkOwner(); return owner }
+    func adoptMultiplexer(config: inout gt_ext_mux_config_t) throws -> OpaquePointer {
+        _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
+        var value: OpaquePointer?
+        let status = gt_ext_mux_open(&raw, &config, &value)
+        guard status == GT_OK, let value else { throw GhostermError.status(Int32(status.rawValue), "无法接管多实例物理通道") }
+        return value
+    }
+    internal init(adopting raw: OpaquePointer, owner: DispatchQueue, multiplex: ExtensionMultiplexer) {
+        self.owner = owner; self.raw = raw; self.multiplexOwner = multiplex; checkOwner()
+    }
     func adoptSession(role: gt_ext_role_t, config: inout gt_ext_session_config_t, methods: [gt_ext_rpc_method_t]? = nil, store: OpaquePointer? = nil, scopeBytes: UInt64 = 0) throws -> OpaquePointer {
         _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
         var session: OpaquePointer?
@@ -175,7 +186,11 @@ public final class ExtensionChannel {
     }
     public func info() throws -> Info {
         var i = gt_ext_channel_info_t()
-        guard gt_ext_channel_info(try pointer(), &i), i.hops <= 8, i.diagnostic_size <= 4096 else {
+        guard gt_ext_channel_info(try pointer(), &i) else { throw GhostermError.failed("插件通道状态不可读") }
+        return try Self.decodeInfo(i)
+    }
+    internal static func decodeInfo(_ i: gt_ext_channel_info_t) throws -> Info {
+        guard i.hops <= 8, i.diagnostic_size <= 4096 else {
             throw GhostermError.failed("插件通道状态无效")
         }
         let auth = withUnsafeBytes(of: i.authentication) { buffer in
@@ -233,7 +248,7 @@ public final class ExtensionChannel {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("关闭预算无效") }
         let result = gt_ext_channel_close(p, milliseconds)
         if result == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("插件通道释放失败，仍保留所有权") }
-        guard result == GT_EXT_RELEASED else { return false }
+        guard result == GT_EXT_RELEASED else { _ = try multiplexOwner?.step(); return false }
         var observation = gt_ext_transport_process_info_t()
         if gt_ext_channel_process_info(p, &observation) == GT_OK { finalProcessObservation = try ProcessObservation(observation) }
         stopLock.lock(); defer { stopLock.unlock() }
@@ -244,7 +259,7 @@ public final class ExtensionChannel {
     /// The native controller must expose/retry this state, not claim release.
     public static var pendingCloseCount: Int { ExtensionChannelCleanup.count }
     public static func retryPendingClose(on owner: DispatchQueue) { ExtensionChannelCleanup.retry(owner) }
-    deinit { if let raw { ExtensionChannelCleanup.enqueue(raw, owner: owner) } }
+    deinit { if let raw { ExtensionChannelCleanup.enqueue(raw, owner: owner, multiplex: multiplexOwner) } }
 }
 private func extensionString<T>(_ value: T) -> String {
     withUnsafeBytes(of: value) { String(decoding: $0.prefix(while: { $0 != 0 }), as: UTF8.self) }
@@ -254,10 +269,11 @@ private final class ExtensionChannelCleanup {
     private static var entries: [UUID: ExtensionChannelCleanup] = [:]
     private let id = UUID(), owner: DispatchQueue
     private var raw: OpaquePointer?
-    init(_ raw: OpaquePointer, owner: DispatchQueue) { self.raw = raw; self.owner = owner }
+    private let multiplex: ExtensionMultiplexer?
+    init(_ raw: OpaquePointer, owner: DispatchQueue, multiplex: ExtensionMultiplexer?) { self.raw = raw; self.owner = owner; self.multiplex = multiplex }
     static var count: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
-    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue) {
-        let item = ExtensionChannelCleanup(raw, owner: owner)
+    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue, multiplex: ExtensionMultiplexer?) {
+        let item = ExtensionChannelCleanup(raw, owner: owner, multiplex: multiplex)
         lock.lock(); entries[item.id] = item; lock.unlock()
         owner.async { item.run() }
     }
@@ -273,6 +289,7 @@ private final class ExtensionChannelCleanup {
         // Finite local work; DRAINING/error retains the entry for explicit retry.
         for _ in 0..<32 {
             let result = gt_ext_channel_close(raw, 0)
+            if result == GT_EXT_DRAINING { _ = try? multiplex?.step() }
             if result == GT_EXT_CLOSE_ERROR { return }
             if result == GT_EXT_RELEASED {
                 guard gt_ext_channel_destroy(&self.raw) == GT_OK else { return }

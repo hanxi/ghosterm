@@ -45,6 +45,7 @@ struct gt_bridge_resource_store {
     size_t resources;
     char connection[33];
     uint64_t epoch;
+    bool multiplexed;
     resource_scope_t scopes[GT_BRIDGE_RESOURCE_SCOPES];
     resource_item_t items[GT_BRIDGE_RESOURCE_SLOTS];
 };
@@ -332,10 +333,11 @@ gt_bridge_resource_status_t gt__bridge_resource_open(const gt_bridge_resource_co
     return GT_BRIDGE_RESOURCE_OK;
 }
 
-gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t *s,
-                                                     const gt_bridge_lease_t *lease,
-                                                     uint64_t budget,
-                                                     uint64_t *owner) {
+static gt_bridge_resource_status_t resource_bind(gt_bridge_resource_store_t *s,
+                                                 const gt_bridge_lease_t *lease,
+                                                 uint64_t budget,
+                                                 bool multiplexed,
+                                                 uint64_t *owner) {
     if (owner) {
         *owner = 0;
     }
@@ -343,7 +345,8 @@ gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t 
         return GT_BRIDGE_RESOURCE_INVALID;
     }
     if (s->connection[0] &&
-        (memcmp(s->connection, lease->connection, 33) || s->epoch != lease->epoch)) {
+        (memcmp(s->connection, lease->connection, 33) || s->multiplexed != multiplexed ||
+         (!multiplexed && s->epoch != lease->epoch))) {
         return GT_BRIDGE_RESOURCE_DENIED;
     }
     for (size_t i = 0; i < GT_BRIDGE_RESOURCE_SCOPES; i++) {
@@ -362,11 +365,26 @@ gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t 
             scope->lease = *lease;
             memcpy(s->connection, lease->connection, 33);
             s->epoch = lease->epoch;
+            s->multiplexed = multiplexed;
             *owner = scope->handle;
             return GT_BRIDGE_RESOURCE_OK;
         }
     }
     return GT_BRIDGE_RESOURCE_WAIT;
+}
+
+gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t *s,
+                                                     const gt_bridge_lease_t *lease,
+                                                     uint64_t budget,
+                                                     uint64_t *owner) {
+    return resource_bind(s, lease, budget, false, owner);
+}
+
+gt_bridge_resource_status_t gt__bridge_resource_bind_multiplexed(gt_bridge_resource_store_t *s,
+                                                                 const gt_bridge_lease_t *lease,
+                                                                 uint64_t budget,
+                                                                 uint64_t *owner) {
+    return resource_bind(s, lease, budget, true, owner);
 }
 
 gt_bridge_resource_status_t gt__bridge_resource_begin(gt_bridge_resource_store_t *s,

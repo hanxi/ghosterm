@@ -9,7 +9,8 @@ class ExtensionChannelException(val status: Int, message: String) : IllegalState
 /** Native plugin transport. Construct and drive on one non-main worker. Bytes
  * belong to that worker's protocol decoder, never a UI/event queue. closeStep
  * retains this owner until actual release; no finalizer or automatic reconnect. */
-class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>) : AutoCloseable, AuthenticatedSSH {
+class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>,
+    internal val multiplexOwner: ExtensionMultiplexer? = null) : AutoCloseable, AuthenticatedSSH {
     data class ProcessConfiguration(val executable: String, val arguments: List<String>, val directoryFd: Int,
         val environment: List<String> = emptyList(), val executionAuthorized: Boolean,
         val lifetimeMilliseconds: Int = 0, val stopGraceMilliseconds: Int = 0,
@@ -51,20 +52,13 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         check(handle != 0L) { "插件通道已释放" }
     }
     fun step(milliseconds: Int = 0): Int { owner(); require(milliseconds >= 0); return NativeExtensionChannel.step(handle, milliseconds) }
-    fun info(): Info {
-        owner(); val fields = NativeExtensionChannel.info(handle)
-        val values = fields[0] as LongArray
-        @Suppress("UNCHECKED_CAST") val texts = fields[1] as Array<ByteArray>
-        val count = values[5].toInt()
-        check(count in 0..8 && values.size == 18 + count * 6 && texts.size == count * 2)
-        val auth = (0 until count).map { h ->
-            val at = 18 + h * 6
-            Authentication(values[at].toInt(), values[at + 1].toInt(), values[at + 2].toInt(), values[at + 3] != 0L,
-                values[at + 4].toInt(), values[at + 5].toInt(), texts[h * 2].toString(Charsets.UTF_8), texts[h * 2 + 1].toString(Charsets.UTF_8))
-        }
-        return Info(values[0].toInt(), values[1].toInt(), values[2].toInt(), values[3].toInt(), values[17].toInt(), values[4].toInt(),
-            values[6] != 0L, values[7], auth, values[8], values[9], values[10], values[11], values[12].toInt(),
-            values[13] != 0L, if (values[14] != 0L) values[15].toInt() else null, values[16] != 0L, fields[2] as ByteArray)
+    fun info(): Info { owner(); return decodeInfo(NativeExtensionChannel.info(handle)) }
+    internal fun adoptMultiplexer(connection: ByteArray, frame: Int, receive: Int, instances: Int): Long {
+        owner()
+        val value = NativeExtensionMultiplexer.open(handle, connection, frame, receive, instances)
+        check(value.size == 2)
+        if (value[0] != 0L) throw ExtensionChannelException(value[0].toInt(), "无法接管物理多实例通道")
+        check(value[1] > 0); handle = 0; return value[1]
     }
     fun write(bytes: ByteArray, offset: Int = 0, count: Int = bytes.size - offset): IO {
         owner(); require(offset >= 0 && count > 0 && offset <= bytes.size - count)
@@ -144,7 +138,7 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         owner(); require(milliseconds >= 0)
         val observation = arrayOfNulls<Any>(1)
         return when (NativeExtensionChannel.close(handle, milliseconds, observation)) {
-            0 -> false
+            0 -> { multiplexOwner?.step(); false }
             1 -> { handle = 0L
                 @Suppress("UNCHECKED_CAST")
                 val snapshot = observation[0] as Array<Any>?
@@ -173,6 +167,24 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         throw ExtensionChannelException(3, "插件通道仍在释放，请由 worker 重试")
     }
     companion object {
+        internal fun fromMultiplexer(mux: ExtensionMultiplexer, values: LongArray): ExtensionChannel =
+            created(ExtensionChannel(worker(), emptyList(), mux), values)
+        internal fun decodeInfo(fields: Array<Any>): Info {
+            val values = fields[0] as LongArray
+            @Suppress("UNCHECKED_CAST") val texts = fields[1] as Array<ByteArray>
+            val count = values[5].toInt()
+            check(count in 0..8 && values.size == 18 + count * 6 && texts.size == count * 2)
+            val auth = (0 until count).map { h ->
+                val at = 18 + h * 6
+                Authentication(values[at].toInt(), values[at + 1].toInt(), values[at + 2].toInt(), values[at + 3] != 0L,
+                    values[at + 4].toInt(), values[at + 5].toInt(), texts[h * 2].toString(Charsets.UTF_8), texts[h * 2 + 1].toString(Charsets.UTF_8))
+            }
+            return Info(values[0].toInt(), values[1].toInt(), values[2].toInt(), values[3].toInt(), values[17].toInt(), values[4].toInt(),
+                values[6] != 0L, values[7], auth, values[8], values[9], values[10], values[11], values[12].toInt(),
+                values[13] != 0L, if (values[14] != 0L) values[15].toInt() else null, values[16] != 0L, fields[2] as ByteArray)
+        }
+
+
         internal fun decodeProcessObservation(fields: Array<Any>): ProcessObservation {
             check(fields.size == 2)
             val v = fields[0] as LongArray; val diagnostic = fields[1] as ByteArray

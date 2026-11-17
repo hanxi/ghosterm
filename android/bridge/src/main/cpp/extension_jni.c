@@ -11,6 +11,7 @@
 typedef struct {
     uint64_t id;
     gt_ext_channel_t *channel;
+    gt_ext_mux_t *mux;
     gt_ext_session_t *session;
     gt_ext_session_t *runtime_session;
     gt_ext_resource_store_t *store;
@@ -23,7 +24,10 @@ typedef struct {
 } extension_slot_t;
 
 static pthread_mutex_t extension_lock = PTHREAD_MUTEX_INITIALIZER;
-static extension_slot_t extension_slots[GT_EXT_CHANNEL_LIMIT];
+/* Physical Core slots stay at 16. This bounded registry also holds up to
+ * eight logical owners per physical mux and package/registry handles. */
+#define EXTENSION_HANDLE_LIMIT (GT_EXT_CHANNEL_LIMIT * (2u * GT_EXT_MUX_INSTANCES_MAX + 4u))
+static extension_slot_t extension_slots[EXTENSION_HANDLE_LIMIT];
 static uint64_t extension_next = 1;
 
 static void extension_erase(void *p, size_t n) {
@@ -44,7 +48,7 @@ static extension_slot_t *extension_reserve(JNIEnv *e) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
     if (extension_next <= INT64_MAX) {
-        for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+        for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
             if (!extension_slots[i].id) {
                 s = &extension_slots[i];
                 s->id = extension_next++;
@@ -69,7 +73,7 @@ static void extension_abandon(extension_slot_t *s) {
 static extension_slot_t *extension_pin(JNIEnv *e, jlong id, bool owner, bool quiet) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
         if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].channel &&
             !extension_slots[i].retiring) {
             s = &extension_slots[i];
@@ -488,17 +492,8 @@ static jbyteArray extension_bytes(JNIEnv *e, const void *p, size_t n) {
     return out;
 }
 
-JNIEXPORT jobjectArray JNICALL
-Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_info(JNIEnv *e, jobject self, jlong id) {
-    (void)self;
-    extension_slot_t *s = extension_pin(e, id, true, false);
-    if (!s) {
-        return NULL;
-    }
-    gt_ext_channel_info_t i;
-    bool ok = gt_ext_channel_info(s->channel, &i);
-    extension_unpin(s);
-    if (!ok || i.hops > GT_EXT_MAX_HOPS || i.diagnostic_size > GT_EXT_DIAGNOSTIC_MAX) {
+static jobjectArray extension_channel_snapshot(JNIEnv *e, gt_ext_channel_info_t i) {
+    if (i.hops > GT_EXT_MAX_HOPS || i.diagnostic_size > GT_EXT_DIAGNOSTIC_MAX) {
         extension_error(e, "插件通道状态无效");
         return NULL;
     }
@@ -575,6 +570,23 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_info(JNIEnv *e, jobject se
     (*e)->SetObjectArrayElement(e, result, 1, texts);
     (*e)->SetObjectArrayElement(e, result, 2, diagnostic);
     return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_info(JNIEnv *e, jobject self, jlong id) {
+    (void)self;
+    extension_slot_t *s = extension_pin(e, id, true, false);
+    if (!s) {
+        return NULL;
+    }
+    gt_ext_channel_info_t i;
+    bool ok = gt_ext_channel_info(s->channel, &i);
+    extension_unpin(s);
+    if (!ok) {
+        extension_error(e, "插件通道状态不可读");
+        return NULL;
+    }
+    return extension_channel_snapshot(e, i);
 }
 
 JNIEXPORT jintArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_write(
@@ -782,6 +794,288 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_clo
     } else {
         s->retiring = false;
         s->pins--;
+    }
+    pthread_mutex_unlock(&extension_lock);
+    return status == GT_OK ? GT_EXT_RELEASED : GT_EXT_CLOSE_ERROR;
+}
+
+static extension_slot_t *multiplex_pin(JNIEnv *e, jlong id, bool owner, bool quiet) {
+    pthread_mutex_lock(&extension_lock);
+    extension_slot_t *slot = NULL;
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
+        if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].mux &&
+            !extension_slots[i].retiring) {
+            slot = &extension_slots[i];
+            break;
+        }
+    }
+    if (slot && owner && !pthread_equal(slot->owner, pthread_self())) {
+        slot = NULL;
+    }
+    if (slot) {
+        slot->pins++;
+    }
+    pthread_mutex_unlock(&extension_lock);
+    if (!slot && !quiet) {
+        extension_error(e, "多实例 owner 已释放或不属于此 worker");
+    }
+    return slot;
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_open(JNIEnv *e,
+                                                               jobject self,
+                                                               jlong id,
+                                                               jbyteArray connection,
+                                                               jint frame,
+                                                               jint receive,
+                                                               jint count) {
+    (void)self;
+    jlongArray result = (*e)->NewLongArray(e, 2);
+    if (!result) {
+        return NULL;
+    }
+    char *name = extension_text(e, connection, 32);
+    if (!name) {
+        return NULL;
+    }
+    gt_ext_mux_config_t config = {.frame_bytes = (uint32_t)frame,
+                                  .receive_frames = (uint32_t)receive,
+                                  .instances = (uint32_t)count};
+    memcpy(config.connection, name, strlen(name) + 1);
+    free(name);
+    extension_slot_t *slot = extension_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    pthread_mutex_lock(&extension_lock);
+    bool exclusive = slot->pins == 1 && extension_next <= INT64_MAX;
+    uint64_t successor = exclusive ? extension_next++ : 0;
+    if (exclusive) {
+        slot->retiring = true;
+    }
+    pthread_mutex_unlock(&extension_lock);
+    gt_status_t status =
+        exclusive ? gt_ext_mux_open(&slot->channel, &config, &slot->mux) : GT_ERR_IO;
+    jlong values[2] = {status, 0};
+    pthread_mutex_lock(&extension_lock);
+    if (status == GT_OK) {
+        slot->id = successor;
+        values[1] = (jlong)successor;
+    }
+    slot->retiring = false;
+    slot->pins--;
+    pthread_mutex_unlock(&extension_lock);
+    (*e)->SetLongArrayRegion(e, result, 0, 2, values);
+    return result;
+}
+
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_openChannel(
+    JNIEnv *e, jobject self, jlong id, jbyteArray instance, jlong epoch) {
+    (void)self;
+    jlongArray result = (*e)->NewLongArray(e, 2);
+    if (!result) {
+        return NULL;
+    }
+    char *name = extension_text(e, instance, 32);
+    if (!name) {
+        return NULL;
+    }
+    extension_slot_t *parent = multiplex_pin(e, id, true, false);
+    if (!parent) {
+        free(name);
+        return NULL;
+    }
+    extension_slot_t *slot = extension_reserve(e);
+    if (!slot) {
+        free(name);
+        extension_unpin(parent);
+        return NULL;
+    }
+    gt_ext_channel_t *channel = NULL;
+    gt_status_t status = gt_ext_mux_open_channel(parent->mux, name, (uint64_t)epoch, &channel);
+    free(name);
+    extension_unpin(parent);
+    return extension_created(e, result, slot, status, channel);
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_step(JNIEnv *e,
+                                                                                      jobject self,
+                                                                                      jlong id,
+                                                                                      jint ms) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return GT_ERR_INVALID_ARG;
+    }
+    gt_status_t status = gt_ext_mux_step(slot->mux, ms);
+    extension_unpin(slot);
+    return status;
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_info(JNIEnv *e, jobject self, jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    gt_ext_mux_info_t info;
+    bool ok = gt_ext_mux_info(slot->mux, &info);
+    extension_unpin(slot);
+    if (!ok) {
+        extension_error(e, "多实例状态不可读");
+        return NULL;
+    }
+    jlong values[8] = {info.error,
+                       info.cleanup_error,
+                       info.instances,
+                       (jlong)info.received,
+                       (jlong)info.sent,
+                       (jlong)info.rejected,
+                       info.stopping,
+                       info.released};
+    jlongArray result = (*e)->NewLongArray(e, 8);
+    if (result) {
+        (*e)->SetLongArrayRegion(e, result, 0, 8, values);
+    }
+    return result;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_scopeInfo(
+    JNIEnv *e, jobject self, jlong id, jbyteArray instance, jlong epoch) {
+    (void)self;
+    char *name = extension_text(e, instance, 32);
+    if (!name) {
+        return NULL;
+    }
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        free(name);
+        return NULL;
+    }
+    gt_ext_mux_scope_info_t info;
+    gt_status_t status = gt_ext_mux_scope_info(slot->mux, name, (uint64_t)epoch, &info);
+    extension_unpin(slot);
+    free(name);
+    jlong values[11] = {status,
+                        info.error,
+                        info.close_error,
+                        info.queued_frames,
+                        (jlong)info.epoch,
+                        (jlong)info.received,
+                        (jlong)info.sent,
+                        (jlong)info.rejected,
+                        info.closing,
+                        info.close_sent,
+                        info.released};
+    jclass object = (*e)->FindClass(e, "java/lang/Object");
+    if (!object) {
+        return NULL;
+    }
+    jobjectArray result = (*e)->NewObjectArray(e, 3, object, NULL);
+    (*e)->DeleteLocalRef(e, object);
+    if (!result) {
+        return NULL;
+    }
+    jlongArray numbers = (*e)->NewLongArray(e, 11);
+    if (!numbers) {
+        return NULL;
+    }
+    (*e)->SetLongArrayRegion(e, numbers, 0, 11, values);
+    jbyteArray connection = extension_bytes(e, info.connection, strlen(info.connection));
+    jbyteArray identity = extension_bytes(e, info.instance, strlen(info.instance));
+    if (!connection || !identity) {
+        return NULL;
+    }
+    (*e)->SetObjectArrayElement(e, result, 0, numbers);
+    (*e)->SetObjectArrayElement(e, result, 1, connection);
+    (*e)->SetObjectArrayElement(e, result, 2, identity);
+    (*e)->DeleteLocalRef(e, numbers);
+    (*e)->DeleteLocalRef(e, connection);
+    (*e)->DeleteLocalRef(e, identity);
+    return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_transportInfo(JNIEnv *e,
+                                                                        jobject self,
+                                                                        jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    gt_ext_channel_info_t info;
+    gt_status_t status = gt_ext_mux_transport_info(slot->mux, &info);
+    extension_unpin(slot);
+    if (status != GT_OK) {
+        extension_error(e, "物理通道状态不可读");
+        return NULL;
+    }
+    return extension_channel_snapshot(e, info);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_processObservation(JNIEnv *e,
+                                                                             jobject self,
+                                                                             jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return NULL;
+    }
+    gt_ext_transport_process_info_t info;
+    gt_status_t status = gt_ext_mux_process_info(slot->mux, &info);
+    extension_unpin(slot);
+    return extension_process_observation(e, status, &info);
+}
+
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_stop(JNIEnv *e,
+                                                                                      jobject self,
+                                                                                      jlong id) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, false, true);
+    if (slot) {
+        gt_ext_mux_stop(slot->mux);
+        extension_unpin(slot);
+    }
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionMultiplexer_close(
+    JNIEnv *e, jobject self, jlong id, jint ms, jobjectArray observation) {
+    (void)self;
+    extension_slot_t *slot = multiplex_pin(e, id, true, false);
+    if (!slot) {
+        return GT_EXT_CLOSE_ERROR;
+    }
+    gt_ext_close_t state = gt_ext_mux_close(slot->mux, ms);
+    if (state != GT_EXT_RELEASED) {
+        extension_unpin(slot);
+        return state;
+    }
+    gt_ext_transport_process_info_t info;
+    gt_status_t observed = gt_ext_mux_process_info(slot->mux, &info);
+    if (!extension_process_capture(e, observation, observed, &info)) {
+        extension_unpin(slot);
+        return GT_EXT_CLOSE_ERROR;
+    }
+    pthread_mutex_lock(&extension_lock);
+    if (slot->pins != 1) {
+        slot->pins--;
+        pthread_mutex_unlock(&extension_lock);
+        return GT_EXT_DRAINING;
+    }
+    slot->retiring = true;
+    gt_ext_mux_t *mux = slot->mux;
+    pthread_mutex_unlock(&extension_lock);
+    gt_status_t status = gt_ext_mux_destroy(&mux);
+    pthread_mutex_lock(&extension_lock);
+    if (status == GT_OK) {
+        memset(slot, 0, sizeof(*slot));
+    } else {
+        slot->retiring = false;
+        slot->pins--;
     }
     pthread_mutex_unlock(&extension_lock);
     return status == GT_OK ? GT_EXT_RELEASED : GT_EXT_CLOSE_ERROR;
@@ -1032,7 +1326,7 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_openSessionResources(JNIEn
 static extension_slot_t *session_pin(JNIEnv *e, jlong id, bool owner, bool quiet) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
         if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].session &&
             !extension_slots[i].retiring) {
             s = &extension_slots[i];
@@ -1986,12 +2280,14 @@ typedef struct {
     pthread_t owner;
 } extension_source_slot_t;
 
-static extension_source_slot_t extension_sources[GT_EXT_CHANNEL_LIMIT * GT_EXT_SOURCE_LIMIT];
+static extension_source_slot_t
+    extension_sources[GT_EXT_CHANNEL_LIMIT * GT_EXT_MUX_INSTANCES_MAX * GT_EXT_SOURCE_LIMIT];
 
 static extension_source_slot_t *extension_source_owner(JNIEnv *e, jlong id) {
     pthread_mutex_lock(&extension_lock);
     extension_source_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT * GT_EXT_SOURCE_LIMIT; i++) {
+    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT * GT_EXT_MUX_INSTANCES_MAX * GT_EXT_SOURCE_LIMIT;
+         i++) {
         if (id > 0 && extension_sources[i].id == (uint64_t)id && extension_sources[i].source) {
             s = &extension_sources[i];
             break;
@@ -2046,7 +2342,9 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,
     pthread_mutex_lock(&extension_lock);
     extension_source_slot_t *slot = NULL;
     if (extension_next <= INT64_MAX) {
-        for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT * GT_EXT_SOURCE_LIMIT; i++) {
+        for (size_t i = 0;
+             i < GT_EXT_CHANNEL_LIMIT * GT_EXT_MUX_INSTANCES_MAX * GT_EXT_SOURCE_LIMIT;
+             i++) {
             if (!extension_sources[i].id) {
                 slot = &extension_sources[i];
                 slot->id = extension_next++;
@@ -2174,7 +2472,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_clos
 static extension_slot_t *runtime_pin(JNIEnv *e, jlong id, bool owner, bool quiet) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
         if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].runtime &&
             !extension_slots[i].retiring) {
             s = &extension_slots[i];
@@ -2957,7 +3255,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_clo
 static extension_slot_t *package_pin(JNIEnv *e, jlong id, bool owner, bool quiet) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
         if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].package &&
             !extension_slots[i].retiring) {
             s = &extension_slots[i];
@@ -3382,7 +3680,7 @@ invalid:
 static extension_slot_t *registry_pin(JNIEnv *e, jlong id) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
-    for (size_t i = 0; i < GT_EXT_CHANNEL_LIMIT; i++) {
+    for (size_t i = 0; i < EXTENSION_HANDLE_LIMIT; i++) {
         if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].registry &&
             !extension_slots[i].retiring) {
             s = &extension_slots[i];

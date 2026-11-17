@@ -24,6 +24,8 @@ typedef struct {
     gt_status_t error;
     size_t instances;
     uint64_t received, sent, rejected;
+    uint64_t accepted_bytes, sent_bytes, received_bytes;
+    uint32_t buffered;
     bool stopping, released;
 } gt_bridge_mux_info_t;
 
@@ -32,7 +34,7 @@ typedef struct {
     gt_status_t error, close_error;
     size_t queued_frames;
     uint64_t received, sent, rejected;
-    bool closing, close_sent;
+    bool closing, close_sent, released;
 } gt_bridge_mux_branch_info_t;
 
 /* Adopts a pristine admitted stream on success only. Fixed finite frame and
@@ -53,6 +55,11 @@ gt_status_t gt__bridge_mux_branch_open(gt_bridge_mux_t *,
                                        gt_bridge_stream_t **);
 bool gt__bridge_mux_branch_identity(const gt_bridge_stream_t *, gt_bridge_mux_identity_t *);
 bool gt__bridge_mux_branch_info(const gt_bridge_stream_t *, gt_bridge_mux_branch_info_t *);
+gt_status_t gt__bridge_mux_branch_status(const gt_bridge_stream_t *);
+gt_status_t gt__bridge_mux_scope_info(const gt_bridge_mux_t *,
+                                      const char *,
+                                      uint64_t,
+                                      gt_bridge_mux_branch_info_t *);
 /* At most one physical write and one read (wait capped at 10ms). Session IO on
  * child streams is nonblocking and never pumps other instances recursively.
  * FIFO within a branch; round-robin between branch heads, with at most eight

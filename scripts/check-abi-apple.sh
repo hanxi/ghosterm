@@ -31,6 +31,7 @@ APPLE_SRC=(
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/GhostermCore.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionChannel.swift"
+  "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionMultiplexer.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionDiscovery.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionSession.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionSource.swift"

@@ -2,7 +2,7 @@
 
 日期：2026-11-05，源码进度更新至 2026-11-17。状态：**P0 技术风险探针与 SSH exec wire v1 envelope 已关闭并冻结；P1–P6 仍在实施。Core / gterm、Portable SDK / QuickJS-NG 0.18.0、macOS / Android 原生 Host 与官方插件候选已分批接线。双向远端业务使用用户显式认证的无 PTY SSH exec；普通 TTY 回包仍不支持，网关只预留。普通 App 默认 JS-off，实验插件构建显式启用；源码、专项测试、用户设备与发行分别记账，各批范围和收据见文末。**
 
-**仍未完成：** macOS 已接 §2 的通用工作区插件叶子与独立运行模型，本机 / 直连 / ProxyJump 官方表格已有原生专项；完整工作区与其它插件矩阵仍待收口。实际产品接线仍有缺口：macOS AppModel 与 Android ExtensionPackagesViewModel 各只允许一个活动实例，Core 私有多实例分帧 / 同连接八组 Session/RPC 已有专项；§6 的公共 ABI、gterm 与两端多实例管理仍未接通，不据此记产品可用。P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 的本机 Native stdio 真实账号 chat、完整文件审批及本轮权限 / 实际命令已通过；P4 Claude 的真实模型请求仍被所选服务 TLS 连接阻塞。双端完整启动 UI、真实交互 / 中断 / 断线矩阵继续；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；CLI 版本清单、跨进程引用、显式隔离清理及暂存 / 孤立隔离 / 损坏意图的逐项维护已接；非规范条目保留，完整故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
+**仍未完成：** macOS 已接 §2 的通用工作区插件叶子与独立运行模型，本机 / 直连 / ProxyJump 官方表格已有原生专项；完整工作区与其它插件矩阵仍待收口。实际产品接线仍有缺口：macOS AppModel 与 Android ExtensionPackagesViewModel 各只允许一个活动实例，Core 私有多实例分帧 / 同连接八组 Session/RPC 已有专项；§6 的公共 ABI 与 Swift / JNI 绑定已接，gterm 与两端多实例管理仍未接通，不据此记产品可用。P2 的完整交互、格式 / 生命周期 / 设备矩阵；macOS 系统 `fileImporter` 与 OS 焦点仍缺完整证据，Android 的真实 SAF 选包、双跳 Markdown / HTML / CSS / PNG 与停止释放已有专项。P3 Codex 的本机 Native stdio 真实账号 chat、完整文件审批及本轮权限 / 实际命令已通过；P4 Claude 的真实模型请求仍被所选服务 TLS 连接阻塞。双端完整启动 UI、真实交互 / 中断 / 断线矩阵继续；协议夹具和无模型 CLI 初始化不能替代这些要求。P5 持续交互、开发工具与 testkit 已有候选实现，完整服务组合、原生辅助技术 / 生命周期和开发矩阵继续。P6 已接离线签名、两端原子安装 / 版本选择 / 禁用回滚 / 显式维护候选；完整磁盘故障、策略新鲜度 / 撤销传播与发行矩阵仍待验。普通 `gterm <业务命令>` 已接显式开发目录与前台 IPC 分派；被动 TTY 候选已接两端列表和手动入口，用户仍选择实际目标、检查声明并批准 Session。执行端 CLI 已接离线签名安装和重新登记，三档普通命令及显式 variant 已有本机专项；CLI 版本清单、跨进程引用、显式隔离清理及暂存 / 孤立隔离 / 损坏意图的逐项维护已接；非规范条目保留，完整故障 / 平台矩阵待集中验收。未配置目录仍显式不支持。其它平台按需要逐端接入，不据 macOS / Android 证据宣称可用。本文是实施与验收记录的单一维护入口，不以批次数或定向绿替代完整阶段退出条件。
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。第四十九批补真实账号 chat / 策略确认与终态错误，第五十批接稳定权限审批与双端审阅引用，并通过本机 Native / gterm / 真 CLI 的完整文件审批和本轮权限 / 实际命令。第五十一批修正 Codex 标准视图声明及事件背压 / 终态序号，并通过 macOS 本机真实账号的原生启动、发送、全文读取、批准、实际写入、模型完成与停止。第五十二批补两端近期事件保留，长对话不再因原始显示历史累计满而停止，审批与序号继续独立维护。导入 / 完整启动表单 / 键盘、Android App 模型、SSH 模型 / 中断 / 断线及性能 / 设备矩阵仍未验收，不能据此关闭 P3。
 
@@ -12253,3 +12253,46 @@ JS 子集 `e784058a7a29857eb6f1423a74e3baa3a6edc5b55cc0fe22e0d8e892310c2a4e`；
 gterm 的明确多实例启动 / 拆除，以及两端目录 / 工作区实例管理、真实拓扑与完整故障 /
 变异 / 平台矩阵。私有 constructor 与协议检查不能据此勾选 P1–P6。未改 macOS CI
 二十份，仅本地分批提交，不推送或发行；其它会话在途的剪贴板变更不纳入本批。
+
+
+### P1 多实例通道第二批：公共 ABI、Swift / JNI 与资源借用（2026-11-17）
+
+新增 `extension_multiplex.h` 的十个公共入口，经 `ghosterm.h` 接入。物理连接继续占
+一个全局 Channel 名额，最多八个逻辑子通道复用既有 Channel → Session → Runtime
+采用链；显式登记 ID / epoch，不接收远端自建实例。父连接保留物理进程 / SSH 诊断与
+实际字节计数，子通道不冒用共享进程退出结果。scope 查询严格指定实例与代次，仅保留
+原生槽位复用前的有界最终状态；关闭 / 发送 close 仍不等于业务成功。
+
+父句柄等所有子 Channel / Session / Runtime 与 source 借用实际退役后才能销毁。
+Swift 子对象、清理队列与 Kotlin Runtime 保留物理 owner，关闭等待期间继续有界驱动
+mux。JNI 句柄表有界扩为 320 项，source 表扩为 2048 项；物理连接仍限十六个，共享
+ResourceStore 表仍限十六个，不把逻辑实例计成新的物理连接。
+
+关键冒烟发现并修正共享 Store 的原有全局 epoch 限制：第二个独立代次的资源 Session
+原先在 ACTIVE 绑定时被拒绝。只有由 Native mux 分支构造的 Session 才走独立实例代次
+绑定，Store 首次绑定固定连接和模式，禁止普通 / mux 混用；完整 lease、token、作用域
+唯一性、共享预算与保留快照规则继续生效。普通单流 Store 的同连接 / 同代次限制保留。
+
+默认 JS-off 的完整 gate **609 / 609 CTest、200 公共符号**通过。三个新增公共测试覆盖
+同连接八组真实 Session / RPC、独立关闭、容量十六名额、共享 Store 八代次激活与 source
+借用期间父 / 子 owner 保留。Swift 最终三项定向通过，其中一项完成八组真实 RPC 与
+独立关闭；macOS arm64 Release 在最终 Core 上重新链接通过。Android Debug / 测试
+APK、未签名 Release / R8 和 app / bridge / data / terminal 四模块 release lint 通过；
+新增八实例 instrumentation 用例仅完成编译，尚未执行，不记设备绿或 App 多实例可用。
+clang-format 19.1.7 的 295 文件、Apple 197 引用 / 3 登记未用、JNI 163 / 37 通过。
+channel 21、resource 32、Session 21 组变异锚点静态核对，owner-release 锚点同步；
+未重跑变异、启用 JS Runtime 八实例、SSH / ProxyJump 及全设备矩阵。
+
+前置失败单列：新测试缺 macOS 的 mkdtemp 可见性宏导致编译失败；默认 CommandLineTools
+不提供 XCTest，切换 Xcode 后运行；共享 Store 的第二代次激活断言红促成上述修复。
+这些不是正常变异红，未拼作最终绿。最终输入与日志范围收据 SHA256：
+`db40ca9a2f7f0d23ea277aec552dd9a9fa75ec19dce506ff7bc290249a96717b`；
+gate `b1934982bd7a4137a385e79b1323d03ac2b0dc5db585021c78c21c04009ce39a`；
+Swift `773750d866b26a901fd794843c3ed2a7f0bb7cad427c607689f2ba25fdd75ea2`；
+macOS Release `11136e3b5998033990f773b620f4e80a4b1595ff1e2ba8cc820e88b631243c31`；
+Android `7b132a49290b9ed2ddc55866587dd0049c0f40052def36aa4a61171834fffb37`。
+临时原件在核对无活动引用后清理；不推送 / 发行，不增加 CI 二十份，不关闭 P1–P6。
+
+后续直接实现 gterm 显式多实例启动 / 拆除与双端实例目录 / 工作区管理。继续按功能批次
+代码优先，过程中保留编译、关键 IO / 身份 / 关闭冒烟；产品接线齐后集中跑完整交互、
+真实拓扑、设备、变异与故障矩阵。未改动输入的有效证据复用，合并前仍满足原有闸门。
