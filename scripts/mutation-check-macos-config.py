@@ -136,7 +136,18 @@ UI_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/HostEditorUITests.swift'
 UI_CASES = [
     ('cancel', 'Button("取消") { dismiss() }', 'Button("取消") { save() }', 'testActualCancelDoesNotWriteEditedDraft'),
 ]
+TARGET_TESTS = 'apple/GhostermApp/Tests/GhostermAppTests/HostTargetIdentityTests.swift'
+TARGET_MATCH_CASES = [
+    ('unicode-match', 'Self.patternKey(pattern) == Self.patternKey(candidate)', 'pattern == candidate',
+     'testUnicodeAliasesResolveToTheirOwnTargets'),
+]
+TARGET_SELECTION_CASES = [
+    ('unicode-selection', 'return HostEntry.patternKey(a) == HostEntry.patternKey(b)', 'return a == b',
+     'testTargetSelectionDoesNotFoldUnicodeNormalization'),
+]
 PHASES = {
+    'target-match': (HOST_LIST_SOURCE, TARGET_TESTS, 'HostTargetIdentityTests', TARGET_MATCH_CASES),
+    'target-selection': (PUBLICATION_SOURCE, TARGET_TESTS, 'HostTargetIdentityTests', TARGET_SELECTION_CASES),
     'store': (SOURCE, TESTS, 'ConfigStoreTests', CASES),
     'publication': (PUBLICATION_SOURCE, PUBLICATION_TESTS, 'ConfigEditTests', PUBLICATION_CASES),
     'form': (FORM_SOURCE, FORM_TESTS, 'HostEditorDraftTests', FORM_CASES),
@@ -175,7 +186,7 @@ def main():
     environment = {**os.environ, 'TMPDIR': str(scratch), 'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}
     command = ['swift', 'test', '--package-path', str(checkout / 'apple/GhostermApp'),
                '--cache-path', str(scratch / 'spm-cache'), '--skip-update', '--filter']
-    baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor'
+    baseline = BASELINE if args.phase in ('store', 'publication') else BASELINE + '|HostEditor|HostTargetIdentityTests'
     records = []
 
     def run(label, selected, red=False):

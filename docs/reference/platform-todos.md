@@ -66,3 +66,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 2：Core 原始块指令快照、等号/长参数保真和失败解析保护已提交；两端绑定同步。590 CTest/186 ABI、Swift 四项、Android 专用 API 36 模拟器 35 项、Release/R8/四模块 lint 及八组编译变异通过，前置失败单列于[剩余实施记录](non-plugin-remainder.md)。主机表单另批接线。
 
 - 剩余批 3：主机表单共享快照/脏字段/来源/逐行身份/改名预览确认、旧窗口保护、否定过滤与列表去重已接。73 项原生组合、16 个新保护＋发布旧六组分轮、arm64 Release 通过；Include 只读/歧义拒绝与前置失败保留，见[分批实施](non-plugin-remainder.md)。
+
+- 剩余批 4：普通连接/SFTP/tmux/分屏与选择器统一别名字节身份，避免 Unicode 规范等价别名借用另一行的地址/凭据。50 项连接组合、76 项配置组合分轮、两组变异与 Release 通过，见[分批实施](non-plugin-remainder.md)。

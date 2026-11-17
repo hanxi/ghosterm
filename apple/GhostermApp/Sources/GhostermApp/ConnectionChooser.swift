@@ -18,7 +18,7 @@ struct ConnectionChooser: View {
         guard let target else { return nil }
         switch target {
         case .localShell: return showsLocal ? target : nil
-        case .host(let pattern): return model.loadError == nil && hosts.contains { $0.pattern == pattern } ? target : nil
+        case .host(let pattern): return model.loadError == nil && hosts.contains { $0.matchesPattern(pattern) } ? target : nil
         }
     }
 

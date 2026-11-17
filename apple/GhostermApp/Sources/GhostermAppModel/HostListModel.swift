@@ -11,6 +11,9 @@ public struct HostEntry: Identifiable, Equatable {
     public static func patternKey(_ value: String) -> Data {
         Data(value.utf8.map { (65...90).contains($0) ? $0 + 32 : $0 })
     }
+    public func matchesPattern(_ candidate: String) -> Bool {
+        Self.patternKey(pattern) == Self.patternKey(candidate)
+    }
     public let pattern: String
     /// 真实主机名（HostName 缺省时回落为 pattern，与 OpenSSH 一致）。
     public let hostname: String

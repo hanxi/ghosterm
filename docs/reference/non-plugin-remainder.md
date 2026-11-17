@@ -9,6 +9,7 @@
 | 1 | SSH 配置候选发布 | 50 项组合、六组变异、arm64 Release 通过；备份拒绝/新建失败/parse→store 变化/提交后错误/主机和规则发布均覆盖 |
 | 2 | Core 原始指令快照与解析保真 | 590 CTest/186 ABI、Swift 四项、Android API 36 专用模拟器 35 项、Release/R8 与四模块 lint、八组编译变异通过；两端绑定同步 |
 | 3 | 主机表单来源/保真/改名 | 73 项原生组合、16 个新保护与发布旧六组分轮通过；arm64 Release 通过 |
+| 4 | 主机别名字节身份 | 所有普通 SSH/SFTP/tmux/分屏查找及选择器改为 ASCII 折叠、UTF-8 字节身份；50 项连接组合、76 项配置组合分轮、两组新变异和 Release 通过 |
 | 后续 | 安全存储、终端设置、闸门必跑策略、SSH 网络/取消、文件与传输、保活及模拟器回归 | 顺序推进；未完成项不提前勾选 |
 
 批 1 的六组均为隔离源真实编译后指定单条正常断言红、同构件独立配置读取绿、复原重编绿与 SHA256。成功操作保留连接快照/UUID，不通过刷新关闭连接；这不是外部 SSH 或整客户端回归结论。
@@ -24,3 +25,5 @@
 手工变异仍走 `scripts/mutation-check-macos-config.py --phase form|host-save|host-list|host-ui`：8＋5＋2＋1 个不同新保护，正常单条断言红、同构件独立 HostList 配置读取绿、复原重编绿及 SHA256；publication 既有六组在新代码复验通过，不增加 CI 二十份。原件为 `tmp/rem18/tmp/config-mutations-{u769enzr,i6dhwor6,9p0_lvs3,jpklm6xq,bhg71p51}/receipt.json`（form 目录以其最终日志为准）。最终同源 73 项组合和三项真实离屏原生控件通过，日志 `host-form-tests4.log`；首轮 SwiftUI 可选 Binding 编译失败、变异脚本未容许新文件的前置失败、dirty-only 旧目标触发非预期抛错均单列，未当有效红，最终改为独立正常断言并重跑。AppModel 当前并行插件修改仅按分离 hunk 保留，不据隔离构建宣布未完成插件组合全绿。
 
 批 3 的最终 `host-form-release.log` 为 arm64 Release 构建通过；既有 Swift 并发警告保留，不将警告转称失败或删除代码换绿。
+
+批 4 修复 Swift 规范等价比较造成的别名错配：`café` 的组合/分解写法仍分别解析为不同配置目标，列表选择 Hashable 与模型查找遵循同一规则，ASCII 大小写仍按 Core 折叠。三项新用例含实际 AppModel `remoteTarget` 的不同地址/用户/端口，身份核对不启动网络连接；既有连接选择器与表单组合 50 项、变异基线/最终配置组合 76 项分轮通过。`--phase target-match|target-selection` 两组正常单条断言红、独立读取绿、重编复原绿及 SHA256，原件 `config-mutations-amo8tjj_` / `config-mutations-5ufb_rzf`；arm64 Release `host-target-release.log` 通过。没有改插件发现、会话生命周期或 Core ABI。

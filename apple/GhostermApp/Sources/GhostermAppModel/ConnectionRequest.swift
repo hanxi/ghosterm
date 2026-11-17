@@ -23,7 +23,7 @@ public struct ConnectionRequest {
     @MainActor public func open(in model: AppModel) throws {
         if case .host(let pattern) = target {
             if let error = model.loadError { throw ConnectionError.unavailable(error) }
-            guard model.hosts.contains(where: { $0.pattern == pattern }) else {
+            guard model.hosts.contains(where: { $0.matchesPattern(pattern) }) else {
                 throw ConnectionError.unavailable("主机「\(pattern)」已不在当前 SSH 配置中，请重新选择。")
             }
         }

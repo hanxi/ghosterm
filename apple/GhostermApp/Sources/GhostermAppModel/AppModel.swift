@@ -40,6 +40,19 @@ public final class AppModel: ObservableObject {
     public enum Target: Hashable {
         case localShell
         case host(String)
+        public static func == (lhs: Target, rhs: Target) -> Bool {
+            switch (lhs, rhs) {
+            case (.localShell, .localShell): return true
+            case let (.host(a), .host(b)): return HostEntry.patternKey(a) == HostEntry.patternKey(b)
+            default: return false
+            }
+        }
+        public func hash(into hasher: inout Hasher) {
+            switch self {
+            case .localShell: hasher.combine(0)
+            case .host(let pattern): hasher.combine(1); hasher.combine(HostEntry.patternKey(pattern))
+            }
+        }
     }
 
     @Published public private(set) var hosts: [HostEntry] = []
@@ -355,7 +368,7 @@ public final class AppModel: ObservableObject {
     /// 标签页）。早先按 `kind` 去重（同目标切成已开的那个）已拿掉——与「同一
     /// 台 ssh 每次点都新开」保持一致，也免得「去重」在三个 case 上各说各话。
     public func openSFTP(for pattern: String) {
-        let entry = hosts.first { $0.pattern == pattern }
+        let entry = hosts.first { $0.matchesPattern(pattern) }
         let host = entry?.hostname ?? pattern
         let user = entry?.user ?? NSUserName()
         let port = UInt16(clamping: entry?.port ?? 22)
@@ -396,7 +409,7 @@ public final class AppModel: ObservableObject {
 
     /// 由 ssh_config 别名求值出一个 `RemoteTarget`（别名 → 真实主机名等）。
     public func remoteTarget(for pattern: String) -> RemoteTarget {
-        let entry = hosts.first { $0.pattern == pattern }
+        let entry = hosts.first { $0.matchesPattern(pattern) }
         return RemoteTarget(pattern: pattern,
                             user: entry?.user ?? NSUserName(),
                             host: entry?.hostname ?? pattern,
@@ -454,7 +467,7 @@ public final class AppModel: ObservableObject {
         }
         // SSH：懒开**独立第二条会话**（与终端解耦，互不抢通道）。
         guard case .ssh(let target) = tab.kind else { return }
-        let entry = hosts.first { $0.pattern == target.pattern }
+        let entry = hosts.first { $0.matchesPattern(target.pattern) }
         let identityFiles = expandTilde(entry?.identityFiles ?? [])
         let khPath = knownHostsPath
         let tabID = tab.id
@@ -526,7 +539,7 @@ public final class AppModel: ObservableObject {
         if tab.kind.isLocalShell {
             startLocal(pane: pane, app: terminalApp, cwd: startCwd)
         } else if let target = tab.kind.remoteTarget {
-            let entry = hosts.first { $0.pattern == target.pattern }
+            let entry = hosts.first { $0.matchesPattern(target.pattern) }
             startSSH(pane: pane, entry: entry, pattern: target.pattern, terminalApp: terminalApp)
         }
     }
@@ -826,7 +839,7 @@ public final class AppModel: ObservableObject {
             // ——要在一个窗口里开几个 shell 是常规用法）。
             kind = .localShell
         case .host(let pattern):
-            let entry = hosts.first { $0.pattern == pattern }
+            let entry = hosts.first { $0.matchesPattern(pattern) }
             // `.ssh`：**每次点击都开一个新标签页**（同一台主机也允许开
             // 多个）——去重只留给 SFTP（同一目标复用一条浏览会话是合理的），
             // 终端会话不该被吞掉（用户实测）。
@@ -851,7 +864,7 @@ public final class AppModel: ObservableObject {
             startLocal(pane: pane, app: terminalApp, cwd: cwd)
             statusMessage = "本地 shell"
         case .host(let pattern):
-            let entry = hosts.first { $0.pattern == pattern }
+            let entry = hosts.first { $0.matchesPattern(pattern) }
             startSSH(pane: pane, entry: entry, pattern: pattern, terminalApp: terminalApp)
         }
     }
@@ -1058,7 +1071,7 @@ public final class AppModel: ObservableObject {
     }
     func finishChooserAuthentication(_ id: UUID) { _ = cancelledConnects.take(id) }
     func sshTarget(for pattern: String) -> SSHConnectionTarget {
-        let entry = hosts.first { $0.pattern == pattern }
+        let entry = hosts.first { $0.matchesPattern(pattern) }
         return SSHConnectionTarget(alias: pattern, host: entry?.hostname ?? pattern,
             user: entry?.user ?? NSUserName(), port: UInt16(clamping: entry?.port ?? 22),
             knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []), connectionIssues: entry?.connectionIssues ?? [])
