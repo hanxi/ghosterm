@@ -318,14 +318,14 @@ bash scripts/build-core.sh
 bash scripts/gate.sh
 bash scripts/check-abi-apple.sh
 swift build --package-path apple/GhostermApp
-bash scripts/apple-app-gate.sh
+GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-app-gate.sh
 ```
 
 原生编译、完整宿主测试、像素/系统交互、变异验证分别记账。`apple-app-gate.sh` 的 SSH 部分需隔离 sshd 成功启动；看到 SKIP 要保留原因。已接入 CI 不等于对应提交已在 macOS 15 运行通过；当前已知本机与历史结果见[路线图验收记录](../docs/reference/roadmap.md#验收记账与历史记录)。
 
 dev 的 main push 和 release 的 PR 都有路径过滤，连续 dev 运行还可能被取消；本次纯文档提交不承诺自动生成新包。具体触发范围见 [CI 触发说明](../docs/how-to/dev-build.md#ci-是怎么串起来的)，验收规则仍以 AGENTS 为准。
 
-当前 full workflow 尚未对 `apple-app-gate.sh` 的全部跳过输出统一判失败；sshd 启动失败时，该脚本可以只跑其余用例后返回成功。图标缺依赖失败及打包/认证变异的 SKIP 守卫不能替代这项检查，后续需按必跑项目收口。
+full workflow 现对两个 Apple 闸门单次指定 `GHOSTERM_APPLE_GATE_MODE=required`：缺 Swift、缺 sshd/ssh-keygen、sshd 启动失败、空 XCTest 或必跑方法缺唯一 passed 收据均失败。Core 十二项 SSH/SFTP、App 本地/SSH 网格与 SFTP 浏览有明确收据；其它声明的条件跳过继续单列，未把任意条件项要求扩大为全平台。默认 optional 模式缺证据只报 `PARTIAL`，不能作合并全绿；`apple-gate.sh --no-e2e` 仅 optional 可用。原生专项及 shell 故障验证见[剩余实施](../docs/reference/non-plugin-remainder.md)。
 
 子检查失败传播已于 2026-11-17 修复：ABI 或 HTML 子检查失败时，`apple-app-gate.sh` 保留其非零退出码并停止，不打印 `APPLE APP GATE PASS`。`python3 scripts/test-apple-app-gate.py -v` 使用工程 tmp 下的真实闸门副本及 shell 依赖桩，五项检查覆盖全成功、ABI/Core/Swift/HTML 失败；两组撤回修复各得到单条正常断言红、同夹具成功对照绿、恢复绿与源码 SHA256。此证据只针对脚本控制流，没有执行原生编译、SSH 或插件业务；SSH 必跑策略仍按上一段单独收口。
 

@@ -213,8 +213,8 @@ jobs:
             echo "缺 swift 工具链，无法跑 Apple 端闸门（本步不许降级为 SKIP）" >&2; exit 1; }
           export GHOSTERM_AUTOMATION_OFFSCREEN=1
           export TMPDIR="$PWD/tmp"
-          bash scripts/apple-gate.sh
-          bash scripts/apple-app-gate.sh
+          GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-gate.sh
+          GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
           bash scripts/mutation-check-terminal.sh
           bash scripts/mutation-check-transport.sh

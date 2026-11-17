@@ -24,7 +24,7 @@
 | 1 / 已修 | SSH 配置候选模型发布 | ConfigStore 存储事务与 AppModel 候选发布均已接；失败不污染已发布 AST/列表，已提交后错误重载磁盘并明确报告 | 50 项原生组合、六组实际编译变异和 arm64 Release 通过；主机表单/来源与改名另见批 3，不扩大为 M3 全完成 |
 | 2 / 已交付专项 | 主机表单保真与改名 | Core 物理块快照替换 Swift 解析；脏字段、逐行身份、继承来源、多别名提示、只读/歧义保护；改名预览确认及旧表单冲突 | 结果逐项记入[剩余实施记录](non-plugin-remainder.md)；重复未知标量及 Include 仍显式转来源文件编辑，不声称全指令表单支持 |
 | 3 / P0 | 私钥安全存储生产接线 | [SSHCredentialSelector.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) 从受限磁盘文件读 PEM，Keychain 生产路径保存口令/密码 | 私钥导入→安全存储→解锁→认证，引用/取消/错误明确；不把 Android 容器引用当本端路径，不放宽铁律 #5 |
-| 4 / P1 | 宿主闸门必跑项 | [apple-app-gate.sh](../../scripts/apple-app-gate.sh) 的 ABI/HTML 子检查失败传播已修；sshd 失败可 SKIP 后 PASS 的策略仍未收口 | 失败传播五项 shell 检查与两组撤回修复验证已通过，非原生业务证据。后续明确 full 档 SSH 必跑策略，独立验证缺环境会失败；不删测试或把缺环境改成通过 |
+| 4 / 已交付 | 宿主闸门必跑项 | full CI 两个 Apple 闸门显式 required；缺 Swift/SSH、启动失败、空测试、必跑项无 passed 收据均失败；optional 缺证据报 PARTIAL | Bash 3.2/5 各 18 项、六组 shell 故障断言及自有 sshd 原生专项通过；其它条件跳过仍单列，见[分批实施](non-plugin-remainder.md) |
 | 5 / P1 | 文件导航/错误/缓存 | [FilesPanelModel.swift](../../apple/GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 无导航代次，失败不回滚历史，刷新不失效树缓存，树错误折为空 | 可从导航代次与历史事务开始；覆盖快速 A/B、后退失败、树失败重试、刷新增删，随后独立收口搜索/递归权限错误 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
 | 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
@@ -68,3 +68,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 3：主机表单共享快照/脏字段/来源/逐行身份/改名预览确认、旧窗口保护、否定过滤与列表去重已接。73 项原生组合、16 个新保护＋发布旧六组分轮、arm64 Release 通过；Include 只读/歧义拒绝与前置失败保留，见[分批实施](non-plugin-remainder.md)。
 
 - 剩余批 4：普通连接/SFTP/tmux/分屏与选择器统一别名字节身份，避免 Unicode 规范等价别名借用另一行的地址/凭据。50 项连接组合、76 项配置组合分轮、两组变异与 Release 通过，见[分批实施](non-plugin-remainder.md)。
+
+- 剩余批 5：full CI 必跑 Swift/SSH 收据，optional 缺证据只报 PARTIAL；两版 Bash 各 18 项、六组 shell 断言故障与真实本机 SSH 原生专项通过，详见[分批实施](non-plugin-remainder.md)，没有把其它条件跳过记为完成。

@@ -7,7 +7,7 @@
 #   1. HostListModel：ssh_config → 主机列表（读视图，不改文件）；
 #   2. SessionController + libghostty：本地 PTY / SSH shell 的字节流真的进了
 #      终端网格（断言读的是 ghostty_surface_read_text，不是自己记的账）；
-#   3. SSH e2e：起本机真 sshd 注入 GHOSTERM_SSH_*（无 sshd 显式 SKIP）。
+#   3. SSH e2e：起本机真 sshd 注入 GHOSTERM_SSH_*（required 档缺 sshd 明确失败，optional 才可 SKIP）。
 #   4. HTML preview：真实 WebKit custom-scheme CSS / image 像素绘制。
 #
 # 前置：scripts/build-ghostty.sh 已产出补丁版 GhosttyKit.xcframework。
@@ -20,9 +20,11 @@ PKG="${GHOSTERM_APP_TEST_PACKAGE:-$ROOT/apple/GhostermApp}"
 TMP="$ROOT/tmp"
 SSHD="${SSHD:-/usr/sbin/sshd}"
 mkdir -p "$TMP"
+source "$ROOT/scripts/apple-gate-profile.sh" || exit $?
 
 if ! command -v swift >/dev/null 2>&1; then
-  echo "SKIP apple-app-gate: 未找到 swift 工具链"
+  apple_gate_missing "未找到 swift 工具链"
+  apple_gate_finish "APPLE APP GATE"
   exit 0
 fi
 
@@ -157,11 +159,11 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
     fi
     echo "== SSH e2e：真 sshd 已在 127.0.0.1:$PORT =="
   else
-    echo "SKIP apple-app-gate e2e: sshd 未能起（本机环境限制）；其余用例仍跑"
     sed 's/^/  sshd: /' "$WORK/sshd.log" 2>/dev/null
+    apple_gate_missing "sshd 未能启动；SSH e2e 未验证"
   fi
 else
-  echo "SKIP apple-app-gate e2e: 未找到 sshd/ssh-keygen"
+  apple_gate_missing "未找到 sshd/ssh-keygen"
 fi
 
 echo "== 3/3 GhostermApp 构建 + 测试 =="
@@ -176,6 +178,10 @@ fi
   grep -E "(^|: )error:|Test Case .* failed|Fatal error:|unexpected signal|panic" "$TMP/apple-app-test.log" >&2 | head -30
   exit 1
 }
+apple_gate_log "$TMP/apple-app-test.log" \
+  SessionSmokeTests.testLocalShellReachesGrid \
+  SessionSmokeTests.testSSHShellReachesGrid \
+  SFTPBrowserTests.testDualPaneBrowseAndDownload
 sed -n 's/^.*Executed \(.*\)/\   执行: \1/p' "$TMP/apple-app-test.log" | tail -1
 if grep -q "skipped" "$TMP/apple-app-test.log" && [ "${#ENVARGS[@]}" -eq 0 ]; then
   echo "   （SSH e2e 已 SKIP；本地 PTY + 主机列表用例仍为绿）"
@@ -194,4 +200,4 @@ else
   bash "$ROOT/scripts/test-plugin-html-webkit.sh" || exit $?
 fi
 
-echo "APPLE APP GATE PASS"
+apple_gate_finish "APPLE APP GATE"

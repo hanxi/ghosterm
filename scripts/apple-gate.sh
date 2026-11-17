@@ -7,7 +7,7 @@
 #   2. Swift 层穿透断言（配置往返逐字节相同 / 稀疏编辑 / 本地 PTY / 三态）；
 #   3. SSH e2e：起**本机真 sshd**（非特权 + 公钥）注入 GHOSTERM_SSH_*，
 #      证明 Swift 绑定 → C 核心 → libssh2 → 真 sshd 全链路；无 sshd/Swift
-#      工具链时**显式 SKIP**（不假装通过）。
+#      required 缺工具链/服务即失败；optional 可跳过但只报 PARTIAL。
 #
 # 用法：bash scripts/apple-gate.sh [--no-e2e]
 set -uo pipefail
@@ -19,9 +19,14 @@ E2E=1
 [ "${1:-}" = "--no-e2e" ] && E2E=0
 
 mkdir -p "$TMP"
+source "$ROOT/scripts/apple-gate-profile.sh" || exit $?
+if [ "$E2E" = 0 ] && [ "$APPLE_GATE_MODE" = required ]; then
+  echo "apple-gate: required mode forbids --no-e2e" >&2; exit 2
+fi
 
 if ! command -v swift >/dev/null 2>&1; then
-  echo "SKIP apple-gate: 未找到 swift 工具链（本机无法验证 Apple 绑定）"
+  apple_gate_missing "未找到 swift 工具链"
+  apple_gate_finish "APPLE GATE"
   exit 0
 fi
 
@@ -39,6 +44,7 @@ if [ $rc -ne 0 ]; then
   cat "$TMP/apple-swift-test.log" >&2
   exit 1
 fi
+apple_gate_log "$TMP/apple-swift-test.log"
 if grep -q "test skipped\|skipped" "$TMP/apple-swift-test.log"; then
   echo "   离线用例全绿（含 SKIP，见下）"
 else
@@ -48,25 +54,32 @@ sed -n 's/^.*Executed \(.*\)/\   执行: \1/p' "$TMP/apple-swift-test.log" | tai
 
 if [ "$E2E" -ne 1 ]; then
   echo "apple-gate: --no-e2e，跳过 SSH e2e"
-  echo "APPLE GATE PASS（离线）"
+  APPLE_GATE_PARTIAL=1
+  apple_gate_finish "APPLE GATE"
   exit 0
 fi
 
 echo "== 3/3 SSH e2e（本机真 sshd + Swift 绑定） =="
 if [ ! -x "$SSHD" ] && ! command -v sshd >/dev/null 2>&1; then
-  echo "SKIP apple-gate e2e: 未找到 sshd（${SSHD}）"
-  echo "APPLE GATE PASS（e2e SKIP）"
+  apple_gate_missing "未找到 sshd（${SSHD}）"
+  apple_gate_finish "APPLE GATE"
   exit 0
 fi
 SSHD="$(command -v sshd 2>/dev/null || echo "$SSHD")"
 
 WORK="$(mktemp -d "$TMP/apple-e2e-XXXXXX")"
 PIDFILE="$WORK/sshd.pid"
+SRV=""
 cleanup() {
-  [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+  if [ -n "$SRV" ]; then
+    kill "$SRV" 2>/dev/null || true
+    wait "$SRV" 2>/dev/null || true
+  fi
   rm -rf "$WORK"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
 USERNAME="$(id -un)"
@@ -105,19 +118,24 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [ "$ready" != 1 ]; then
-  echo "SKIP apple-gate e2e: sshd 未能起在 127.0.0.1:${PORT}（本机环境限制）"
   sed 's/^/  sshd: /' "$WORK/sshd.log" 2>/dev/null
-  echo "APPLE GATE PASS（e2e SKIP）"
+  apple_gate_missing "sshd 未能起在 127.0.0.1:${PORT}"
+  apple_gate_finish "APPLE GATE"
   exit 0
 fi
 
-# SWIFT_TEST_FILTER 只在支持时用；否则跑全量（离线用例也应保持绿）。
-env GHOSTERM_SSH_HOST=127.0.0.1 \
+# Required reruns the complete binding suite with owned SSH credentials; the
+# optional focused pass remains available for local development.
+SWIFT_E2E_ARGS=()
+if [ "$APPLE_GATE_MODE" = optional ]; then
+  SWIFT_E2E_ARGS=(--filter 'GhostermCoreTests.testS.*EndToEnd')
+fi
+( cd "$PKG" && env GHOSTERM_SSH_HOST=127.0.0.1 \
     GHOSTERM_SSH_PORT="$PORT" \
     GHOSTERM_SSH_USER="$USERNAME" \
     GHOSTERM_SSH_KEY="$WORK/clientkey" \
     GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts" \
-    bash -c "cd '$PKG' && swift test --filter 'GhostermCoreTests.testS.*EndToEnd'" \
+    swift test ${SWIFT_E2E_ARGS[@]+"${SWIFT_E2E_ARGS[@]}"} ) \
     >"$TMP/apple-e2e.log" 2>&1
 rc=$?
 if [ $rc -ne 0 ]; then
@@ -125,10 +143,23 @@ if [ $rc -ne 0 ]; then
   cat "$TMP/apple-e2e.log" >&2
   exit 1
 fi
+apple_gate_log "$TMP/apple-e2e.log" \
+  GhostermCoreTests.testSSHEndToEnd \
+  GhostermCoreTests.testSSHControlledEndToEnd \
+  GhostermCoreTests.testSSHAbortStopsOwnedSFTP \
+  GhostermCoreTests.testSFTPEndToEnd \
+  GhostermCoreTests.testSFTPDirectoryCreationEndToEnd \
+  GhostermCoreTests.testSFTPRemovalEndToEnd \
+  GhostermCoreTests.testSFTPPublishEndToEnd \
+  GhostermCoreTests.testSFTPReceiveEndToEnd \
+  GhostermCoreTests.testSFTPExclusiveCreateEndToEnd \
+  GhostermCoreTests.testSFTPPreviewEndToEnd \
+  GhostermCoreTests.testSFTPBrowseEndToEnd \
+  GhostermCoreTests.testSFTPControlledEndToEnd
 if grep -q "skipped" "$TMP/apple-e2e.log"; then
-  echo "SKIP apple-gate e2e: 用例自行判定跳过（环境不满足）"
+  echo "   条件用例跳过仍见日志；required SSH 收据已单独核对"
 else
   echo "   ok（真 sshd：认证 + shell 回显 + resize 穿透 Swift 绑定）"
 fi
 
-echo "APPLE GATE PASS"
+apple_gate_finish "APPLE GATE"

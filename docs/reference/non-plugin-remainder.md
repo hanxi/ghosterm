@@ -10,7 +10,8 @@
 | 2 | Core 原始指令快照与解析保真 | 590 CTest/186 ABI、Swift 四项、Android API 36 专用模拟器 35 项、Release/R8 与四模块 lint、八组编译变异通过；两端绑定同步 |
 | 3 | 主机表单来源/保真/改名 | 73 项原生组合、16 个新保护与发布旧六组分轮通过；arm64 Release 通过 |
 | 4 | 主机别名字节身份 | 所有普通 SSH/SFTP/tmux/分屏查找及选择器改为 ASCII 折叠、UTF-8 字节身份；50 项连接组合、76 项配置组合分轮、两组新变异和 Release 通过 |
-| 后续 | 安全存储、终端设置、闸门必跑策略、SSH 网络/取消、文件与传输、保活及模拟器回归 | 顺序推进；未完成项不提前勾选 |
+| 5 | Apple full 闸门必跑策略 | 两版 Bash 各 18 项、六组 shell 正常单断言故障；Core 12 个真实 SSH/SFTP 必跑收据及 App 4 项组合通过；其它条件跳过保留 |
+| 后续 | 安全存储、终端设置、SSH 网络/取消、文件与传输、保活及模拟器回归 | 顺序推进；未完成项不提前勾选 |
 
 批 1 的六组均为隔离源真实编译后指定单条正常断言红、同构件独立配置读取绿、复原重编绿与 SHA256。成功操作保留连接快照/UUID，不通过刷新关闭连接；这不是外部 SSH 或整客户端回归结论。
 
@@ -27,3 +28,9 @@
 批 3 的最终 `host-form-release.log` 为 arm64 Release 构建通过；既有 Swift 并发警告保留，不将警告转称失败或删除代码换绿。
 
 批 4 修复 Swift 规范等价比较造成的别名错配：`café` 的组合/分解写法仍分别解析为不同配置目标，列表选择 Hashable 与模型查找遵循同一规则，ASCII 大小写仍按 Core 折叠。三项新用例含实际 AppModel `remoteTarget` 的不同地址/用户/端口，身份核对不启动网络连接；既有连接选择器与表单组合 50 项、变异基线/最终配置组合 76 项分轮通过。`--phase target-match|target-selection` 两组正常单条断言红、独立读取绿、重编复原绿及 SHA256，原件 `config-mutations-amo8tjj_` / `config-mutations-5ufb_rzf`；arm64 Release `host-target-release.log` 通过。没有改插件发现、会话生命周期或 Core ABI。
+
+批 5 的 required 模式由 full CI 对两个 gate 单次启用，不向后续定向变异外溢。Core 带自有 SSH 夹具重跑完整绑定套件并核对十二个方法，App 核对本地网格、SSH 网格与 SFTP 浏览；必跑用例 skipped/缺失/重复收据、空测试、缺工具链或服务启动失败均非零。optional 跳过报 PARTIAL，不再打印 PASS；不删条件测试或改变其它插件策略。日志核对不以摘要“执行 0 项的 Swift Testing”覆盖实际 XCTest，也不以普通单元通过代替 SSH 方法收据。sshd 清理跟踪实际自有 PID 并 wait。
+
+`python3 scripts/test-apple-app-gate.py --shell /bin/bash` 与默认 Bash 5 各十八项；`python3 scripts/mutation-check-apple-gate-profile.py --checkout tmp/rem18` 六组为 shell 语法通过后的正常单 unittest 断言红、同夹具独立 ABI 失败传播绿、恢复绿及 SHA256，原件 `apple-profile-mutations-yp2oj_4j/receipt.json`。它们使用 shell 依赖桩，不冒充原生编译或认证变异。初轮 Python 字符串语法失败未计红；手工探针导入生成的单份字节码缓存已清除，测试禁止旁写字节码后重新完成上述六组和 Bash 5 十八项。工作流 YAML 语法通过。
+
+实际原生证据位于 `tmp/rem18/tmp/apple-profile-core-native2.log` / `apple-profile-app-native.log`。Core 离线 90 项含 29 条件跳过；真实本机 sshd 档 90 项含 17 条件跳过、零失败，十二必跑方法逐项 passed。App 定向 4 项零失败，三必跑方法逐项 passed；既有 WebKit 子资源夹具检查通过。只证明本机 arm64 定向与必跑策略，非完整宿主/云端 CI/全部条件项完成。首次工作目录拷贝错误导致执行旧 gate 的结果未计为新 required 证据。
