@@ -13353,3 +13353,15 @@ ProxyJump 各通过百万行分页及空结果两项真实 SSH 用例。每项�
 默认组合 SHA256 `90795d2d5c77b1f62714d5e1f65856f4e6128393646e7511c3d06bd1bddd07c3`，
 故障组合 SHA256 `3fc65844ffff92775faedfd0ad8009ca51dce9a4245d2f248321f99707f5b910`。
 本轮为本机签名 CLI，测试构件和一次性目录均已清理。
+
+### P1 流与 wire 变异集中复验（2026-11-19）
+
+固定 `9a8b2bec`，在独立一次性 C 夹具运行 `mutation-check-plugin-stream.py`
+13 组及 `mutation-check-plugin-wire.py` 16 组。每组真实编译后目标断言红、独立
+配置对照绿、恢复复验绿及 SHA256 一致。两轮均启用 ASan 和 UBSan，无 sanitizer
+错误计为目标红。流测试覆盖短读写、保留偏移、停止、截断 EOF 和 owner 释放，
+wire 测试覆盖深度与节点配额、精确整数、schema 校验和失败输出。
+
+流收据 SHA256 `2f4dcaed92c57289fb6f495d65038baf32c03ea9845fab64c90f733afc4032ec`，
+wire 收据 SHA256 `b588d5e6ec060041fd5fef942fab1ffcb040be746b55adb68fbe69ef44be1fb4`。
+本轮不覆盖真实 tmux pane、平台 UI 或全部 P1 变异。一次性源码、构件与日志已清理。
