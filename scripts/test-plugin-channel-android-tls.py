@@ -72,7 +72,7 @@ def tls_fixture(work, env, host, settings=False):
         def do_GET(self):
             received.append(self.path)
             mode, _, name = self.path.lstrip('/').partition('/')
-            if name not in bodies:
+            if name not in bodies or (mode == 'missing-policy' and name == 'policy.json'):
                 self.send_error(404)
                 return
             if mode == 'redirect':

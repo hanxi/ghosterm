@@ -75,6 +75,10 @@ final class PluginChannelTLSLoopbackTests: XCTestCase {
             _ = try await refresh("mixed")
             XCTFail("channel client accepted mixed statement and policy bytes")
         } catch PluginDirectorySignatureVerifier.Failure.channelStatement {}
+        do {
+            _ = try await refresh("missing-policy")
+            XCTFail("channel client accepted a release statement without its policy")
+        } catch PluginChannelRefresh.Failure.response {}
         let restored = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: "fixture", channelRoot: root,
             now: UInt64(Date().timeIntervalSince1970), stateDirectory: state)
         XCTAssertEqual(restored.statementSHA256, valid.statementSHA256)
