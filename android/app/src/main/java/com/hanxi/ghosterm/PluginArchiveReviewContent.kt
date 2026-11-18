@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -111,5 +112,37 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
             installed.publication.maintenanceIssue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
         Text("来源批准和 Session 授权需另行确认。本页仅安装本机版本；远端部署与活动版本选择另行操作。收起会释放导入快照，已发布的版本保留。", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+internal fun PluginChannelRefreshContent(controller: ExtensionController?) {
+    if (controller?.canRefreshChannelPolicy != true) return
+    val scope = rememberCoroutineScope()
+    var busy by remember(controller) { mutableStateOf(false) }
+    var status by remember(controller) { mutableStateOf<String?>(null) }
+    var failed by remember(controller) { mutableStateOf(false) }
+    TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-refresh"), onClick = {
+        busy = true
+        status = null
+        scope.launch {
+            try {
+                val current = controller.refreshChannelPolicy()
+                failed = false
+                status = "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
+            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                failed = true
+                status = "刷新插件渠道策略超时。"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                failed = true
+                status = failure.message ?: "无法刷新插件渠道。"
+            } finally { busy = false }
+        }
+    }) { Text(if (busy) "正在刷新渠道策略…" else "刷新渠道策略") }
+    status?.let {
+        Text(it, Modifier.testTag("plugin-channel-refresh-status"),
+            color = if (failed) MaterialTheme.colorScheme.error else LocalContentColor.current)
     }
 }

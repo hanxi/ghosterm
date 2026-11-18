@@ -61,11 +61,12 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     companion object {
         private fun createController(application: Application): ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
         runCatching {
-            ExtensionController(
-                ExtensionController.HostProfile(
-                    sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views")),
-                application.applicationContext)
+            val context = application.applicationContext
+            val profile = ExtensionController.HostProfile(
+                sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
+                capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"))
+            val refresh = PluginChannelRefresh.configured(context)
+            if (refresh == null) ExtensionController(profile, context) else ExtensionController(profile, context, refresh)
         }.getOrNull()
     } else null
 

@@ -14261,3 +14261,17 @@ SSH 会话接管与 Client Runtime 采用时，利用已打开版本或保留的
 安装及目录 Controller 组合通过，签名 ZIP 夹具确认同策略字节的新代次
 会拒绝旧启用审查，重新审查后可启用。未跑变异或 Android 发行构建。
 模拟器与本轮临时文件已清理。
+
+### P6 Android 随包渠道配置和设置刷新（2026-11-19）
+
+固定 `03aba918` 加本批。Android 构建可通过 `ghostermPluginChannel`、
+`ghostermPluginChannelRoot`、`ghostermPluginChannelUrl` 提供渠道名、
+32 字节 Ed25519 公钥的 Base64 与 HTTPS 目录。全部为空时保留普通构建行为。
+启用插件运行时且配置渠道后，设置页显示手动刷新。下载三个固定名称文件，
+关闭重定向，限制大小与等待时间，再提交至同一已签渠道缓存。配置也传给
+独立的安装检查 worker。安装和版本选择的渠道模式还需要设置 UI 接线。
+
+配置夹具的 JS-enabled Debug 和测试 APK 构建通过，生成配置中三项值一致。
+部分参数及含凭据地址在 Gradle 阶段明确失败。默认 JS-off Debug APK 复建
+通过，生成渠道字段为空。本轮未连接真实 HTTPS 服务或执行设置界面点击测试，
+临时目录已清理。

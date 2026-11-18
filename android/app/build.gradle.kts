@@ -1,3 +1,6 @@
+import java.net.URI
+import java.util.Base64
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +8,16 @@ plugins {
 }
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
 val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
+val pluginChannelName = providers.gradleProperty("ghostermPluginChannel").orNull.orEmpty()
+val pluginChannelRoot = providers.gradleProperty("ghostermPluginChannelRoot").orNull.orEmpty()
+val pluginChannelUrl = providers.gradleProperty("ghostermPluginChannelUrl").orNull.orEmpty()
+if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNotEmpty() }) {
+    require(pluginChannelName.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}"))) { "Invalid ghostermPluginChannel" }
+    require(Base64.getDecoder().decode(pluginChannelRoot).size == 32) { "Expected a 32-byte channel root" }
+    val endpoint = URI(pluginChannelUrl)
+    require(endpoint.scheme == "https" && endpoint.host != null && endpoint.userInfo == null &&
+        endpoint.rawFragment == null && endpoint.rawQuery == null && endpoint.port != 0) { "Expected an HTTPS channel directory" }
+}
 val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
 val runtimeLicenseAssets = layout.buildDirectory.dir("generated/plugin-js-license-assets")
 val copyRuntimeLicense = if (pluginJsEnabled) tasks.register<Copy>("copyRuntimeLicense") {
@@ -50,6 +63,9 @@ android {
         versionName = "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "PLUGIN_JS_ENABLED", pluginJsEnabled.toString())
+        buildConfigField("String", "PLUGIN_CHANNEL_NAME", "\"$pluginChannelName\"")
+        buildConfigField("String", "PLUGIN_CHANNEL_ROOT", "\"$pluginChannelRoot\"")
+        buildConfigField("String", "PLUGIN_CHANNEL_URL", "\"$pluginChannelUrl\"")
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true; buildConfig = true }

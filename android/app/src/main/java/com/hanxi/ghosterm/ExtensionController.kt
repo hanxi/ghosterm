@@ -50,6 +50,14 @@ class ExtensionController private constructor(private val shared: Shared, privat
         channelStore: PluginChannelPolicyStore, channelClock: (() -> ULong)? = null) :
         this(Shared(profile, context, versionDirectory, channelStore, channelClock), true)
 
+    internal constructor(profile: HostProfile, context: Context, refresh: PluginChannelRefresh) :
+        this(Shared(profile, context, File(context.applicationContext.filesDir, "plugin-releases"),
+            refresh.store, channelRefresh = refresh), true)
+
+    internal val canRefreshChannelPolicy: Boolean get() = shared.channelRefresh != null
+    internal suspend fun refreshChannelPolicy() =
+        checkNotNull(shared.channelRefresh) { "本构建未配置插件渠道。" }.refresh()
+
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(
@@ -153,7 +161,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
     private data class CheckedVersion(val packageBytes: ExtensionPackage, val value: SignedArchiveReview, val payload: PluginReleaseCatalog.Identity)
 
     private class Shared(profile: HostProfile, context: Context, val versionDirectory: File,
-        val channelStore: PluginChannelPolicyStore? = null, val channelClock: (() -> ULong)? = null) {
+        val channelStore: PluginChannelPolicyStore? = null, val channelClock: (() -> ULong)? = null,
+        val channelRefresh: PluginChannelRefresh? = null) {
         val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
         val handler = Handler(thread.looper)
         val dispatcher: CoroutineDispatcher = handler.asCoroutineDispatcher("ghosterm-extension-controller")
@@ -202,7 +211,9 @@ class ExtensionController private constructor(private val shared: Shared, privat
     /** An independent worker keeps archive IO away from an active Client pump. */
     internal fun newReleaseInspector(): ExtensionController {
         check(!closed.get()) { "插件控制器已关闭" }
-        return ExtensionController(releaseProfile, appContext, versionDirectory)
+        val store = shared.channelStore
+        return if (store == null) ExtensionController(releaseProfile, appContext, versionDirectory)
+        else ExtensionController(releaseProfile, appContext, versionDirectory, store, shared.channelClock)
     }
     /** Explicit read-only observation. Absence and unreadable state are separate;
      * never captures a package, registers a source or loads a saved selection. */
