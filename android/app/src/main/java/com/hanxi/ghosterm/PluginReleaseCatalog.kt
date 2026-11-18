@@ -176,17 +176,38 @@ internal class PluginReleaseCatalog private constructor(
     private fun writeSelection(proposed: Map<String, Choice>, previous: Selection, expected: String?,
         checkpoint: (String) -> Unit, parentSync: (FileDescriptor) -> Unit): Publication {
         validate(); demand(previous.revision == expected, Reason.CONFLICT)
+        demand(proposed.size <= 64, Reason.LIMIT)
+        val choices = JSONObject()
+        proposed.toSortedMap().forEach { (id, value) -> choices.put(id, JSONObject().put("releaseID", value.releaseID).put("enabled", value.enabled).put("generation", value.generation)) }
+        val raw = JSONObject().put("schemaVersion", 1).put("nonce", UUID.randomUUID().toString()).put("choices", choices).toString().toByteArray(Charsets.UTF_8)
+        demand(raw.size <= 131072, Reason.LIMIT)
+        val durable = writeRecord(SELECTION, raw, expected == null, checkpoint, parentSync) {
+            demand(selection().revision == expected, Reason.CONFLICT)
+        }
+        return Publication(Selection(sha(raw), proposed), durable)
+    }
+
+    fun readChannelRecord(name: String): ByteArray? {
+        validate()
+        try { Os.lstat(path(name)) }
+        catch (error: ErrnoException) { if (error.errno == OsConstants.ENOENT) return null else throw error }
+        return readFile(fd.fd, name, 200_000)
+    }
+
+    fun writeChannelRecord(name: String, raw: ByteArray, previous: ByteArray?): Boolean =
+        writeRecord(name, raw, previous == null, {}, { Os.fsync(it) }) {
+            val current = readChannelRecord(name)
+            demand(if (previous == null) current == null else current?.contentEquals(previous) == true, Reason.CONFLICT)
+        }
+
+    private fun writeRecord(name: String, raw: ByteArray, first: Boolean, checkpoint: (String) -> Unit,
+                            parentSync: (FileDescriptor) -> Unit, compare: () -> Unit): Boolean {
         LocalPublicationFile.directory(location.parentFile ?: throw Rejected(Reason.ROOT), "").use { ancestor ->
             LocalPublicationFile.childDirectory(ancestor.fd, location.name).use { named ->
                 demand(objectIdentity(Os.fstat(named.fileDescriptor)) == identity, Reason.CHANGED)
             }
             rootSync(ancestor.fileDescriptor)
         }
-        demand(proposed.size <= 64, Reason.LIMIT)
-        val choices = JSONObject()
-        proposed.toSortedMap().forEach { (id, value) -> choices.put(id, JSONObject().put("releaseID", value.releaseID).put("enabled", value.enabled).put("generation", value.generation)) }
-        val raw = JSONObject().put("schemaVersion", 1).put("nonce", UUID.randomUUID().toString()).put("choices", choices).toString().toByteArray(Charsets.UTF_8)
-        demand(raw.size <= 131072, Reason.LIMIT)
         val temporary = ".selection-${UUID.randomUUID()}"
         LocalPublicationFile.candidate(fd.fd, temporary).use { output ->
             var input: ParcelFileDescriptor? = null; var published = false; var candidateStamp: Stamp? = null
@@ -207,15 +228,15 @@ internal class PluginReleaseCatalog private constructor(
                 output.close()
                 checkpoint("before-rename")
                 validate()
-                demand(selection().revision == expected, Reason.CONFLICT)
+                compare()
                 demand(stamp(Os.lstat(path(temporary))) == before && stamp(Os.fstat(input.fileDescriptor)) == before, Reason.CHANGED)
-                if (expected == null) {
-                    val error = LocalPublicationFile.publish(fd.fd, fd.fd, input.fd, temporary, SELECTION, raw.size.toLong())
+                if (first) {
+                    val error = LocalPublicationFile.publish(fd.fd, fd.fd, input.fd, temporary, name, raw.size.toLong())
                     demand(error == 0, if (error == OsConstants.EEXIST) Reason.CONFLICT else Reason.IO)
-                } else { Os.rename(path(temporary), path(SELECTION)) }
+                } else { Os.rename(path(temporary), path(name)) }
                 published = true
                 val durable = runCatching { checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.isSuccess
-                return Publication(Selection(sha(raw), proposed), durable)
+                return durable
             } finally {
                 try { if (!published) {
                     if (input != null) demand(stamp(Os.fstat(input.fileDescriptor)) == candidateStamp && stamp(Os.lstat(path(temporary))) == candidateStamp, Reason.CHANGED)
@@ -254,7 +275,7 @@ internal class PluginReleaseCatalog private constructor(
         private fun privateDirectory(v: StructStat) = OsConstants.S_ISDIR(v.st_mode) && v.st_uid == Process.myUid() && v.st_mode and 63 == 0
         private fun frozenDirectory(v: StructStat) = privateDirectory(v) && v.st_mode and 146 == 0
         private fun readFile(parent: Int, name: String, limit: Int): ByteArray {
-            require(limit in 1..131072)
+            require(limit in 1..200_000)
             LocalPublicationFile.retainedCandidate(parent, name).use { input ->
                 val before = Os.fstat(input.fileDescriptor)
                 if (before.st_uid != Process.myUid() || before.st_nlink != 1L || before.st_mode and 191 != 0 || before.st_size !in 0L..limit.toLong()) throw Rejected(Reason.INVALID)

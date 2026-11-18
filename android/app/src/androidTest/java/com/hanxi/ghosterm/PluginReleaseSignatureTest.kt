@@ -70,6 +70,30 @@ class PluginReleaseSignatureTest {
         reject(PluginReleaseSignature.Failure.CHANNEL_STATEMENT) { read(trust = key) }
         reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { read(now = 99u) }
         reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { accepted.authenticate(descriptor, signature, 200u) }
+        val directory = PluginInstallTestFiles.root()
+        try {
+            val store = PluginChannelPolicyStore(directory, "fixture", root)
+            reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { store.useCurrent(150u) { it.generation } }
+            assertEquals(2uL, store.refresh(statement, signed, policy, 150u).generation)
+            val reopened = PluginChannelPolicyStore(directory, "fixture", root)
+            assertEquals(2uL, reopened.useCurrent(151u) {
+                val busy = runCatching { store.refresh(statement, signed, policy, 151u) }.exceptionOrNull()
+                assertEquals(PluginReleaseCatalog.Reason.BUSY, (busy as? PluginReleaseCatalog.Rejected)?.reason)
+                it.generation
+            })
+            reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { reopened.useCurrent(150u) { it.generation } }
+            reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { reopened.useCurrent(200u) { it.generation } }
+            fun refresh(name: String, time: ULong): PluginReleaseSignature.VerifiedChannelPolicy {
+                val candidate = channel.getJSONObject(name)
+                return reopened.refresh(candidate.getString("statement").toByteArray(),
+                    Base64.getDecoder().decode(candidate.getString("signature")), policy, time)
+            }
+            reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { refresh("older", 152u) }
+            reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { refresh("fork", 152u) }
+            assertEquals(2uL, reopened.useCurrent(152u) { it.generation })
+            assertEquals(3uL, refresh("next", 201u).generation)
+            assertEquals(3uL, store.useCurrent(202u) { it.generation })
+        } finally { directory.deleteRecursively() }
     }
 
     @Test fun signatureAndRawBytesAreNotCanonicalized() {

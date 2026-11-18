@@ -1,5 +1,17 @@
 {
-  "root": "Ae7bnc+HSs7BJ9+xM3oUV7aqEry+uGofq4+TPSxSGVI=",
+  "root": "qZbCDlPwKCHGXfKupzBAFptooapHwbTQpgVkJKb3V9Y=",
   "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"2\",\"issuedAt\":\"100\",\"expiresAt\":\"200\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
-  "signature": "eKc52ByTNNM4kVUGshW4bWGZIjIZmBoFfQNnCLhXwLPGOYgOkUh/dOQfRJ5wUvbctzpCP2zhns79nuitVr1mBA=="
+  "signature": "yA12lLEXEpyrDLoB/RMae4bRosZaBmr22y7JUS8BOxqc3RgH4DZgN1MrujqpS8XsQbZut8RJVySHwdbGNb/ACg==",
+  "older": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"1\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
+    "signature": "hblIQBP4zjCZM6tttrnMVOuKgWI5ulvL/OCZAvd9wYFEIGUuebrZ1wOCkGk7qfTohI8DVVu2szTQR+Fk4S/3AQ=="
+  },
+  "fork": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"2\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
+    "signature": "R32fZEsHl0D+MJMUgpk2yaJ/VSWBZDyZfxOvvv98q7ZQbN9VKLWpBWDOTNUN5koY8gUewCTuWKd/vTVS/tp7Dw=="
+  },
+  "next": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"3\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
+    "signature": "xAnz1ax8hcm5SA6pYRbRlxd+76ApsMWmXbTjj/z0u9lth5zL5FKXRZslEcYW80s3UPBKGLeOlHdP5Ezis9mkBg=="
+  }
 }
