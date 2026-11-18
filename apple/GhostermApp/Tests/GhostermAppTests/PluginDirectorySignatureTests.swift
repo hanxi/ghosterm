@@ -108,7 +108,13 @@ final class PluginDirectorySignatureTests: XCTestCase {
         func load(_ now: UInt64, key: Data = root.key.publicKey.rawRepresentation) throws -> Verifier.VerifiedChannelPolicy {
             try Verifier.loadChannelPolicy(channel: "test", channelRoot: key, now: now, stateDirectory: directory)
         }
+        func observe(_ now: UInt64) throws -> Verifier.VerifiedChannelPolicy {
+            try Verifier.loadChannelPolicy(channel: "test", channelRoot: root.key.publicKey.rawRepresentation,
+                                           now: now, stateDirectory: directory, recordObservation: false)
+        }
+        XCTAssertEqual(try observe(155).statementSHA256, proof.statementSHA256)
         XCTAssertEqual(try load(151).statementSHA256, proof.statementSHA256)
+        rejects(.channelHistory) { try observe(150) }
         rejects(.channelFreshness) { try load(200) }
         rejects(.channelHistory) { try load(150) }
         rejects(.channelStatement) { try load(152, key: f.key.publicKey.rawRepresentation) }

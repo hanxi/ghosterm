@@ -247,12 +247,12 @@ final class PluginReleaseCatalog {
         "channel-policy-v1-" + sha(Data(channel.utf8)) + ".json"
     }
 
-    func readChannelEnvelope(_ channel: String) throws -> (envelope: PluginDirectorySignatureVerifier.ChannelEnvelope, generation: UInt64, digest: String) {
+    func readChannelEnvelope(_ channel: String) throws -> (envelope: PluginDirectorySignatureVerifier.ChannelEnvelope, generation: UInt64, digest: String, root: String, observed: UInt64) {
         try validate()
         let raw = try Self.read(fd, name: Self.channelHistoryName(channel), limit: Self.channelHistoryLimit)
         let record = try JSONDecoder().decode(ChannelHistory.self, from: raw)
         guard let envelope = record.envelope else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
-        return (envelope, record.generation, record.digest)
+        return (envelope, record.generation, record.digest, record.root, record.observed)
     }
 
     func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64,

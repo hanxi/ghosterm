@@ -119,23 +119,24 @@ public enum PluginDirectorySignatureVerifier {
     }
 
     public static func loadChannelPolicy(channel: String, channelRoot: Data, now: UInt64,
-                                         stateDirectory: URL) throws -> VerifiedChannelPolicy {
-        guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: true) else {
+                                         stateDirectory: URL, recordObservation: Bool = true) throws -> VerifiedChannelPolicy {
+        guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: recordObservation) else {
             throw PluginReleaseCatalog.Failure.root
         }
-        return try loadChannelPolicy(channel: channel, channelRoot: channelRoot, now: now, catalog: catalog)
+        return try loadChannelPolicy(channel: channel, channelRoot: channelRoot, now: now, catalog: catalog, recordObservation: recordObservation)
     }
 
     static func loadChannelPolicy(channel: String, channelRoot: Data, now: UInt64,
-                                  catalog: PluginReleaseCatalog) throws -> VerifiedChannelPolicy {
+                                  catalog: PluginReleaseCatalog, recordObservation: Bool = true) throws -> VerifiedChannelPolicy {
         let cached = try catalog.readChannelEnvelope(channel)
         let envelope = cached.envelope
         let policy = try verifyChannelPolicy(statement: envelope.statement, signature: envelope.signature,
             policy: envelope.policy, channel: channel, channelRoot: channelRoot, now: now)
-        guard policy.generation == cached.generation, policy.statementSHA256 == cached.digest else {
+        guard policy.generation == cached.generation, policy.statementSHA256 == cached.digest,
+              policy.rootSHA256 == cached.root, cached.observed > 0, now >= cached.observed else {
             throw Failure.channelHistory
         }
-        try catalog.recordChannelPolicy(policy, now: now, requireHistory: true)
+        if recordObservation { try catalog.recordChannelPolicy(policy, now: now, requireHistory: true) }
         return policy
     }
 

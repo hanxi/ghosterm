@@ -82,11 +82,13 @@ class PluginReleaseSignatureTest {
             reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { store.useCurrent(150u) { it.generation } }
             assertEquals(2uL, store.refresh(statement, signed, policy, 150u).generation)
             val reopened = PluginChannelPolicyStore(directory, "fixture", root)
+            assertEquals(2uL, reopened.useCurrent(155u, recordObservation = false) { it.generation })
             assertEquals(2uL, reopened.useCurrent(151u) {
                 val busy = runCatching { store.refresh(statement, signed, policy, 151u) }.exceptionOrNull()
                 assertEquals(PluginReleaseCatalog.Reason.BUSY, (busy as? PluginReleaseCatalog.Rejected)?.reason)
                 it.generation
             })
+            reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { reopened.useCurrent(150u, recordObservation = false) { it.generation } }
             reject(PluginReleaseSignature.Failure.CHANNEL_HISTORY) { reopened.useCurrent(150u) { it.generation } }
             reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { reopened.useCurrent(200u) { it.generation } }
             fun refresh(name: String, time: ULong): PluginReleaseSignature.VerifiedChannelPolicy {

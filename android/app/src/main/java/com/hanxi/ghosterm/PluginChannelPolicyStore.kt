@@ -37,14 +37,14 @@ internal class PluginChannelPolicyStore(
         }
     }
 
-    fun <T> useCurrent(now: ULong, action: (PluginReleaseSignature.VerifiedChannelPolicy) -> T): T {
+    fun <T> useCurrent(now: ULong, recordObservation: Boolean = true, action: (PluginReleaseSignature.VerifiedChannelPolicy) -> T): T {
         val owner = PluginReleaseCatalog.open(directory) ?: reject()
         return owner.use {
             val raw = it.readChannelRecord(name) ?: reject()
             val record = decode(raw)
             if (now < record.observed) reject()
             val verified = verify(record, now)
-            persist(it, record.copy(observed = now), raw)
+            if (recordObservation) persist(it, record.copy(observed = now), raw)
             action(verified)
         }
     }

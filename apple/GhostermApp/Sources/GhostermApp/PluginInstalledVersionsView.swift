@@ -92,7 +92,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         beginActivity(); defer { endActivity() }
         if !automatic { channelIssue = nil; channelNotice = nil }
         do {
-            let policy = try await (refresh ? controller.refreshConfiguredChannelPolicy() : controller.cachedChannelPolicy())
+            let policy = try await (refresh ? controller.refreshConfiguredChannelPolicy() : controller.cachedChannelPolicy(recordObservation: !automatic))
             let count = try await controller.runningInstancesWithRevokedPublisher(in: policy)
             guard !Task.isCancelled else { return }
             affectedChannelInstances = count

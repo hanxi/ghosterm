@@ -59,9 +59,9 @@ class ExtensionController private constructor(private val shared: Shared, privat
     internal suspend fun refreshChannelPolicy() =
         checkNotNull(shared.channelRefresh) { "本构建未配置插件渠道。" }.refresh()
 
-    internal suspend fun cachedChannelPolicy(): PluginReleaseSignature.VerifiedChannelPolicy = onWorker {
+    internal suspend fun cachedChannelPolicy(recordObservation: Boolean = true): PluginReleaseSignature.VerifiedChannelPolicy = onWorker {
         checkOpen()
-        checkNotNull(shared.channelStore) { "本构建未配置插件渠道。" }.useCurrent(configuredChannelTime()) { it }
+        checkNotNull(shared.channelStore) { "本构建未配置插件渠道。" }.useCurrent(configuredChannelTime(), recordObservation = recordObservation) { it }
     }
 
     internal suspend fun runningInstancesWithRevokedPublisher(policy: PluginReleaseSignature.VerifiedChannelPolicy): Int = onWorker {
@@ -991,7 +991,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         val root = version.channelRoot() ?: return action(null)
         val store = shared.channelStore
         if (store == null || store.rootSHA256 != root) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
-        return store.useCurrent(configuredChannelTime(), action)
+        return store.useCurrent(configuredChannelTime(), action = action)
     }
 
     private fun <T> withChannelAdmission(version: PluginReleaseCatalog.Version?, record: Record, action: (ChannelAdmission?) -> T): T {

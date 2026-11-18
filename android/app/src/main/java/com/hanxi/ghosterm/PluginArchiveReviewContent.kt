@@ -149,7 +149,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
         busy = true
         if (!automatic) status = null
         try {
-            val current = if (refresh) controller.refreshChannelPolicy() else controller.cachedChannelPolicy()
+            val current = if (refresh) controller.refreshChannelPolicy() else controller.cachedChannelPolicy(recordObservation = !automatic)
             affected = controller.runningInstancesWithRevokedPublisher(current)
             if (!automatic) {
                 failed = false

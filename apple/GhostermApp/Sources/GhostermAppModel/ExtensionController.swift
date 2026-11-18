@@ -538,8 +538,8 @@ public actor ExtensionController {
         try await worker.runningInstancesWithRevokedPublisher(in: policy)
     }
 
-    public func cachedChannelPolicy() async throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
-        try await worker.loadConfiguredChannelPolicy().0
+    public func cachedChannelPolicy(recordObservation: Bool = true) async throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        try await worker.loadConfiguredChannelPolicy(recordObservation: recordObservation).0
     }
 
     func currentInstanceHasRevokedPublisher() async throws -> Bool {
@@ -1180,14 +1180,14 @@ public actor ExtensionController {
         }
         var hasConfiguredChannel: Bool { state.channelTrust != nil }
 
-        func loadConfiguredChannelPolicy() async throws -> (PluginDirectorySignatureVerifier.VerifiedChannelPolicy, URL) {
+        func loadConfiguredChannelPolicy(recordObservation: Bool = true) async throws -> (PluginDirectorySignatureVerifier.VerifiedChannelPolicy, URL) {
             try await perform {
                 try self.checkOpen()
                 guard let trust = self.state.channelTrust else {
                     throw PluginDirectorySignatureVerifier.Failure.channelHistory
                 }
                 let policy = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
-                    now: try Self.channelClock(), stateDirectory: trust.stateDirectory)
+                    now: try Self.channelClock(), stateDirectory: trust.stateDirectory, recordObservation: recordObservation)
                 return (policy, trust.stateDirectory)
             }
         }
