@@ -102,11 +102,11 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
 |---|---|---|---|
 | SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 已用固定 5000 ms 的受控打开，未贯通认证剩余预算/取消 | `files_jni.c` 专用 owner，文件页面已接 |
-| 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
+| 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 通过串行 owner 调用受控 browse；Quick Look 直接受控 receive 到独占临时文件 | `RemoteFileSession` → repository → 只读文件页面 |
 | 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，§9.69 执行器已消费，§9.70 由任务页驱动 |
-| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，§9.70 已接任务页；§9.71 改为进程共享单活动请求，队列由 §9.72 接入，恢复未接 |
+| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | Quick Look 使用受控读取、取消及 32 MiB 上限；队列下载使用新 staged job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，§9.70 已接任务页；§9.71 改为进程共享单活动请求，队列由 §9.72 接入，恢复未接 |
 | 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已由 §9.69 执行器消费；§9.70 已接任务认证与粘贴页面 |
-| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录；§9.67 已接独立任务连接作用域，§9.69 已接执行器，§9.70 已接任务页面 |
+| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 经串行 owner 调用受控创建，并保留 mode | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录；§9.67 已接独立任务连接作用域，§9.69 已接执行器，§9.70 已接任务页面 |
 
 Android §9.67 的连接完成通知与任务作用域只在 JNI/Kotlin/data 层实现，不新增共享 ABI，也不改变 macOS `TransferManager` 的取消确认、后端持有或目录暂停语义；桌面仍须按下文单独迁移。
 
@@ -226,15 +226,15 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 §9.54 新增 Swift `SFTPSession.createExclusive`：从调用方普通 fd 分块读取，创建 0600 的远端暂存文件，返回完整的拒绝/未知/已创建/完成状态。底层只使用 EXCL，不删除或发布最终路径；原文件 fd 偏移保持。macOS 文件产品仍使用原 job，此新绑定没有改变桌面冲突/任务/预览流程。
 
-共享 [SFTP job 实现](../core/src/sftp.c) 已按 Android 计划 §9.53 修复：下载先打开远端再截断本地目标，上传以 CREATE|TRUNC 覆盖，上传/下载检查远端 close 和本地 `fclose`；已取消的排队任务不打开文件，上传源定位错误不触碰远端目标。macOS 现有绑定消费同一实现，但这些仍是直接覆盖接口，IO/关闭失败可能留下部分文件。队列成功状态不等于原子提交，进度 100% 也不是提交证据。任务暂存、非覆盖提交及完整桌面冲突/失败交互仍待实现；本片共享故障回归和 Swift 绑定定向不能代替完整宿主验收。
+共享 [SFTP job 实现](../core/src/sftp.c) 仍保留旧直接下载/上传入口；另新增 `gt_sftp_download_staged`：已知源长度与硬字节上限先检查，数据写入同目录 0600 暂存文件，完整长度及两端关闭成功后才原子覆盖或以独占链接发布。macOS 文件队列下载已接入该入口，冲突覆盖不会暴露半文件，no-overwrite 发布可抵御目标竞争。上传仍走旧 CREATE|TRUNC 路径，远端暂存及原子发布尚未接入。队列成功仍须以终态事件为准，不能从进度 100% 推断提交。
 
 ### 旧下载的完整性边界
 
-截至 §9.56 切片，`job_download` 的首次 FSTAT 只提供进度总量；FSTAT 失败或缺 SIZE 时使用零值，读取返回 EOF 即设置成功，再检查两侧关闭结果。它没有比较实际字节数与已知源长度，也没有在读取结束后复核源属性。因此“读到 EOF 且关闭成功”不等于“复制了选择时的完整源文件”；源中途缩短或服务器提前返回 EOF 时，现有代码仍可能报告成功。这是旧路径的源码核对结论，新增接口的协议测试不验证这条旧路径。
+旧 `gt_sftp_download` 入口已校验 FSTAT 成功且 SIZE 存在、读取总字节数等于开始时的长度、未超过上限并确认远端/本地关闭成功；失败不会报告成功。新增 `gt_sftp_download_staged` 还将这些检查放在最终发布之前，失败时清理本请求暂存文件。该校验检测长度变化与提前 EOF，不提供内容快照保证，也不复核同长度内容变更。
 
-`TransferManager.finish(.done)` 还会将显示进度补为 total，Quick Look 则在 `.done` 回调打开副本，不能从进度满格或预览打开推定源一致性。§9.50 的受控文本预览有独立长度检查；桌面 Quick Look 已有元数据预检、落盘后复核和生命周期清理，但仍消费旧下载 job，未获得流式上限。§9.55 的匿名暂存只在 Android 数据层实现，也没有改变 macOS 下载路径。
+`TransferManager.finish(.done)` 仍会将显示进度补为 total，因此终态事件是完成依据。Quick Look 已经使用受控读取到独占临时文件，读取时强制 32 MiB 上限，离开/替换/关闭时取消并以请求代次隔离迟到结果；下载完成还复核实际文件长度。Android 的匿名暂存实现与桌面代码相互独立。
 
-§9.56 的 `SFTPSession.receive` 已在独立受控入口区分未知长度、已知零字节和非零长度，并复核源属性/EOF/关闭；Swift 绑定专项与真实构建通过。但 `FileBackend.download` 仍只返回旧 job ID，`SFTPFileBackend.download` 仍转调 `sftp.download`，`TransferManager` 和 Quick Look 均未使用新 fd 接口。后续须迁移专用 owner、任务暂存、进度/结果和最终发布，不能只替换一个函数名；接口要求独占连接，禁止和同一会话的旧 job 并发使用。桌面迁移须另验提前 EOF、源变化、空文件、失败不发布及取消释放；元数据相同也不能声称获得原子内容快照。
+`SFTPFileBackend` 现通过单一串行队列独占受控 browse、mkdir、lstat、walk、搜索与预览；有在途 job 时等待其终态，预算内可取消等待，受控调用完成前拒绝新传输提交。任务下载走同目录 staged job；受控 Quick Look receive 与旧 worker job 不会并发触碰同一 libssh2 session。验证需覆盖提前 EOF、源变化、空文件、失败不发布、覆盖/no-overwrite 竞争、等待取消和预览释放；这批定向验收完成后再记结果。元数据相同仍不表示取得原子内容快照。
 
 ### 传输队列与重试作用域
 
@@ -272,9 +272,9 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 `TransferManager.expandDirectory` 当前在上传前用 `exists` 判断目标，只有 false 才调用 `mkdir`；已存在目标不会先验证是否为普通目录。下载使用 `FileManager.createDirectory(withIntermediateDirectories: true)`，可复用已有目录。根目录和子目录都沿此路径处理，文件子项随后各自进入旧传输队列；这不是整棵目录的非覆盖发布，也没有独立的目录合并确认。
 
-远端调用链为 [TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) → [SFTPFileBackend](GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) → Swift `SFTPSession.mkdir` → [gt_sftp_mkdir](../core/src/sftp.c)。旧 Core 入口只返回同步状态，失败统一映射为 IO；没有单次总预算、取消回调或“已创建但回包/核验失败”的结果。目录创建发生在子文件传输之前，取消或后续失败可能留下空目录或部分树，当前父任务没有逐目录副作用记录。
+远端调用链为 [TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) → [SFTPFileBackend](GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) → Swift `SFTPSession.createDirectory` → [gt_sftp_mkdir_controlled](../core/src/sftp.c)。它在串行 owner 内先 canonicalize 父目录，再执行有界受控创建，并按原 mode 调整权限；若后续子任务失败，目录仍可能保留，父任务尚未保存逐目录副作用记录。
 
-后续须明确目录冲突、复用/合并与非覆盖的产品契约，先验证目标类型和归属，再按任务保存已创建位置及未知结果；不能靠 `exists` 的 false 推断服务器明确不存在。受控远端创建已由 §9.65 提供共享接口，Android 后续执行器/页面已消费；桌面仍须迁移自己的旧目录创建调用，不能用 Android 通过代替。对应实施要求见 [§6.16](../docs/reference/android-implementation.md#616-远端目录与任务接线的下一步)，桌面迁移还须验证自己的队列、取消和部分结果页面。本节仅记录源码复核，没有新增故障或系统交互验收。
+目录冲突、复用/合并和逐目录副作用记录仍待实现；权限查询失败不再被折成不存在。Android 后续执行器/页面已消费共享创建接口，但不覆盖桌面目录任务验收。对应更大范围见 [§6.16](../docs/reference/android-implementation.md#616-远端目录与任务接线的下一步)。
 
 ### 递归权限与链接边界
 
@@ -286,9 +286,9 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 当前 `WorkspaceFileView` 将本地预览接到 `QuickLook.toggle`，远端接到 `QuickLook.previewRemote`。后者创建 `NSTemporaryDirectory()/ghosterm-preview/<UUID>/<文件名>`，经 `TransferManager` 下载，只有 `.done` 回调才打开预览；每次远端请求都会生成新副本。测试/开发时须将 `TMPDIR` 指向工程 `tmp/`，不能假定这条生产路径固定使用仓库目录。
 
-工作区已增加 32 MiB 的已知大小准入、普通文件类型检查、请求代次和临时副本释放；关闭/替换预览及失败/过期下载会回收本请求目录。下载完成后还会复核实际大小。但当前仍走旧 SFTP job，限额不能中止正在增长或错误报告大小的源文件，因此下载过程中的硬磁盘预算尚未实现；新增生命周期保护也尚未验收。
+工作区使用受控 SFTP receive 写入 0600 独占临时文件，读取时强制 32 MiB 上限；未知长度、超限、取消、写入或关闭失败均不打开预览。关闭/替换预览会取消当前读取，过期完成结果按请求代次清理。下载完成后复核实际大小；受控读取与旧 job 经同一串行 owner 排队，不会并发操作同一 SFTP 会话。
 
-收尾仍需让预览下载使用受控 fd 接口并强制流式字节上限，确保取消和失败清理只影响本请求副本；补超限、未知长度、晚到结果与释放测试。Android A4 的 §9.92 工作区已接有界副本、只读代理与代次/后台取消，并进行独立设备验收；已按 §9.92–§9.94 完成该切片回归/发行；不直接复制 macOS 当前流程，也不提高桌面完成状态。待办统一见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+本批定向验证需覆盖超限、未知长度、晚到结果、取消和资源释放；完整窗口/宿主矩阵另行记账。Android A4 的 §9.92 工作区已接有界副本、只读代理与代次/后台取消，并进行独立模拟器验收；它不提高桌面完成状态。待办统一见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 构建与验证
 

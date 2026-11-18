@@ -27,12 +27,12 @@
 | 4 / 已交付 | 宿主闸门必跑项 | full CI 两个 Apple 闸门显式 required；缺 Swift/SSH、启动失败、空测试、必跑项无 passed 收据均失败；optional 缺证据报 PARTIAL | Bash 3.2/5 各 18 项、六组 shell 故障断言及自有 sshd 原生专项通过；其它条件跳过仍单列，见[分批实施](non-plugin-remainder.md) |
 | 5 / 部分完成 | 文件导航/错误/缓存 | 最新导航身份、历史成功提交、刷新 epoch、树失败可重试及 cwd 同目标去重已接 | 最终 34 项/十组变异/33 项真实 SSH 与 Release，见[导航说明](macos-files-navigation.md)；搜索取消/部分失败另见[搜索专项](macos-file-search.md)，递归权限仍待做 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
-| 7 / P1 | 文件 owner 与受控读写/发布迁移 | [SFTPFileBackend.swift](../../apple/GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 仍用旧 list/job，Bool 存在性吞错误、主线程同步等待；Quick Look 无预算/代次/回收 | 先建立独占 owner/取消和查询三态，再接 fd 暂存/完整性/非覆盖发布，最后预览生命周期；共享 API 已有，不能与同会话旧 job 并发混用 |
+| 7 / 已实现待验证 | 文件 owner 与安全下载/预览 | `SFTPFileBackend` 已串行持有 SFTP 调用；浏览/目录创建/预览使用受控接口；下载在同目录暂存，校验已知源长度与字节上限后原子发布；Quick Look 读取有硬上限并可取消 | 定向 Core/Swift、ABI、格式与自有 SSH 文件夹具待本批统一验证；上传原子发布、目录任务副作用记录及完整宿主验收仍未完成 |
 | 8 / 已交付专项 | 终端配置读写与应用 | 存储事务、内存候选预校验、提交后应用、条件状态回显及旧编辑器保护已接 | 证据/提交后应用错误与恢复边界见[设置说明](macos-terminal-settings.md)，不承诺多文件/全部 surface 原子事务 |
 | 9 / 部分完成 | SSH 多地址与打开取消 | 普通 shell/SFTP 原认证余额、独立取消和晚到交接已接；DNS 仍首个有效地址即结束 | 打开切片见[说明](macos-ssh-opening.md)；TCP 候选推进与原 hostname 身份仍待做，SSH/SFTP/tmux 和 ProxyJump 首跳各自验收，不能借打开接线关闭整个网络矩阵 |
 | 10 / 已交付专项 | 剪贴板粘贴检查与确认 | 用户菜单进入引擎检查，捕获文本、单次授权、窗格撤销和实际选区复制已验；真实进程菜单 nil-target 响应链有后台夹具 | 终端 47 项/新十六组/旧 OSC 52 六组，原生确认和窗口查询注入范围见[说明](macos-clipboard.md)；系统前台热键/跨应用激活另记，非完整剪贴板协议矩阵 |
 
-共享事件队列终态保留/查询、旧 job 下载完整性、负深度 walk 硬护栏、递归权限链接处理仍有效，属于文件迁移的相关工作，不借新绑定或 Android 验收关闭。macOS 信任记录管理页也可接现有快照/事务 API；别名改名应排在配置事务/表单之后。
+共享事件队列现为 job 提交时预留终态节点，完成事件不再依赖满载环形队列分配，并在终态前清除该 job 的过期进度；旧 job 下载现校验尺寸、上限和关闭结果并以同目录暂存原子发布。Core 负深度 walk 已有 64 层硬护栏；递归权限先完整扫描再修改并跳过链接。以上新代码须以本批定向验收为准，不能借历史测试提前记绿。macOS 信任记录管理页仍可接现有快照/事务 API；别名改名应排在配置事务/表单之后。
 
 ## Android 可做的实现与验证
 
@@ -79,4 +79,4 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 
 - 剩余批 11：普通 SSH/SFTP 原预算/取消、旧完成隔离和取消状态已接；62 项真实本机 SSH 组合、真实协议等待与二十个新保护分轮，旧保护和 Release 收据见[打开说明](macos-ssh-opening.md)。多地址与后续文件 IO 仍分批推进。
 
-- 文件/连接与文档对齐批（2026-11-18）：Core 定向构建及 23 项 SFTP/SSH CTest 通过；macOS 文件与连接筛选 88 项通过、17 项因未配置自有 SSH 夹具跳过；Core ABI 204 项、C 格式 297 文件通过。SSH connector 19 组变异及 transfers 4 组目标红/回滚复绿通过。ad-hoc macOS Release 包在源码恢复后构建通过。完整 `gate.sh` 未执行到插件路由测试，避免与另一 session 共用夹具冲突；Android 模拟器 SDK/设备当前不可用，本轮不记 Android 模拟器验收。受控文件 owner/暂存发布、Quick Look 下载过程硬上限及事件队列 OOM 终态查询仍未完成。
+- 文件 owner / staged download 实现批（2026-11-18）：本轮代码完成后统一记载定向构建与测试；暂不执行 `gate.sh`。插件由另一 session 处理，不纳入本批。
