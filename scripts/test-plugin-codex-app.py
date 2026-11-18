@@ -22,7 +22,8 @@ def main():
     codex = Path(shutil.which(args.codex) or args.codex).resolve(strict=True)
     selected = TEST if args.route == 'direct' else ('CodexAppModelTests.*Jump' if args.route == 'jump' else 'CodexAppModelTests')
     expected = {'direct': 2, 'jump': 2, 'both': 4}[args.route]
-    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_TEST_GTERM=str(gterm),
+    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1',
+               GHOSTERM_TEST_GTERM=str(gterm),
                GHOSTERM_TEST_CODEX=str(codex), GHOSTERM_TEST_CODEX_PACKAGE=str(package),
                GHOSTERM_APP_TEST_FILTER=selected)
     # Only the gate's disposable loopback daemons may supply SSH endpoints.
