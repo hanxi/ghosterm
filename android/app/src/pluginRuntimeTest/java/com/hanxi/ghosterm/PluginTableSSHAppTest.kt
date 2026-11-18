@@ -8,7 +8,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
@@ -73,7 +75,19 @@ class PluginTableSSHAppTest {
                 emptyList(), command = "table", arguments = listOf("--count", "$count"))
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
-            main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
+            runBlocking {
+                withContext(Dispatchers.Main) {
+                    val entry = ExtensionPackagesViewModel.Entry(review, "已批准（本进程）")
+                    val command = review.commands.single()
+                    val invalid = request.copy(arguments = listOf("--count", "invalid"))
+                    val rejected = runCatching { extensions.submitLaunch(entry, command, target, invalid, sessions, null) }
+                    assertTrue(rejected.isFailure)
+                    assertNull(sessions.connecting)
+                    assertNull(extensions.activeSession)
+                    assertFalse(extensions.launchBusy)
+                    extensions.submitLaunch(entry, command, target, request, sessions, null)
+                }
+            }
             var handled: Triple<Long, Int, SSHAuthPhase>? = null
             val deadline = SystemClock.elapsedRealtime() + 60000
             while (main { extensions.activeSession == null && extensions.error == null } && SystemClock.elapsedRealtime() < deadline) {
