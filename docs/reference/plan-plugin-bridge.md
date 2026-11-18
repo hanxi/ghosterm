@@ -13580,3 +13580,15 @@ SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e4
 `bcea8cddeb8e2f027d48c3a1076533f6675b66644c6275750cec3e3df1a72b53`。
 改动文件 C 格式和 diff 检查通过，临时夹具已清理。本轮仍需独立补齐应用内
 TerminalSurface 的并行字节对照。
+
+### P1 macOS 应用内普通 SSH 终端与插件共存（2026-11-19）
+
+扩展 `ExecutorSSHAppTests` 的远端启动场景。插件 Client Runtime 活跃时经
+AppModel 打开普通 SSH 终端，用真实 TerminalSurface 键入命令，远端将包含
+NUL、非 UTF-8、控制字符和有效 UTF-8 的夹具字节转成十六进制。断言网格收到
+远端生成的完整回执，再在插件停止后用不同标记复验同一终端。输入文本不包含
+完整回执，以排除命令回显误过。原始输出字节由前一批 Core shell 对照单独验证。
+
+固定 `011ffacd` 加本批修改，离屏通过 Node 直连和 Exec ProxyJump 两项。
+收据 SHA256 `1324f23ece3aa407e2a2e5d092c39f9510aed6814eeb3fcc08e93aa3b4420cb8`。
+本轮夹具已清理，未执行 Android 对应场景或变异。

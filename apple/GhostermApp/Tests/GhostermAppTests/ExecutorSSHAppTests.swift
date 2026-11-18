@@ -210,6 +210,16 @@ import XCTest
         let runtimeTTY = try service("audit")["runtimeTTY"] as? [Bool]
         XCTAssertEqual(runtimeTTY, [false, false, false], "Plugin protocol must remain independent of terminal PTYs")
         guard runtimeTTY == [false, false, false] else { return }
+        let checkOrdinaryTerminal = mode == "allow" && !localTransport && !attaching
+        if checkOrdinaryTerminal {
+            model.connect(to: .host("execution-target"))
+            addTeardownBlock { await model.disconnectForTesting() }
+            try await until("Ordinary SSH terminal did not start alongside the plugin") {
+                model.tabs.activeTab?.activePane?.isRunning == true
+            }
+            try await verifyOrdinaryTerminal(model, stage: "ACTIVE")
+            XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+        }
         if payload["tmuxTopology"] is String {
             func probe(_ label: String) async throws {
                 let admission = try await controller.requestExecutorRPC(method: "fixture.echo",
@@ -398,8 +408,25 @@ import XCTest
             try FileManager.default.moveItem(atPath: moved.path, toPath: directory)
         }
         await model.stopExtensionRun()
+        if checkOrdinaryTerminal {
+            try await verifyOrdinaryTerminal(model, stage: "STOPPED")
+        }
         if mode == "temporary-retry" {
             XCTAssertTrue(model.extensionRunIssue == nil && model.extensionRun == nil, "Stop retry must finish retained temporary cleanup after Core handles were released")
         } else { XCTAssertNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun) }
+    }
+
+    private func verifyOrdinaryTerminal(_ model: AppModel, stage: String) async throws {
+        let surface = try XCTUnwrap(model.tabs.activeTab?.activePane?.surface)
+        surface.setSize(width: 640, height: 400)
+        // Build the expected line on the remote side, so the typed command echo
+        // cannot satisfy the grid assertion.
+        surface.sendCommandLine(
+            #"printf '%s_%s_' GHOSTERM "# + stage
+                + #"; printf '\000\377\033\177\303\251' | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' '"#
+        )
+        try await until("Ordinary SSH terminal grid missing the remote byte receipt (\(stage))") {
+            surface.readText()?.contains("GHOSTERM_\(stage)_00ff1b7fc3a9") == true
+        }
     }
 }
