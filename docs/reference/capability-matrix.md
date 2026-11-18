@@ -94,7 +94,7 @@
 | Transport：前台作业判定（关闭确认用） | ✅ | `gt_transport_child_state` **四态**（UNKNOWN/EXITED/IDLE/JOB）：POSIX 读内核 `tcgetpgrp(master) == shell 自己的进程组` 判「空闲提示符 vs 有作业」，SSH / ConPTY 报 `UNKNOWN`（**不猜**，铁律 #6）。`test_transport` 第 11 节（IDLE/JOB/EXITED/NULL→UNKNOWN）+ 变异 `mutation-check-transport` P1/P2 有牙。**前置修复**：本地 PTY 子进程曾拿不到控制终端（父进程抢跑 `setpgid` → 子进程 `setsid` 报 EPERM），已修 |
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
-| SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 三组（新增超时恢复）（历史断言数量不当作当前变异组数）；覆盖截断与关闭检查已由 §9.53 补齐；旧下载的完整长度/源变化校验、非覆盖提交和过载下终态保障仍有缺口，见 [Apple 下载边界](../../apple/README.md#旧下载的完整性边界) |
+| SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**。本轮将明确不存在映射为 NOT_FOUND，递归 walk 到 64 层硬上限时报告不完整；Core 深度边界定向用例通过；真实 sshd 深目录夹具仍待运行。旧下载的 macOS 产品接线、非覆盖发布和 OOM 下终态查询仍有缺口，见 [Apple 下载边界](../../apple/README.md#旧下载的完整性边界) |
 | SFTP 受控读取到暂存 fd | 🟡 | §9.56：Core/Swift/JNI/Kotlin 与 Android 匿名暂存接通；21 Core＋1 无库＋4 Swift 及 13 组 Android 变异通过；零上限空源、长度/属性/关闭和 fd 释放已验。远端发布原语后续由 §9.57 补齐，§9.70 已接 Android 任务页面，macOS 旧下载路径未迁移 |
 | Android 请求内冲突决策/执行清单 | 🟡 | §9.63：15 项定向、42 组变异与完整 342 项，仅 API 36 arm64 / 4 KB 页模拟器。决定隔离、目录/不支持项跳过、只读清单、名称预算及真实写入集成已验；§9.70 已有任务/冲突页面消费者，不预留名称或绕过关系未知 |
 | Android 目标预检/冲突元数据 | 🟡 | §9.62：13 项定向、34 组变异与最终完整 327 项，仅 API 36 arm64 / 4 KB 页模拟器。真实 HOME/SAF/SSH 目标读取、创建能力三态、已知目录关系与只读冲突已验；不同远端身份关系未知；冲突决策数据层后由 §9.63 补齐，目录创建由 §9.64–§9.66 接入，任务与 UI 由 §9.70 接入 |
@@ -235,17 +235,17 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 | 窗格外观 | 跟随终端配色；当前分屏顶部蓝线；gap>0 细框，gap=0 共享分隔线；悬停/菜单分屏预览与 Shift | 离屏像素、可控窗口焦点、真实桌面激活/全屏是不同档证据 |
 | 文件浏览 | `FilesPanelView` 与本地/SFTP 后端；列表/树、搜索、操作、工具条折行、原生单击选择/双击打开与键盘归属 | 远端 cwd 未交付，不能声称与 SSH 当前目录同步 |
 | 目录导航与缓存 | 最新请求、成功后历史提交、排队旧读跳过、刷新 epoch 与树错误重试、cwd 同目标去重 | 🟡 最终 34 项、十组变异、33 项实际本机 SSH/SFTP 组合及 Release；在途后端取消仍待，见[导航说明](macos-files-navigation.md) |
-| 文件树、本地搜索与递归权限 | 树错误可重试；本地搜索失败/部分结果/协作取消及范围预算已接，本地 lstat/枚举错误抛出 | 搜索专项见[说明](macos-file-search.md)；递归权限仍忽略 walk 自身错误，扫描/修改汇总与链接保护待做 |
-| 递归权限的链接处理 | 普通条目 chmod 与递归入口已接 | 未过滤 walk 返回的链接；本地 lstat 后仍用 chmod，不能保证目录外链接目标权限不变。复制跳过链接不等于权限操作跳过，见 [Apple 说明](../../apple/README.md#递归权限与链接边界) |
+| 文件树、本地搜索与递归权限 | 树错误可重试；本地搜索失败/部分结果/协作取消及范围预算已接，本地 lstat/枚举错误抛出 | 搜索专项见[说明](macos-file-search.md)；工作区已汇总递归权限扫描/修改失败并跳过链接，本地安全用例已纳入本轮定向 Swift 套件并通过；隔离外部目标/路径替换边界仍需专门验收 |
+| 递归权限的链接处理 | 工作区递归 chmod 跳过 symlink；本地用 O_NOFOLLOW fd + inode 复核后 fchmod | 远端路径替换边界仍无法原子防护；隔离外部目标和 FIFO 用例待运行，详见 [Apple 说明](../../apple/README.md#递归权限与链接边界) |
 | 远端搜索与取消 | 仅明确禁 exec 才回退；退出状态/输出/元数据错误保留部分结果，取消传入读取/遍历，页面提供原范围重试 | 🟡 原生/真实本机 SSH、变异与 Release 证据见[搜索说明](macos-file-search.md)；旧打开/关闭和单次 SFTP I/O 尚无贯通取消 deadline |
-| 文件查询与响应性 | SFTP 后端串行保序，目录展开在后台执行 | 存在性查询折叠读取错误；传输入队/控制仍在 MainActor 同步等后端队列，可能被长遍历阻塞；见 [Apple 说明](../../apple/README.md#文件查询与线程边界) |
+| 文件查询与响应性 | `checkedExists` 区分明确不存在与查询错误；名称查找及传输提交在后台队列执行 | SFTP list/walk/control 仍有同步队列边界，长查询可能延迟后续操作；完整异步 owner 迁移待做，见 [Apple 说明](../../apple/README.md#文件查询与线程边界) |
 | 独立文件标签 | SFTP 标签在同一工作区中创建本地+远端窗格；支持纯本地文件标签 | `SFTPBrowser`、`DualPaneFilesView`、`DualPaneSession` 均已退役，不能作为当前组件名 |
-| 文件传输 | `CoreEventPump` 唯一事件泵；`TransferManager` 父子任务、进度/速度/ETA、暂停继续取消重试的正常路由；本地↔远端 | 控制异常被忽略仍改变状态，未知 job 结果折为失败；本地↔本地、远端↔远端统一队列未做；目录冲突 UI 等完整流程仍需补证据 |
-| 目录暂停与汇总 | 已有父行暂停与子文件控制路由、目录完成计数 | 扫描阶段页面没有暂停入口，模型暂停也不停扫描/创建，新子项先提交再暂停；清除终态子行会影响后续父任务字节汇总；活动数同时计父子行。仅源码核对，未修复或新增行为验收，见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界) |
-| 目录结果汇总 | 普通目录完成计数与失败优先分支已接 | 没有失败时取消/跳过由后到结果覆盖，父摘要依赖完成顺序；没有部分成功状态，多条失败仅保留最后文案。源码核对、未修复，见 [Apple 说明](../../apple/README.md#目录终态与回调顺序) |
-| 冲突范围与目录重试 | 已有覆盖/跳过/保留两份对话框和重试入口 | “应用到全部”为全局值，完成/清空后不重置，后续批次可能继续使用；目录重试重新扫描整目录，不仅失败项。源码核对，批次隔离及部分成功重试仍待验收，见路线图 P1 |
+| 文件传输 | `CoreEventPump` 唯一事件泵；工作区已保留控制失败/未知终态、按批次冲突决策、只重试失败目录子项，并以独立账本保留父进度；本轮定向 Swift 套件通过 | macOS 仍使用旧 job 传输，受控暂存/非覆盖发布未迁移；本地↔本地、远端↔远端统一队列未做；真实文件故障与完整 UI 仍需验收 |
+| 目录暂停与汇总 | 工作区扫描检查点响应暂停/取消，新子项继承父任务状态；父进度账本独立于可清除子行，活动数按根批次计 | 定向 Swift 回归通过；真实远端副作用及视图验收待完成，见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界) |
+| 目录结果汇总 | 工作区按逐项结果汇总 done、skipped、cancelled、failed、unknown，部分结果明确显示；符号链接纳入跳过数 | 定向 Swift 回归通过；真实传输与完整产品验收待完成，见 [Apple 说明](../../apple/README.md#目录终态与回调顺序) |
+| 冲突范围与目录重试 | “应用到全部”限于单个请求批次；目录重试保留旧记录，只重新提交失败/取消/跳过项 | 定向 Swift 回归通过；重试期间源变化与真实传输尚未验收，见路线图 P1 |
 | 系统集成 | 栏间复制、Finder 拖入远端、本地代表条目拖出 Finder、Quick Look（远端临时下载） | 多选拖出 Finder 仍不完整；远端拖出 Finder 的文件承诺未做；iOS 无宿主 |
-| 远端预览生命周期 | 临时下载成功后打开 Quick Look 已接；现有测试覆盖路径形状 | 没有请求代次、大小预算或应用层副本回收；关闭窗格后回调仍可能打开预览。真实 QLPreviewPanel 与缓存生命周期须另验，见 [Apple 说明](../../apple/README.md#quick-look-预览边界) |
+| 远端预览生命周期 | 工作区限制已知普通文件 32 MiB、加入请求代次及本请求副本回收；下载完成后复核大小 | 旧 job 下载过程中仍无硬字节上限，不能保证磁盘预算；真实 Quick Look 与缓存生命周期待验，见 [Apple 说明](../../apple/README.md#quick-look-预览边界) |
 | 配置 GUI | Core 物理块快照、脏字段/逐行身份/来源展示、改名预览确认、候选落盘后发布；否定过滤与 ASCII 去重已接 | 🟡 定向原生控件、模型与变异证据见[分批实施](non-plugin-remainder.md)。Include 只读，重复未知标量/条件规则与歧义显式拒绝；安全存储和完整客户端验收另记 |
 | 配置来源与别名改名 | Swift 已有来源查询与改名绑定；共享契约与平台绑定分别验收 | macOS `HostEditorSheet` 未消费来源，也没有已有主机改名字段；Android 容器引用不是本端可读取的密钥路径，不因共享 API 或 Android 页面通过而标本端 GUI 完成 |
 | 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误、外部新建冲突、CRLF/重复键及显式重新读取已修，见[存储说明](macos-terminal-settings.md)；候选校验/保留对象应用与实际条件回显已有专项，提交后应用/恢复错误明确记账，见同一说明。full 引擎配置机制不能自动套用于 Android vt 自绘 |
@@ -267,7 +267,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 **复制原语与产品接线**：旧 `gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；新 `gt_sftp_create_controlled` 与 Swift/JNI/Kotlin 已提供从 fd 分块写入任务暂存路径的独占创建和结果状态（§9.54），§9.57 已补远端发布及绑定。Android §9.69/§9.70 已将这些接口接入复制执行器与任务页面，§9.71/§9.72 已接进程持有与 FIFO 队列；不同远端关系保持未知并由 §9.110 提供请求内显式确认；§9.73 已验只读记录，§9.98/§9.105/§9.121 已接安全重试及显式重新发起，不自动恢复执行。macOS 队列尚未迁移：旧 job 上传虽已按 §9.53 使用 WRITE|CREAT|TRUNC，不残留旧尾，失败仍可能留下部分内容，不保证原目标保留。“先检查冲突再传”不能保证并发时不覆盖，桌面迁移与覆盖/冲突回归见[路线图](roadmap.md)。
 
-**传输完成与调度边界**：共享下载打开顺序、覆盖截断和两侧关闭检查已按 §9.53 修复；§9.54 已有独占暂存创建，§9.57 增加远端非覆盖发布（不承诺通用原子性），旧 job 后续失败仍可能留下部分文件。macOS 旧 job 的每 SFTP 会话 FIFO 不等于全局并发上限；Android §9.72 已在进程内统一限制一个执行名额，扫描、确认与取消清理也占用该名额。macOS 重试仅复用弱引用仍可取得的原 backend，不自动重连或续传。`gt_sftp_walk` 的负深度模式没有实际硬深度护栏，macOS 无限递归调用方仍受此缺口影响。macOS 全局调度、重试和共享 walk 护栏仍是源码核对的未完成项；传输结果修复的实际证据见 §9.53，调用链与后续条件见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)及路线图。
+**传输完成与调度边界**：共享下载打开顺序、覆盖截断和两侧关闭检查已按 §9.53 修复；§9.54 已有独占暂存创建，§9.57 增加远端非覆盖发布（不承诺通用原子性），旧 job 后续失败仍可能留下部分文件。macOS 旧 job 的每 SFTP 会话 FIFO 不等于全局并发上限；Android §9.72 已在进程内统一限制一个执行名额，扫描、确认与取消清理也占用该名额。macOS 重试仅复用弱引用仍可取得的原 backend，不自动重连或续传。`gt_sftp_walk` 现对过深遍历返回错误，不再静默截断；macOS 全局调度、受控任务 owner 与重试仍是源码核对的未完成项。传输结果修复的实际证据见 §9.53，调用链与后续条件见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)及路线图。
 
 **目录结果边界**：macOS `TransferManager.expandDirectory` 排除目录内符号链接，上传不递归链接、下载不给链接建子任务；当前没有排除明细/计数，空文件集合会完成父任务。既有目录下载测试验证普通文件入队且链接排除，不证明目录逐项完整复制。用户可见的跳过原因和汇总仍待实现，不能把普通文件成功扩大为整棵目录镜像成功。文件手势、剪贴板、正常退出与设置的两端差异见 [Apple 宿主说明](../../apple/README.md#与-android-最终方案的差异)。
 

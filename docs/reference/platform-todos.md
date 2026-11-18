@@ -78,3 +78,5 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 - 剩余批 10：终端设置内存候选校验/提交后应用、递归来源/条件回显、旧编辑器和打开页面不写盘完成。99 项定向/104 项本机 SSH 组合、17 组变异、Core 596/190、C 格式、四补丁闸门与 Release 通过，完整范围见[设置说明](macos-terminal-settings.md)。
 
 - 剩余批 11：普通 SSH/SFTP 原预算/取消、旧完成隔离和取消状态已接；62 项真实本机 SSH 组合、真实协议等待与二十个新保护分轮，旧保护和 Release 收据见[打开说明](macos-ssh-opening.md)。多地址与后续文件 IO 仍分批推进。
+
+- 文件/连接与文档对齐批（2026-11-18）：Core 定向构建及 23 项 SFTP/SSH CTest 通过；macOS 文件与连接筛选 88 项通过、17 项因未配置自有 SSH 夹具跳过；Core ABI 204 项、C 格式 297 文件通过。SSH connector 19 组变异及 transfers 4 组目标红/回滚复绿通过。ad-hoc macOS Release 包在源码恢复后构建通过。完整 `gate.sh` 未执行到插件路由测试，避免与另一 session 共用夹具冲突；Android 模拟器 SDK/设备当前不可用，本轮不记 Android 模拟器验收。受控文件 owner/暂存发布、Quick Look 下载过程硬上限及事件队列 OOM 终态查询仍未完成。

@@ -88,10 +88,10 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 复核项 | 代码现状 | 进度结论 |
 |---|---|---|
 | SSH 配置保存 | `ConfigStore.save` 已补强制备份、同步和原子替换；失败保留未提交目标，提交后失败明确报告 | 写盘、候选发布与表单分批验收；私钥安全存储及全客户端另记 |
-| 认证后的 shell/SFTP 打开 | `AppModel` 仍用旧 `openSSHShell(ssh)`；SFTP 已用 `ssh.sftp(timeoutMilliseconds: 5000)`，但两者都未贯通原认证剩余预算和取消 | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
-| 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
-| 目录导航 | `FilesPanelModel.navigate` 不校验请求代次；后退/前进先改历史，失败不恢复；刷新不失效树缓存 | 仍需导航结果隔离、成功后提交历史与缓存失效；源码复核不作为交互验收 |
-| 冲突与重试 | `TransferManager.applyToAll` 仍是全局属性；目录重试重新展开整棵目录，重试端点为弱引用 | 请求内决策、仅失败项重试和重新认证尚未迁移；Android 队列不改变桌面行为 |
+| 认证后的 shell/SFTP 打开 | 普通终端与文件工厂已把原认证剩余预算及独立取消令牌传给受控 shell/SFTP 打开；SFTP 子系统仍是浏览 owner 后续操作的同步入口 | 打开预算专项已验，后续浏览/传输的取消与最终发布仍单列 |
+| 传输控制 | 工作区已将控制错误显示在任务行；取消保持 cancelling 至 Core 终态，未知结果不折成失败或自动重试 | 定向 Swift 套件通过；受控 owner/暂存发布仍未迁移 |
+| 目录导航 | 已接请求代次、成功后提交历史、树缓存 epoch 和错误重试；在途后端取消仍有限 | 34 项/十组变异与真实 SSH/SFTP 专项见[导航说明](../docs/reference/macos-files-navigation.md)；不代表整个文件生命周期有界 |
+| 冲突与重试 | 工作区按批次保存“应用到全部”，目录重试只重交失败/取消/跳过子项并保留旧批次；原端点重连仍不支持 | 定向 Swift 套件通过；原端点重连仍不支持，Android 队列不改变桌面行为 |
 | 引擎剪贴板 | `CGhostty/shim.c` 已接标准文本读写与确认；OSC 52 默认读询问、写允许 | 标准文本/原生确认、选中复制及进程菜单有[专项](../docs/reference/macos-clipboard.md)；其它表示和系统前台体验另记 |
 | 构建与宿主验收 | `124edb6` 已记录 Core 47 / ABI 89、Terminal 29 项、原生 release 与打包专项；本轮静态 Apple 绑定对拍为 87/2 | 最近完整宿主仍为 `4cbfcf4`，保留设置页像素失败；本轮未重跑完整宿主、原生构建或打包 |
 
@@ -141,11 +141,11 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 
 ### SSH 地址选择与取消边界
 
-macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 使用异步 DNSService，支持数字 IPv4、IPv6 和 IPv6 scope；默认先查询 IPv4。只有所选地址族返回 `kDNSServiceErr_NoSuchRecord` 才查询另一族，首个有效地址到达即完成并释放 DNS 查询。因此这是 DNS 缺记录时的换族，不是 TCP 失败后的备用地址重试，也没有并行竞速连接。
+macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 使用异步 DNSService，支持数字 IPv4、IPv6 和 IPv6 scope；默认先查询 IPv4。普通认证及 ProxyJump 首跳收集两族 DNS 候选，并在一个总预算内仅对 TCP 阶段失败按序尝试下一地址；不并行竞速，也不在 SSH 协商、主机密钥裁决或凭据失败后换地址。旧单地址解析入口仍供只读主机探测使用。
 
-[SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 使用 60 秒认证总预算，包含 DNS、主机验证与凭据等待；普通终端和文件工厂在上层提前建立作用域并延伸至后续打开，独立管理认证仍保留原入口。解析成功后仅将剩余预算交给一个认证器。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通 SSH、独立文件连接及 tmux 共用该认证流程；任一选中地址 TCP 失败就结束本次流程，不会继续尝试同一域名的其他地址。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
+[SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 使用 60 秒认证总预算，包含 DNS、主机验证与凭据等待；候选地址按剩余候选数分配连接子预算，仍受同一总截止时间约束。普通终端和文件工厂在上层提前建立作用域并延伸至后续打开，独立管理认证仍保留原入口。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通单跳 SSH、独立文件连接、tmux 和 ProxyJump 首跳使用 TCP 阶段候选推进。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
 
-现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 已由 native owner 接入候选推进，定向与变异范围见 [§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不改变本端单地址行为；macOS 的后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。 Android 系统 DNS/UTS46 与错误分档的后续验证见 [§9.109](../docs/reference/android-implementation.md#android-dns-diagnostics)，不作为本端 IDNA、VPN 或网络故障证据。
+现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放；本轮新增候选收集与连接回退 Swift/Core 定向用例、19 组 connector 变异已通过。Android 已由 native owner 接入候选推进，定向与变异范围见 [§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不改变本端实现。原始 hostname/端口继续作为信任身份；自动换地址只发生在 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败继续尝试。仍需完整宿主及 SSH/SFTP/tmux 产品路径验收，不据定向结果扩大覆盖范围。Android 系统 DNS/UTS46 与错误分档的后续验证见 [§9.109](../docs/reference/android-implementation.md#android-dns-diagnostics)，不作为本端 IDNA、VPN 或网络故障证据。
 
 ### SSH 认证后的通道打开边界
 
@@ -180,9 +180,9 @@ list/realpath/预览/任务/关闭仍有旧阻塞契约和主线程队列等待�
 | 主机身份 | 表单仍按文本路径编辑，认证从受限文件读 PEM；来源绑定未接表单 | §9.35 已接本安装容器引用、配置候选和引用主机详情；不提供跨端密钥迁移 |
 | 后台会话 | 显式 tmux 入口已交付，关闭仅断开客户端 | A8 远端管理/独立 attach 已由 §9.103 接入并发行；本地终端返回首页不等于进程死亡后保活 |
 
-文件浏览还需按平台分别验收：macOS 目录导航/历史与树缓存已按[导航说明](../docs/reference/macos-files-navigation.md)修复；远端 Quick Look 下载完成后直接打开预览，没有应用层大小限额、回收和迟到结果保护。Android 的请求代次、有界文本读取以及 §9.92 工作区的外部只读副本均不能作为这些桌面路径的验证。macOS 后续分别按下文的[目录导航](#目录导航与缓存边界)和[预览生命周期](#quick-look-预览边界)收尾，不能将两端的“文件浏览”合并成一个完成项。
+文件浏览还需按平台分别验收：macOS 目录导航/历史与树缓存已按[导航说明](../docs/reference/macos-files-navigation.md)修复；远端 Quick Look 现拒绝已知大小超过 32 MiB 或大小未知的条目，下载后复核实际大小，并按请求代次清理迟到/失败副本。旧 job 下载仍没有流式字节上限，增长中的文件可能在事后检查前占用更多磁盘；受控预览 owner 尚未接入。Android 的请求代次、有界文本读取以及 §9.92 工作区的外部只读副本均不能作为这些桌面路径的验证。macOS 后续按下文的[目录导航](#目录导航与缓存边界)和[预览生命周期](#quick-look-预览边界)分别收尾，不能将两端的“文件浏览”合并成一个完成项。
 
-目录传输也不等于完整目录镜像：`TransferManager.expandDirectory` 下载时排除符号链接，上传枚举遇到符号链接时跳过且不递归。被排除条目不生成子任务，也不进入父任务的跳过计数；只有链接的目录可能按空文件集合报完成。现有目录下载测试明确只提交两个普通文件、排除链接，2026-10-30 定向重跑通过；它使用 fake 后端，验证的是展开/汇总模型，不是真实 SSH 目录复制。需要补齐用户可见的跳过原因和汇总结果，不能将“完成”解释为原目录所有条目均已复制；见路线图的目录复制完整性项。
+目录传输也不等于完整目录镜像：`TransferManager.expandDirectory` 下载时排除符号链接，上传枚举遇到符号链接时跳过且不递归。排除数量计入父任务汇总，部分结果以 partial 状态显示；只有链接的目录也明确显示未复制文件和跳过数。新增 fake-backend 定向用例已在 TransferManager Swift 套件通过；它验证展开/汇总模型，不是真实 SSH 目录复制。不能将“完成”解释为原目录所有条目均已复制；见路线图的目录复制完整性项。
 
 普通设置包含通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；UI 已说明保存会重新应用终端配置，不再称只有新标签生效。
 
@@ -212,7 +212,7 @@ list/realpath/预览/任务/关闭仍有旧阻塞契约和主线程队列等待�
 
 [FilesPanelModel.search](GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 已区分完成/未完成与部分结果，只有明确禁 exec 才回退；stderr、退出状态、NUL 帧/UTF-8/目录边界及元数据错误不再忽略。默认最多 64 层，扫描/结果/元数据和远端输出/时间都有预算；取消实际传入读取和遍历，旧请求不能发布。界面错误与原范围重试按钮、实际本机 SSH 及变异证据见[搜索说明](../docs/reference/macos-file-search.md)。旧 exec 打开/同步关闭及单次文件 I/O 仍未接完整 deadline，不宣称所有阶段有界释放。
 
-文件错误边界不限于 SFTP。树错误保留重试而不缓存为空，见[导航说明](../docs/reference/macos-files-navigation.md)。本地 list/walk 的 lstat 与枚举错误已抛出，搜索显示未完成；`setPermissions` 仍忽略 walk 自身错误，可能只改了根或部分条目便刷新。递归权限需要扫描/修改结果汇总与链接保护，不能由搜索专项代替。
+文件错误边界不限于 SFTP。树错误保留重试而不缓存为空，见[导航说明](../docs/reference/macos-files-navigation.md)。本地 list/walk 的 lstat 与枚举错误已抛出，搜索显示未完成；工作区递归权限现保留扫描/修改错误并跳过链接，相关本地安全回归已通过定向 Swift 套件；隔离外部目标/路径替换仍待专门验收。
 
 SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后续工作。搜索取消是协作式停止，终端 stop 的有界证据不覆盖文件旧调用。具体退出条件见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
@@ -232,13 +232,13 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 截至 §9.56 切片，`job_download` 的首次 FSTAT 只提供进度总量；FSTAT 失败或缺 SIZE 时使用零值，读取返回 EOF 即设置成功，再检查两侧关闭结果。它没有比较实际字节数与已知源长度，也没有在读取结束后复核源属性。因此“读到 EOF 且关闭成功”不等于“复制了选择时的完整源文件”；源中途缩短或服务器提前返回 EOF 时，现有代码仍可能报告成功。这是旧路径的源码核对结论，新增接口的协议测试不验证这条旧路径。
 
-`TransferManager.finish(.done)` 还会将显示进度补为 total，Quick Look 则在 `.done` 回调打开副本，不能从进度满格或预览打开推定源一致性。§9.50 的受控文本预览有独立长度检查，但桌面 Quick Look 没有消费该入口；§9.55 的匿名暂存只在 Android 数据层实现，也没有改变 macOS 下载路径。
+`TransferManager.finish(.done)` 还会将显示进度补为 total，Quick Look 则在 `.done` 回调打开副本，不能从进度满格或预览打开推定源一致性。§9.50 的受控文本预览有独立长度检查；桌面 Quick Look 已有元数据预检、落盘后复核和生命周期清理，但仍消费旧下载 job，未获得流式上限。§9.55 的匿名暂存只在 Android 数据层实现，也没有改变 macOS 下载路径。
 
 §9.56 的 `SFTPSession.receive` 已在独立受控入口区分未知长度、已知零字节和非零长度，并复核源属性/EOF/关闭；Swift 绑定专项与真实构建通过。但 `FileBackend.download` 仍只返回旧 job ID，`SFTPFileBackend.download` 仍转调 `sftp.download`，`TransferManager` 和 Quick Look 均未使用新 fd 接口。后续须迁移专用 owner、任务暂存、进度/结果和最终发布，不能只替换一个函数名；接口要求独占连接，禁止和同一会话的旧 job 并发使用。桌面迁移须另验提前 EOF、源变化、空文件、失败不发布及取消释放；元数据相同也不能声称获得原子内容快照。
 
 ### 传输队列与重试作用域
 
-目录下载与递归权限传入 `maxDepth: -1`，Core 当前只裁剪超过 64 的正深度，负值遍历没有硬深度检查；公开注释的安全护栏尚未兑现。目录深度预算、超限错误及部分结果必须补齐，详见路线图共享缺口。
+目录下载与递归权限传入 `maxDepth: -1`；Core 工作区已实施 64 层硬上限，发现还需深入时返回明确不完整错误。新增真实 sshd 深度夹具待统一运行，见路线图共享缺口。
 
 `CoreEventPump` 是唯一事件消费者，`TransferManager` 是全局任务列表；它们不是全局并发调度器。每个 `gt_sftp_t` 有自己的 FIFO worker，同一会话的 job 顺序执行，不同连接没有统一并发上限；`start` 提交拿到 job ID 后即标记 running，不能从页面上的 running 数量推断正在传字节的数量。
 
@@ -248,23 +248,23 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 目录重试会移除旧父任务并再次调用 `expandDirectory`，重新枚举当前整棵目录；旧子任务不因此删除，已成功文件也没有从新一轮扫描中排除。因此当前“重试”不等同只重试失败子项，且冲突会继续受上述全局选择影响。单文件重试重置同一行的 job ID/进度再提交，也不提供字节断点续传。两项为本轮源码接线核对，未新增真实文件覆盖实验或原生 UI 测试；修复条件见路线图 P1。
 
-“保留两者”也还没有有界的名称分配契约。`TransferManager.uniqueName` 从 ` (1)` 开始，以 `while true` 逐个调用存在性查询，直到找到空名字；没有尝试次数、总时间或 UTF-8 名称长度限制。调用发生在 `@MainActor` 的 `start` 内，远端查询又经过 `SFTPFileBackend.queue.sync`，大量同名候选或慢网络会延长主线程等待。返回的名称没有被占用，后续仍是旧覆盖 job，查询后出现的同名文件可能被覆盖。修复需异步且可取消的有界查找、名称长度校验与最终非覆盖提交；达到预算应显示失败，不能无限编号。此为 `150ffd5` 源码核对，尚无对应故障行为验收；Android §9.63 已交付请求内决策和有界名称规划，但没有改动本端调用方，不能直接算作本端修复。
+“保留两者”工作区已将有界编号查询移出 MainActor，设置 10,000 次上限、UTF-8 路径长度上限和轮次间取消检查，并区分查询错误与明确不存在。单次远端 `lstat` 仍是旧同步接口，无法在其内部响应取消；候选名称也未被独占预留，最终发布仍走旧覆盖 job，检查到写入间仍有竞态。需后续接入受控暂存/非覆盖发布并验大量重名、慢查询、取消及同名竞争。
 
 ### 目录暂停与汇总边界
 
 按 `b07005b` 的 [TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 与 [TransferQueueView](GhostermApp/Sources/GhostermApp/TransferQueueView.swift) 核对，扫描阶段父行保持 queued，页面只显示取消，没有暂停入口。模型的目录 `pause` 只修改父行状态并向已有文件 job 转发暂停；即使调用方在扫描期间调用它，后台 `expandDirectory` 检查取消标记，不检查暂停；遍历和 mkdir 因而仍会继续。展开完成后先调用 `addAndStart` 提交各文件，再按父行状态暂停子项，不能承诺暂停期间没有新的提交或写入。空目录展开结束会直接完成，即使父行此前被标为暂停。
 
-“清除已完成”实际删除所有终态行，包括失败、取消和跳过；父目录仍运行时也能清除已结束的子行。后续 progress 从当前 `jobs` 中重算父任务 done/total，已清除子项因此不再计入，汇总可能回退或缩小。终态计数另由 `DirectoryCompletion` 保持，并非随行一起清除，所以此处是进度/结果明细保留缺口，不能直接描述成父任务一定无法结束。“进行中”还同时计父行和子行，表示活动记录数，不是独立复制批次数或实际网络并发数。
+“清除已完成”可移除终态子行；工作区已将父任务字节汇总改为独立账本，因此清理行不会缩小父进度。活动数也改为按根请求计数，目录父行与子行合为一项；这不代表不同连接间的实际网络并发数。相关 TransferManager 定向回归已通过；实际远端副作用与完整视图验收仍待完成。
 
-后续须把扫描/目录创建/文件提交纳入同一可暂停调度状态，显示尚未到达暂停点的状态；已发出的远端副作用不能靠本地暂停撤销。任务结果账目与可清除的显示历史分离，在父任务结束前保留子项计数、字节、跳过/失败原因；清除列表不改变汇总。用扫描中暂停、暂停后空目录完成、一个子项结束后清除再继续传另一个子项分别验收。
+工作区现将父目录暂停交给扫描取消令牌，扫描 visitor、目录创建及尚未提交的子 job 会在暂停点等待；恢复后才继续提交。结果计数保存在闭包，清除已结束子行不会丢失父汇总；取消未确认时保留 cancelling。仍需实际验收扫描中暂停、暂停后空目录、清除子项后继续、远端副作用及视图汇总稳定性。
 
-现有 [TransferManagerTests](GhostermApp/Tests/GhostermAppTests/TransferManagerTests.swift) 覆盖单文件控制路由、普通目录展开、空目录和取消晚到状态；这些测试不覆盖上述暂停/清除交互。本节仅源码核对，没有新增或执行桌面故障测试，不能据此记为已修复。
+[TransferManagerTests](GhostermApp/Tests/GhostermAppTests/TransferManagerTests.swift) 的扫描暂停不提交子文件回归已在本轮定向套件通过；该结果不代表真实远端副作用或完整 UI 验收。
 
 ### 目录终态与回调顺序
 
-`TransferManager.expandDirectory` 的 `DirectoryCompletion` 只保存剩余数量和一个 `result`。子项失败优先保留；在没有失败时，每个非 `.done` 结果都会覆盖此前结果。因此同一组子项中先取消后跳过，父结果可为 `.skipped`；先跳过后取消则可为 `.cancelled`。成功项不会撤销已有非成功结果，但也没有“部分成功并有取消/跳过”的汇总状态。多条失败时只保留最后一次失败文案，不能把父行当作完整结果账目。
+工作区 `DirectoryCompletion` 已按计数分类子项成功、跳过、取消、失败和未知结果，排序后选取失败摘要；部分成功会显式显示部分完成，未知结果不会降格为失败。仍需对相同结果集合的不同完成顺序、多个失败、取消与跳过混合做行为验证。
 
-这里指未单独取消父任务时的子项汇总；用户直接取消父行另走 `cancel`，不能用该路径推断所有混合结果都固定为取消。此结论来自当前生产分支核对，未执行新的桌面故障实验。后续应保留每项状态和原因，用与回调顺序无关的固定规则计算摘要，并验证相同结果集合的不同完成顺序、部分成功与多个失败；原有正常目录测试不构成这些场景的证据。待办见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+这里指未单独取消父任务时的子项汇总；用户直接取消父行另走 `cancel`。工作区已按逐项结果统计成功/跳过/取消/失败/未知，失败详情排序后生成摘要；部分结果使用独立状态，避免回调顺序覆盖结果。新增用例覆盖顺序变化、部分成功、多个失败及取消/跳过组合，已在本轮定向 Swift 套件通过。待办见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ### 目录创建与合并边界
 
@@ -278,17 +278,17 @@ SFTP `exists` 三态、异步 owner、传输控制和预览生命周期仍是后
 
 ### 递归权限与链接边界
 
-`FilesPanelModel.setPermissions` 对 walk 返回的每个条目调用 chmod，没有排除 `.symlink`。本地 `LocalFileBackend.chmod_` 先 lstat 再调用 `Darwin.chmod`，没有“不跟随链接”的修改路径；目录内链接因此可能把权限修改引向选中目录以外的目标。远端调用 `gt_sftp_chmod` → `libssh2_sftp_setstat`，也没有单独的链接处理契约。目录复制跳过链接的规则不适用于当前权限操作，不能把两者混称为“递归操作都不跟随链接”。
+工作区递归权限操作跳过链接并汇总跳过数、扫描错误与单项失败；本地 chmod 改为打开不跟随链接的文件描述符、复核 inode 后 fchmod。远端 SFTP chmod 仍受 SFTP v3 路径语义及检查到修改之间替换风险限制，不能声称有原子的不跟随链接保证；本轮尚未做隔离外部目标验证。
 
-这是源码核对，未执行权限修改探针。后续应明确链接跳过/不支持策略，汇总跳过与扫描失败，并以目录内链接指向隔离外部文件的场景验证外部目标权限不变；路径检查与实际修改之间的替换竞态也须独立处理。正常文件 chmod 作为对照，不能只增加一条 UI 提示便记为完成。
+后续需用目录内链接指向隔离外部文件的场景验证本地路径安全，另验证远端边界和普通文件对照；源码策略和新增用例尚不等于验收通过。
 
 ### Quick Look 预览边界
 
 当前 `WorkspaceFileView` 将本地预览接到 `QuickLook.toggle`，远端接到 `QuickLook.previewRemote`。后者创建 `NSTemporaryDirectory()/ghosterm-preview/<UUID>/<文件名>`，经 `TransferManager` 下载，只有 `.done` 回调才打开预览；每次远端请求都会生成新副本。测试/开发时须将 `TMPDIR` 指向工程 `tmp/`，不能假定这条生产路径固定使用仓库目录。
 
-当前代码没有预览大小限额、应用层缓存回收或请求代次校验；关闭文件窗格不会撤销该回调，多次预览的完成顺序也没有保护。`QuickLookPanel` 替换 URL 或隐藏窗口时没有删除副本；目录创建错误被 `try?` 忽略，后续下载失败可进入传输队列错误状态。不能承诺关闭预览立即清理、过期下载不会再弹窗，或大文件已受限。`FilesDragDropTests.testQuickLookTempPath` 仅验证路径形状，真实 QLPreviewPanel 弹出与这些生命周期场景没有因此通过。
+工作区已增加 32 MiB 的已知大小准入、普通文件类型检查、请求代次和临时副本释放；关闭/替换预览及失败/过期下载会回收本请求目录。下载完成后还会复核实际大小。但当前仍走旧 SFTP job，限额不能中止正在增长或错误报告大小的源文件，因此下载过程中的硬磁盘预算尚未实现；新增生命周期保护也尚未验收。
 
-修复须为预览建立请求身份、大小/磁盘预算和副本所有权，晚到结果不得覆盖当前预览；失败、取消及预览释放后的清理不能删除其他任务或原文件。Android A4 的 §9.92 工作区已接有界副本、只读代理与代次/后台取消，并进行独立设备验收；已按 §9.92–§9.94 完成该切片回归/发行；不直接复制 macOS 当前流程，也不提高桌面完成状态。待办统一见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+收尾仍需让预览下载使用受控 fd 接口并强制流式字节上限，确保取消和失败清理只影响本请求副本；补超限、未知长度、晚到结果与释放测试。Android A4 的 §9.92 工作区已接有界副本、只读代理与代次/后台取消，并进行独立设备验收；已按 §9.92–§9.94 完成该切片回归/发行；不直接复制 macOS 当前流程，也不提高桌面完成状态。待办统一见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 构建与验证
 

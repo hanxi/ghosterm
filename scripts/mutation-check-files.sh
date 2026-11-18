@@ -104,8 +104,8 @@ echo "== F2：walk 无视 maxDepth =="
 mk gtmut_f2 <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="            if maxDepth >= 0 && depth > maxDepth { en.skipDescendants(); continue }"
-new="            if false && depth > maxDepth { en.skipDescendants(); continue } /* GT_MUTATION_MARK */"
+old="            if maxDepth >= 0 && depth > maxDepth { enumerator.skipDescendants(); continue }"
+new="            if false && depth > maxDepth { enumerator.skipDescendants(); continue } /* GT_MUTATION_MARK */"
 assert old in s, "F2 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY

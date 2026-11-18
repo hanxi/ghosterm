@@ -30,9 +30,20 @@ fi
 BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-muttr-XXXXXX")"; cp "$SRC" "$BACKUP"
 
-run_test() { ( cd "$ROOT/apple/GhostermApp" && gt_timeout 900 swift test --filter TransferManagerTests >/dev/null 2>&1 ); }
-expect_green() { if run_test; then echo "  ✓ $1 → green"; PASS=$((PASS+1)); else echo "  ✗ $1 → 期望 green，实际 red"; FAIL=$((FAIL+1)); fi; }
-expect_red() { if run_test; then echo "  ✗ $1 → 期望 red，实际 green（断言无牙）"; FAIL=$((FAIL+1)); else echo "  ✓ $1 → red"; PASS=$((PASS+1)); fi; }
+LOG="$TMP/gtmut-transfer-test.log"
+run_test() { ( cd "$ROOT/apple/GhostermApp" && gt_timeout 900 swift test --filter TransferManagerTests ) >"$LOG" 2>&1; }
+expect_green() {
+  if run_test; then echo "  ✓ $1 → green"; PASS=$((PASS+1))
+  else echo "  ✗ $1 → 期望 green，实际 red"; tail -40 "$LOG"; FAIL=$((FAIL+1)); fi
+}
+expect_red() {
+  if run_test; then echo "  ✗ $1 → 期望 red，实际 green（断言无牙）"; FAIL=$((FAIL+1))
+  elif grep -Eq 'Test Case .* failed|Test Suite .* failed|Executed .* with [1-9][0-9]* failures' "$LOG"; then
+    echo "  ✓ $1 → 断言红"; PASS=$((PASS+1))
+  elif grep -Eq 'error:|Build failed|fatalError' "$LOG"; then
+    echo "  ✗ $1 → 编译/构建失败，不计作目标红"; tail -40 "$LOG"; FAIL=$((FAIL+1))
+  else echo "  ✗ $1 → 非断言失败"; tail -40 "$LOG"; FAIL=$((FAIL+1)); fi
+}
 mutate() { python3 "$1" "$SRC"; }
 rollback() { cp "$BACKUP" "$SRC"
   [ "$(shasum -a 256 "$SRC" | awk '{print $1}')" = "$BASE_SHA" ] || { echo "  ✗ 回滚 sha256 不一致" >&2; FAIL=$((FAIL+1)); }; }
@@ -66,8 +77,8 @@ echo "== T3：冲突 skip 被无视 =="
 mk gtmut_t3 <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="        if let c = applyToAll { return c }"
-new="        if let c = applyToAll { return c == .rename ? c : .overwrite } /* GT_MUTATION_MARK */"
+old="        if let c = batchDecisions[batchID] { return ConflictDecision(c) }"
+new="        if let c = batchDecisions[batchID] { return ConflictDecision(c == .skip ? .overwrite : c) } /* GT_MUTATION_MARK */"
 assert old in s, "T3 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -77,8 +88,8 @@ echo "== T4：pause 不路由到后端 =="
 mk gtmut_t4 <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="        try? jobs[i].backend?.pause(jobID: jobs[i].coreJob, true)"
-new="        /* GT_MUTATION_MARK: 不路由 */"
+old="            try jobs[i].backend?.pause(jobID: jobs[i].coreJob, true)"
+new="            try jobs[i].backend?.pause(jobID: 0, true) /* GT_MUTATION_MARK */"
 assert old in s, "T4 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
