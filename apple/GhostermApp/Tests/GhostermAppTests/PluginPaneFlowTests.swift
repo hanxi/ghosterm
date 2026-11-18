@@ -435,10 +435,6 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(revoked.generation, 2)
             let affected = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
             XCTAssertEqual(affected, 1)
-            let installedDraft = PluginInstalledVersionsDraft()
-            await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
-            XCTAssertEqual(installedDraft.affectedChannelInstances, 1)
-            XCTAssertNil(installedDraft.channelNotice)
             let staleDraft = PluginInstalledVersionsDraft()
             await staleDraft.readChannelPolicy(controller, refresh: false, automatic: true)
             XCTAssertEqual(staleDraft.affectedChannelInstances, 1)
@@ -450,19 +446,40 @@ final class PluginPaneFlowTests: XCTestCase {
             let beforeStop = try await controller.installedVersions()
             let retainedVersion = try XCTUnwrap(beforeStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(retainedVersion.inUse, true, "revocation observation retains the running version lease")
-            await installedDraft.stopAffectedChannelInstances(controller) {
-                try await model.stopInstancesWithRevokedPublisher()
+            let settings = ConversationUIProbe(root: NSHostingView(rootView: ScrollView {
+                ExtensionsPane(model: model)
+            }))
+            defer { settings.close() }
+            func settingsNode(_ identifier: String) -> NSObject? {
+                settings.root.layoutSubtreeIfNeeded()
+                return PluginTableRendering.elements(settings.root).first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier
+                }
             }
-            XCTAssertEqual(installedDraft.channelNotice, "已确认停止 1 个实例。")
-            XCTAssertNil(installedDraft.channelIssue)
-            XCTAssertEqual(installedDraft.affectedChannelInstances, 0)
-            guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
-                XCTFail("explicit stop did not release the instance"); return
+            guard try await until({ settingsNode("plugin-installed-channel-stop") != nil }) else {
+                XCTFail("collapsed settings did not observe the revoked instance"); return
             }
+            XCTAssertNil(settingsNode("plugin-installed-refresh"), "installed versions must remain collapsed")
+            XCTAssertNotNil(settingsNode("plugin-installed-channel-affected"))
+            XCTAssertEqual(settings.window.alphaValue, 0)
+            XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(settings.window.frame) })
+            let stop = try XCTUnwrap(settingsNode("plugin-installed-channel-stop"))
+            XCTAssertTrue(PluginTableRendering.press(stop))
+            guard try await until({
+                let notice = settingsNode("plugin-installed-channel-notice")
+                let confirmed = notice.map { node in
+                    ["accessibilityValue", "accessibilityLabel"].contains {
+                        PluginTableRendering.attribute(node, $0)?.contains("已确认停止 1 个实例。") == true
+                    }
+                } ?? false
+                return confirmed && settingsNode("plugin-installed-channel-affected") == nil &&
+                    model.extensionRun == nil && !model.extensionRunBusy
+            }) else {
+                XCTFail("settings did not confirm stop and clear the affected count"); return
+            }
+            XCTAssertNil(settingsNode("plugin-installed-channel-error"))
             let after = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
             XCTAssertEqual(after, 0)
-            await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
-            XCTAssertEqual(installedDraft.affectedChannelInstances, 0)
             let afterStop = try await controller.installedVersions()
             let releasedVersion = try XCTUnwrap(afterStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(releasedVersion.inUse, false, "the stopped Runtime must release its version lease")
