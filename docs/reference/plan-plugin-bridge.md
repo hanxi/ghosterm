@@ -13645,3 +13645,15 @@ Android API 36 无窗口模拟器集中运行 Kitty Canvas、Kitty 动画引擎�
 并核对生产输入 SHA256。收据 SHA256
 `a4b2b3a124b29e6e1a4a95919559e742ca94f626b815dc04d2b38aab485dceef`。
 本轮为选跑，未执行其它变异或平台 UI；隔离副本及六个 SSH 子运行目录已清理。
+
+### P1 Session 与 RPC 完整变异复验（2026-11-19）
+
+固定 `b60c1be2`，并行运行隔离的 Session 和 RPC ASan / UBSan 变异闸门。
+Session 21 组涵盖授权、旧 epoch、序号、迟到读写、租约和释放。每组复原后
+27 项 socket 用例和四项回环 SSH 通过。RPC 23 组涵盖权限、流控、取消、
+确认回执和释放。每组复原后 31 项 socket 用例和四项回环 SSH 通过。
+目标均为真实编译后的普通断言失败，同库配置对照与生产输入 SHA256 一致。
+
+Session 收据为 `cefbfcee19d145addbd673cd4541ae5c2911e859ae65e9ebe2bc54a55acf4452`，
+RPC 收据为 `097f29f7f6a349cafdec9e434a5c77b6d32edd2f71c5b5c6eaa88c7a5386ea1e`。
+两套隔离副本和 46 个 SSH 子运行目录已清理。此轮为 Core，未运行平台 UI。
