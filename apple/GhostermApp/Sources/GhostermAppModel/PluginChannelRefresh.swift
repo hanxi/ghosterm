@@ -13,7 +13,17 @@ public enum PluginChannelRefresh {
         }
     }
 
-    private final class Redirects: NSObject, URLSessionTaskDelegate {
+    class Redirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            completionHandler(.performDefaultHandling, nil)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+                        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            urlSession(session, didReceive: challenge, completionHandler: completionHandler)
+        }
+
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
             completionHandler(nil)
@@ -22,13 +32,18 @@ public enum PluginChannelRefresh {
 
     public static func refresh(_ trust: ExtensionController.ChannelTrust) async throws
         -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        try await refresh(trust, delegate: Redirects())
+    }
+
+    static func refresh(_ trust: ExtensionController.ChannelTrust, delegate: Redirects) async throws
+        -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
-        let session = URLSession(configuration: configuration, delegate: Redirects(), delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         return try await refresh(trust, session: session)
     }

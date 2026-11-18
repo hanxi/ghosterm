@@ -1,0 +1,72 @@
+import Foundation
+import Security
+import XCTest
+@testable import GhostermAppModel
+
+private final class LoopbackChannelDelegate: PluginChannelRefresh.Redirects, @unchecked Sendable {
+    private let anchor: SecCertificate
+
+    init(anchor: SecCertificate) {
+        self.anchor = anchor
+    }
+
+    override func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.host == "127.0.0.1",
+              challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust,
+              SecTrustSetAnchorCertificates(trust, [anchor] as CFArray) == errSecSuccess,
+              SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess,
+              SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, challenge.protectionSpace.host as CFString)) == errSecSuccess else {
+            XCTFail("unexpected loopback TLS challenge: \(challenge.protectionSpace.authenticationMethod) at \(challenge.protectionSpace.host)")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        var error: CFError?
+        guard SecTrustEvaluateWithError(trust, &error) else {
+            XCTFail("fixture TLS trust failed: \(String(describing: error))")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+}
+
+final class PluginChannelTLSLoopbackTests: XCTestCase {
+    func testHTTPSRefreshAndFailurePreserveCache() async throws {
+        let env = ProcessInfo.processInfo.environment
+        try XCTSkipIf(env["GHOSTERM_TEST_CHANNEL_ORIGIN"] == nil, "requires the owned loopback TLS fixture")
+        let origin = try XCTUnwrap(env["GHOSTERM_TEST_CHANNEL_ORIGIN"])
+        let root = try XCTUnwrap(env["GHOSTERM_TEST_CHANNEL_ROOT"].flatMap { Data(base64Encoded: $0) })
+        let bytes = try XCTUnwrap(env["GHOSTERM_TEST_CHANNEL_CERT"].flatMap { Data(base64Encoded: $0) })
+        let certificate = try XCTUnwrap(SecCertificateCreateWithData(nil, bytes as CFData))
+        let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: state) }
+
+        func refresh(_ route: String) async throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+            let endpoint = try XCTUnwrap(URL(string: origin + "/" + route + "/"))
+            let trust = ExtensionController.ChannelTrust(channel: "fixture", root: root, stateDirectory: state,
+                                                         refreshDirectory: endpoint)
+            return try await PluginChannelRefresh.refresh(trust, delegate: LoopbackChannelDelegate(anchor: certificate))
+        }
+        let valid = try await refresh("valid")
+        XCTAssertEqual(valid.generation, 2)
+        do {
+            _ = try await refresh("redirect")
+            XCTFail("channel client followed a redirect")
+        } catch PluginChannelRefresh.Failure.response {}
+        do {
+            _ = try await refresh("oversized")
+            XCTFail("channel client accepted an oversized response")
+        } catch PluginChannelRefresh.Failure.length {}
+        do {
+            _ = try await refresh("mixed")
+            XCTFail("channel client accepted mixed statement and policy bytes")
+        } catch PluginDirectorySignatureVerifier.Failure.channelStatement {}
+        let restored = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: "fixture", channelRoot: root,
+            now: UInt64(Date().timeIntervalSince1970), stateDirectory: state)
+        XCTAssertEqual(restored.statementSHA256, valid.statementSHA256)
+    }
+}
