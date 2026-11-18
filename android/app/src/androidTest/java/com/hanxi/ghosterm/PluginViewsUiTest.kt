@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -79,7 +80,11 @@ class PluginViewsUiTest {
         assertTrue(m.state.value.items.size == 4 && f.task.calls.none { it.first == "view.task.cancel" })
     }
     private fun painted(dark: Boolean, scale: Float) = fixture(dark, scale) { m, _ ->
-        val button = ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("table-a").performScrollTo().assertIsDisplayed()
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+        val button = ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务")
+            .performScrollTo().assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
         val bitmap = button.captureToImage().asAndroidBitmap(); val colors = mutableSetOf<Int>()
         for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) colors += bitmap.getPixel(x, y)
         assertTrue("Native close control must paint readable glyph pixels", colors.size > 8)

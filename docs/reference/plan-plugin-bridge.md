@@ -13879,3 +13879,11 @@ arm64 无窗口 AVD 运行 `test-plugin-views-android-native.py --api 36`。
 运行器核对实际安装 APK 与输入摘要。收据 SHA256
 `8bfda069e390677d562a08d390ca1ba43c0a7beb9d7d61b164f52b993675e982`。
 本轮未执行额外设备、读屏播报、前台 IPC 或变异。AVD 和构件已清理。
+
+### P5 Android 主题与大字号下的控件语义（2026-11-19）
+
+固定 `1236fbfc` 加本批断言。通用视图的亮色 / 深色、正常 / 双倍字号像素测试
+现在同时核对视图标题的 heading 语义，以及关闭按钮的名称、角色、启用状态和
+点击动作。新构建 JS-on 应用及测试 APK 后，在专用 API 36 无窗口 AVD 上
+`PluginViewsUiTest` 七项全部通过。证据覆盖 Compose 语义和绘制，
+读屏实际播报与其它设备另验。本轮 AVD 与临时目录已清理。
