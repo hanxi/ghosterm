@@ -147,7 +147,7 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
     page = run([*selected, 'shell', 'getconf', 'PAGE_SIZE'], environment).strip()
     print('DEVICE API/ABI/PAGE ' + '/'.join(info + [page]), flush=True)
     classes = TESTS + (',com.hanxi.ghosterm.PluginSignatureDocumentsTest,com.hanxi.ghosterm.PluginSignatureDraftTest,com.hanxi.ghosterm.PluginSignatureReviewUITest,com.hanxi.ghosterm.FileDescriptorFlagsTest' if signature_ui else '')
-    count = 62 if signature_ui else 42
+    count = 63 if signature_ui else 43
     if archive:
         classes += ',com.hanxi.ghosterm.PluginReleaseArchiveTest,com.hanxi.ghosterm.PluginReleaseArchiveControllerTest'
         count += 23

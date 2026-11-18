@@ -14202,3 +14202,18 @@ ZIP SHA256 `01d34410999bddb6c34ef9ac2189aaac978ca9dadd18055ddce9479b599b8f8d`。
 
 18 项 InstallJournal 与发布顺序 XCTest 离屏通过，macOS Release 构建通过。
 本轮未注入真实时钟跳变，未重跑 JS-enabled ZIP 全量或变异。临时目录已清理。
+
+### P6 Android 渠道声明原生验证（2026-11-19）
+
+固定 `3c4afa09` 加本批。共享 C 新增独立渠道声明验签 ABI，沿用锁定的
+OpenSSL Ed25519、大小限制及错误语义。Apple Swift 和 Android JNI 绑定
+同步。Android 复用严格发布 JSON 和策略验证，按渠道根验原始声明、完整策略
+摘要和有效期；发行验签消费固定策略字节并再次核对有效期。设备使用 Node
+生成的公开签名向量，覆盖签名域隔离、错误根、变更的策略字节、未来签发及到期。
+
+Core 612 项 CTest 和 207 项 ABI、Apple 204 引用/3 登记未用、JNI 168/39、
+C 排版 297 文件通过。已有 Core 发行签名 9 组变异和 4 条错误路径复验通过。
+Android Debug / 测试 APK 构建及专用 API 36 arm64 无窗口模拟器的签名组 12 项
+通过，Apple Release 构建通过。初次模拟器因空间不足未启动；清理旧测试缓存
+后复跑通过。未接 Android 持久代次、安装或设置，未重跑 Android 单独变异。
+本轮临时目录与模拟器已清理。

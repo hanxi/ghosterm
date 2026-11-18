@@ -20,6 +20,14 @@ gt_status_t gt_ext_release_verify(const uint8_t *public_key,
                                   size_t signature_size,
                                   const uint8_t *descriptor,
                                   size_t descriptor_size);
+/* Same bounds and statuses, using ASCII ghosterm.channel-policy.v1 plus NUL
+ * and the exact statement bytes. The channel trust root is supplied by the host. */
+gt_status_t gt_ext_channel_policy_verify(const uint8_t *public_key,
+                                         size_t public_key_size,
+                                         const uint8_t *signature,
+                                         size_t signature_size,
+                                         const uint8_t *statement,
+                                         size_t statement_size);
 #ifdef __cplusplus
 }
 #endif

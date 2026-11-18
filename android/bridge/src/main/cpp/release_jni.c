@@ -1,10 +1,10 @@
 #include "ghosterm.h"
 #include <jni.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
-JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeReleaseSignature_verify(
-    JNIEnv *e, jobject self, jbyteArray public_key, jbyteArray signature, jbyteArray descriptor) {
-    (void)self;
+static jint verify(
+    JNIEnv *e, jbyteArray public_key, jbyteArray signature, jbyteArray descriptor, bool channel) {
     if (!public_key || !signature || !descriptor) {
         return GT_ERR_INVALID_ARG;
     }
@@ -25,9 +25,26 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeReleaseSignature_ver
     (*e)->GetByteArrayRegion(e, descriptor, 0, size, (jbyte *)bytes);
     gt_status_t status = GT_ERR_INTERNAL;
     if (!(*e)->ExceptionCheck(e)) {
-        status = gt_ext_release_verify(
-            key, sizeof(key), signed_bytes, sizeof(signed_bytes), bytes, (size_t)size);
+        if (channel) {
+            status = gt_ext_channel_policy_verify(
+                key, sizeof(key), signed_bytes, sizeof(signed_bytes), bytes, (size_t)size);
+        } else {
+            status = gt_ext_release_verify(
+                key, sizeof(key), signed_bytes, sizeof(signed_bytes), bytes, (size_t)size);
+        }
     }
     free(bytes);
     return (jint)status;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeReleaseSignature_verify(
+    JNIEnv *e, jobject self, jbyteArray public_key, jbyteArray signature, jbyteArray descriptor) {
+    (void)self;
+    return verify(e, public_key, signature, descriptor, false);
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeReleaseSignature_verifyChannelPolicy(
+    JNIEnv *e, jobject self, jbyteArray public_key, jbyteArray signature, jbyteArray statement) {
+    (void)self;
+    return verify(e, public_key, signature, statement, true);
 }

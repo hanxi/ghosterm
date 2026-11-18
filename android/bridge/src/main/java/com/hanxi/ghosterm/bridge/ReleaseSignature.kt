@@ -10,8 +10,14 @@ object ReleaseSignature {
         if (publicKey.size != 32 || signature.size != 64 || descriptor.size !in 1..65536) return 1
         return NativeReleaseSignature.verify(publicKey, signature, descriptor)
     }
+    fun verifyChannelPolicy(publicKey: ByteArray, signature: ByteArray, statement: ByteArray): Int {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "渠道签名须在非 UI worker 验证" }
+        if (publicKey.size != 32 || signature.size != 64 || statement.size !in 1..65536) return 1
+        return NativeReleaseSignature.verifyChannelPolicy(publicKey, signature, statement)
+    }
 }
 internal object NativeReleaseSignature {
     init { System.loadLibrary("ghosterm_android") }
     external fun verify(publicKey: ByteArray, signature: ByteArray, descriptor: ByteArray): Int
+    external fun verifyChannelPolicy(publicKey: ByteArray, signature: ByteArray, statement: ByteArray): Int
 }

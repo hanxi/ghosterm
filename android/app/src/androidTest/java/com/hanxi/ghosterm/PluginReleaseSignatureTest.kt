@@ -50,6 +50,28 @@ class PluginReleaseSignatureTest {
         assertEquals("b".repeat(64), proof.artifactSHA256)
         assertEquals(22L, proof.artifactBytes)
     }
+    @Test fun channelRootBindsRawPolicyBytesAndFreshness() {
+        val channel = JSONObject(InstrumentationRegistry.getInstrumentation().context.assets
+            .open("plugin-release/channel-vector.json").bufferedReader().use { it.readText() })
+        val statement = channel.getString("statement").toByteArray()
+        val root = Base64.getDecoder().decode(channel.getString("root"))
+        val signed = Base64.getDecoder().decode(channel.getString("signature"))
+        fun read(bytes: ByteArray = policy, trust: ByteArray = root, now: ULong = 150u) =
+            PluginReleaseSignature.verifyChannelPolicy(statement, signed, bytes, "fixture", trust, now)
+        fun reject(expected: PluginReleaseSignature.Failure, action: () -> Unit) {
+            try { action(); fail("invalid channel accepted: $expected") }
+            catch (e: PluginReleaseSignature.Rejected) { assertEquals(expected, e.reason) }
+        }
+        val accepted = read()
+        assertEquals(2uL, accepted.generation)
+        assertEquals(hash(policy), accepted.authenticate(descriptor, signature, 199u).proof.policySHA256)
+        assertEquals(4, ReleaseSignature.verify(root, signed, statement))
+        reject(PluginReleaseSignature.Failure.CHANNEL_STATEMENT) { read(policy + byteArrayOf(10)) }
+        reject(PluginReleaseSignature.Failure.CHANNEL_STATEMENT) { read(trust = key) }
+        reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { read(now = 99u) }
+        reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { accepted.authenticate(descriptor, signature, 200u) }
+    }
+
     @Test fun signatureAndRawBytesAreNotCanonicalized() {
         rejected(PluginReleaseSignature.Failure.SIGNATURE, s = signature.also { it[63] = (it[63].toInt() xor 1).toByte() })
         rejected(PluginReleaseSignature.Failure.SIGNATURE, d = descriptor + byteArrayOf(10))

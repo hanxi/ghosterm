@@ -13,7 +13,7 @@ import java.util.Base64
 
 /** Explicit policy bytes only; authentication is separate from source/Session consent. */
 internal object PluginReleaseSignature {
-    enum class Failure { JSON, DUPLICATE_KEY, LIMIT, POLICY, DESCRIPTOR, UNKNOWN_KEY, REVOKED_KEY, SCOPE, SIGNATURE, IDENTITY, UNSUPPORTED, CRYPTO_UNKNOWN }
+    enum class Failure { JSON, DUPLICATE_KEY, LIMIT, POLICY, DESCRIPTOR, UNKNOWN_KEY, REVOKED_KEY, SCOPE, SIGNATURE, IDENTITY, UNSUPPORTED, CRYPTO_UNKNOWN, CHANNEL_STATEMENT, CHANNEL_FRESHNESS }
     class Rejected(val reason: Failure) : IllegalArgumentException(when (reason) {
         Failure.REVOKED_KEY -> "此签名密钥已被所选策略撤销。"
         Failure.UNKNOWN_KEY -> "所选策略不认识此签名密钥。"
@@ -22,6 +22,8 @@ internal object PluginReleaseSignature {
         Failure.IDENTITY -> "签名描述与已检查的固定包身份不一致。"
         Failure.UNSUPPORTED -> "当前构建不支持发布签名验证。"
         Failure.CRYPTO_UNKNOWN -> "发布签名验证未完成，不能判断为有效或签名不匹配。"
+        Failure.CHANNEL_STATEMENT -> "渠道签名声明与信任根或策略摘要不匹配。"
+        Failure.CHANNEL_FRESHNESS -> "渠道策略尚未生效或已过期。"
         Failure.LIMIT -> "发布签名材料超过读取或结构上限。"
         else -> "发布描述或渠道策略格式无效。"
     })
@@ -30,6 +32,51 @@ internal object PluginReleaseSignature {
         val publisher: String, val policySHA256: String, val descriptorSHA256: String,
         val artifactSHA256: String, val artifactBytes: Long)
     data class Authenticated(val identity: Identity, val proof: Proof)
+
+    class VerifiedChannelPolicy internal constructor(
+        val channel: String,
+        val generation: ULong,
+        val issuedAt: ULong,
+        val expiresAt: ULong,
+        val statementSHA256: String,
+        private val policy: ByteArray,
+    ) {
+        fun authenticate(descriptor: ByteArray, signature: ByteArray, now: ULong): Authenticated {
+            ensure(issuedAt <= now && now < expiresAt, Failure.CHANNEL_FRESHNESS)
+            return PluginReleaseSignature.authenticate(descriptor, signature, policy)
+        }
+    }
+
+    fun verifyChannelPolicy(statement: ByteArray, signature: ByteArray, policy: ByteArray,
+                            channel: String, channelRoot: ByteArray, now: ULong): VerifiedChannelPolicy {
+        ensure(statement.size in 1..65536 && policy.size <= 131072, Failure.LIMIT)
+        ensure(channelRoot.size == 32 && signature.size == 64, Failure.CHANNEL_STATEMENT)
+        val payload = statement.copyOf()
+        val policyBytes = policy.copyOf()
+        val signed = signature.copyOf()
+        val root = channelRoot.copyOf()
+        val fields = parse(payload).obj()
+        ensure(fields.keys == setOf("schemaVersion", "channel", "generation", "issuedAt", "expiresAt", "policySHA256") &&
+            fields["schemaVersion"]?.integer(1) == 1L && fields.getValue("channel").str() == channel &&
+            fields.getValue("policySHA256").str() == hash(policyBytes), Failure.CHANNEL_STATEMENT)
+        fun decimal(name: String): ULong {
+            val value = fields.getValue(name).str()
+            ensure(value.matches(Regex("[1-9][0-9]{0,19}")), Failure.CHANNEL_STATEMENT)
+            return value.toULongOrNull() ?: reject(Failure.CHANNEL_STATEMENT)
+        }
+        val generation = decimal("generation")
+        val issuedAt = decimal("issuedAt")
+        val expiresAt = decimal("expiresAt")
+        ensure(parsePolicy(policyBytes).channel == channel, Failure.SCOPE)
+        when (ReleaseSignature.verifyChannelPolicy(root, signed, payload)) {
+            0 -> Unit
+            4 -> reject(Failure.CHANNEL_STATEMENT)
+            7 -> reject(Failure.UNSUPPORTED)
+            else -> reject(Failure.CRYPTO_UNKNOWN)
+        }
+        ensure(issuedAt <= now && now < expiresAt, Failure.CHANNEL_FRESHNESS)
+        return VerifiedChannelPolicy(channel, generation, issuedAt, expiresAt, hash(payload), policyBytes)
+    }
 
     /** Bounded strict JSON for display of a raw manifest already attested by Core. */
     internal fun declarationObject(bytes: ByteArray): org.json.JSONObject {
