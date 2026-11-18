@@ -14804,3 +14804,10 @@ Android 直连及 ProxyJump 增加 `--close-executor` 设备验收。夹具先�
 app-server 接收凭据，再由启动器关闭自己的 gterm 子进程。Android 断言检查
 交互失效、草稿和未知状态继续保留、重发被拦截。测试 APK 后台构建通过，本机
 独立检验启动器保持 stdin 且记录 137。设备断言尚未执行。
+
+### P4 Claude 原生对话与延迟回执组合复验（2026-11-19）
+
+固定 `c125092a`，锁定 Node 依赖、官方包与 gterm 重建后，macOS 直连 SSH
+和 ProxyJump 的工具审批 / 用户问题与停止各一项，延迟 SDK 轮询回执超过
+本机期限后以只读控件读取原文档各一项，分两轮共四项离屏通过。使用自有
+app-server 夹具，真实 Claude 模型和 Android 设备另验。
