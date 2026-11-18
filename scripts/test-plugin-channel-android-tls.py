@@ -115,7 +115,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--settings-cache', action='store_true',
                         help='build with a disposable channel root and exercise the offline Settings flow')
+    parser.add_argument('--apks', nargs=2, type=Path, metavar=('APP_APK', 'TEST_APK'),
+                        help='reuse APKs built with -PghostermPluginJs=true for the HTTPS client test')
     args = parser.parse_args()
+    if args.apks:
+        if args.settings_cache:
+            parser.error('--settings-cache requires a fresh build with this fixture’s channel root')
+        args.apks = [apk.resolve() for apk in args.apks]
+        if any(not apk.is_file() for apk in args.apks):
+            parser.error('--apks requires two existing APK files')
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('android_release_runner', ROOT / 'scripts/test-plugin-release-android.py')
     runner = importlib.util.module_from_spec(spec)
@@ -139,12 +147,18 @@ def main():
                 test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'
                 extras = ['-e', 'channelTlsOrigin', origin, '-e', 'channelTlsRoot', root,
                           '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode()]
-            print(runner.run(build, env, 900)[-400:], flush=True)
+            if args.apks:
+                apks = args.apks
+            else:
+                print(runner.run(build, env, 900)[-400:], flush=True)
+                output_dir = ROOT / 'android/app/build/outputs/apk'
+                apks = [output_dir / name for name in
+                        ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk')]
             device = work / 'device'
             device.mkdir()
             with runner.headless(36, device, env) as (adb, device_env):
-                for apk in ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk'):
-                    runner.run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / apk], device_env)
+                for apk in apks:
+                    runner.run([*adb, 'install', '-r', '-t', apk], device_env)
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
                     test, *extras,
                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], device_env)
