@@ -8,8 +8,8 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-internal class PluginViewsFixture {
-    val instance = "b".repeat(32); val nonce = "a".repeat(32)
+internal class PluginViewsFixture(val instance: String = "b".repeat(32)) {
+    val nonce = "a".repeat(32)
     val alpha = PluginTableFixture(); val beta = PluginTableFixture().apply { description.put("viewId", "table-b") }
     val diff = PluginDiffFixture(); val task = PluginTaskFixture()
     var revision = 1uL; var current = true; var closeFails = false
@@ -56,6 +56,40 @@ class PluginViewsTest {
         table(m).showPage(16)!!.join()
         assertTrue(table(m).state.value.page?.offset == 16 && table(m, 1).state.value.page?.offset == 0 && task(m).state.value.snapshot != null)
     }
+    @Test fun overlappingHandlesRemainOwnedByTheirOwnInstances() = main {
+        val first = PluginViewsFixture()
+        val second = PluginViewsFixture(instance = "c".repeat(32))
+        val firstModel = first.populated(this)
+        val secondModel = second.populated(this)
+        val firstItem = firstModel.state.value.items.first()
+        val secondItem = secondModel.state.value.items.first()
+        assertEquals(firstItem.handle, secondItem.handle)
+        val firstTable = table(firstModel)
+        val secondTable = table(secondModel)
+        firstTable.load()!!.join()
+        secondTable.load()!!.join()
+
+        first.pauseClose = true
+        val closing = firstModel.closeView(firstItem.handle)!!
+        try {
+            withTimeout(5000) { first.closeEntered.await() }
+            secondTable.showPage(16)!!.join()
+            assertEquals("17", secondTable.state.value.page?.rows?.firstOrNull()?.id)
+            assertTrue(secondTable.available)
+        } finally {
+            first.closeRelease.complete(Unit)
+            closing.join()
+        }
+
+        assertFalse(firstTable.available)
+        assertNull(firstTable.state.value.page)
+        assertTrue(secondModel.state.value.items.first() === secondItem)
+        assertEquals(listOf(firstItem.handle), first.closes)
+        assertTrue(second.closes.isEmpty())
+        secondTable.showPage(0)!!.join()
+        assertEquals("1", secondTable.state.value.page?.rows?.firstOrNull()?.id)
+    }
+
     @Test fun wrongInstanceClearsViews() = main {
         val f = PluginViewsFixture(); val m = f.populated(this); f.revision++
         assertTrue(rejects { m.apply(f.data(instance = "c".repeat(32))) } && !m.state.value.valid && m.state.value.items.isEmpty())
