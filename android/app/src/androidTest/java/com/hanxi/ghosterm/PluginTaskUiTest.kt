@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
@@ -47,6 +49,8 @@ class PluginTaskUiTest {
         awaitState { model.state.value.cancellation == PluginTaskModel.Cancellation.REQUESTED }
         ui.onNodeWithTag("plugin-task-cancel").assertIsNotEnabled()
         ui.onNodeWithTag("plugin-task-phase").assertTextEquals("正在运行")
+        ui.onNodeWithTag("plugin-task-cancel-status")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertEquals(1, f.calls.count { it.first == "view.task.cancel" })
     }
     @Test fun unknownCancelOnlyAllowsExplicitRead() = fixture { model, f ->
@@ -71,6 +75,8 @@ class PluginTaskUiTest {
         ui.mainClock.advanceTimeBy(600); awaitState { model.state.value.snapshot?.completed == "5" }
         ui.runOnIdle { f.unknownMethod = "view.task.read" }
         ui.mainClock.advanceTimeBy(600); awaitState { model.state.value.issue != null }
+        ui.onNodeWithTag("plugin-task-issue")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         val count = f.calls.size; ui.mainClock.advanceTimeBy(1200); ui.waitForIdle()
         assertTrue(f.calls.size == count && !model.canAutoRefresh)
         ui.runOnIdle { f.unknownMethod = null; f.state.put("completed", "6").put("sequence", "3") }
