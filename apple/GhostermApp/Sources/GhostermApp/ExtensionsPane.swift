@@ -126,7 +126,7 @@ struct ExtensionsPane: View {
             }
             PluginInstalledVersionsView(controller: model.extensionController, didRemove: { releaseID in
                 entries.removeAll { $0.installation?.signature.descriptorSHA256 == releaseID }
-            }) { pluginID, result in
+            }, stopRevoked: { try await model.stopInstancesWithRevokedPublisher() }) { pluginID, result in
                 for index in entries.indices where entries[index].review.id == pluginID { entries[index].decision = "尚未批准" }
                 if let installed = result.release {
                     let entryID = installed.review.id + ":" + installed.review.digest

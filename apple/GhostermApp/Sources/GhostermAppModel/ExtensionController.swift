@@ -538,6 +538,10 @@ public actor ExtensionController {
         try await worker.runningInstancesWithRevokedPublisher(in: policy)
     }
 
+    func currentInstanceHasRevokedPublisher() async throws -> Bool {
+        try await worker.currentInstanceHasRevokedPublisher()
+    }
+
     public func installedVersions() async throws -> InstalledCatalog { try await worker.installedVersions() }
     public func previewVersionRemoval(releaseID: String, expectedRevision: String?) async throws -> RemovalPreview {
         try await worker.previewVersionRemoval(releaseID: releaseID, expectedRevision: expectedRevision)
@@ -1120,15 +1124,29 @@ public actor ExtensionController {
             return (ChannelAdmission(root: policy.rootSHA256, proof: proof), catalog)
         }
 
+        private func hasRevokedPublisher(_ run: Run, in policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy,
+                                         revoked: Set<String>) -> Bool {
+            guard let admission = run.channelAdmission, admission.root == policy.rootSHA256,
+                  admission.proof.channel == policy.channel, run.session != nil || run.runtime != nil else { return false }
+            return revoked.contains(admission.proof.keyID)
+        }
+
         func runningInstancesWithRevokedPublisher(in policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy) async throws -> Int {
             try await perform {
                 try self.checkOpen()
                 let revoked = Set(try PluginDirectorySignatureVerifier.policy(policy.policyBytes).revokedIDs)
-                return self.state.runs.values.count { run in
-                    guard let admission = run.channelAdmission, admission.root == policy.rootSHA256,
-                          admission.proof.channel == policy.channel, run.session != nil || run.runtime != nil else { return false }
-                    return revoked.contains(admission.proof.keyID)
-                }
+                return self.state.runs.values.count { self.hasRevokedPublisher($0, in: policy, revoked: revoked) }
+            }
+        }
+
+        func currentInstanceHasRevokedPublisher() async throws -> Bool {
+            try await perform {
+                try self.checkOpen()
+                guard self.run.channelAdmission != nil, let trust = self.state.channelTrust else { return false }
+                let policy = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
+                    now: try Self.channelClock(), stateDirectory: trust.stateDirectory)
+                let revoked = Set(try PluginDirectorySignatureVerifier.policy(policy.policyBytes).revokedIDs)
+                return self.hasRevokedPublisher(self.run, in: policy, revoked: revoked)
             }
         }
 

@@ -344,6 +344,15 @@ import GhostermCore
         extensionRunBusy = false
     }
 
+    func stopIfPublisherRevoked() async throws -> Bool {
+        guard let extensionController, extensionRun != nil, !extensionRunBusy else { return false }
+        let generation = extensionRunGeneration
+        guard try await extensionController.currentInstanceHasRevokedPublisher(),
+              generation == extensionRunGeneration, extensionRun != nil, !extensionRunBusy else { return false }
+        await stopExtensionRun()
+        return extensionRun == nil
+    }
+
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
         extensionRegisteredViews?.invalidate()

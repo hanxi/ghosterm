@@ -1449,6 +1449,15 @@ public final class AppModel: ObservableObject {
         return await extensionInstance.decideExtensionConsent(allow: allow)
     }
 
+    public func stopInstancesWithRevokedPublisher() async throws -> Int {
+        let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
+        var stopped = 0
+        for instance in instances {
+            if try await instance.stopIfPublisherRevoked() { stopped += 1 }
+        }
+        return stopped
+    }
+
     public func stopExtensionRun() async {
         return await extensionInstance.stopExtensionRun()
     }

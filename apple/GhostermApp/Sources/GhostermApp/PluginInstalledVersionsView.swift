@@ -11,6 +11,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     private func endActivity() { activities -= 1; busy = activities != 0 }
     @Published private(set) var issue: String?
     @Published private(set) var notice: String?
+    @Published private(set) var affectedChannelInstances = 0
     @Published private(set) var removal: ExtensionController.RemovalPreview?
     @Published private(set) var pendingRemoval: ExtensionController.RemovalPreview?
     @Published private(set) var residues: ExtensionController.InstallationResidues?
@@ -90,7 +91,18 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             let policy = try await controller.refreshConfiguredChannelPolicy()
             notice = "已更新 \(policy.channel) 渠道策略至第 \(policy.generation) 代。"
             let count = try await controller.runningInstancesWithRevokedPublisher(in: policy)
-            if count > 0 { notice = (notice ?? "") + " 本应用仍持有 \(count) 个受撤销影响的实例，可在实例页停止。" }
+            affectedChannelInstances = count
+            if count > 0 { notice = (notice ?? "") + " 本应用仍持有 \(count) 个受撤销影响的实例。" }
+        } catch { issue = message(error) }
+    }
+
+    func stopAffectedChannelInstances(_ stop: () async throws -> Int) async {
+        guard canRefreshChannelPolicy, affectedChannelInstances > 0 else { return }
+        beginActivity(); issue = nil; defer { endActivity() }
+        do {
+            let stopped = try await stop()
+            affectedChannelInstances = max(0, affectedChannelInstances - stopped)
+            notice = "已确认停止 \(stopped) 个实例。"
         } catch { issue = message(error) }
     }
 
@@ -227,6 +239,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
 struct PluginInstalledVersionsView: View {
     let controller: ExtensionController?
     var didRemove: (String) -> Void = { _ in }
+    var stopRevoked: (() async throws -> Int)? = nil
     let didChange: (String, ExtensionController.VersionSelectionResult) -> Void
     @StateObject private var draft = PluginInstalledVersionsDraft()
     @State private var expanded = false
@@ -242,6 +255,11 @@ struct PluginInstalledVersionsView: View {
                     Button("刷新渠道策略") {
                         Task { await draft.refreshChannelPolicy(controller) }
                     }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-refresh")
+                }
+                if let stopRevoked, draft.affectedChannelInstances > 0 {
+                    Button("停止受渠道撤销影响的实例") {
+                        Task { await draft.stopAffectedChannelInstances(stopRevoked) }
+                    }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-stop")
                 }
                 Group {
                     TextField("当前独立可信渠道策略绝对路径", text: $draft.policyPath).accessibilityIdentifier("plugin-installed-policy")

@@ -411,8 +411,8 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue)
             XCTAssertEqual(window.alphaValue, 0)
             XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
-            try scrollBottom()
-            try press("plugin-stop")
+            let stopped = try await model.stopInstancesWithRevokedPublisher()
+            XCTAssertEqual(stopped, 1)
             guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
                 XCTFail("explicit stop did not release the instance"); return
             }
