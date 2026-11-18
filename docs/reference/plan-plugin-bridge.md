@@ -13386,3 +13386,9 @@ SSH 链使用本机隔离服务。普通 SSH PTY 切 pane、切窗口和重附�
 连接继续工作。两路业务进程回执均确认回收，资源和进程均核对 256 KiB 摘要。
 收据 SHA256 `c73f6399c0bf4a5470dfe1d3349c576dfad09e42030af32b5cd3e58298cea2d4`。
 本轮不覆盖 Android 终端焦点、IME 或物理设备。独立 ADB 与隔离产物已清理。
+
+固定 `8ac4f5bc`，macOS 屏幕外 `--tmux nested --stop-tmux` 通过两跳
+`node:jump:client-resource` 与 `exec:jump:process`。停止自有普通 SSH PTY 和
+嵌套 tmux 后，独立插件连接继续完成双向资源及业务进程 RPC，进程回执确认回收。
+收据 SHA256 `8b51d2bd52610aeff91fad736f732c96824bcb81669babf63523fcbd8458919e`。
+本轮覆盖两项，隔离产物已清理。
