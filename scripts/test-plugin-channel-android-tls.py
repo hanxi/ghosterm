@@ -124,24 +124,25 @@ def main():
         work = Path(path)
         env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
         with tls_fixture(work, env, '10.0.2.2', args.settings_cache) as (origin, cert, root):
+            build = ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
+                     ':app:assembleDebug', ':app:assembleDebugAndroidTest']
+            if args.settings_cache:
+                bundle = work / 'signed-channel'
+                build.extend(['-PghostermPluginChannel=fixture', f'-PghostermPluginChannelRoot={root}',
+                              f'-PghostermPluginChannelUrl={origin}/valid/'])
+                test = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
+                extras = [
+                    '-e', 'settingsChannelStatement', base64.b64encode((bundle / 'channel-policy.json').read_bytes()).decode(),
+                    '-e', 'settingsChannelSignature', base64.b64encode((bundle / 'channel-policy.sig').read_bytes()).decode(),
+                ]
+            else:
+                test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'
+                extras = ['-e', 'channelTlsOrigin', origin, '-e', 'channelTlsRoot', root,
+                          '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode()]
+            print(runner.run(build, env, 900)[-400:], flush=True)
             device = work / 'device'
             device.mkdir()
             with runner.headless(36, device, env) as (adb, device_env):
-                if args.settings_cache:
-                    bundle = work / 'signed-channel'
-                    print(runner.run(['bash', ROOT / 'scripts/build-android.sh',
-                        '-PghostermPluginJs=true', '-PghostermPluginChannel=fixture',
-                        f'-PghostermPluginChannelRoot={root}', f'-PghostermPluginChannelUrl={origin}/valid/',
-                        ':app:assembleDebug', ':app:assembleDebugAndroidTest'], env, 900)[-400:], flush=True)
-                    test = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
-                    extras = [
-                        '-e', 'settingsChannelStatement', base64.b64encode((bundle / 'channel-policy.json').read_bytes()).decode(),
-                        '-e', 'settingsChannelSignature', base64.b64encode((bundle / 'channel-policy.sig').read_bytes()).decode(),
-                    ]
-                else:
-                    test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'
-                    extras = ['-e', 'channelTlsOrigin', origin, '-e', 'channelTlsRoot', root,
-                              '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode()]
                 for apk in ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk'):
                     runner.run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / apk], device_env)
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
