@@ -304,11 +304,17 @@ final class PluginReleaseInstallTests: XCTestCase {
 
     func testStageLockFreezeAndFailedPublishCleanup() throws {
         let root = try directory().appendingPathComponent("store"), id = String(repeating: "a", count: 64)
-        let stage = try PluginReleaseStage(directory: root)
+        var journalPrepared = false
+        let stage = try PluginReleaseStage(directory: root, checkpoint: { point in
+            if point == "before-publication-rename" { journalPrepared = true }
+        })
         try stage.write(Data("snapshot".utf8), path: "payload/a")
         XCTAssertThrowsError(try PluginReleaseStage(directory: root)) { XCTAssertEqual($0 as? PluginReleaseStage.Failure, .busy) }
         enum Injected: Error { case beforeRename }
-        XCTAssertThrowsError(try stage.publish(id: id, beforeRename: { throw Injected.beforeRename }))
+        XCTAssertThrowsError(try stage.publish(id: id, beforeRename: {
+            XCTAssertTrue(journalPrepared, "final authorization must follow the publication journal")
+            throw Injected.beforeRename
+        })) { XCTAssertEqual($0 as? Injected, .beforeRename) }
         XCTAssertFalse(try names(root).contains(id), "failure before rename must not publish")
         try stage.discard()
         XCTAssertEqual(try names(root), [], "failed frozen stage must still clean")

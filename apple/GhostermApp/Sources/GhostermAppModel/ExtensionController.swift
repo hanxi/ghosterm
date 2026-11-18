@@ -755,6 +755,10 @@ public actor ExtensionController {
                 throw PluginDirectorySignatureVerifier.Failure.channelFreshness
             }
             try state.recordChannelPolicy(policy, now: UInt64(seconds), requireHistory: requireHistory)
+            let confirmed = Date().timeIntervalSince1970
+            guard seconds <= confirmed, confirmed < Double(policy.expiresAt) else {
+                throw PluginDirectorySignatureVerifier.Failure.channelFreshness
+            }
         }
 
         var channelGeneration: UInt64? {

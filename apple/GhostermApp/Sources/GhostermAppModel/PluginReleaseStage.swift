@@ -175,13 +175,13 @@ final class PluginReleaseStage {
         try walk(root, removing: false)
         guard verifiedFiles == files.count else { throw Failure.changed }
         try validate()
-        try beforeRename?()
         if var record = journalRecord, let journal, let reference = journalReference {
             record.target = id
             try journal.write(record, expected: reference.digest)
             journalRecord = record; journalReference = try journal.read(record.id).1
         }
         try checkpoint("before-publication-rename")
+        try beforeRename?()
         guard renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL)) == 0 else {
             throw errno == EEXIST ? Failure.conflict : Failure.io
         }
