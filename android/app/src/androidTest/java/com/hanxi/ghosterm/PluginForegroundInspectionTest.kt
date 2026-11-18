@@ -6,12 +6,15 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import android.os.SystemClock
+import com.hanxi.ghosterm.bridge.NativeTerminalSession
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.UUID
 
 /** Focused parser / production form smoke. The route callback is injected;
  * actual SSH ownership and device matrices remain separate verification. */
@@ -84,5 +87,31 @@ class PluginForegroundInspectionTest {
         ui.onNodeWithTag("plugin-ipc-declaration").assertDoesNotExist()
         ui.onNodeWithTag("plugin-ipc-allow").assertIsOff()
         ui.onNodeWithTag("plugin-ipc-files").assertIsOff()
+    }
+
+    @Test fun terminalCandidateRequiresExplicitHostSelectionBeforeInspection() {
+        val command = ExtensionController.Command("fixture", "Fixture", "schemas/input.json", emptyList())
+        val digest = "a".repeat(64)
+        val review = ExtensionController.Review("org.ghosterm.fixture", "0.1.0", "fixture", "MIT", digest,
+            "portable-js", emptyList(), emptyList(), false, false, listOf(command))
+        val candidate = FrontendCandidate(UUID.randomUUID(), UUID.randomUUID(), "终端来源",
+            NativeTerminalSession.DiscoveryOffer("/private/front", instance, digest, 1uL), SystemClock.elapsedRealtime())
+        var inspectedHost: String? = null
+        ui.setContent { MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
+            listOf("default-host", "chosen-host"), onDismiss = {}, onLaunch = { _, _, _ -> fail("检查不启动插件") },
+            frontendCandidates = listOf(candidate), onInspect = { alias, _, directory, selected ->
+                inspectedHost = alias
+                assertEquals(candidate.offer.directory, directory)
+                PluginForegroundDeclaration.parse(declaration(), selected)
+            }) } }
+
+        ui.onNodeWithTag("plugin-discovery-use-${candidate.id}").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-inspect").assertIsNotEnabled()
+        ui.onNodeWithText("连接并请求授权").assertIsNotEnabled()
+        ui.onNodeWithText("选择 SSH 主机").performScrollTo().performClick()
+        ui.onNodeWithText("chosen-host").performClick()
+        ui.onNodeWithTag("plugin-ipc-inspect").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-declaration").assertExists()
+        ui.runOnIdle { assertEquals("chosen-host", inspectedHost) }
     }
 }

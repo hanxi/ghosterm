@@ -729,6 +729,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     TextButton(modifier = Modifier.testTag("plugin-discovery-use-${candidate.id}"), onClick = {
                         if (!validateFrontend(candidate)) problem = "候选提示已过期或来源已停止，请重新运行前台命令。"
                         else {
+                            selectedHost = ""
+                            problem = null
                             attachExisting = true; useReleaseEvidence = false; executorVariantID = ""; ipcDirectory = candidate.offer.directory; ipcInstance = candidate.offer.instance
                             declaration = null; scopedFiles = false; remoteProcesses = false
                             attachmentAllowed = false; executionAllowed = false; clientAllowed = false
