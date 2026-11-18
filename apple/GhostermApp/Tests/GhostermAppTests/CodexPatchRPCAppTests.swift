@@ -29,6 +29,8 @@ final class CodexPatchRPCAppTests: XCTestCase {
     func testPatchAndApprovalOverDirectSSH() async throws { try await run(useJump: false) }
     func testPatchAndApprovalOverProxyJump() async throws { try await run(useJump: true) }
 
+    func testLostTurnReplyOverDirectSSH() async throws { try await run(useJump: false, dropTurnReply: true) }
+
     private struct FixtureFailure: Error { let message: String }
 
     private func wait(_ label: String, seconds: Double = 30, until predicate: () -> Bool) async throws {
@@ -76,7 +78,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         "@@ -1 +1 @@\n" + (0..<600).map { "+REV-\(revision) row-\($0) 中文😀\n" }.joined() + "+FINAL-REV-\(revision)\n"
     }
 
-    private func run(useJump: Bool) async throws {
+    private func run(useJump: Bool, dropTurnReply: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let program = env["GHOSTERM_TEST_CODEX_PATCH_FIXTURE"], let packagePath = env["GHOSTERM_TEST_CODEX_PACKAGE"],
@@ -94,6 +96,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
         }
         let workspace = root.appendingPathComponent("workspace")
+        if dropTurnReply { try Data().write(to: workspace.appendingPathComponent("drop-turn-reply")) }
         try Data(#"{"fixture":"ghosterm-patch-rpc","version":1}"#.utf8).write(to: workspace.appendingPathComponent("fixture.json"))
         func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
         let childEnvironment = ["HOME": root.appendingPathComponent("home").path,
@@ -148,6 +151,22 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await wait("Fixture thread did not reach the Native UI") { model.codexThreadID == "thread-fixture" && !model.codexCallBusy }
         model.codexMessageDraft = "exercise the isolated patch protocol fixture"
         try await press(pane, id: "plugin-codex-send")
+        if dropTurnReply {
+            try await wait("missing turn reply was not reported") {
+                model.extensionInstance.codexSendUnconfirmed && !model.codexCallBusy &&
+                    self.control(pane, id: "plugin-codex-send-unconfirmed") != nil
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("turn-received.json").path))
+            XCTAssertFalse(model.codexTurnActive)
+            XCTAssertFalse(isEnabled(try XCTUnwrap(control(pane, id: "plugin-codex-send"))))
+            XCTAssertEqual(model.codexMessageDraft, "exercise the isolated patch protocol fixture")
+            let issue = model.extensionRunIssue
+            await model.sendCodexMessage()
+            XCTAssertEqual(model.extensionRunIssue, issue)
+            XCTAssertTrue(model.extensionInstance.codexSendUnconfirmed)
+            XCTAssertFalse(model.codexCallBusy)
+            return
+        }
         try await wait("Patch and file approval did not arrive over Host RPC") {
             (model.codexPendingApprovals.count == 1 && model.codexTimeline.contains { $0.changeReference != nil } && !model.codexCallBusy) ||
                 model.extensionRunIssue != nil

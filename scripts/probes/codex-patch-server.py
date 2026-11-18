@@ -90,6 +90,9 @@ def main():
                 approvalsReviewer='user', sandbox={'type': 'readOnly', 'networkAccess': False}, reasoningEffort=None)))
             notification('thread/started', {'thread': thread})
         elif method == 'turn/start':
+            if Path('drop-turn-reply').exists():
+                receipt('turn-received.json', {'received': True})
+                return
             if running or message['params']['threadId'] != THREAD:
                 raise RuntimeError('Fixture accepts one explicit turn')
             running = True

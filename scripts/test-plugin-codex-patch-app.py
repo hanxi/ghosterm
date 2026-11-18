@@ -27,7 +27,8 @@ def main():
                            shlex.quote(str(ROOT / 'scripts/probes/codex-patch-server.py')) + ' "$@"\n')
         program.chmod(0o700)
         selected = 'CodexPatchRPCAppTests' if args.route == 'both' else \
-            'CodexPatchRPCAppTests.testPatchAndApprovalOver' + ('DirectSSH' if args.route == 'direct' else 'ProxyJump')
+            'CodexPatchRPCAppTests.test(PatchAndApprovalOverDirectSSH|LostTurnReplyOverDirectSSH)' if args.route == 'direct' else \
+            'CodexPatchRPCAppTests.testPatchAndApprovalOverProxyJump'
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_TEST_GTERM=str(gterm),
                    GHOSTERM_TEST_CODEX_PACKAGE=str(package), GHOSTERM_TEST_CODEX_PATCH_FIXTURE=str(program),
                    GHOSTERM_APP_TEST_FILTER=selected, GHOSTERM_AUTOMATION_OFFSCREEN='1')
@@ -43,7 +44,7 @@ def main():
         result = subprocess.run(command, cwd=ROOT, env=env)
         if result.returncode:
             raise SystemExit(result.returncode)
-        expected = 2 if args.route == 'both' else 1
+        expected = {'both': 3, 'direct': 2, 'jump': 1}[args.route]
         log = (ROOT / 'tmp/apple-app-test.log').read_text()
         summary = f'Executed {expected} test' + ('s' if expected != 1 else '') + ', with 0 failures'
         if summary not in log or 'skipped' in log.lower():
