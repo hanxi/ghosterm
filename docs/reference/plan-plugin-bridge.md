@@ -13927,3 +13927,13 @@ API 36 arm64 / 4 KiB 页，安装后对拍两份 APK，覆盖签名、归档、�
 `cbbe5dee400fecb6ea1d97a0e832936000581c3dc4710a08305102a3b81b9d9b` 和
 `c176558310834e5d733bda5caf09410e3809116baffea64887d7f1edb2f89131`。
 AVD 和本轮目录已清理。该轮模拟应用进程死亡，未测试设备断电或其它平台。
+
+### P6 Android 策略禁用与运行中引用复验（2026-11-19）
+
+固定 `e05fb04f`，在同一专用 API 36 无窗口 AVD 复用 JS-on APK 并核对安装后摘要。
+用 `test-plugin-channel.py --rpc --android-client-runtime --case allow2` 分别运行
+同一控制器与另一控制器显式策略禁用两项。两跳 SSH 上正在运行的实例与版本租约保持，
+后续准入按当前选择检查。两项收据 SHA256 分别为
+`606ccf432e70320ba1b07c2655fe88bea71086c456fb259f61a5164f00591d37` 和
+`27c7efaa97cb6b3235940a040ed15fd3a16b89dd63b02e0486df46b10dc05d43`。
+本轮未验证在线策略分发或跨进程全局撤权，临时 SSH 夹具和 AVD 已清理。
