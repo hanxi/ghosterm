@@ -49,6 +49,42 @@ class ExecutorSSHAppTest {
         while (SystemClock.elapsedRealtime() < end) { if (predicate()) return; SystemClock.sleep(20) }
         fail(label)
     }
+    private fun openOrdinaryTerminal(sessions: SessionsViewModel, target: PreparedSSH, pem: String): TerminalSession {
+        val existing = main { sessions.sessions.map { it.id }.toSet() }
+        main { sessions.connect(target) }
+        var handled: Triple<Long, Int, SSHAuthPhase>? = null
+        var terminal: TerminalSession? = null
+        await("Ordinary SSH terminal did not connect") {
+            main {
+                val attempt = sessions.connecting
+                val prompt = attempt?.auth
+                val identity = prompt?.let { Triple(it.request, it.hop, it.phase) }
+                if (prompt != null && identity != handled) {
+                    handled = identity
+                    when (prompt.phase) {
+                        SSHAuthPhase.HOSTKEY -> sessions.decide(attempt.id, prompt, true)
+                        SSHAuthPhase.CREDENTIALS -> checkNotNull(attempt.connection).privateKey(prompt, pem.toByteArray())
+                        SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail("Ordinary SSH authentication failed")
+                        else -> Unit
+                    }
+                }
+                terminal = sessions.sessions.firstOrNull { it.id !in existing && it.state.connected }
+                terminal != null
+            }
+        }
+        return checkNotNull(terminal)
+    }
+
+    private fun verifyOrdinaryTerminal(terminal: TerminalSession, stage: String) {
+        main {
+            terminal.surface.commit("printf '%s_%s_' GHOSTERM $stage; " +
+                "printf '\\000\\377\\033\\177\\303\\251' | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' '\r")
+        }
+        await("Ordinary SSH terminal grid missing the remote byte receipt ($stage)") {
+            main { terminal.surface.frame(-1)?.accessibilityText()?.contains("GHOSTERM_${stage}_00ff1b7fc3a9") == true }
+        }
+    }
+
     @Test fun remoteExecutionThroughViewModelAndConsentUI() {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val payload = service(); val mode = payload.getString("mode"); val jump = payload.getString("route") == "jump"
@@ -83,6 +119,7 @@ class ExecutorSSHAppTest {
         val extensions = ViewModelProvider(ui.activity)[ExtensionPackagesViewModel::class.java]
         val sessions = ViewModelProvider(ui.activity)[SessionsViewModel::class.java]
         val controller = checkNotNull(extensions.controller)
+        var ordinaryTerminal: TerminalSession? = null
         try {
             val review = runBlocking { controller.review(folder) }
             assertEquals(ExtensionRegistry.Status.OK, runBlocking { controller.approve(review.id, digest) })
@@ -172,6 +209,11 @@ class ExecutorSSHAppTest {
             val foregroundTmux = payload.optBoolean("foregroundTmux")
             assertEquals(if (foregroundTmux) "[true,true,true]" else "[false,false,false]", service("audit").getJSONArray("tty").toString())
             assertEquals("[false,false,false]", service("audit").getJSONArray("runtimeTTY").toString())
+            if (mode == "allow" && !attaching) {
+                ordinaryTerminal = openOrdinaryTerminal(sessions, target, payload.getString("pem"))
+                verifyOrdinaryTerminal(ordinaryTerminal, "ACTIVE")
+                assertEquals(ExtensionRuntime.Phase.ACTIVE, main { extensions.activeRuntime?.info?.phase })
+            }
             if (!payload.isNull("tmuxTopology")) {
                 fun probe(label: String) {
                     val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", JSONObject().put("text", label).put("count", 23).toString().toByteArray()) }
@@ -317,7 +359,9 @@ class ExecutorSSHAppTest {
             main { extensions.releaseFinished() }
             await("Client owners not released") { main { !extensions.launchBusy && extensions.activeSession == null && extensions.activeRuntime == null } }
             assertNull(main { extensions.error })
+            ordinaryTerminal?.let { verifyOrdinaryTerminal(it, "STOPPED") }
         } finally {
+            ordinaryTerminal?.let { main { sessions.close(it.id) } }
             runBlocking { controller.close() }
             if (original == null) known.delete() else known.writeBytes(original)
             File(local.parentFile, "${local.name}-outside.bin").delete()

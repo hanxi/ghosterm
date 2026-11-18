@@ -13592,3 +13592,15 @@ NUL、非 UTF-8、控制字符和有效 UTF-8 的夹具字节转成十六进制�
 固定 `011ffacd` 加本批修改，离屏通过 Node 直连和 Exec ProxyJump 两项。
 收据 SHA256 `1324f23ece3aa407e2a2e5d092c39f9510aed6814eeb3fcc08e93aa3b4420cb8`。
 本轮夹具已清理，未执行 Android 对应场景或变异。
+
+### P1 Android 应用内普通 SSH 终端与插件共存（2026-11-19）
+
+扩展 `ExecutorSSHAppTest` 的远端启动场景。插件 Client Runtime 活跃时经
+生产 SessionsViewModel 打开独立普通 SSH 终端，向 TerminalSurface 输入命令，
+从原生 VT 网格核对远端生成的六字节十六进制回执。插件停止和释放后用另一个
+标记复验同一终端。回执由远端计算，输入文本没有完整回执。
+
+固定 `2e36ccc6` 加本批修改，API 36 无窗口模拟器通过 Node 直连和 Exec
+ProxyJump 两项，核对实际安装的应用和测试 APK 摘要。收据 SHA256
+`d31977f0db19f89b27ab9d92baee9ff1fb54485f28ed17a67bd0cb742070d036`。
+本轮 AVD、回环夹具与构件已清理，未执行对应变异或其它设备。
