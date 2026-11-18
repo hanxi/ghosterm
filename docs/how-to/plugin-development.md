@@ -587,6 +587,26 @@ python3 scripts/gterm-plugin release sign --artifact tmp/preview.zip --policy /�
 python3 scripts/gterm-plugin release verify --artifact tmp/preview-release/plugin.zip --descriptor tmp/preview-release/release.json --signature tmp/preview-release/release.sig --policy /可信位置/channel.json --tools tmp/plugin-dev/tools
 ```
 
+官方候选包可以用一次性测试渠道统一核对。先准备前文的锁定开发工具
+`tmp/plugin-dev/tools`，以及匹配 `scripts/fixtures/plugin-sdk-tools` 锁文件的 SDK 工具
+`build/plugin-sdk-tools`。在工程根目录执行：
+
+```sh
+export TMPDIR="$PWD/tmp"
+mkdir -p tmp/official-release
+python3 scripts/build-plugin-codex.py --tools build/plugin-sdk-tools --out tmp/official-release/ai-codex
+python3 scripts/build-plugin-claude.py --fetch --out tmp/official-release/ai-claude
+python3 -B scripts/test-plugin-release.py \
+  --tools tmp/plugin-dev/tools --sdk-tools build/plugin-sdk-tools \
+  --ai-packages tmp/official-release/ai-codex tmp/official-release/ai-claude \
+  --receipt tmp/official-release/receipt.json
+```
+
+测试通过后，收据应包含 44 项基线，其中七项分别核对 Preview、Table、Diff、Task、
+Views、Codex 和 Claude 的签名归档。每个测试策略限定一个插件 ID，验签后逐成员
+比对归档与构建目录。Claude 的 `--fetch` 允许下载锁定的构建依赖。完成核对后可清理
+本次 `tmp/official-release/` 产物。
+
 在启用 Portable JS 的 macOS 开发构建中，先选择并审查目录包，再展开「目录包发布签名」。
 填写 `release.json`、`release.sig` 与渠道公钥策略的绝对路径；从独立可信来源核对策略后，
 勾选信任确认并点击「核对目录包签名」。包附带的策略不能自行建立信任。成功时显示渠道、
