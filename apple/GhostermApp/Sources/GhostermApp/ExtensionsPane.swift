@@ -537,8 +537,16 @@ struct ExtensionsPane: View {
         do {
             guard !startingConnectionGroup else { return }
             let candidate = try configuration(entry)
-            _ = try ExtensionGroupInvocation.validateGroup(pendingConnections + [candidate])
-            pendingConnections.append(candidate)
+            let queued = pendingConnections + [candidate]
+            startingConnectionGroup = true
+            Task { @MainActor in
+                defer { startingConnectionGroup = false }
+                do {
+                    try await model.validateQueuedExtensionGroup(queued)
+                    pendingConnections.append(candidate)
+                    issue = nil
+                } catch { issue = "连接组配置无效：\(error)" }
+            }
         } catch { issue = "连接组配置无效：\(error)" }
     }
     private func launch(_ entry: Entry) {

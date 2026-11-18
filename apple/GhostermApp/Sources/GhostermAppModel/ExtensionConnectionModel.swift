@@ -61,7 +61,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     private var nativeReady = false
     private var closing = false
     init(controller: ExtensionController, title: String) { self.controller = controller; self.title = title }
-    private func hex(_ value: UUID) -> String { value.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
+    private static func hex(_ value: UUID) -> String { value.uuidString.replacingOccurrences(of: "-", with: "").lowercased() }
     static func nativeBoolean(_ value: Any?) -> Bool? {
         guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         return number.boolValue
@@ -70,7 +70,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw GhostermError.failed("连接管理回执无效") }
         return value
     }
-    private func prepare(_ launch: ExtensionGroupInvocation) async throws -> ExtensionRelayBootstrap.Request {
+    private static func prepare(_ launch: ExtensionGroupInvocation, controller: ExtensionController) async throws -> ExtensionRelayBootstrap.Request {
         let request = launch.request
         let selected = try await controller.resolve(command: request.command, selectedID: launch.packageID, selectedDigest: request.clientDigest)
         guard selected.status == 0, selected.packageID == launch.packageID, selected.packageDigest == request.clientDigest,
@@ -83,6 +83,22 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             scopedRoots: request.scopedRoots, processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
             execution: request.execution, attachment: request.attachment, releaseEvidence: request.releaseEvidence, variantID: request.variantID, command: request.command, arguments: request.arguments)
     }
+    static func prepareGroup(_ launches: [ExtensionGroupInvocation], controller: ExtensionController, connectionID: UUID)
+        async throws -> (first: ExtensionGroupInvocation, scopes: [ExtensionController.MultiplexScope], argv: [String], command: String) {
+        let first = try ExtensionGroupInvocation.validateGroup(launches)
+        var requests: [ExtensionRelayBootstrap.Request] = []
+        for selection in launches {
+            try Task.checkCancellation()
+            requests.append(try await prepare(selection, controller: controller))
+        }
+        let scopes = launches.enumerated().map {
+            ExtensionController.MultiplexScope(instance: hex($0.element.id), epoch: UInt64($0.offset + 1))
+        }
+        let bootstrap = try ExtensionRelayBootstrap.buildMultiplex(connection: hex(connectionID), scopes: scopes,
+            requests: requests, local: first.localLaunch != nil, temporaryDirectory: first.temporaryDirectory, live: true)
+        return (first, scopes, bootstrap.argv, bootstrap.command)
+    }
+
     private func launch(_ model: ExtensionInstanceModel, _ selection: ExtensionGroupInvocation, command: String) async {
         let request = selection.request
         await model.startExtensionClient(packageID: selection.packageID, packageDigest: request.clientDigest,
@@ -106,14 +122,10 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     }
     private func startOnMain(_ launches: [ExtensionGroupInvocation], app: AppModel) async -> Bool {
         do {
-            let first = try ExtensionGroupInvocation.validateGroup(launches)
+            let command = try await Self.prepareGroup(launches, controller: controller, connectionID: id)
+            let first = command.first, admitted = command.scopes
             origin = first; environmentNames = Set(launches.flatMap(\.request.processEnvironmentNames))
-            var requests: [ExtensionRelayBootstrap.Request] = []
-            for selection in launches { try Task.checkCancellation(); requests.append(try await prepare(selection)) }
-            let admitted = launches.enumerated().map { ExtensionController.MultiplexScope(instance: hex($0.element.id), epoch: UInt64($0.offset + 1)) }
             nextEpoch = UInt64(launches.count + 1)
-            let command = try ExtensionRelayBootstrap.buildMultiplex(connection: hex(id), scopes: admitted, requests: requests,
-                local: first.localLaunch != nil, temporaryDirectory: first.temporaryDirectory, live: true)
             if let local = first.localLaunch {
                 _ = try await controller.openLocalChannel(executable: first.request.executable, arguments: command.argv, launch: local, environmentNames: environmentNames.sorted())
                 targetDescription = "本机 · " + first.request.executable + " · " + local.workingDirectory
@@ -121,7 +133,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
                 _ = try await app.authenticatePluginSSHChannel(alias: first.sshAlias, bootstrap: command.command, controller: controller)
                 targetDescription = try await controller.multiplexTargetDescription()
             }
-            let children = try await controller.adoptMultiplexConnection(connection: hex(id), scopes: admitted, live: true)
+            let children = try await controller.adoptMultiplexConnection(connection: Self.hex(id), scopes: admitted, live: true)
             let hello = try object(await controller.manageMultiplex("hello"))
             guard let version = hello["nativeControl"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(), version.intValue == 1 else {
                 throw GhostermError.failed("执行端未确认在线管理能力")
@@ -181,7 +193,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             guard let first = origin, acceptsConfiguration(selection) else {
                 throw GhostermError.failed("新增实例须沿用此连接的目标、gterm、临时目录和原本机环境授权；更换范围请新建连接")
             }
-            let request = try await prepare(selection)
+            let request = try await Self.prepare(selection, controller: controller)
             let profile = try ExtensionRelayBootstrap.multiplexProfile(request, local: first.localLaunch != nil)
             let deadline = ProcessInfo.processInfo.systemUptime + 3
             for model in instances where model.canDiscard {
@@ -196,7 +208,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             }
             instances.removeAll { $0.canDiscard }; observeModels()
             guard instances.count < 8, nextEpoch != UInt64.max else { throw GhostermError.failed("连接实例或代次已达上限") }
-            let scope = ExtensionController.MultiplexScope(instance: hex(selection.id), epoch: nextEpoch); nextEpoch += 1
+            let scope = ExtensionController.MultiplexScope(instance: Self.hex(selection.id), epoch: nextEpoch); nextEpoch += 1
             let owner = try await controller.openMultiplexInstance(scope); child = owner
             let input = try JSONSerialization.data(withJSONObject: ["instance": scope.instance, "epoch": String(scope.epoch), "profile": profile])
             let result = try object(await controller.manageMultiplex("open", input: input))
@@ -246,6 +258,11 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
 }
 
 @MainActor public extension AppModel {
+    func validateQueuedExtensionGroup(_ launches: [ExtensionGroupInvocation]) async throws {
+        guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+        _ = try await ExtensionConnectionModel.prepareGroup(launches, controller: extensionController, connectionID: UUID())
+    }
+
     @discardableResult
     func startExtensionGroup(_ invocations: [ExtensionGroupInvocation]) async -> Bool {
         guard let extensionController else { extensionConnectionIssue = "此构建未启用插件运行时"; return false }
