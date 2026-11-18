@@ -310,20 +310,23 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     internal fun enqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
-        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String) {
-        try {
+        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
+        return try {
             check(pendingGroup.size < 8) { "连接组最多八项" }
             val prepared = prepareLaunch(entry, command, request, clientWorkspace)
             check(prepared.request.attachment == null) { "已有前台附着不能加入固定启动组" }
             val candidate = ExtensionGroupInvocation(alias, prepared, temporaryDirectory)
             val group = pendingGroup.toList() + candidate
             require(group.all { it.alias == alias }) { "同一连接组必须选择同一目标" }
+            require(group.all { it.temporaryDirectory == temporaryDirectory }) { "同一连接组必须使用相同临时目录" }
             ExtensionRelayBootstrap.buildMultiplex("1".repeat(32), group.mapIndexed { index, item ->
                 ExtensionController.MultiplexScope(item.id.toString().replace("-", ""), (index + 1).toULong())
             }, group.map { it.launch.request }, temporaryDirectory)
-            require(group.all { it.temporaryDirectory == temporaryDirectory }) { "同一连接组必须使用相同临时目录" }
             pendingGroup.add(candidate)
-        } catch (failure: Exception) { error = failure.message ?: "连接组配置无效" }
+            Result.success(Unit)
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
     }
 
     internal fun launchGroup(target: PreparedSSH, sessions: SessionsViewModel) {

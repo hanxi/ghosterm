@@ -13099,3 +13099,14 @@ Android SDK 仍缺失，设备验收保留为待完成。
 `test_api` 62 项通过。以上为分轮证据，首轮 `gate.sh` 仍记失败。
 首轮 CTest 日志 SHA256 `8d0c065fe978744577d72b1a006d8828c56a19f2728f3fe5f6d8392fce03a146`，
 复跑与 ABI 日志 SHA256 `c39ab3f1a33f46a9f306208ca4ad7d9ed75b5aab311bb071f7016907f1dab70e`。
+
+### 两端启动组提交反馈（2026-11-18）
+
+macOS 的 `ee00c0e1` 在启动组失败时保留配置并在设置页显示原因，后台 arm64
+Release 构建通过。Android 在入组失败时保留表单并显示原因，切换到已有前台实例后
+使用附着提交。Android Debug 应用和测试 APK 构建通过，四模块 Release lint 通过。
+API 36 arm64 独立无窗口模拟器的 `PluginResourcePreviewUiTest` 八项通过，
+覆盖拒绝后保留输入、附着模式按钮、工作区请求及资源预览。该轮使用 Compose 宿主和
+明确的入组拒绝回调，实际远端附着与启动组故障矩阵仍待验。
+
+测试日志 SHA256 `001a2c07012f182dcd8a72d2a17defcccb430fcde7e9dfcfbb2b220d81c2c6d7`。

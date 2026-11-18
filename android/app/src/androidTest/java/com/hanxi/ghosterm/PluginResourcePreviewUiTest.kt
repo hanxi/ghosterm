@@ -150,6 +150,30 @@ class PluginResourcePreviewUiTest {
         assertTrue(ExtensionRelayBootstrap.build(checkNotNull(captured)).contains("'/home/user'\\''s space/工作区'"))
     }
 
+    @Test fun rejectedGroupPreservesInputsAndAttachmentUsesItsOwnSubmitAction() {
+        val command = ExtensionController.Command("preview", "Preview", "{}", emptyList())
+        val review = ExtensionController.Review("org.ghosterm.preview", "0.1.0", "Ghosterm", "MIT",
+            "a".repeat(64), "portable-js", emptyList(), emptyList(), true, false, listOf(command))
+        val rejection = "同一连接组必须选择同一目标"
+        ui.setContent {
+            PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), command,
+                listOf("host"), onDismiss = {}, onLaunch = { _, _, _ -> error("未提交单独启动") },
+                onEnqueue = { _, _, _, _ -> Result.failure(IllegalArgumentException(rejection)) })
+        }
+        val directory = ui.onNodeWithTag("plugin-executor-directory")
+        directory.performScrollTo().performTextInput("/opt/preview")
+        ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextInput("b".repeat(64))
+        ui.onNodeWithTag("plugin-group-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-group-temporary").performScrollTo().performTextInput("/opt/tmp")
+        ui.onNodeWithText("加入待启动组").performClick()
+        ui.onNodeWithText(rejection).assertExists()
+        directory.assertTextContains("/opt/preview")
+
+        ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
+        ui.onNodeWithText("加入待启动组").assertDoesNotExist()
+        ui.onNodeWithText("连接并请求授权").assertExists()
+    }
+
     @Test fun consentDialogShowsTheExactRemoteCommandAndCapabilitySet() {
         val command = ExtensionController.Command("preview", "Preview", "{}", listOf("resource"))
         val info = com.hanxi.ghosterm.bridge.ExtensionSession.Info(

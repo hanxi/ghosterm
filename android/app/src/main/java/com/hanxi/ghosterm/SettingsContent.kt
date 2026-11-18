@@ -299,7 +299,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, frontendCandidates = frontendCandidates, validateFrontend = validateFrontend,
             onEnqueue = { alias, request, workspace, temporary ->
                 extensions.enqueueGroup(entry, command, alias, request, workspace, temporary)
-                launchSelection = null
+                    .onSuccess { launchSelection = null }
             },
             onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
             launchSelection = null
@@ -634,7 +634,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     hostAliases: List<String>,
     onDismiss: () -> Unit,
     onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
-    onEnqueue: ((String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?, String) -> Unit)? = null,
+    onEnqueue: ((String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?, String) -> Result<Unit>)? = null,
     onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     frontendCandidates: List<FrontendCandidate> = emptyList(),
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
@@ -667,6 +667,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var nodeSDKDirectory by remember { mutableStateOf("") }
     var nodeSDKDigest by remember { mutableStateOf("") }
     var attachExisting by remember { mutableStateOf(false) }
+    val enqueueGroup = onEnqueue.takeIf { groupLaunch && !attachExisting }
     var ipcDirectory by remember { mutableStateOf("") }
     var ipcInstance by remember { mutableStateOf("") }
     var remoteProcesses by remember(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting, ipcDirectory, ipcInstance) { mutableStateOf(false) }
@@ -906,19 +907,18 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         releaseEvidence = if (!attachExisting && useReleaseEvidence) ExtensionRelayBootstrap.ReleaseEvidence(
                             releaseDirectory, releasePolicyPath, releasePolicySHA256, releaseEvidenceAllowed) else null,
                         variantID = executorVariantID.takeUnless { attachExisting || it.isEmpty() })
-                    if (!groupLaunch) ExtensionRelayBootstrap.build(request)
+                    if (enqueueGroup == null) ExtensionRelayBootstrap.build(request)
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }
                     }
-                    if (groupLaunch) {
-                        ExtensionRelayBootstrap.buildMultiplex("1".repeat(32), listOf(ExtensionController.MultiplexScope("2".repeat(32), 1uL)),
-                            listOf(request), groupTemporaryDirectory)
-                        checkNotNull(onEnqueue)(selectedHost, request, clientWorkspace, groupTemporaryDirectory)
+                    if (enqueueGroup != null) {
+                        enqueueGroup(selectedHost, request, clientWorkspace, groupTemporaryDirectory)
+                            .onFailure { problem = it.message ?: "连接组配置无效" }
                     } else onLaunch(selectedHost, request, clientWorkspace)
                 } catch (failure: IllegalArgumentException) {
                     problem = failure.message ?: "插件启动参数无效"
                 }
-            }) { Text(if (groupLaunch) "加入待启动组" else "连接并请求授权") }
+            }) { Text(if (enqueueGroup != null) "加入待启动组" else "连接并请求授权") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
