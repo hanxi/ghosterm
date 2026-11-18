@@ -12774,3 +12774,41 @@ JS-off / tests-on / release-signature-off，沿用此前 Core 证据。最终源
 构件和日志摘要收据 SHA256：
 `a176e914f7afd30f479f0dfef351b5b7f0d9f99447e8988c397f455dfc338e89`。
 无活动引用的本批 tmp 随提交清理；本地分批提交、不推送 / 发行，P1–P6 未完成。
+
+### P2 实施第七十批：Runtime 观察失效后的交互撤回与显式停止（2026-11-18）
+
+核对 §8 发现实际缺口：两端 Runtime 推进抛异常后虽会撤回视图 / 审批，最后的 Native
+快照却可能仍为 ACTIVE，部分 Codex 输入和直接 RPC / 文件发布入口仍可使用该快照。
+Android 的停止入口又只设置 Native stop，依赖已退出的原观察循环更新结果，可能一直
+显示“正在停止”。这与第九批 Native 恢复轮非 ACTIVE 异常分开记账，不声称找到后者原因。
+
+本片给每个实例增加独立观察失败事实，保存首个原因和最后真实快照，不伪造 Native
+FAILED / STOPPED。运行 / 启动中的旧快照显示“最后观测，当前状态未知”；业务交互
+同时要求当前 ACTIVE、有效观察和可操作的实例。Codex 启动 / 发送 / 中断 / 审批、
+Claude 操作 / 观察、标准视图 / 补丁读取及 Native 文件发布共用此边界。异步 RPC
+回包也检查观察事实，失效后不会再更新业务状态；未确认句柄仍走原有取消 / 保留路径，
+不自动重发业务。原生视图和审批撤回，草稿 / 时间线 / 已收到资源等观察快照保留。
+
+Android 现在持有实际 Runtime 观察 Job。用户显式停止时，如果原 Job 已退出，重建
+同一 Native Runtime 的清理观察，先前已发送的 stop 由该 owner 处理；不创建新 Runtime
+或执行插件激活。独立的观察循环代次保护 Native step / 资源 / Host 事件回调和 finally，
+旧循环不能改写新循环的 busy / 快照。关闭实例取消并等待该 Job，仍异步释放 Native
+owner。观察成功确认 Native 终态后可显示真实 STOPPED / FAILED；之前未确认的业务
+结果仍未知，业务输入也不会恢复。只有新实例启动才重新建立可交互的观察范围。
+
+**开发阶段检查：** macOS 工作区最终九项通过，新增实际实例模型的首因保留、草稿
+保留、仅撤回本实例审批和其它实例不受影响；窗口后台 / 离屏。最终 macOS Release、
+Android JS-on Debug / 测试 APK、普通 JS-off 未签名 Release / 实际 R8 与 app / bridge /
+terminal / data 四模块 lintRelease 通过。最后补齐回调代次后重新编译 Android 两档，
+八份代码输入在检查前后摘要一致；未启动模拟器或模型请求。
+
+两端既有八实例混合用例已加入确定性的观察失效，核对实际最后 ACTIVE 快照保留、
+业务请求拒绝、其它实例继续可操作；Android 还核对显式停止补回 STOPPED 观察和
+清理流程。**本批只编译这些 Native 用例，尚未执行**，不能把九项模型测试当真实 SSH /
+设备故障或本轮生产变异通过。完整交互 / 取消 / 断线 / 生命周期 / 设备矩阵仍集中验收，
+第九批 Native 非 ACTIVE 恢复失败仍未解决。
+
+C / SDK / wire / 公共头和绑定符号未改，不重跑完整 Core；根仍为 JS-off / tests-on /
+release-signature-off。最终源码 / 构件 / 日志收据 SHA256 为
+`01df8af0333cb8494aa279e65bfaa510b11df34a675cc063c0072d8b46c9b745`；无活动引用的本批 tmp 随
+提交清理。本地分批提交、不推送 / 发行，P1–P6 未完成，不增加 CI 二十份。

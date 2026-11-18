@@ -44,6 +44,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     internal var registeredViews: PluginViewsModel? by mutableStateOf(null)
         private set
     private var handshakeJob: Job? = null
+    private var runtimeJob: Job? = null
+    private var runtimePumpGeneration = Any()
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
@@ -88,6 +90,12 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         private set
     var activeRuntime: ExtensionController.RuntimeState? by mutableStateOf(null)
         private set
+    var runtimeObservationIssue: String? by mutableStateOf(null)
+        private set
+    val canInteractWithRuntime get() = runtimeObservationIssue == null && !launchBusy &&
+        activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+    val runtimeStateIsUnknown get() = runtimeObservationIssue != null && activeRuntime?.info?.phase !in
+        setOf(ExtensionRuntime.Phase.FAILED, ExtensionRuntime.Phase.STOPPED, ExtensionRuntime.Phase.CLOSED)
     var receivedResources: List<ExtensionResourceStore.Content> by mutableStateOf(emptyList())
         private set
     internal var codex: CodexHostState by mutableStateOf(CodexHostState())
@@ -264,6 +272,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 ExtensionSession.Method(method, "session.rpc", receiver,
                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
             }, additionalRequiredCapabilities = extraCapabilities)
+        runtimeObservationIssue = null
         sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
         claudeRPC?.invalidate(); claudeRPC = null
         claudeConversation?.invalidate(); claudeConversation = null
@@ -291,6 +300,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     internal suspend fun closeInstance() {
         handshakeJob?.cancel(); handshakeJob?.join(); handshakeJob = null
+        runtimePumpGeneration = Any()
+        runtimeJob?.cancel(); runtimeJob?.join(); runtimeJob = null
         sessionGeneration = Any(); invalidateExtensionCalls()
         controller?.close()
         activeRuntime = null; activeSession = null; receivedResources = emptyList()
@@ -406,8 +417,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
-    private fun canCallCodex(method: String): Boolean = !launchBusy && !codex.callBusy &&
-        activeSession?.command?.path == "ai codex" && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+    private fun canCallCodex(method: String): Boolean = !codex.callBusy &&
+        activeSession?.command?.path == "ai codex" && canInteractWithRuntime &&
         method in activeSession?.methods.orEmpty()
 
     private fun callCodex(message: String, block: suspend () -> Unit) {
@@ -427,7 +438,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     internal suspend fun requestClaudeAction(method: String, parameters: ByteArray): ByteArray {
         check(!launchBusy && activeSession?.command?.path == "ai claude" &&
-            activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+            canInteractWithRuntime &&
             ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) {
             "Claude 操作需要当前 ACTIVE Runtime 和完整八方法 allowlist"
         }
@@ -445,7 +456,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         val generation = rpcGeneration
         checkRPCGeneration(generation)
         check(!launchBusy && activeSession?.command?.path == "ai claude" &&
-            activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+            canInteractWithRuntime &&
             ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) { "原 Claude Runtime 已不可观察" }
         val client = checkNotNull(claudeRPC) { "没有本次 Claude 操作适配器" }
         return client.observe().also { checkRPCGeneration(generation) }
@@ -458,7 +469,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         val generation = rpcGeneration
         checkRPCGeneration(generation)
         val owner = controller ?: error("插件 Host 不可用")
-        check(!launchBusy && method in activeSession?.methods.orEmpty()) { "插件 RPC 未在本次 Session allowlist 中" }
+        check(canInteractWithRuntime && method in activeSession?.methods.orEmpty()) { "插件 RPC 未在本次 Session allowlist 中" }
         val admission = withContext(NonCancellable) {
             owner.requestRuntimeExecutor(method, input, 30000)
         }
@@ -528,10 +539,11 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     private suspend fun checkRPCGeneration(generation: Any) {
         currentCoroutineContext().ensureActive()
         if (generation !== rpcGeneration) throw CancellationException("Plugin Session changed")
+        check(runtimeObservationIssue == null) { "插件运行状态未知；未确认的结果保持未知，不会自动重试" }
     }
 
     internal val canReadCodexChanges get() = !launchBusy && activeSession?.command?.path == "ai codex" &&
-        activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE && "codex.change.read" in activeSession?.methods.orEmpty()
+        canInteractWithRuntime && "codex.change.read" in activeSession?.methods.orEmpty()
 
     internal fun loadCodexChanges(reference: CodexChangeReference) {
         if (!canReadCodexChanges || !currentChange(reference)) return
@@ -581,7 +593,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                                 activeRuntime = owner.activateClient(active.packageID, active.packageDigest,
                                     active.command.path, active.arguments, active.clientWorkspace)
                                 launchBusy = false
-                                viewModelScope.launch { advanceRuntime(owner) }
+                                startRuntimeObservation(owner)
                                 break
                             }
                             ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED -> break
@@ -609,6 +621,9 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         invalidateExtensionCalls()
         launchBusy = true
         owner.requestStopRuntime()
+        // The observation loop may already have ended after a worker failure.
+        // The same stopped Native Runtime is stepped; no replacement is created.
+        if (runtimeJob?.isActive != true) startRuntimeObservation(owner)
     }
 
     fun stopSession() {
@@ -680,7 +695,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                         checkRPCGeneration(expected)
                         requestPluginViewOutcome(method, input).also { checkRPCGeneration(expected) }
                     }, isCurrent = {
-                        expected === rpcGeneration && !launchBusy && activeRuntime?.instanceID == runtimeID && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                        expected === rpcGeneration && activeRuntime?.instanceID == runtimeID && canInteractWithRuntime
                     }, close = { handle ->
                         checkRPCGeneration(expected)
                         val closed = owner.closeRuntimeView(runtimeID, handle)
@@ -695,12 +710,18 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
-    private suspend fun advanceRuntime(owner: ExtensionController) {
+    private fun startRuntimeObservation(owner: ExtensionController) {
+        val token = Any(); runtimePumpGeneration = token
+        runtimeJob?.cancel()
+        runtimeJob = viewModelScope.launch { advanceRuntime(owner, token) }
+    }
+
+    private suspend fun advanceRuntime(owner: ExtensionController, pumpGeneration: Any) {
         val generation = sessionGeneration
         try {
             while (true) {
                 val state = owner.stepRuntime()
-                if (generation !== sessionGeneration) return
+                if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration) return
                 activeRuntime = state
                 updateRegisteredViews(owner, state)
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&
@@ -712,7 +733,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                         checkRPCGeneration(expected)
                         requestExtensionRPC(method, input).also { checkRPCGeneration(expected) }
                     }, isCurrent = {
-                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                        expected === rpcGeneration && canInteractWithRuntime
                     })
                 }
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && diff == null &&
@@ -724,7 +745,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                         checkRPCGeneration(expected)
                         requestExtensionRPC(method, input).also { checkRPCGeneration(expected) }
                     }, isCurrent = {
-                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                        expected === rpcGeneration && canInteractWithRuntime
                     })
                 }
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && task == null &&
@@ -736,20 +757,20 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                         checkRPCGeneration(expected)
                         requestPluginViewOutcome(method, input).also { checkRPCGeneration(expected) }
                     }, isCurrent = {
-                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                        expected === rpcGeneration && canInteractWithRuntime
                     })
                 }
                 if (state.command == "ai claude" && state.info.phase == ExtensionRuntime.Phase.ACTIVE && claudeConversation == null &&
                     ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) {
                     val expected = rpcGeneration
                     claudeConversation = ClaudeConversation(viewModelScope, ::requestClaudeAction, isCurrent = {
-                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                        expected === rpcGeneration && canInteractWithRuntime
                     }, observe = ::observeClaudeOutcome)
                 }
                 reapExtensionRPCs(owner)
-                if (generation !== sessionGeneration) return
+                if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration) return
                 val (resourceStatus, content) = owner.takeRuntimeResource()
-                if (generation !== sessionGeneration) return
+                if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration) return
                 if (resourceStatus == ExtensionResourceStore.Status.OK && content != null) {
                     val resources = receivedResources
                     if (resources.none { it.descriptor.resourceId == content.descriptor.resourceId }) {
@@ -779,22 +800,30 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
-            if (generation !== sessionGeneration) return
-            table?.invalidate()
-            diff?.invalidate()
-            registeredViews?.invalidate(); task?.invalidate()
-            claudeRPC?.invalidate()
-            claudeConversation?.invalidate()
-            changeReview.cancel()
-            codex = codex.copy(approvals = emptyList())
-            error = "插件 Runtime 运行失败：${failure.message ?: failure.javaClass.simpleName}"
-        } finally { if (generation === sessionGeneration) launchBusy = false }
+            if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration) return
+            runtimeObservationFailed(failure.message ?: failure.javaClass.simpleName)
+        } finally { if (generation === sessionGeneration && pumpGeneration === runtimePumpGeneration) launchBusy = false }
+    }
+
+    /** Preserve the last Native snapshot; failed observation never authorizes
+     * another action. Explicit stop alone may resume cleanup stepping. */
+    internal fun runtimeObservationFailed(message: String) {
+        if (runtimeObservationIssue != null) return
+        runtimeObservationIssue = message
+        runtimePumpGeneration = Any()
+        runtimeJob?.cancel()
+        launchBusy = false
+        table?.invalidate(); diff?.invalidate(); registeredViews?.invalidate(); task?.invalidate()
+        claudeRPC?.invalidate(); claudeConversation?.invalidate(); changeReview.cancel()
+        codex = codex.copy(approvals = emptyList())
+        error = "插件运行观察已中断；已停用输入与批准，未确认的结果保持未知。可停止并释放。$message"
     }
 
     private suspend fun pumpCodexHostEvent(owner: ExtensionController) {
         val generation = sessionGeneration
+        val pumpGeneration = runtimePumpGeneration
         val (status, request) = owner.takeRuntimeRequest()
-        if (generation !== sessionGeneration) return
+        if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration || runtimeObservationIssue != null) return
         if (status == ExtensionSession.RPCStatus.WAIT) return
         check(status == ExtensionSession.RPCStatus.OK && request != null) { "读取 Codex Host RPC 失败：$status" }
         if (request.method != "codex.event" || "codex.event" !in activeSession?.hostMethods.orEmpty()) {
@@ -810,7 +839,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             throw IllegalStateException("Codex Executor event rejected: ${failure.message}", failure)
         }
         respondCodexEvent(owner, request.ticket, true, null)
-        if (generation !== sessionGeneration) return
+        if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration || runtimeObservationIssue != null) return
         codex = next
         changeReview.invalidate(::currentChange)
         if (next.rawEvents.lastOrNull()?.let { JSONObject(it).optString("kind") } in
@@ -846,7 +875,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     fun publishClientResource(relativePath: String, root: String = "client", instanceID: String? = activeRuntime?.instanceID) {
         val owner = controller ?: return
-        if (launchBusy || activeRuntime?.info?.phase != ExtensionRuntime.Phase.ACTIVE) return
+        if (!canInteractWithRuntime) return
         val generation = sessionGeneration
         viewModelScope.launch {
             try {

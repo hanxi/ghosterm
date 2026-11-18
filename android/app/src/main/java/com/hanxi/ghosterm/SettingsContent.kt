@@ -613,9 +613,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     val publication = runtime?.publication
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(path, { path = it }, singleLine = true,
+            enabled = extensions.canInteractWithRuntime,
             modifier = Modifier.testTag("plugin-client-publication-path"), label = { Text("从已允许本机目录发布的相对文件名") })
         TextButton(onClick = { extensions.publishClientResource(path, instanceID = runtime?.instanceID) },
-            enabled = path.isNotEmpty() && !extensions.launchBusy && runtime?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE && publication?.released != false,
+            enabled = path.isNotEmpty() && extensions.canInteractWithRuntime && publication?.released != false,
             modifier = Modifier.testTag("plugin-client-publish")) { Text("向 Executor 发布文件") }
         publication?.let {
             SelectionContainer { Text("${it.relativePath}：${it.reviewDescription}",
@@ -969,7 +970,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         if (approval.method == "item/permissions/requestApproval") {
                             Text("以下完整权限范围仅用于当前轮，可能允许范围内后续操作。", style = MaterialTheme.typography.bodySmall)
                         }
-                        ConversationDecisions("plugin-codex-approval", state.callBusy,
+                        ConversationDecisions("plugin-codex-approval", state.callBusy || !extensions.canInteractWithRuntime,
                             approval.method == "item/commandExecution/requestApproval" || snapshotID != null,
                             allowLabel = if (approval.method == "item/permissions/requestApproval") "允许本轮所列权限" else "批准一次",
                             deny = { extensions.respondCodexApproval(approval.id, false, snapshotID) },
@@ -982,15 +983,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }
         }
         if (state.threadID == null) {
-            TextButton(onClick = extensions::startCodexThread, enabled = !state.callBusy,
+            TextButton(onClick = extensions::startCodexThread, enabled = extensions.canInteractWithRuntime && !state.callBusy,
                 modifier = Modifier.testTag("plugin-codex-start-thread")) {
                 Text(if (state.callBusy) "正在启动…" else "启动 Codex 对话")
             }
         } else {
             ConversationComposer(state.messageDraft, extensions::editCodexMessage, state.callBusy,
-                !state.turnActive, "plugin-codex", "发送给 Codex", extensions::sendCodexMessage)
+                !state.turnActive, "plugin-codex", "发送给 Codex", extensions::sendCodexMessage,
+                enabled = extensions.canInteractWithRuntime)
             if (state.turnActive) TextButton(onClick = extensions::interruptCodexTurn,
-                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
+                enabled = extensions.canInteractWithRuntime && !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
         }
         if (state.rawEvents.isNotEmpty()) {
             TextButton(onClick = { showEvents = !showEvents }, modifier = Modifier.testTag("plugin-codex-raw-toggle")) {
@@ -1139,7 +1141,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         PluginNativeResourcePublisher(extensions)
     }
     extensions.activeRuntime?.let { active ->
-        Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
+        Text((if (extensions.runtimeStateIsUnknown) "Runtime 最后观测（当前状态未知）：" else "Runtime：") + "${active.info.phase} · ${active.command} · steps ${active.info.steps}",
             Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
         if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED ||
             active.info.sessionEnd != com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE ||

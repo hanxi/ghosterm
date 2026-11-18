@@ -148,10 +148,26 @@ class ExtensionMixedConnectionTest {
             runBlocking { instances.mapIndexed { slot, instance -> async(Dispatchers.Default) { echo(instance.model, "slot-$slot", slot) } }.awaitAll() }
             instances.forEachIndexed { slot, instance -> resource(instance.model, slot) }
             assertEquals(8, main { instances.map { it.model.receivedResources.single().descriptor.sha256 }.distinct().size })
+            val uncertain = instances[3].model
+            main { uncertain.runtimeObservationFailed("owned mixed observation failure") }
+            assertEquals(ExtensionRuntime.Phase.ACTIVE, main { uncertain.activeRuntime?.info?.phase })
+            assertFalse(main { uncertain.canInteractWithRuntime })
+            assertTrue(main { uncertain.runtimeStateIsUnknown })
+            assertTrue(main { instances.filterIndexed { slot, _ -> slot != 3 }.all { it.model.canInteractWithRuntime } })
+            val refused = assertThrows(IllegalStateException::class.java) { runBlocking {
+                uncertain.requestPluginViewOutcome("fixture.echo", """{"text":"blocked","count":3}""".toByteArray())
+            } }
+            assertTrue(refused.message?.contains("运行状态未知") == true)
+            main { uncertain.stopRuntime() }
+            await("explicit stop resumes only cleanup observation") {
+                main { uncertain.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED && !uncertain.launchBusy }
+            }
+            assertFalse(main { uncertain.runtimeStateIsUnknown })
+            assertFalse(main { uncertain.canInteractWithRuntime })
             ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
             assertFalse(main { instances[3].closeRequested })
             ui.onNodeWithTag("plugin-close-cancel").performClick()
-            echo(instances[3].model, "close-cancelled", 3)
+            echo(instances[0].model, "close-cancelled", 0)
             ui.onNodeWithTag("plugin-instance-close-${instances[3].id}").performScrollTo().performClick()
             main { extensions.selectGroupInstance(instances[0].model) }
             ui.onNodeWithTag("plugin-close-confirm").performClick()

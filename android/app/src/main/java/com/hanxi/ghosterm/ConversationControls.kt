@@ -14,10 +14,10 @@ import androidx.compose.ui.unit.dp
 
 /** Shared Native controls; each backend keeps its own decision/state contract. */
 @Composable internal fun ConversationComposer(draft: String, onDraft: (String) -> Unit, busy: Boolean,
-    canSend: Boolean, prefix: String, label: String, send: () -> Unit) {
-    OutlinedTextField(draft, onDraft, modifier = Modifier.fillMaxWidth().testTag("$prefix-message"),
+    canSend: Boolean, prefix: String, label: String, send: () -> Unit, enabled: Boolean = true) {
+    OutlinedTextField(draft, onDraft, enabled = enabled, modifier = Modifier.fillMaxWidth().testTag("$prefix-message"),
         label = { Text(label) }, minLines = 1, maxLines = 4)
-    TextButton(onClick = send, enabled = !busy && canSend && draft.isNotBlank(), modifier = Modifier.testTag("$prefix-send")) {
+    TextButton(onClick = send, enabled = enabled && !busy && canSend && draft.isNotBlank(), modifier = Modifier.testTag("$prefix-send")) {
         Text(if (busy) "正在处理…" else "发送")
     }
 }

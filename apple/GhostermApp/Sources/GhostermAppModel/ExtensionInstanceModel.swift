@@ -50,6 +50,16 @@ import GhostermCore
     @Published public private(set) var extensionRun: ExtensionRun?
     @Published public private(set) var extensionRunBusy = false
     @Published public private(set) var extensionRunIssue: String?
+    @Published public private(set) var runtimeObservationIssue: String?
+    public var canInteractWithRuntime: Bool {
+        runtimeObservationIssue == nil && !closeRequested && !extensionRunBusy &&
+        extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+    }
+    public var runtimeStateIsUnknown: Bool {
+        guard runtimeObservationIssue != nil else { return false }
+        guard let runtime = extensionRun?.runtime else { return true }
+        return Self.runtimeIsRunning(runtime.phase)
+    }
     @Published public private(set) var codexThreadID: String?
     @Published public var codexMessageDraft = ""
     @Published public private(set) var codexCallBusy = false
@@ -146,6 +156,7 @@ import GhostermCore
             extensionRunIssue = "已有插件运行或资源仍待释放"; return
         }
         closeRequested = false
+        runtimeObservationIssue = nil
         let token = UUID(); launchGeneration = token
         let task = Task {
             await self.startClient(packageID: packageID, packageDigest: packageDigest, command: command,
@@ -407,7 +418,7 @@ import GhostermCore
     }
 
     public func startCodexThread() async {
-        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, !codexCallBusy,
+        guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", !codexCallBusy,
               run.methods.contains("codex.thread.start") else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
@@ -420,7 +431,7 @@ import GhostermCore
     }
 
     public func sendCodexMessage() async {
-        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, codexThreadID != nil,
+        guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", codexThreadID != nil,
               !codexTurnActive,
               !codexCallBusy, run.methods.contains("codex.turn.send") else { return }
         let text = codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -437,7 +448,7 @@ import GhostermCore
     }
 
     public func interruptCodexTurn() async {
-        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, codexTurnActive,
+        guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", codexTurnActive,
               !codexCallBusy, run.methods.contains("codex.turn.interrupt") else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
@@ -455,8 +466,7 @@ import GhostermCore
     }
 
     public func respondCodexApproval(id: String, allow: Bool, snapshotID: String? = nil) async {
-        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, !codexCallBusy,
-              run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
+        guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", !codexCallBusy,
               let approval = codexPendingApprovals.first(where: { $0.id.utf8.elementsEqual(id.utf8) }),
               run.methods.contains("codex.approval.respond") else { return }
         let fileApproval = approval.method == "item/fileChange/requestApproval"
@@ -510,7 +520,7 @@ import GhostermCore
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
         guard !extensionRunBusy, extensionRun?.command == "ai claude",
-              extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
+              canInteractWithRuntime,
               ClaudeRPCClient.methods.allSatisfy({ extensionRun?.methods.contains($0) == true }) else {
             throw GhostermError.failed("Claude 需要本次已授权的 ACTIVE Runtime 和完整 RPC allowlist")
         }
@@ -529,7 +539,7 @@ import GhostermCore
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
         guard !extensionRunBusy, extensionRun?.command == "ai claude",
-              extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
+              canInteractWithRuntime,
               ClaudeRPCClient.methods.allSatisfy({ extensionRun?.methods.contains($0) == true }),
               let claudeRPC else { throw GhostermError.failed("原 Claude Runtime 已不可观察") }
         let result = try await claudeRPC.observe()
@@ -547,7 +557,7 @@ import GhostermCore
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
         guard let extensionController, let run = extensionRun,
-              !extensionRunBusy, !closeRequested, run.command == command, run.methods.contains(method) else {
+              canInteractWithRuntime, run.command == command, run.methods.contains(method) else {
             throw GhostermError.failed("插件 RPC 未在本次 Session allowlist 中")
         }
         let admission = try await extensionController.requestExecutorRPC(method: method, input: inputBytes)
@@ -602,11 +612,13 @@ import GhostermCore
     private func checkExtensionRunGeneration(_ generation: UUID) throws {
         try Task.checkCancellation()
         guard generation == extensionRunGeneration else { throw CancellationError() }
+        guard runtimeObservationIssue == nil else {
+            throw GhostermError.failed("插件运行状态未知；未确认的结果保持未知，不会自动重试")
+        }
     }
 
     public var canReadCodexChanges: Bool {
-        !extensionRunBusy && !closeRequested && extensionRun?.command == "ai codex" &&
-        extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue &&
+        canInteractWithRuntime && extensionRun?.command == "ai codex" &&
         extensionRun?.methods.contains("codex.change.read") == true
     }
 
@@ -706,20 +718,25 @@ import GhostermCore
             }
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
-            extensionRegisteredViews?.invalidate()
-            extensionTable?.invalidate()
-            extensionDiff?.invalidate()
-            extensionTask?.invalidate()
-            claudeRPC?.invalidate()
-            claudeConversation?.invalidate()
-            cancelCodexChangeReview()
-            codexPendingApprovals = []
-            extensionRunIssue = "插件 Runtime 运行失败：\(error)"
+            runtimeObservationFailed(String(describing: error))
         }
     }
 
+    /// The last Native snapshot is retained as an observation, not authority
+    /// for another request. Only an explicit stop may resume cleanup stepping.
+    func runtimeObservationFailed(_ message: String) {
+        guard runtimeObservationIssue == nil else { return }
+        runtimeObservationIssue = message
+        runtimeTask?.cancel()
+        extensionRegisteredViews?.invalidate(); extensionTable?.invalidate()
+        extensionDiff?.invalidate(); extensionTask?.invalidate()
+        claudeRPC?.invalidate(); claudeConversation?.invalidate()
+        cancelCodexChangeReview(); codexPendingApprovals = []
+        extensionRunIssue = "插件运行观察已中断；已停用输入与批准，未确认的结果保持未知。可停止并释放。\(message)"
+    }
+
     public func publishClientResource(relativePath: String, root: String = "client", instanceID: String? = nil) async {
-        guard !extensionRunBusy, !closeRequested, let controller = extensionController, extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue else { return }
+        guard !extensionRunBusy, !closeRequested, let controller = extensionController, canInteractWithRuntime else { return }
         let generation = extensionRunGeneration
         do {
             let state = try await controller.publishClientResource(instanceID: instanceID ?? extensionRun?.runtime?.instanceID ?? "", root: root, relativePath: relativePath)
@@ -787,7 +804,7 @@ import GhostermCore
                             guard let self else { return false }
                             return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
                                 self.extensionRun?.runtime?.instanceID == runtimeID &&
-                                self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                                self.canInteractWithRuntime
                         }, close: { [weak self] handle in
                             guard let self, let controller = self.extensionController else { throw CancellationError() }
                             try self.checkExtensionRunGeneration(generation)
@@ -814,7 +831,7 @@ import GhostermCore
             }, isCurrent: { [weak self] in
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
-                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                    self.canInteractWithRuntime
             })
         }
         if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("diff"), run.requiredCapabilities.contains("ui.diff"),
@@ -828,7 +845,7 @@ import GhostermCore
             }, isCurrent: { [weak self] in
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
-                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                    self.canInteractWithRuntime
             })
         }
         if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("task"), run.requiredCapabilities.contains("ui.task"),
@@ -842,7 +859,7 @@ import GhostermCore
             }, isCurrent: { [weak self] in
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
-                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                    self.canInteractWithRuntime
             })
         }
         if run.command == "ai claude", runtime.phase == ExtensionRuntime.Phase.active.rawValue,
@@ -860,7 +877,7 @@ import GhostermCore
             }, isCurrent: { [weak self] in
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
-                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+                    self.canInteractWithRuntime
             })
         }
     }

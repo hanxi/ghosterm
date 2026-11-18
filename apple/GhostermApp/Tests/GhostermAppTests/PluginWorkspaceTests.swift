@@ -164,4 +164,22 @@ import XCTest
         XCTAssertEqual(first.codexPendingApprovals, [approval]); XCTAssertTrue(second.codexPendingApprovals.isEmpty)
         XCTAssertEqual(first.codexMessageDraft, "first"); XCTAssertEqual(second.codexMessageDraft, "second")
     }
+
+    func testFailedObservationWithdrawsOnlyItsApprovalsAndRetainsDraftAndCause() {
+        let first = ExtensionInstanceModel(controller: nil), second = ExtensionInstanceModel(controller: nil)
+        first.codexMessageDraft = "retained draft"
+        let approval = AppModel.CodexPendingApproval(id: "1", method: "item/commandExecution/requestApproval",
+            paramsJSON: "{}", itemID: nil, identity: nil, permissionReviewID: nil)
+        first.applyCodexApprovalEvent(kind: "approval", added: approval)
+        second.applyCodexApprovalEvent(kind: "approval", added: approval)
+        first.runtimeObservationFailed("owned observation failure")
+        XCTAssertEqual(first.runtimeObservationIssue, "owned observation failure")
+        XCTAssertFalse(first.canInteractWithRuntime)
+        XCTAssertTrue(first.codexPendingApprovals.isEmpty)
+        XCTAssertEqual(second.codexPendingApprovals, [approval]); XCTAssertNil(second.runtimeObservationIssue)
+        XCTAssertEqual(first.codexMessageDraft, "retained draft")
+        XCTAssertTrue(first.extensionRunIssue?.contains("未知") == true)
+        first.runtimeObservationFailed("later cleanup failure")
+        XCTAssertEqual(first.runtimeObservationIssue, "owned observation failure", "A cleanup retry must not overwrite the original loss observation")
+    }
 }

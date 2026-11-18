@@ -67,7 +67,7 @@ struct ExtensionRunView: View {
                         .font(DS.Font.caption).textSelection(.enabled)
                 }
                 if let runtime = run.runtime {
-                    Text("Runtime phase：\(runtime.phase) · failure：\(runtime.failure) · cleanup：\(runtime.cleanupError)")
+                    Text((model.runtimeStateIsUnknown ? "Runtime 最后观测（当前状态未知）：" : "Runtime phase：") + "\(runtime.phase) · failure：\(runtime.failure) · cleanup：\(runtime.cleanupError)")
                         .font(DS.Font.caption).textSelection(.enabled)
                 }
                 if !run.receivedResources.isEmpty {
@@ -220,6 +220,7 @@ struct ExtensionRunView: View {
                             allowLabel: approval.method == "item/permissions/requestApproval" ? "允许本轮所列权限" : "批准一次",
                             deny: { Task { await model.respondCodexApproval(id: approval.id, allow: false, snapshotID: snapshotID) } },
                             allow: { Task { await model.respondCodexApproval(id: approval.id, allow: true, snapshotID: snapshotID) } })
+                            .disabled(!model.canInteractWithRuntime)
                         if approval.method == "item/fileChange/requestApproval" && snapshotID == nil {
                             Text("先读取并核对当前完整补丁，才能批准此版本。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
@@ -230,21 +231,22 @@ struct ExtensionRunView: View {
             if let threadID = model.codexThreadID {
                 Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
                 ConversationComposer(placeholder: "发送给 Codex", draft: $model.codexMessageDraft,
-                    busy: model.codexCallBusy, canSend: !model.codexTurnActive, prefix: "plugin-codex") {
+                    busy: model.codexCallBusy, canSend: model.canInteractWithRuntime && !model.codexTurnActive, prefix: "plugin-codex") {
                     Task { await model.sendCodexMessage() }
                 }
+                .disabled(!model.canInteractWithRuntime)
                 if model.codexTurnActive {
                     Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {
                         Task { await model.interruptCodexTurn() }
                     }
-                    .disabled(model.codexCallBusy || !run.methods.contains("codex.turn.interrupt"))
+                    .disabled(!model.canInteractWithRuntime || model.codexCallBusy || !run.methods.contains("codex.turn.interrupt"))
                     .accessibilityIdentifier("plugin-codex-interrupt")
                 }
             } else {
                 Button(model.codexCallBusy ? "正在启动…" : "启动 Codex 对话") {
                     Task { await model.startCodexThread() }
                 }
-                .disabled(model.codexCallBusy || !run.methods.contains("codex.thread.start"))
+                .disabled(!model.canInteractWithRuntime || model.codexCallBusy || !run.methods.contains("codex.thread.start"))
                 .accessibilityIdentifier("plugin-codex-start-thread")
             }
         }
@@ -258,13 +260,14 @@ private struct NativeResourcePublisher: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("从已允许本机目录发布的相对文件名", text: $path)
+                .disabled(!model.canInteractWithRuntime)
                 .accessibilityIdentifier("plugin-client-publication-path")
             Button("向 Executor 发布文件") {
                 guard let instanceID = run.runtime?.instanceID else { return }
                 let selectedPath = path
                 Task { await model.publishClientResource(relativePath: selectedPath, instanceID: instanceID) }
             }
-                .disabled(path.isEmpty || model.extensionRunBusy || run.runtime?.phase != ExtensionRuntime.Phase.active.rawValue ||
+                .disabled(path.isEmpty || !model.canInteractWithRuntime ||
                     run.runtime?.publication?.released == false)
                 .accessibilityIdentifier("plugin-client-publish")
             if let publication = run.runtime?.publication {
