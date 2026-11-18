@@ -84,8 +84,6 @@ def main():
     if not package.exists():
         run('package', ['python3', ROOT / 'scripts/build-plugin-sample.py', '--source', ROOT / 'plugins/official/table',
             '--tools', ROOT / 'build/plugin-sdk-tools', '--out', package])
-    run('build', [source / 'android/gradlew', '-p', source / 'android', '--offline', '-PghostermPluginJs=true',
-        ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
     helper = load('mux_avd', 'scripts/test-plugin-codex-patch-android.py')
     keys = load('mux_keys', 'scripts/test-plugin-ssh.py')
     streams = load('mux_streams', 'scripts/test-plugin-ssh-stream.py')
@@ -97,6 +95,9 @@ def main():
     try:
         execute_device = helper.headless(args.api)
         with execute_device as serial:
+            # Boot before the copied build uses disk space needed by userdata.
+            run('build', [source / 'android/gradlew', '-p', source / 'android', '--offline', '-PghostermPluginJs=true',
+                ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
             adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
             for i, relative in enumerate(['android/app/build/outputs/apk/debug/app-debug.apk', 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk']):
                 apk = source / relative; artifacts[relative] = sha(apk)
