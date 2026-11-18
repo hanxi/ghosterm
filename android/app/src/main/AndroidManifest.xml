@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <application android:name=".GhostermApplication" android:allowBackup="false" android:label="Ghosterm"
+    <application android:name=".GhostermApplication" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:label="Ghosterm"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true" android:theme="@style/Theme.Ghosterm"
         android:usesCleartextTraffic="false" android:requestLegacyExternalStorage="true">

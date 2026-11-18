@@ -142,6 +142,9 @@ final class PluginDirectorySignatureTests: XCTestCase {
         var mode = stat()
         XCTAssertEqual(lstat(channel.stateDirectory.path, &mode), 0)
         XCTAssertEqual(mode.st_mode & 0o777, 0o700)
+        XCTAssertEqual(try channel.stateDirectory.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+        let reopened = await MainActor.run { AppModel.bundledPluginChannel(bundledFields, supportDirectory: state) }
+        XCTAssertEqual(reopened?.stateDirectory, channel.stateDirectory)
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0", protocols: [1],
                                                            runtimes: ["portable-js"], capabilities: [])
         let unconfigured = try ExtensionController(profile: profile)

@@ -15,6 +15,7 @@
 import AppKit
 import Combine
 import CoreFoundation
+import Darwin
 import GhostermCore
 import GhostermTerminal
 import Foundation
@@ -1531,7 +1532,7 @@ public final class AppModel: ObservableObject {
               parts.scheme == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               let directory = parts.url else { return nil }
-        let state = supportDirectory.appendingPathComponent("PluginChannelPolicy", isDirectory: true)
+        var state = supportDirectory.appendingPathComponent("PluginChannelPolicy", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])
@@ -1539,6 +1540,13 @@ public final class AppModel: ObservableObject {
             // Reopening an existing state directory is checked by the catalog.
             guard (error as NSError).code == NSFileWriteFileExistsError else { return nil }
         }
+        var info = stat()
+        guard lstat(state.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+              info.st_uid == geteuid(), info.st_mode & 0o077 == 0 else { return nil }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do { try state.setResourceValues(values) }
+        catch { return nil }
         return .init(channel: name, root: root, stateDirectory: state, refreshDirectory: directory)
     }
 
