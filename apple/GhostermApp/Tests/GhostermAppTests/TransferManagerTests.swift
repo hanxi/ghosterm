@@ -16,6 +16,7 @@ final class FakeTransferBackend: TransferBackend {
     var cancelled: [UInt64] = []
     var existingRemote: Set<String> = []
     var existenceError: Error?
+    var mkdirError: Error?
     var controlError: Error?
     /// walk 要产出的条目（相对 root 的完整路径）。
     var walkEntries: [FileEntry] = []
@@ -23,11 +24,15 @@ final class FakeTransferBackend: TransferBackend {
     var boundedDownloadLimits: [UInt64] = []
     var overwriteDecisions: [Bool] = []
     var submittedUploads: [(String, String)] = []
+    var stagedUploadOverwrite: [Bool] = []
     var walkStarted: DispatchSemaphore?
     var walkGate: DispatchSemaphore?
 
     func list(_ path: String) throws -> [FileEntry] { walkEntries }
-    func mkdir(_ path: String, mode: UInt32) throws {}
+    func mkdir(_ path: String, mode: UInt32) throws {
+        if let mkdirError { throw mkdirError }
+        existingRemote.insert(path)
+    }
     func remove(_ path: String, recursive: Bool) throws {}
     func rename(_ from: String, _ to: String) throws { moved.append((from, to)) }
     func chmod(_ path: String, mode: UInt32) throws {}
@@ -53,6 +58,10 @@ final class FakeTransferBackend: TransferBackend {
     }
     func upload(local: String, remote: String) throws -> UInt64 {
         submittedUploads.append((local, remote)); defer { nextJob += 1 }; return nextJob
+    }
+    func uploadStaged(local: String, remote: String, overwrite: Bool) throws -> UInt64 {
+        submittedUploads.append((local, remote)); stagedUploadOverwrite.append(overwrite)
+        defer { nextJob += 1 }; return nextJob
     }
     func pause(jobID: UInt64, _ p: Bool) throws {
         if let controlError { throw controlError }
@@ -214,6 +223,29 @@ final class TransferManagerTests: XCTestCase {
         XCTAssertTrue(waitForJob(manager, id: manager.jobs[0].id) {
             if case .failed = $0.status { return true }; return false
         })
+        XCTAssertTrue(backend.submittedUploads.isEmpty)
+    }
+
+    func testUploadPassesAtomicPublicationConflictChoice() {
+        let backend = FakeTransferBackend(), manager = makeManager()
+        backend.existingRemote.insert("/remote/source")
+        manager.conflictResolver = { _, _ in .init(.overwrite) }
+        manager.enqueueUpload(backend, local: "/local/source", remote: "/remote/source",
+                              name: "source", isDirectory: false)
+        XCTAssertTrue(waitForJob(manager, id: manager.jobs[0].id) { $0.status == .running })
+        XCTAssertEqual(backend.stagedUploadOverwrite, [true])
+    }
+
+    func testDirectoryUploadReportsUnknownDirectoryCreation() {
+        let backend = FakeTransferBackend(), manager = makeManager()
+        backend.mkdirError = NSError(domain: "test", code: 3)
+        manager.enqueueUpload(backend, local: "/local/missing", remote: "/remote/new",
+                              name: "new", isDirectory: true)
+        XCTAssertTrue(waitForJob(manager, id: manager.jobs[0].id) { $0.status.isTerminal })
+        guard case .unknown(let detail)? = manager.jobs.first?.status else {
+            return XCTFail("mkdir 回包不明必须保留为未知结果")
+        }
+        XCTAssertTrue(detail.contains("目录创建结果未知 1 项"))
         XCTAssertTrue(backend.submittedUploads.isEmpty)
     }
 

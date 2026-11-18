@@ -241,13 +241,15 @@ static void run_case(char **argv, const char *name, bool peer) {
     bool upload = !strncmp(mode, "upload-", 7);
     bool empty = strstr(mode, "empty") != NULL;
     bool cancelled = strstr(mode, "cancelled") != NULL;
+    bool staged_upload = !strncmp(mode, "upload-staged-", 14);
     bool okay = is("upload-normal") || is("download-normal") || is("download-staged-overwrite") ||
                 is("download-staged-create") || is("upload-zero-write") || empty;
+    okay = okay || is("upload-staged-overwrite") || is("upload-staged-create");
     size_t size = empty ? 0 : sizeof content - 1;
     if (!is("download-staged-create")) {
         put(local, upload ? content : sentinel, upload ? size : sizeof sentinel - 1);
     }
-    if (!peer && !is("download-missing")) {
+    if (!peer && !is("download-missing") && !is("upload-staged-create")) {
         put(remote, upload ? sentinel : content, upload ? sizeof sentinel - 1 : size);
     }
     gt_ssh_t *ssh = connect_fixture(argv);
@@ -266,7 +268,8 @@ static void run_case(char **argv, const char *name, bool peer) {
         sftp->quit = false;
     }
     uint64_t id =
-        upload ? gt_sftp_upload(sftp, local, remote)
+        staged_upload ? gt_sftp_upload_staged(sftp, local, remote, is("upload-staged-overwrite"))
+        : upload      ? gt_sftp_upload(sftp, local, remote)
         : !strncmp(mode, "download-staged-", 16)
             ? gt_sftp_download_staged(sftp, remote, local, is("download-staged-overwrite"), size)
         : is("download-limited") ? gt_sftp_download_staged(sftp, remote, local, false, size - 1)
@@ -348,6 +351,8 @@ int main(int argc, char **argv) {
         run_case(argv, argv[6], strstr(argv[6], "-deny") != NULL);
     } else {
         const char *cases[] = {"upload-normal",
+                               "upload-staged-overwrite",
+                               "upload-staged-create",
                                "download-normal",
                                "upload-empty",
                                "download-empty",

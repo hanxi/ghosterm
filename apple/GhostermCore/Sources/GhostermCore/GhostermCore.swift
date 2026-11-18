@@ -1161,6 +1161,16 @@ public final class SFTPSession {
         return id
     }
 
+    /// 发起上传暂存/原子发布 job。目标已存在时需服务器支持 POSIX rename 扩展。
+    @discardableResult
+    public func uploadStaged(local: String, remote: String, overwrite: Bool) throws -> UInt64 {
+        let id = local.withCString { l in
+            remote.withCString { r in gt_sftp_upload_staged(handle, l, r, overwrite) }
+        }
+        guard id != 0 else { throw GhostermError.failed(Ghosterm.lastError) }
+        return id
+    }
+
     /// 取消一个进行中的 job（协作式：已写部分保留）。
     public func cancel(jobID: UInt64) throws {
         try check(gt_sftp_cancel(handle, jobID))

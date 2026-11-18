@@ -22,6 +22,7 @@
   "gt_sftp_rmdir": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_stat": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_upload": "A4/A5: 文件浏览与安全复制接入时绑定",
+  "gt_sftp_upload_staged": "Android A5 文件复制使用受控发布执行器，不消费通用 macOS SFTP job API",
   "gt_sftp_walk": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_ssh_auth_methods": "当前异步认证通过 authenticator_info 读取服务器方法表，不调用同步查询",
   "gt_ssh_authenticate": "当前 SSH owner 使用 authenticator_step/supply，不走同步 authenticate",

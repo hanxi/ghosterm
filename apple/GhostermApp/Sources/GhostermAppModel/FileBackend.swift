@@ -78,6 +78,7 @@ public protocol TransferBackend: FileBackend {
     func downloadStaged(remote: String, local: String, overwrite: Bool,
                         maxBytes: UInt64) throws -> UInt64
     func upload(local: String, remote: String) throws -> UInt64
+    func uploadStaged(local: String, remote: String, overwrite: Bool) throws -> UInt64
     /// 远端路径是否存在（冲突检测用；符号链接按链接自身判）。
     func exists(_ path: String) -> Bool
     /// Errors are distinct from confirmed absence; callers must not use a
@@ -91,6 +92,13 @@ public protocol TransferBackend: FileBackend {
                 isCancelled: @escaping () -> Bool,
                 onHit: @escaping (FileEntry) -> Bool,
                 onScanned: @escaping (Int) -> Void) throws -> Bool
+}
+
+public extension TransferBackend {
+    /// Backends without atomic remote publication preserve their established behavior.
+    func uploadStaged(local: String, remote: String, overwrite: Bool) throws -> UInt64 {
+        try upload(local: local, remote: remote)
+    }
 }
 
 public extension TransferBackend {

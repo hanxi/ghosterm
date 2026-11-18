@@ -27,7 +27,7 @@
 | 4 / 已交付 | 宿主闸门必跑项 | full CI 两个 Apple 闸门显式 required；缺 Swift/SSH、启动失败、空测试、必跑项无 passed 收据均失败；optional 缺证据报 PARTIAL | Bash 3.2/5 各 18 项、六组 shell 故障断言及自有 sshd 原生专项通过；其它条件跳过仍单列，见[分批实施](non-plugin-remainder.md) |
 | 5 / 部分完成 | 文件导航/错误/缓存 | 最新导航身份、历史成功提交、刷新 epoch、树失败可重试及 cwd 同目标去重已接 | 最终 34 项/十组变异/33 项真实 SSH 与 Release，见[导航说明](macos-files-navigation.md)；搜索取消/部分失败另见[搜索专项](macos-file-search.md)，递归权限仍待做 |
 | 6 / P1 | 传输控制与批次结果 | [TransferManager.swift](../../apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 忽略控制错误、取消立即终态、晚到结果丢弃；全局“应用到全部”、目录摘要/重试范围不完整 | 按请求/确认终态记账，owner 释放后才结束；冲突限本批、目录汇总与完成顺序无关，成功项不盲目重传。建议拆控制、批次、目录三片 |
-| 7 / 已实现待验证 | 文件 owner 与安全下载/预览 | `SFTPFileBackend` 已串行持有 SFTP 调用；浏览/目录创建/预览使用受控接口；下载在同目录暂存，校验已知源长度与字节上限后原子发布；Quick Look 读取有硬上限并可取消 | 定向 Core/Swift、ABI、格式与自有 SSH 文件夹具待本批统一验证；上传原子发布、目录任务副作用记录及完整宿主验收仍未完成 |
+| 7 / 本批实现并定向验证 | 文件 owner 与安全传输 | `SFTPFileBackend` 串行持有 SFTP 调用；下载在同目录暂存后原子发布；上传写入远端随机同目录暂存文件，成功关闭后原子发布；覆盖使用 POSIX rename，无覆盖使用标准 rename，失败/取消明确报告暂存路径。目录展开记录本批创建目录，mkdir 回包不明保留 UNKNOWN | Core 构建和真实 sshd 的 `sftp_transfer_e2e` 通过；Swift 生产包构建通过；XCTest 当前环境不可用，完整宿主验收仍待跑。Android 的通用 staged-upload ABI 明确 deferred：Android A5 用自己的受控发布执行器 |
 | 8 / 已交付专项 | 终端配置读写与应用 | 存储事务、内存候选预校验、提交后应用、条件状态回显及旧编辑器保护已接 | 证据/提交后应用错误与恢复边界见[设置说明](macos-terminal-settings.md)，不承诺多文件/全部 surface 原子事务 |
 | 9 / 部分完成 | SSH 多地址与打开取消 | 普通 shell/SFTP 原认证余额、独立取消和晚到交接已接；DNS 仍首个有效地址即结束 | 打开切片见[说明](macos-ssh-opening.md)；TCP 候选推进与原 hostname 身份仍待做，SSH/SFTP/tmux 和 ProxyJump 首跳各自验收，不能借打开接线关闭整个网络矩阵 |
 | 10 / 已交付专项 | 剪贴板粘贴检查与确认 | 用户菜单进入引擎检查，捕获文本、单次授权、窗格撤销和实际选区复制已验；真实进程菜单 nil-target 响应链有后台夹具 | 终端 47 项/新十六组/旧 OSC 52 六组，原生确认和窗口查询注入范围见[说明](macos-clipboard.md)；系统前台热键/跨应用激活另记，非完整剪贴板协议矩阵 |
@@ -79,4 +79,6 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 
 - 剩余批 11：普通 SSH/SFTP 原预算/取消、旧完成隔离和取消状态已接；62 项真实本机 SSH 组合、真实协议等待与二十个新保护分轮，旧保护和 Release 收据见[打开说明](macos-ssh-opening.md)。多地址与后续文件 IO 仍分批推进。
 
-- 文件 owner / staged download 实现批（2026-11-18）：本轮代码完成后统一记载定向构建与测试；暂不执行 `gate.sh`。插件由另一 session 处理，不纳入本批。
+- SFTP staged upload / 目录副作用批（2026-11-18）：新增 Core 远端随机暂存上传，成功 close 后发布；覆盖要求服务端 POSIX rename 扩展，不覆盖使用 SFTP 标准 rename，发布失败/取消报告保留的暂存路径。macOS `TransferManager` 按冲突选择传递覆盖语义。目录上传/下载展开在失败终态报告已创建目录；mkdir 回包不明为 UNKNOWN。`bash scripts/build-core.sh` 与自有 sshd `sftp_transfer_e2e` 通过；`swift build --package-path apple/GhostermApp` 通过；`swift test ... --filter TransferManagerTests` 因当前活动开发目录仅为 Command Line Tools、缺少 Xcode/XCTest 而失败，未计测试通过。Core ABI 206、Apple 203/3、JNI 167/39 对拍通过；clang-format 19.1.7 全量 297 文件检查通过；未执行 `gate.sh`。通用 staged-upload API 不被 Android 消费，已在 `android/bridge/deferred-abi.json` 登记：Android A5 采用独立受控发布执行器。
+- Curve25519/SSH 握手分配复验（2026-11-18）：以本机 sshd 运行普通非 ASan `test_ssh`，291 项通过；macOS `leaks --atExit` 报告 0 bytes leaked，但系统限制使堆检查只能读取受限进程内容；`test_sftp_submit` 的 ASan 进程不能由 `leaks` 检查。该结果没有证明所有密码后端/系统组合无泄漏，也没有触碰或更改上游依赖。
+- SSH 周期保活仍待实现：当前 libssh2 公开接口提供按调用发送 keepalive 的能力，但不公开未应答计数；目前连接读循环与 SFTP owner 也没有共用的空闲计时调度。不能因此放宽 `ServerAliveInterval` 准入或声称 `ServerAliveCountMax` 有效。后续需补可观察的回包/超时判据和两端 owner 调度后再接配置；Android 自动化仍只按模拟器验证，真机属于人工手测。

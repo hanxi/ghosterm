@@ -156,12 +156,15 @@ public final class SFTPFileBackend: TransferBackend {
         }
     }
     public func upload(local: String, remote: String) throws -> UInt64 {
+        try uploadStaged(local: local, remote: remote, overwrite: true)
+    }
+    public func uploadStaged(local: String, remote: String, overwrite: Bool) throws -> UInt64 {
         try queue.sync {
             jobLock.lock(); defer { jobLock.unlock() }
             guard !exclusiveReceive else {
                 throw GhostermError.failed("文件 owner 正在执行独占受控读取")
             }
-            let id = try sftp.upload(local: local, remote: remote)
+            let id = try sftp.uploadStaged(local: local, remote: remote, overwrite: overwrite)
             activeJobs.insert(id)
             return id
         }

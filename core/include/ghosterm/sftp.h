@@ -411,6 +411,10 @@ uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local
 uint64_t gt_sftp_download_staged(
     gt_sftp_t *sftp, const char *remote, const char *local, bool overwrite, uint64_t max_bytes);
 uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote);
+/* Upload to a random same-directory remote staging file, then atomically
+ * publish. overwrite requires the server's posix-rename extension. */
+uint64_t
+gt_sftp_upload_staged(gt_sftp_t *sftp, const char *local, const char *remote, bool overwrite);
 
 /* 取消一个进行中的 job。 */
 int gt_sftp_cancel(gt_sftp_t *sftp, uint64_t job_id);

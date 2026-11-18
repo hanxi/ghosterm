@@ -210,7 +210,9 @@ public final class TransferManager: ObservableObject {
                     core = try backend.downloadStaged(remote: job.remote, local: job.local,
                                                       overwrite: job.overwriteDestination,
                                                       maxBytes: job.maxDownloadBytes ?? UInt64.max)
-                case .upload: core = try backend.upload(local: job.local, remote: job.remote)
+                case .upload:
+                    core = try backend.uploadStaged(local: job.local, remote: job.remote,
+                                                    overwrite: job.overwriteDestination)
                 }
                 DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
@@ -294,12 +296,19 @@ public final class TransferManager: ObservableObject {
         expandQueue.async { [weak self] in
             var files: [(String, String, UInt64)] = []
             var skippedLinks = 0
+            var createdDirectories: [String] = []
+            var uncertainDirectories: [String] = []
             do {
                 let fm = FileManager.default
                 try cancellation.checkpoint()
                 if direction == .download {
                     try cancellation.checkpoint()
-                    try fm.createDirectory(atPath: local, withIntermediateDirectories: true)
+                    if try !Self.localPathExists(local) {
+                        uncertainDirectories.append(local)
+                        try fm.createDirectory(atPath: local, withIntermediateDirectories: true)
+                        createdDirectories.append(local)
+                        uncertainDirectories.removeAll { $0 == local }
+                    }
                     var directories: [String] = [], invalid = false
                     try backend.walk(root: remote, maxDepth: -1,
                                      isCancelled: { cancellation.cancelled }) { e in
@@ -318,12 +327,23 @@ public final class TransferManager: ObservableObject {
                     }
                     try cancellation.checkpoint()
                     if invalid { throw GhostermError.failed("远端返回了目录范围外的路径") }
-                    for path in directories { try cancellation.checkpoint(); try fm.createDirectory(atPath: path, withIntermediateDirectories: true) }
+                    for path in directories {
+                        try cancellation.checkpoint()
+                        if try !Self.localPathExists(path) {
+                            uncertainDirectories.append(path)
+                            try fm.createDirectory(atPath: path, withIntermediateDirectories: true)
+                            createdDirectories.append(path)
+                            uncertainDirectories.removeAll { $0 == path }
+                        }
+                    }
                 } else {
                     try cancellation.checkpoint()
                     if try !backend.checkedExists(remote) {
                         try cancellation.checkpoint()
+                        uncertainDirectories.append(remote)
                         try backend.mkdir(remote, mode: 0o755)
+                        createdDirectories.append(remote)
+                        uncertainDirectories.removeAll { $0 == remote }
                     }
                     var enumerationError: Error?
                     let sourceRoot = URL(fileURLWithPath: local).resolvingSymlinksInPath()
@@ -341,7 +361,10 @@ public final class TransferManager: ObservableObject {
                         if values.isDirectory == true {
                             if try !backend.checkedExists(r) {
                                 try cancellation.checkpoint()
+                                uncertainDirectories.append(r)
                                 try backend.mkdir(r, mode: 0o755)
+                                createdDirectories.append(r)
+                                uncertainDirectories.removeAll { $0 == r }
                             }
                         } else { files.append((url.path, r, UInt64(values.fileSize ?? 0))) }
                     }
@@ -360,6 +383,10 @@ public final class TransferManager: ObservableObject {
                     let batch = DirectoryCompletion(count: files.count + skippedLinks)
                     for _ in 0..<skippedLinks { batch.record(.skipped) }
                     self.directoryProgress[parentID] = [:]
+                    let retainedDirectorySummary = createdDirectories.isEmpty ? "" :
+                        "；已创建并保留目录 \(createdDirectories.count) 项"
+                    let uncertainDirectorySummary = uncertainDirectories.isEmpty ? "" :
+                        "；目录创建结果未知 \(uncertainDirectories.count) 项，请检查目标"
                     for f in files {
                         self.addAndStart(backend, direction: direction, local: f.0, remote: f.1,
                             name: (f.0 as NSString).lastPathComponent, size: f.2, onFinish: { [weak self] status in
@@ -367,7 +394,14 @@ public final class TransferManager: ObservableObject {
                                 if batch.remaining == 0, let self,
                                    let index = self.jobs.firstIndex(where: { $0.id == parentID }),
                                    !self.jobs[index].status.isTerminal {
-                                    self.finish(index, status: batch.summary)
+                                    let summary = batch.summary
+                                    if !uncertainDirectorySummary.isEmpty {
+                                        self.finish(index, status: .unknown("\(summary)：\(uncertainDirectorySummary)"))
+                                    } else if !createdDirectories.isEmpty, summary != .done {
+                                        self.finish(index, status: .partial("\(summary)：\(retainedDirectorySummary)"))
+                                    } else {
+                                        self.finish(index, status: summary)
+                                    }
                                 }
                             }, parentID: parentID)
                         if let child = self.jobs.last {
@@ -379,7 +413,14 @@ public final class TransferManager: ObservableObject {
             } catch {
                 DispatchQueue.main.async {
                     guard let self, let i = self.jobs.firstIndex(where: { $0.id == parentID }) else { return }
-                    self.finish(i, status: cancellation.cancelled ? .cancelled : .failed("目录传输失败：\(error)"))
+                    let retained = createdDirectories.isEmpty ? "" : "；已创建并保留目录 \(createdDirectories.count) 项"
+                    let uncertain = uncertainDirectories.isEmpty ? "" : "；目录创建结果未知 \(uncertainDirectories.count) 项，请检查目标"
+                    let status: Status = !uncertainDirectories.isEmpty
+                        ? .unknown("目录传输结果未知：\(error)\(retained)\(uncertain)")
+                        : !createdDirectories.isEmpty
+                            ? .partial("目录传输未完成：\(error)\(retained)")
+                            : cancellation.cancelled ? .cancelled : .failed("目录传输失败：\(error)")
+                    self.finish(i, status: status)
                 }
             }
         }

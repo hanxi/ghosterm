@@ -18,6 +18,7 @@
 #include "ghosterm.h"
 #include "internal.h"
 #include "ssh/wire.h"
+#include "base/secure-random.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -59,10 +60,12 @@ struct sftp_job {
     char *remote;
     char *local;
     char *staging_template;
+    char *remote_staging_path;
     uint64_t job_id;
     uint64_t max_download_bytes;
     void *terminal_event_reservation;
     bool staged_download;
+    bool staged_upload;
     bool overwrite_destination;
     bool upload; /* false = download */
     atomic_bool cancelled;
@@ -339,6 +342,7 @@ void gt_sftp_close(gt_sftp_t *sftp) {
         free(j->remote);
         free(j->local);
         free(j->staging_template);
+        free(j->remote_staging_path);
         gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
         j = next;
@@ -2551,8 +2555,13 @@ static int job_upload(sftp_job_t *j) {
 
     gt_sftp_t *s = j->sftp;
     SFTP_LOCK(s);
-    LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(
-        s->sftp, j->remote, LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC, 0644);
+    const char *upload_path = j->staged_upload ? j->remote_staging_path : j->remote;
+    LIBSSH2_SFTP_HANDLE *h =
+        libssh2_sftp_open(s->sftp,
+                          upload_path,
+                          LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT |
+                              (j->staged_upload ? LIBSSH2_FXF_EXCL : LIBSSH2_FXF_TRUNC),
+                          j->staged_upload ? 0600 : 0644);
     SFTP_UNLOCK(s);
     if (!h) {
         fclose(f);
@@ -2608,15 +2617,53 @@ out:
     SFTP_UNLOCK(s);
     int local_close = fclose(f);
     bool close_failed = remote_close != 0 || local_close != 0;
+    bool publish_failed = false;
+    if (j->staged_upload && rc == GT_JOB_OK && !close_failed) {
+        SFTP_LOCK(s);
+        int published =
+            j->overwrite_destination
+                ? libssh2_sftp_posix_rename_ex(s->sftp,
+                                               j->remote_staging_path,
+                                               (unsigned int)strlen(j->remote_staging_path),
+                                               j->remote,
+                                               (unsigned int)strlen(j->remote))
+                : libssh2_sftp_rename_ex(s->sftp,
+                                         j->remote_staging_path,
+                                         (unsigned int)strlen(j->remote_staging_path),
+                                         j->remote,
+                                         (unsigned int)strlen(j->remote),
+                                         0);
+        SFTP_UNLOCK(s);
+        publish_failed = published != 0;
+        if (publish_failed) {
+            rc = GT_JOB_FAILED;
+        }
+    }
     if (close_failed && rc != GT_JOB_CANCELLED) {
         rc = GT_JOB_FAILED;
     }
-    const char *detail =
-        close_failed ? (rc == GT_JOB_CANCELLED ? "upload cancelled; close failed（部分文件保留）"
-                                               : "upload close failed")
-        : rc == GT_JOB_OK        ? "upload done"
-        : rc == GT_JOB_CANCELLED ? "upload cancelled（已传部分保留）"
-                                 : "upload failed";
+    char staged_detail[512];
+    const char *detail;
+    if (j->staged_upload && rc != GT_JOB_OK) {
+        snprintf(staged_detail,
+                 sizeof staged_detail,
+                 "upload staging file retained at %.400s (%s)",
+                 j->remote_staging_path,
+                 publish_failed           ? "publish failed"
+                 : close_failed           ? "close failed"
+                 : rc == GT_JOB_CANCELLED ? "cancelled"
+                                          : "upload failed");
+        detail = staged_detail;
+    } else if (close_failed) {
+        detail = rc == GT_JOB_CANCELLED ? "upload cancelled; close failed（部分文件保留）"
+                                        : "upload close failed";
+    } else if (rc == GT_JOB_OK) {
+        detail = "upload done";
+    } else if (rc == GT_JOB_CANCELLED) {
+        detail = "upload cancelled（已传部分保留）";
+    } else {
+        detail = "upload failed";
+    }
     emit_job_done(j, rc, detail);
     return rc;
 }
@@ -2660,6 +2707,7 @@ static void *worker_main(void *arg) {
         free(j->remote);
         free(j->local);
         free(j->staging_template);
+        free(j->remote_staging_path);
         gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
     }
@@ -2672,6 +2720,7 @@ static uint64_t submit_job(gt_sftp_t *sftp,
                            bool upload,
                            uint64_t max_download_bytes,
                            bool staged_download,
+                           bool staged_upload,
                            bool overwrite_destination) {
     if (!sftp || !sftp->sftp || !a || !b || !*a || !*b || strlen(a) >= 65536 ||
         strlen(b) >= 65536 ||
@@ -2690,6 +2739,7 @@ static uint64_t submit_job(gt_sftp_t *sftp,
     j->sftp = sftp;
     j->upload = upload;
     j->staged_download = staged_download;
+    j->staged_upload = staged_upload;
     j->overwrite_destination = overwrite_destination;
     j->remote = gt__strdup(upload ? b : a);
     j->local = gt__strdup(upload ? a : b);
@@ -2708,14 +2758,37 @@ static uint64_t submit_job(gt_sftp_t *sftp,
                      j->local);
         }
     }
+    if (staged_upload && j->remote) {
+        uint8_t random[16];
+        static const char hex[] = "0123456789abcdef";
+        const char *slash = strrchr(j->remote, '/');
+        size_t directory_size = slash ? (size_t)(slash - j->remote + 1) : 0;
+        size_t template_size = directory_size + sizeof(".ghosterm-upload-") + sizeof(random) * 2;
+        if (gt__secure_random(random, sizeof random) == GT_OK) {
+            j->remote_staging_path = gt__alloc(template_size);
+            if (j->remote_staging_path) {
+                memcpy(j->remote_staging_path, j->remote, directory_size);
+                char *p = j->remote_staging_path + directory_size;
+                memcpy(p, ".ghosterm-upload-", sizeof(".ghosterm-upload-") - 1);
+                p += sizeof(".ghosterm-upload-") - 1;
+                for (size_t i = 0; i < sizeof random; i++) {
+                    *p++ = hex[random[i] >> 4];
+                    *p++ = hex[random[i] & 15];
+                }
+                *p = '\0';
+            }
+            gt__secure_erase(random, sizeof random);
+        }
+    }
     j->terminal_event_reservation = gt__event_reserve_terminal();
     atomic_init(&j->cancelled, false);
     atomic_init(&j->paused, false);
     if (!j->remote || !j->local || !j->terminal_event_reservation ||
-        (staged_download && !j->staging_template)) {
+        (staged_download && !j->staging_template) || (staged_upload && !j->remote_staging_path)) {
         free(j->remote);
         free(j->local);
         free(j->staging_template);
+        free(j->remote_staging_path);
         gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
         return 0;
@@ -2739,16 +2812,21 @@ static uint64_t submit_job(gt_sftp_t *sftp,
 }
 
 uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local) {
-    return submit_job(sftp, remote, local, false, UINT64_MAX, false, true);
+    return submit_job(sftp, remote, local, false, UINT64_MAX, false, false, true);
 }
 
 uint64_t gt_sftp_download_staged(
     gt_sftp_t *sftp, const char *remote, const char *local, bool overwrite, uint64_t max_bytes) {
-    return submit_job(sftp, remote, local, false, max_bytes, true, overwrite);
+    return submit_job(sftp, remote, local, false, max_bytes, true, false, overwrite);
 }
 
 uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote) {
-    return submit_job(sftp, local, remote, true, UINT64_MAX, false, true);
+    return submit_job(sftp, local, remote, true, UINT64_MAX, false, false, true);
+}
+
+uint64_t
+gt_sftp_upload_staged(gt_sftp_t *sftp, const char *local, const char *remote, bool overwrite) {
+    return submit_job(sftp, local, remote, true, UINT64_MAX, false, true, overwrite);
 }
 
 /* cancel / pause 都按 job_id 查在途表（调用可来自任意线程）。 */
@@ -3183,6 +3261,16 @@ uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local
     (void)remote;
     (void)local;
     gt__set_error("gt_sftp_download: libssh2 未编译进核心");
+    return 0;
+}
+
+uint64_t
+gt_sftp_upload_staged(gt_sftp_t *sftp, const char *local, const char *remote, bool overwrite) {
+    (void)sftp;
+    (void)local;
+    (void)remote;
+    (void)overwrite;
+    gt__set_error("gt_sftp_upload_staged: libssh2 未编译进核心");
     return 0;
 }
 
