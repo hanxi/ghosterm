@@ -35,12 +35,26 @@ import androidx.compose.ui.unit.dp
                 Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState()).testTag("plugin-diff-rows")) {
                     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         page.rows.forEachIndexed { index, row -> key(page.offset + index) {
+                            val change = when (row.kind) {
+                                PluginDiffRow.Kind.INSERT -> "新增"
+                                PluginDiffRow.Kind.DELETE -> "删除"
+                                PluginDiffRow.Kind.EQUAL -> "相同"
+                            }
+                            val marker = when (row.kind) {
+                                PluginDiffRow.Kind.INSERT -> "+"
+                                PluginDiffRow.Kind.DELETE -> "−"
+                                PluginDiffRow.Kind.EQUAL -> "="
+                            }
+                            val before = if (row.beforeLine == 0) "原文无此行" else "原第 ${row.beforeLine} 行"
+                            val after = if (row.afterLine == 0) "新文无此行" else "新第 ${row.afterLine} 行"
                             Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(when (row.kind) { PluginDiffRow.Kind.INSERT -> "+ 新增"; PluginDiffRow.Kind.DELETE -> "− 删除"; PluginDiffRow.Kind.EQUAL -> "= 相同" })
-                                Text("${if (row.beforeLine == 0) "—" else row.beforeLine} / ${if (row.afterLine == 0) "—" else row.afterLine}", Modifier.semantics { contentDescription = "原 / 新行号" })
+                                Text("$marker $change", Modifier.clearAndSetSemantics {})
+                                Text("${if (row.beforeLine == 0) "—" else row.beforeLine} / ${if (row.afterLine == 0) "—" else row.afterLine}",
+                                    Modifier.clearAndSetSemantics {})
                                 SelectionContainer {
                                     Text(row.text, Modifier.testTag("plugin-diff-text-${page.offset + index}").semantics {
-                                        contentDescription = "${if (row.beforeLine == 0) "原文无此行" else "原第 ${row.beforeLine} 行"}，${if (row.afterLine == 0) "新文无此行" else "新第 ${row.afterLine} 行"}"
+                                        contentDescription = "$change，$before，$after" +
+                                            if (row.text.isEmpty()) "" else "，${row.text}"
                                     }, fontFamily = FontFamily.Monospace)
                                 }
                                 Text(row.ending.label, Modifier.testTag("plugin-diff-ending-${page.offset + index}").semantics { contentDescription = "换行：${row.ending.label}" }, fontFamily = FontFamily.Monospace)

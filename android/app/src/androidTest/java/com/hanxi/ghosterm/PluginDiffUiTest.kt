@@ -42,11 +42,13 @@ class PluginDiffUiTest {
         ui.onNodeWithTag("plugin-diff-next").performScrollTo().performClick()
         ui.runOnIdle { assertEquals("Next button must select the next verified page", 3, model.state.value.selectedOffset) }
         ui.waitUntil(5000) { model.state.value.page?.offset == 3 }
-        ui.onNodeWithTag("plugin-diff-text-3").performScrollTo().assertTextEquals("gamma").assertContentDescriptionEquals("原文无此行，新第 2 行")
+        ui.onNodeWithTag("plugin-diff-text-3").performScrollTo().assertTextEquals("gamma").assertContentDescriptionEquals("新增，原文无此行，新第 2 行，gamma")
         ui.onNodeWithTag("plugin-diff-next").performScrollTo().assertIsNotEnabled()
         ui.onNodeWithTag("plugin-diff-previous").performScrollTo().performClick()
         ui.waitUntil(5000) { model.state.value.page?.offset == 0 }
         ui.onNodeWithTag("plugin-diff-text-0").performScrollTo().assertTextEquals("alpha")
+        ui.onNodeWithTag("plugin-diff-text-1").performScrollTo()
+            .assertContentDescriptionEquals("删除，原第 2 行，新文无此行，beta")
         ui.onNodeWithTag("plugin-diff-ending-0").performScrollTo().assertTextEquals("CRLF").assertContentDescriptionEquals("换行：CRLF")
     }
     @Test fun emptyDiffAndDisabledPagingAreNativeSemantics() = fixture(empty = true) { _, f ->
