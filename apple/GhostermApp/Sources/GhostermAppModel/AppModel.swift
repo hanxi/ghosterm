@@ -262,10 +262,13 @@ public final class AppModel: ObservableObject {
             let profile = try? ExtensionController.HostProfile(
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
                 runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
+            let channelTrust = pluginChannelTrust ?? Self.bundledPluginChannel(
+                Bundle.main.object(forInfoDictionaryKey: "GhostermPluginChannel"),
+                supportDirectory: resourceDirectory.deletingLastPathComponent())
             self.extensionController = profile.flatMap {
                 try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory,
                     installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("PluginPackages", isDirectory: true),
-                    channelTrust: pluginChannelTrust)
+                    channelTrust: channelTrust)
             }
         } else {
             self.extensionController = nil
@@ -1518,6 +1521,25 @@ public final class AppModel: ObservableObject {
 
     static func codexRequestKey(_ value: Any?) -> String? {
         return ExtensionInstanceModel.codexRequestKey(value)
+    }
+
+    static func bundledPluginChannel(_ value: Any?, supportDirectory: URL) -> ExtensionController.ChannelTrust? {
+        guard let fields = value as? [String: String], Set(fields.keys) == ["Name", "Root", "Directory"],
+              let name = fields["Name"], name.range(of: #"^[a-z0-9][a-z0-9.-]{0,63}$"#, options: .regularExpression) != nil,
+              let encoded = fields["Root"], let root = Data(base64Encoded: encoded), root.count == 32,
+              let endpoint = fields["Directory"], let parts = URLComponents(string: endpoint),
+              parts.scheme == "https", let host = parts.host, !host.isEmpty,
+              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+              let directory = parts.url else { return nil }
+        let state = supportDirectory.appendingPathComponent("PluginChannelPolicy", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+        } catch {
+            // Reopening an existing state directory is checked by the catalog.
+            guard (error as NSError).code == NSFileWriteFileExistsError else { return nil }
+        }
+        return .init(channel: name, root: root, stateDirectory: state, refreshDirectory: directory)
     }
 
     private static func pluginResourceDirectory() -> URL? {

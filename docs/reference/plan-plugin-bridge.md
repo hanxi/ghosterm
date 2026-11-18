@@ -14141,3 +14141,21 @@ macOS Release 构建通过，临时目录已清理。
 配置对照、源码复原及 SHA256 通过。收据 SHA256
 `3ad74a15546da734050e37f86c081748439d380e344884e35400f55cb2ccfb74`。
 macOS Release 构建通过，临时目录已清理。未增加渠道开关的窗口点击自动化。
+
+### P6 macOS 随包渠道信任配置（2026-11-19）
+
+固定 `8a404ba0` 加本批。macOS 打包可在签名之前写入独立的插件渠道名称、
+Ed25519 根公钥和 HTTPS 目录，运行时从 App 包的 Info.plist 读取，并在
+Application Support 下为缓存创建 0700 状态目录。App 启动后，已有刷新、
+安装和启用入口共享此配置。全空表示本构建未配置渠道，部分配置或不合规的
+值让打包失败。仓库发布变量 `MACOS_PLUGIN_CHANNEL`、`MACOS_PLUGIN_CHANNEL_ROOT`
+和 `MACOS_PLUGIN_CHANNEL_URL` 分别对应本地参数 `GHOSTERM_PLUGIN_CHANNEL`、
+`GHOSTERM_PLUGIN_CHANNEL_ROOT` 和 `GHOSTERM_PLUGIN_CHANNEL_URL`；
+公钥用 32 字节 Ed25519 原始公钥的 Base64。生产地址、根、发布和撤销服务
+仍需独立审阅及实测。
+
+打包写入脚本的空配置、有效配置、部分配置和非法 URL 夹具通过，
+`package-mac.sh` 语法检查通过。离屏签名 XCTest 11 项通过，1 项缺
+JS-enabled 签名夹具跳过。覆盖 AppModel 读取公钥和地址、拒绝含凭据 URL、
+以及状态目录权限。macOS Release 构建通过。未运行完整 DMG/ZIP 打包闸门，
+本轮临时目录已清理。

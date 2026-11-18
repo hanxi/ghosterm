@@ -316,6 +316,7 @@ sed -e "s/@UPDATE_VERSION@/${UPDATE_VERSION}/" -e "s/@VERSION@/${VERSION}/" -e "
   "$TEMPLATE" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist 不合法"
 python3 "$ROOT/scripts/configure-macos-update.py" "$APP/Contents/Info.plist" "$PACKAGE_CHANNEL"
+python3 "$ROOT/scripts/configure-macos-plugin-channel.py" "$APP/Contents/Info.plist"
 note "CFBundleShortVersionString=${VERSION} · CFBundleVersion=${UPDATE_VERSION} · LSMinimumSystemVersion=${MIN_OS}"
 
 # 构建信息：**必须在签名前**写进 bundle —— 签名后再加文件会破坏 sealed resource

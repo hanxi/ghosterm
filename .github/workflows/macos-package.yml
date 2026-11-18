@@ -284,6 +284,9 @@ jobs:
       - name: 出包（dmg + zip + 校验和）
         env:
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
+          GHOSTERM_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
+          GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+          GHOSTERM_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
           SIGN_MODE: ${{ steps.signing.outputs.mode }}
           SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
           NOTARY_PROFILE: ${{ steps.notary.outputs.profile }}
