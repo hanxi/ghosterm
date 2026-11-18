@@ -50,7 +50,7 @@ def main():
       ('observed-write',[('            c->info.sent += r.count;\n','            c->info.sent += 0;\n')],'boundary','post-write-stop'),
       ('observed-read',[('        c->info.received += r.count;\n','        c->info.received += 0;\n')],'boundary','post-read-stop'),
       ('capacity',[('        if (count >= GT_EXT_CHANNEL_LIMIT) {\n','        if (false && count >= GT_EXT_CHANNEL_LIMIT) {\n')],'boundary','allocation'),
-      ('allocation-unwind',[('    gt_ext_channel_t *c = gt__plugin_memory_calloc(1, sizeof(*c));\n    if (!c) {\n','    gt_ext_channel_t *c = gt__plugin_memory_calloc(1, sizeof(*c));\n    if (false && !c) {\n')],'boundary','allocation'),
+      ('allocation-unwind',[('    if (!c) {\n        atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);\n    } else {\n        c->counted = true;\n    }\n','    if (c) {\n        c->counted = true;\n    }\n')],'boundary','allocation'),
       ('constructor-unwind',[('        channel_free(c);\n        return status;\n','        return status;\n')],'boundary','constructor-failure'),
       ('owner-release',[('    if (counted) {\n        atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);\n    }\n','    if (false && counted) {\n        atomic_fetch_sub_explicit(&channel_count, 1, memory_order_release);\n    }\n')],'boundary','allocation'),
       ('owner-cleared',[('    *owned = NULL;\n    return GT_OK;\n','    return GT_OK;\n')],'boundary','allocation'),
