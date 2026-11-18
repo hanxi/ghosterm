@@ -133,14 +133,18 @@ def main():
     code = """import {object,text,integer} from '@ghosterm/plugin-sdk';
 export function activate(ctx){
  const codec=object({text:text(64),count:integer(0,100)});
+ // A diagnostic must fit the output codec or the SDK replaces it with HANDLER_INTERRUPTED.
+ const diagnostic=(kind,detail,count)=>({
+  text:('publish:'+kind+':'+String(detail).replace(/[^ -~]/g,'?')).slice(0,64),count
+ });
  ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{
   c.check(); if(v.text==='resource'){
    try {
     const result=await ctx.resources.publish({root:'workspace',relativePath:'file.bin',mediaType:'application/octet-stream'},
      {byteLimit:'262144',timeoutMs:10000}).outcome;
-    if(result.kind!=='success')return {text:'publish:'+result.kind+':'+(result.error?.code||result.reason||''),count:v.count};
+    if(result.kind!=='success')return diagnostic(result.kind,result.error?.code||result.reason||'',v.count);
     if(result.value.size.kind!=='known'||result.value.size.bytes!=='262144')return {text:'publish:invalid-size',count:v.count};
-   } catch(error){return {text:'publish:threw:'+String(error).slice(0,40),count:v.count};}
+   } catch(error){return diagnostic('threw',error,v.count);}
   } c.check(); return v;
  }); return {dispose(){}};
 }
