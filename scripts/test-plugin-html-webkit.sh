@@ -2,9 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${ROOT}/tmp/plugin-html-webkit-probe"
 mkdir -p "${ROOT}/tmp"
-rm -rf "${BUILD_DIR}"
+BUILD_DIR="$(mktemp -d "${ROOT}/tmp/plugin-html-webkit-probe.XXXXXX")"
 mkdir -p "${BUILD_DIR}/tool-tmp"
 cleanup() {
   python3 - "${BUILD_DIR}" <<'PY'
