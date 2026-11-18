@@ -51,8 +51,18 @@ final class PluginChannelTLSLoopbackTests: XCTestCase {
                                                          refreshDirectory: endpoint)
             return try await PluginChannelRefresh.refresh(trust, delegate: LoopbackChannelDelegate(anchor: certificate))
         }
+        let vectorPath = try XCTUnwrap(env["GHOSTERM_TEST_CHANNEL_RELEASE_VECTOR"])
+        let vector = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: URL(fileURLWithPath: vectorPath)))
+        let descriptor = Data(try XCTUnwrap(vector["descriptor"]).utf8)
+        let signature = try XCTUnwrap(vector["signature"].flatMap { Data(base64Encoded: $0) })
+        let identity = try PluginDirectorySignatureVerifier.declaration(descriptor)
+        func verify(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy) throws {
+            _ = try PluginDirectorySignatureVerifier.verify(descriptor: descriptor, signature: signature,
+                channelPolicy: policy, identity: identity, now: UInt64(Date().timeIntervalSince1970))
+        }
         let valid = try await refresh("valid")
         XCTAssertEqual(valid.generation, 2)
+        try verify(valid)
         do {
             _ = try await refresh("redirect")
             XCTFail("channel client followed a redirect")
@@ -68,5 +78,20 @@ final class PluginChannelTLSLoopbackTests: XCTestCase {
         let restored = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: "fixture", channelRoot: root,
             now: UInt64(Date().timeIntervalSince1970), stateDirectory: state)
         XCTAssertEqual(restored.statementSHA256, valid.statementSHA256)
+        let revoked = try await refresh("revoked")
+        XCTAssertEqual(revoked.generation, 3)
+        XCTAssertThrowsError(try verify(revoked)) {
+            XCTAssertEqual($0 as? PluginDirectorySignatureVerifier.Failure, .revokedKey)
+        }
+        do {
+            _ = try await refresh("valid")
+            XCTFail("channel client accepted a generation preceding the revocation")
+        } catch PluginDirectorySignatureVerifier.Failure.channelHistory {}
+        let reopened = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: "fixture", channelRoot: root,
+            now: UInt64(Date().timeIntervalSince1970), stateDirectory: state)
+        XCTAssertEqual(reopened.statementSHA256, revoked.statementSHA256)
+        XCTAssertThrowsError(try verify(reopened)) {
+            XCTAssertEqual($0 as? PluginDirectorySignatureVerifier.Failure, .revokedKey)
+        }
     }
 }

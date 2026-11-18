@@ -31,6 +31,10 @@ def fixture(work, env, host):
     node = Path(shutil.which('node')).resolve(strict=True)
     policy = work / 'original-policy.json'
     policy.write_bytes(json.loads((ASSETS / 'vector.json').read_bytes())['policy'].encode())
+    revoked = json.loads(policy.read_bytes())
+    revoked['revokedKeyIds'] = [key['id'] for key in revoked['keys']]
+    revoked_policy = work / 'revoked-policy.json'
+    revoked_policy.write_text(json.dumps(revoked))
     signer_host = work / 'signer'
     signer_host.mkdir()
     configuration = work / 'signer.json'
@@ -39,21 +43,27 @@ def fixture(work, env, host):
         configuration.write_text(json.dumps(dict(executable=str(node), sha256=helper.sha(node.read_bytes()),
             prefixArguments=[str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(endpoint)])))
         now = int(time.time())
-        result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign-policy',
-                                 '--channel', 'fixture', '--channel-root', root, '--policy', policy,
-                                 '--generation', '2', '--issued-at', str(now - 60), '--expires-at', str(now + 3600),
-                                 '--signer-json', configuration, '--out', bundle],
-                                cwd=work, env=env, capture_output=True, timeout=45)
-        report = json.loads(result.stdout)
-        if result.returncode or report.get('kind') != 'signed-channel-policy':
-            raise RuntimeError(f'Channel producer failed: {report}')
-    return cert, key, root, bundle
+        def sign(policy, generation, bundle):
+            result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign-policy',
+                                     '--channel', 'fixture', '--channel-root', root, '--policy', policy,
+                                     '--generation', str(generation), '--issued-at', str(now - 60), '--expires-at', str(now + 3600),
+                                     '--signer-json', configuration, '--out', bundle],
+                                    cwd=work, env=env, capture_output=True, timeout=45)
+            report = json.loads(result.stdout)
+            if result.returncode or report.get('kind') != 'signed-channel-policy':
+                raise RuntimeError(f'Channel producer failed: {report}')
+        sign(policy, 2, bundle)
+        revoked_bundle = work / 'revoked-channel'
+        sign(revoked_policy, 3, revoked_bundle)
+    return cert, key, root, bundle, revoked_bundle
 
 
 @contextmanager
 def tls_fixture(work, env, host):
-    cert, key, root, bundle = fixture(work, env, host)
-    bodies = {name: (bundle / name).read_bytes() for name in ('channel-policy.json', 'channel-policy.sig', 'policy.json')}
+    cert, key, root, bundle, revoked_bundle = fixture(work, env, host)
+    names = ('channel-policy.json', 'channel-policy.sig', 'policy.json')
+    bodies = {name: (bundle / name).read_bytes() for name in names}
+    revoked_bodies = {name: (revoked_bundle / name).read_bytes() for name in names}
     received = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -68,7 +78,7 @@ def tls_fixture(work, env, host):
                 self.send_header('Location', '/redirect-target/' + name)
                 self.end_headers()
                 return
-            body = bodies[name]
+            body = (revoked_bodies if mode == 'revoked' else bodies)[name]
             if name == 'policy.json':
                 if mode == 'oversized':
                     body = b'x' * 131073

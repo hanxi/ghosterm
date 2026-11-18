@@ -21,7 +21,8 @@ def main():
         with helper.tls_fixture(Path(path), env, '127.0.0.1') as (origin, certificate, root):
             der = subprocess.check_output(['openssl', 'x509', '-in', certificate, '-outform', 'DER'], env=env)
             env.update(GHOSTERM_TEST_CHANNEL_ORIGIN=origin, GHOSTERM_TEST_CHANNEL_ROOT=root,
-                       GHOSTERM_TEST_CHANNEL_CERT=base64.b64encode(der).decode())
+                       GHOSTERM_TEST_CHANNEL_CERT=base64.b64encode(der).decode(),
+                       GHOSTERM_TEST_CHANNEL_RELEASE_VECTOR=str(helper.ASSETS / "vector.json"))
             result = subprocess.run(['swift', 'test', '--package-path', 'apple/GhostermApp',
                                      '--filter', 'PluginChannelTLSLoopbackTests'], cwd=ROOT, env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
