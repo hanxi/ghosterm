@@ -12915,3 +12915,13 @@ OFF，Swift Release 构建和 ad-hoc App 打包通过。自包含检查、libssh
 主程序依赖，确认主程序无直接 libcrypto 链接，包内无 QuickJS 文件或 .gtp 包。
 主程序 SHA256 为 `c49df87894c7840e8b761e096169ef24ec83bf17ab0fd9018210494aba40249e`。
 本轮仅验证 arm64 App 产物及后台冒烟，DMG / ZIP、公证、插件分发包和完整发布验收待完成。
+
+### P6 普通 macOS DMG 与 ZIP 验证（2026-11-18）
+
+在固定 `dd7a3700` 的隔离检出中，用本机 GhosttyKit / 锁定 libssh2 构件运行
+普通 arm64 ad-hoc dev 打包。继承的两个实验开关均为 1，实际 CMake 缓存中的 JS
+与发布签名后端均为 OFF。App 和 DMG 内的终端后台冒烟通过，包内旧 runtime 检查通过。
+DMG 经 `hdiutil verify`、ZIP 经 `unzip -tq`，二者及 BUILD-INFO 均通过 SHA256 对拍。
+DMG 摘要 `3b0e851b2f0679c5681b33e1a2ca0de8206ca52a3ce8ef23c9ce71ab78059e01`，
+ZIP 摘要 `ae3136eef40b3cc4d0ee16a70fa890ca12386648607b72a3ac15cb589184eaef`。
+证据范围为本地普通包。插件分发包、正式签名 / 公证与完整发布验收待完成。
