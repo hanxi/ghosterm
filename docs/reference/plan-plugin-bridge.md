@@ -14580,3 +14580,10 @@ macOS 渠道 HTTPS 回环专项增加策略文件缺失（HTTP 404）的用例�
 Android HTTPS 回环夹具同步增加策略文件 404 的断言，并用新缓存 owner 核对
 失败后代次、声明摘要和策略原始字节均保持。启用 JS 的 instrumentation
 Kotlin 后台编译通过，设备执行仍待验。
+
+### P1–P6 启用 JS 的 Core 整轮回归（2026-11-19）
+
+固定 `44f32c64`，按锁定 TypeScript 编译 Portable SDK，在工程临时目录构建
+SSH-on / JS-on Core。六路 CTest 874/874，耗时 56.30 秒，两个独占 tmux 用例
+均通过。首轮缺 SDK 路径在配置阶段明确失败，未计为测试结果。CTest 日志
+SHA256 `60a0ff45842e9c68f79714973f30a1785f681fd536afbab17fc7d0553edbdb71`。
