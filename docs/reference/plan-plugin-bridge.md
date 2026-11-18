@@ -13508,3 +13508,12 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 分页及取消操作，以及工作区焦点接管、关闭后归还终端焦点与清理等待。
 首轮使用命令行工具时缺少 XCTest，未进入测试。两轮的临时目录均已清理。
 本轮未执行读屏播报、真实后端或变异验证。
+
+### P1 默认 Core 通道集中复验（2026-11-19）
+
+固定 `33d7afed`，使用完整 Xcode CLI 增量构建默认 Core（插件通道开启、插件
+JS 关闭）。运行 `ctest --test-dir core/build -j 6 --output-on-failure -R
+'^(bridge_|ext_(channel|session|rpc)_|plugin_process_rpc_|tmux_)'`，
+326 项全部通过。覆盖分帧、桥接传输 credit 和 epoch、会话停止、RPC 背压与
+取消后的晚到响应，以及 tmux 命令辅助模块。全程命令行，临时目录已清理。
+真实平台 SSH/tmux 路线、原始终端字节对照及变异仍以各自的专项闸门验收。
