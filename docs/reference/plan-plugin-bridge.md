@@ -13407,3 +13407,11 @@ SSH 链使用本机隔离服务。普通 SSH PTY 切 pane、切窗口和重附�
 准入时限和资源回收。ASan / UBSan 错误均未计作目标红。
 收据 SHA256 `d952ac889d0badb5455eec8651bb41bff9639102a7171c440b6ef959d7dfb7a6`。
 本轮隔离源码、构件和日志已清理。
+
+### P1 共享连接与代次的 sanitizer 复验（2026-11-19）
+
+固定 `f1fa5982`，JS-on / SSH-off 隔离 Core 构建，以 ASan 和 UBSan 运行
+`(bridge|ext)_multiplex_` 共 15 项，全部通过。覆盖不同实例隔离、旧代次拒绝、
+有界排队和调度优先级、断线、复用、原生控制及资源源引用借用。
+日志 SHA256 `ad59ea5eb16dea1575d2a0372a5c8389264d3ce800ab2142adb0f93edc67860c`。
+本轮是命令行 Core 用例，未运行真实 SSH 或变异，临时产物已清理。
