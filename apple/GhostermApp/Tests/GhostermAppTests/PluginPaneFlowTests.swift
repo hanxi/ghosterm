@@ -211,7 +211,8 @@ final class PluginPaneFlowTests: XCTestCase {
         trace("create hosting view")
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model, packagePicker: { completion in
             selections += 1
-            completion(.success([package]))
+            if selections == 1 { completion(.failure(CocoaError(.userCancelled))) }
+            else { completion(.success([package])) }
         }))
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1400),
                                        styleMask: [.borderless], backing: .buffered, defer: false)
@@ -265,8 +266,13 @@ final class PluginPaneFlowTests: XCTestCase {
         guard try await until({ node("plugin-package-import") != nil }) else { XCTFail("import control missing"); return }
         XCTAssertNil(model.extensionRun)
         try press("plugin-package-import")
-        guard try await until({ node("plugin-approve-" + id) != nil }) else { XCTFail("directory selection callback did not review selected package"); return }
         XCTAssertEqual(selections, 1)
+        XCTAssertNil(node("plugin-package-issue"), "cancelling the picker must not display an import error")
+        XCTAssertNil(node("plugin-approve-" + id))
+        XCTAssertNil(model.extensionRun)
+        try press("plugin-package-import")
+        guard try await until({ node("plugin-approve-" + id) != nil }) else { XCTFail("directory selection callback did not review selected package"); return }
+        XCTAssertEqual(selections, 2)
         let digest = SHA256.hash(data: try Data(contentsOf: package.appendingPathComponent("integrity.json")))
             .map { String(format: "%02x", $0) }.joined()
         XCTAssertTrue(hasText(digest), "review must display the exact immutable package digest")

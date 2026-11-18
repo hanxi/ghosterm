@@ -435,6 +435,7 @@ struct ExtensionsPane: View {
             guard let url = urls.first else { return }
             Task { await review(url) }
         case .failure(let error):
+            if (error as? CocoaError)?.code == .userCancelled { return }
             issue = "无法选择插件包：\(error.localizedDescription)"
         }
     }
