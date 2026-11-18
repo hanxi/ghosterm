@@ -388,22 +388,29 @@ struct ExtensionsPane: View {
         return VStack(alignment: .leading, spacing: DS.Padding.s) {
             Button("检查此位置的前台实例") {
                 let key = entry.inspectionKey, id = entry.id
+                guard inspectionTask == nil, model.extensionInstance.canDiscard,
+                      !entry.localConnection || entry.localAllowed else { return }
+                binding.wrappedValue.foregroundDeclaration = nil
+                binding.wrappedValue.foregroundKey = nil
+                binding.wrappedValue.foregroundIssue = nil
                 inspectionTask = Task {
+                    defer { inspectionTask = nil }
                     do {
                         let value = try await model.inspectForegroundPlugin(sshAlias: entry.sshAlias,
                             executable: entry.executable, directory: entry.ipcDirectory, instance: entry.ipcInstance,
                             localLaunch: entry.localLaunch)
                         try Task.checkCancellation()
-                        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].inspectionKey == key else { return }
+                        guard let index = entries.firstIndex(where: { $0.id == id }),
+                              entries[index].attachExisting, entries[index].inspectionKey == key else { return }
                         entries[index].foregroundDeclaration = value; entries[index].foregroundKey = key
-                        entries[index].foregroundIssue = nil
                     } catch {
-                        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].inspectionKey == key else { return }
-                        entries[index].foregroundDeclaration = nil; entries[index].foregroundIssue = String(describing: error)
+                        guard !Task.isCancelled, let index = entries.firstIndex(where: { $0.id == id }),
+                              entries[index].attachExisting, entries[index].inspectionKey == key else { return }
+                        entries[index].foregroundIssue = String(describing: error)
                     }
                 }
             }
-            .disabled(!model.extensionInstance.canDiscard || (entry.localConnection && !entry.localAllowed))
+            .disabled(inspectionTask != nil || !model.extensionInstance.canDiscard || (entry.localConnection && !entry.localAllowed))
             .accessibilityIdentifier("plugin-ipc-inspect")
             if let value = entry.foregroundDeclaration, entry.foregroundKey == entry.inspectionKey {
                 Text("当前声明：\(value.command) · \(value.runtime)\nExecutor：\(value.executorDigest)\nClient：\(value.clientDigest)")
