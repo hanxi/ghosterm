@@ -414,13 +414,20 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     fun sendCodexMessage() {
-        if (!canCallCodex("codex.turn.send") || codex.threadID == null || codex.turnActive) return
+        if (!canCallCodex("codex.turn.send") || codex.threadID == null || codex.turnActive || codex.sendUnconfirmed) return
         val text = codex.messageDraft.trim()
         if (text.isEmpty() || text.toByteArray().size > 2048) return
-        callCodex("Codex 消息发送失败") {
-            val input = JSONObject().put("text", text)
-            codexRPC("codex.turn.send", input)
-            codex = codex.copy(messageDraft = "")
+        codex = codex.copy(sendUnconfirmed = true)
+        callCodex("无法确认 Codex 消息发送") {
+            val input = JSONObject().put("text", text).toString().toByteArray(Charsets.UTF_8)
+            try {
+                val result = CodexHostEvents.decodeOutcome(requestExtensionRPC("codex.turn.send", input, returnTerminalOutcome = true))
+                check(result.optString("turnID").isNotBlank()) { "Codex 回合 ID 缺失" }
+                codex = codex.copy(messageDraft = "", sendUnconfirmed = false)
+            } catch (failure: CodexHostEvents.ConfirmedNoEffect) {
+                codex = codex.copy(sendUnconfirmed = false)
+                throw failure
+            }
         }
     }
 

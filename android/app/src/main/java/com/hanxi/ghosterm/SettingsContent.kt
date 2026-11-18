@@ -1010,8 +1010,12 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }
         } else {
             ConversationComposer(state.messageDraft, extensions::editCodexMessage, state.callBusy,
-                !state.turnActive, "plugin-codex", "发送给 Codex", extensions::sendCodexMessage,
+                !state.turnActive && !state.sendUnconfirmed, "plugin-codex", "发送给 Codex", extensions::sendCodexMessage,
                 enabled = extensions.canInteractWithRuntime)
+            if (state.sendUnconfirmed && !state.callBusy) {
+                Text("上一条消息的发送结果未知，当前会话无法再次发送。",
+                    Modifier.testTag("plugin-codex-send-unconfirmed"), style = MaterialTheme.typography.bodySmall)
+            }
             if (state.turnActive) TextButton(onClick = extensions::interruptCodexTurn,
                 enabled = extensions.canInteractWithRuntime && !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
         }

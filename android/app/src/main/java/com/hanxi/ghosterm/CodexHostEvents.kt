@@ -27,6 +27,7 @@ internal data class CodexHostState(
     val messageDraft: String = "",
     val callBusy: Boolean = false,
     val turnActive: Boolean = false,
+    val sendUnconfirmed: Boolean = false,
 )
 
 internal data class CodexHostEvent(
@@ -52,8 +53,13 @@ internal object CodexHostEvents {
         "outcome-unknown", "protocol-error", "closed")
     private val approvalMethods = setOf("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval")
 
+    class ConfirmedNoEffect(message: String) : IllegalStateException(message)
+
     fun decodeOutcome(bytes: ByteArray): JSONObject {
         val outcome = parse(strictUtf8(bytes)) as? JSONObject ?: error("Codex RPC outcome must be an object")
+        if (outcome.optString("kind") == "failed" && outcome.optJSONObject("error")?.optString("effect") == "none") {
+            throw ConfirmedNoEffect(outcome.getJSONObject("error").optString("message", "Executor 未执行此请求"))
+        }
         require(outcome.optString("kind") == "success") {
             val failure = outcome.optJSONObject("error")
             "Executor RPC failed: ${failure?.optString("message").orEmpty().ifBlank { outcome.optString("kind") }}"
