@@ -500,7 +500,8 @@ int main(int argc, char **argv) {
 
                     CHECK(gt_sftp_rename(sftp, file, ren) == GT_OK, "rename 成功");
                     CHECK(gt_sftp_stat(sftp, ren, &st) == GT_OK, "rename 后新路径存在");
-                    CHECK(gt_sftp_stat(sftp, file, &st) != GT_OK, "rename 后旧路径不存在");
+                    CHECK(gt_sftp_stat(sftp, file, &st) == GT_ERR_NOT_FOUND,
+                          "明确不存在的远端路径映射为 NOT_FOUND");
 
                     CHECK(gt_sftp_realpath(sftp, ren, real, sizeof real) == GT_OK, "realpath 成功");
                     CHECK(strstr(real, "renamed") != NULL, "realpath 指向真实路径");
@@ -562,7 +563,8 @@ int main(int argc, char **argv) {
                     }
                     CHECK(gt_sftp_remove_all(sftp, root) == GT_OK, "递归删除整棵树成功");
                     gt_sftp_stat_t st;
-                    CHECK(gt_sftp_stat(sftp, root, &st) != GT_OK, "递归删除后根不存在");
+                    CHECK(gt_sftp_stat(sftp, root, &st) == GT_ERR_NOT_FOUND,
+                          "递归删除后根明确映射为 NOT_FOUND");
                 }
 
                 /* 13. walk：计数 / 取消 / max_depth */
@@ -602,6 +604,35 @@ int main(int argc, char **argv) {
                               g_walk_seen == 2,
                           "max_depth=1 只走一层（2 个条目）");
                     gt_sftp_remove_all(sftp, root);
+                }
+
+                /* 15. walk 的负深度也必须受硬上限保护，超限不能伪报完整。 */
+                {
+                    char root[1024], path[1024];
+                    snprintf(root, sizeof root, "%s/gt-walk-depth", remote_home);
+                    gt_sftp_remove_all(sftp, root);
+                    CHECK(gt_sftp_mkdir(sftp, root, 0755) == GT_OK, "创建 walk 深度根目录");
+                    snprintf(path, sizeof path, "%s", root);
+                    for (int i = 0; i < 64; i++) {
+                        size_t used = strlen(path);
+                        if (used + 3 >= sizeof path) {
+                            CHECK(0, "深度夹具路径有界");
+                            break;
+                        }
+                        memcpy(path + used, "/d", 3);
+                        CHECK(gt_sftp_mkdir(sftp, path, 0755) == GT_OK, "创建深层目录");
+                    }
+                    g_walk_seen = 0;
+                    g_walk_stop_after = 0;
+                    CHECK(gt_sftp_walk(sftp, root, -1, walk_count_cb, NULL) == GT_ERR_IO,
+                          "负深度遍历触及硬上限时显式报告不完整");
+                    for (int i = 0; i < 64; i++) {
+                        CHECK(gt_sftp_rmdir(sftp, path) == GT_OK, "从深处清理 walk 夹具");
+                        char *slash = strrchr(path, '/');
+                        CHECK(slash != NULL, "深度夹具路径包含父目录分隔符");
+                        *slash = '\0';
+                    }
+                    CHECK(gt_sftp_rmdir(sftp, root) == GT_OK, "清理 walk 深度根目录");
                 }
 
                 /* 14. 暂停 / 继续（协作式；暂停期间不得完成） */

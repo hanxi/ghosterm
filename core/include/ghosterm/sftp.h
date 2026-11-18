@@ -386,7 +386,9 @@ typedef struct {
     const gt_sftp_stat_t *stat; /* 该条目自身属性（不跟随链接） */
 } gt_sftp_walk_ent_t;
 
-/* 返回 0 = 继续；非 0 = 请求停止（walk 返回 GT_ERR_CANCELLED）。 */
+/* 返回 0 = 继续；非 0 = 请求停止（walk 返回 GT_ERR_CANCELLED）。
+ * 安全递归上限为 64 层；若请求需要越过上限，walk 返回 GT_ERR_IO，
+ * 不会静默截断并报告完整成功。 */
 typedef int (*gt_sftp_walk_fn)(void *ud, const gt_sftp_walk_ent_t *ent);
 
 /* 深度优先枚举 root 下的所有条目（含目录本身的第一层孩子；不含 root）。

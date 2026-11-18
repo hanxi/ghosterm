@@ -37,6 +37,7 @@ gt_status_t gt_ssh_authenticator_open(gt_ssh_t **ssh,
     gt_ssh_connector_config_t c = {.family = options->family,
                                    .scope = options->scope,
                                    .timeout_ms = options->timeout_ms ? options->timeout_ms : 60000,
+                                   .tcp_timeout_ms = options->tcp_timeout_ms,
                                    .clock_context = options->clock_context,
                                    .clock = options->clock ? options->clock : system_clock,
                                    .defer_credentials = options->defer_credentials};
@@ -69,6 +70,7 @@ bool gt_ssh_authenticator_info(const gt_ssh_authenticator_t *a, gt_ssh_auth_info
                                 .error = i.error,
                                 .host = (gt_ssh_auth_host_state_t)i.host,
                                 .deadline = i.deadline,
+                                .tcp_failed = i.tcp_failed,
                                 .auth_methods = i.auth_methods};
     memcpy(out->key_type, i.key_type, sizeof(out->key_type));
     memcpy(out->fingerprint, i.fingerprint, sizeof(out->fingerprint));

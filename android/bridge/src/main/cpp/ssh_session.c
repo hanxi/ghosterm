@@ -343,7 +343,7 @@ static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
             info.error = status;
             goto failed;
         }
-        bool retry = false, was_tcp = true;
+        bool retry = false;
         while (!atomic_load(stop)) {
             gt_ssh_route_info_t route = {0};
             (void)gt_ssh_route_step(s->route);
@@ -356,8 +356,8 @@ static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
             if (route.phase == GT_SSH_ROUTE_FORWARDING) {
                 info.phase = GT_SSH_AUTH_PHASE_NEGOTIATING;
             }
-            bool tcp_failure = was_tcp && route.hop == 0 && route.phase == GT_SSH_ROUTE_FAILED &&
-                               route.error == GT_ERR_IO && !route.deadline;
+            bool tcp_failure = route.hop == 0 && route.phase == GT_SSH_ROUTE_FAILED &&
+                               route.authentication.tcp_failed;
             bool tcp_stalled = route.hop == 0 && info.phase == GT_SSH_AUTH_PHASE_TCP &&
                                now - candidate_started >= GAJ_SSH_TCP_CANDIDATE_MS;
             if (candidate + 1 < s->address_count && now < s->deadline &&
@@ -365,7 +365,6 @@ static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
                 retry = true;
                 break;
             }
-            was_tcp = route.hop == 0 && info.phase == GT_SSH_AUTH_PHASE_TCP;
             active_hop = route.hop;
             if (route.phase == GT_SSH_ROUTE_READY) {
                 status = gt_ssh_route_borrow(s->route, &result);
@@ -500,7 +499,6 @@ next_candidate:
         goto done;
     }
     while (!atomic_load(stop)) {
-        const bool was_tcp = info.phase == GT_SSH_AUTH_PHASE_TCP;
         (void)gt_ssh_authenticator_step(auth);
         if (!gt_ssh_authenticator_info(auth, &info)) {
             info.phase = GT_SSH_AUTH_PHASE_FAILED;
@@ -512,8 +510,7 @@ next_candidate:
         }
         /* Retry only before any SSH negotiation. Hostkey/credential rejection,
          * trust-save IO and protocol failure must never try a different server. */
-        const bool tcp_failure = was_tcp && info.phase == GT_SSH_AUTH_PHASE_FAILED &&
-                                 info.error == GT_ERR_IO && !info.deadline;
+        const bool tcp_failure = info.phase == GT_SSH_AUTH_PHASE_FAILED && info.tcp_failed;
         const bool tcp_stalled = info.phase == GT_SSH_AUTH_PHASE_TCP &&
                                  now - candidate_started >= GAJ_SSH_TCP_CANDIDATE_MS;
         if (candidate + 1 < s->address_count && now < deadline && (tcp_failure || tcp_stalled)) {

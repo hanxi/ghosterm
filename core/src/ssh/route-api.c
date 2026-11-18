@@ -54,6 +54,7 @@ gt_status_t gt_ssh_route_open(gt_ssh_t **owned,
             (gt_ssh_connector_config_t){.family = o->family,
                                         .scope = o->scope,
                                         .timeout_ms = o->timeout_ms ? o->timeout_ms : 60000,
+                                        .tcp_timeout_ms = o->tcp_timeout_ms,
                                         .clock = o->clock ? o->clock : route_clock,
                                         .clock_context = o->clock_context,
                                         .defer_credentials = o->defer_credentials};
@@ -100,6 +101,7 @@ bool gt_ssh_route_info(const gt_ssh_route_t *r, gt_ssh_route_info_t *out) {
                                                     .error = a->error,
                                                     .host = (gt_ssh_auth_host_state_t)a->host,
                                                     .deadline = a->deadline,
+                                                    .tcp_failed = a->tcp_failed,
                                                     .auth_methods = a->auth_methods}};
     memcpy(out->authentication.key_type, a->key_type, sizeof(a->key_type));
     memcpy(out->authentication.fingerprint, a->fingerprint, sizeof(a->fingerprint));

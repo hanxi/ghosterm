@@ -1,5 +1,6 @@
 /* test_api.c — ABI 冒烟：版本非空；未实现项必须显式报错（不得静默成功）。 */
 #include "ghosterm.h"
+#include "internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,18 @@ static int fail = 0, pass = 0;
     } while (0)
 
 int main(void) {
+    for (uint64_t i = 1; i <= 300; i++) {
+        gt__emit_event(GT_EVENT_JOB_DONE, i, GT_JOB_OK, "queue growth probe");
+    }
+    gt_event_t queued[300];
+    size_t queued_count = gt_core_poll_events(queued, 300);
+    bool events_preserved = queued_count == 300;
+    for (size_t i = 0; events_preserved && i < queued_count; i++) {
+        events_preserved = queued[i].job_id == i + 1 && queued[i].kind == GT_EVENT_JOB_DONE;
+    }
+    CHECK(events_preserved,
+          "event queue grows without losing terminal events above initial capacity");
+
     const char *views_json = (void *)1;
     size_t views_size = 123;
     CHECK(gt_ext_runtime_views_enable(NULL, 1) == GT_ERR_INVALID_ARG &&

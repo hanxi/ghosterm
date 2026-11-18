@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,20 +75,60 @@ char *gt__strndup(const char *s, size_t n) {
 /* 事件队列（环形缓冲，加锁；只承载低频事件）                            */
 /* ------------------------------------------------------------------ */
 
-#define GT_EVENT_QUEUE_CAP 256
+#define GT_EVENT_QUEUE_INITIAL 256
 
-static gt_event_t g_events[GT_EVENT_QUEUE_CAP];
+static gt_event_t g_ev_initial[GT_EVENT_QUEUE_INITIAL];
+static gt_event_t *g_events = g_ev_initial;
 static size_t g_ev_head, g_ev_count;
+static size_t g_ev_capacity = GT_EVENT_QUEUE_INITIAL;
 static pthread_mutex_t g_ev_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void event_push(const gt_event_t *ev) {
     pthread_mutex_lock(&g_ev_lock);
-    if (g_ev_count == GT_EVENT_QUEUE_CAP) {
-        /* 覆盖最旧的一条：低频事件丢最旧优于阻塞会话线程。 */
-        g_ev_head = (g_ev_head + 1) % GT_EVENT_QUEUE_CAP;
-        g_ev_count--;
+    if (g_ev_count == g_ev_capacity) {
+        if (g_ev_capacity <= SIZE_MAX / 2 / sizeof(*g_events)) {
+            size_t next_capacity = g_ev_capacity * 2;
+            gt_event_t *next = malloc(next_capacity * sizeof(*next));
+            if (next) {
+                for (size_t i = 0; i < g_ev_count; i++) {
+                    next[i] = g_events[(g_ev_head + i) % g_ev_capacity];
+                }
+                if (g_events != g_ev_initial) {
+                    free(g_events);
+                }
+                g_events = next;
+                g_ev_capacity = next_capacity;
+                g_ev_head = 0;
+            }
+        }
+        if (g_ev_count == g_ev_capacity) {
+            /* Memory pressure may drop progress, but never evict a terminal
+             * event to make room for another progress snapshot. */
+            if (ev->kind == GT_EVENT_PROGRESS) {
+                pthread_mutex_unlock(&g_ev_lock);
+                return;
+            }
+            size_t removable = SIZE_MAX;
+            for (size_t i = 0; i < g_ev_count; i++) {
+                size_t index = (g_ev_head + i) % g_ev_capacity;
+                if (g_events[index].kind == GT_EVENT_PROGRESS) {
+                    removable = i;
+                    break;
+                }
+            }
+            if (removable == SIZE_MAX) {
+                pthread_mutex_unlock(&g_ev_lock);
+                return;
+            }
+            for (size_t i = removable; i + 1 < g_ev_count; i++) {
+                size_t dst = (g_ev_head + i) % g_ev_capacity;
+                size_t src = (g_ev_head + i + 1) % g_ev_capacity;
+                g_events[dst] = g_events[src];
+            }
+            g_ev_count--;
+        }
     }
-    g_events[(g_ev_head + g_ev_count) % GT_EVENT_QUEUE_CAP] = *ev;
+    g_events[(g_ev_head + g_ev_count) % g_ev_capacity] = *ev;
     g_ev_count++;
     pthread_mutex_unlock(&g_ev_lock);
 }
@@ -100,7 +141,7 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap) {
     pthread_mutex_lock(&g_ev_lock);
     while (n < cap && g_ev_count) {
         out[n++] = g_events[g_ev_head];
-        g_ev_head = (g_ev_head + 1) % GT_EVENT_QUEUE_CAP;
+        g_ev_head = (g_ev_head + 1) % g_ev_capacity;
         g_ev_count--;
     }
     pthread_mutex_unlock(&g_ev_lock);

@@ -620,9 +620,14 @@ static int stat_common(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out, b
     SFTP_LOCK(sftp);
     int rc =
         follow ? libssh2_sftp_stat(sftp->sftp, path, &a) : libssh2_sftp_lstat(sftp->sftp, path, &a);
+    unsigned long remote_status = rc == 0 ? 0 : libssh2_sftp_last_error(sftp->sftp);
     SFTP_UNLOCK(sftp);
     if (rc != 0) {
-        gt__set_error("sftp_stat: %s 不存在或不可访问", path);
+        if (remote_status == LIBSSH2_FX_NO_SUCH_FILE || remote_status == LIBSSH2_FX_NO_SUCH_PATH) {
+            gt__set_error("sftp_stat: %s 不存在", path);
+            return GT_ERR_NOT_FOUND;
+        }
+        gt__set_error("sftp_stat: %s 不可访问（远端状态 %lu）", path, remote_status);
         return GT_ERR_IO;
     }
     attrs_to_stat(&a, out);
@@ -2359,6 +2364,11 @@ walk_rec(gt_sftp_t *sftp, const char *dir, int depth, int max_depth, gt_sftp_wal
             return GT_ERR_CANCELLED;
         }
         if (e->stat.is_dir && (max_depth < 0 || depth < max_depth)) {
+            if (depth >= GT_SFTP_MAX_DEPTH) {
+                gt_sftp_list_free(ents, n);
+                gt__set_error("sftp_walk: 安全深度上限 %d 已到达，遍历不完整", GT_SFTP_MAX_DEPTH);
+                return GT_ERR_IO;
+            }
             int r = walk_rec(sftp, e->full_path, depth + 1, max_depth, fn, ud);
             if (r != GT_OK) {
                 gt_sftp_list_free(ents, n);
@@ -2375,9 +2385,9 @@ int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth, gt_sftp_walk_
         gt__set_error("sftp_walk: null/empty argument");
         return GT_ERR_INVALID_ARG;
     }
-    if (max_depth > GT_SFTP_MAX_DEPTH) {
-        max_depth = GT_SFTP_MAX_DEPTH;
-    }
+    /* A finite caller limit is a user choice; silently clipping it would
+     * report a complete walk when entries were omitted. The hard safety cap
+     * is enforced during recursion and reports an incomplete walk explicitly. */
     return walk_rec(sftp, root, 1, max_depth, fn, ud);
 }
 

@@ -14,6 +14,7 @@ typedef struct {
     uint8_t family, address[16];
     uint32_t scope;
     uint32_t timeout_ms;
+    uint32_t tcp_timeout_ms;
     void *clock_context;
     bool (*clock)(void *, uint64_t *);
     bool defer_credentials;
@@ -45,6 +46,7 @@ typedef struct {
     gt_status_t error;
     gt_ssh_host_state_t host;
     bool deadline;
+    bool tcp_failed;
     int auth_methods;
     char key_type[32], fingerprint[80];
 } gt_ssh_connector_info_t;

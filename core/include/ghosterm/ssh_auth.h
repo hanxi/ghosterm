@@ -30,7 +30,8 @@ typedef enum {
 typedef struct {
     uint8_t family, address[16];
     uint32_t scope, timeout_ms;
-    bool defer_credentials; /* discover methods before requesting unlocked material */
+    uint32_t tcp_timeout_ms; /* optional candidate-only cap; 0 uses timeout_ms */
+    bool defer_credentials;  /* discover methods before requesting unlocked material */
     void *clock_context;
     bool (*clock)(void *, uint64_t *monotonic_ms);
 } gt_ssh_auth_options_t;
@@ -40,13 +41,15 @@ typedef struct {
     gt_status_t error;
     gt_ssh_auth_host_state_t host;
     bool deadline;
+    bool tcp_failed; /* failure occurred before SSH negotiation began */
     int32_t auth_methods;
     char key_type[32], fingerprint[80];
 } gt_ssh_auth_info_t;
 
 /* One non-UI serial owner. Success takes/clears fresh unlocked SSH only.
  * Resolved binary address is separate from original SSH hostkey identity.
- * Nonblocking step, one total deadline through hostkey UI (default 60000ms).
+ * Nonblocking step, one total deadline through hostkey UI (default 60000ms);
+ * tcp_timeout_ms can shorten only this candidate's TCP stage.
  * Unknown host waits for explicit decide; mismatch/revocation is terminal.
  * Unsupported known_hosts rules fail explicitly without a trust prompt. */
 gt_status_t

@@ -178,6 +178,29 @@ static void unit(const char *mode) {
     int server = listener(&port);
     setup(port, "/dev/null", NULL);
     gt_ssh_connector_config_t c = config(&f);
+    if (!strcmp(mode, "tcp-failure")) {
+        close(server);
+        server = -1;
+        CHECK(gt__ssh_connector_open(&owned, &c, &a, &active) == GT_OK && !owned);
+        gt_ssh_connector_phase_t phase = gt__ssh_connector_step(active);
+        struct timespec retry_delay = {.tv_nsec = 1000000};
+        for (unsigned i = 0; phase != GT_SSH_CONNECT_FAILED && i < 1000; i++) {
+            nanosleep(&retry_delay, NULL);
+            phase = gt__ssh_connector_step(active);
+        }
+        gt_ssh_connector_info_t failed = info();
+        if (phase != GT_SSH_CONNECT_FAILED || !failed.tcp_failed || failed.error != GT_ERR_IO) {
+            fprintf(stderr,
+                    "tcp-failure phase=%d tcp_failed=%d error=%d\n",
+                    phase,
+                    failed.tcp_failed,
+                    failed.error);
+        }
+        CHECK(phase == GT_SSH_CONNECT_FAILED && failed.tcp_failed && failed.error == GT_ERR_IO);
+        cleanup();
+        CHECK(!f.live);
+        return;
+    }
     if (!strcmp(mode, "allocation")) {
         f.refuse = true;
         CHECK(gt__ssh_connector_open(&owned, &c, &a, &active) == GT_ERR_IO && !active && owned);

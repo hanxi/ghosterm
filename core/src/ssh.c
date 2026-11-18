@@ -1061,8 +1061,15 @@ static void connector_drop(gt_ssh_connector_t *c) {
     if (c->ssh) {
         gt_ssh_t *s = c->ssh;
         gt__ssh_abort(s);
-        bool released = false;
-        (void)gt__ssh_dispose_step(&c->ssh, &released);
+        if (s->wire) {
+            bool released = false;
+            (void)gt__ssh_dispose_step(&c->ssh, &released);
+        } else {
+            /* Connector close is a one-shot API. Do not call the asynchronous
+             * nonblocking disposer once and abandon a session on EAGAIN. */
+            gt_ssh_close(s);
+            c->ssh = NULL;
+        }
     }
     if (c->host_key) {
         gt__secure_erase(c->host_key, strlen(c->host_key));
@@ -1072,6 +1079,7 @@ static void connector_drop(gt_ssh_connector_t *c) {
 }
 
 static void connector_fail(gt_ssh_connector_t *c, gt_status_t error) {
+    c->info.tcp_failed = c->stage == CONNECT_SOCKET || c->stage == CONNECT_POLL;
     c->info.phase = GT_SSH_CONNECT_FAILED;
     c->info.error = error;
     connector_drop(c);
@@ -1090,7 +1098,12 @@ static bool connector_tick(gt_ssh_connector_t *c) {
         return false;
     }
     c->now = now;
-    if (now - c->started >= c->config.timeout_ms) {
+    uint64_t budget = c->config.timeout_ms;
+    if ((c->stage == CONNECT_SOCKET || c->stage == CONNECT_POLL) && c->config.tcp_timeout_ms &&
+        c->config.tcp_timeout_ms < budget) {
+        budget = c->config.tcp_timeout_ms;
+    }
+    if (now - c->started >= budget) {
         c->info.deadline = true;
         connector_fail(c, GT_ERR_IO);
         return false;
@@ -1124,8 +1137,8 @@ gt_status_t gt__ssh_connector_open(gt_ssh_t **owned,
         *out = NULL;
     }
     if (!owned || !*owned || !out || !config || (config->family != 4 && config->family != 6) ||
-        !config->clock || !config->timeout_ms || config->timeout_ms > 60000 || (*owned)->session ||
-        (*owned)->sock >= 0) {
+        !config->clock || !config->timeout_ms || config->timeout_ms > 60000 ||
+        config->tcp_timeout_ms > config->timeout_ms || (*owned)->session || (*owned)->sock >= 0) {
         return GT_ERR_INVALID_ARG;
     }
     if (!config->defer_credentials && !(*owned)->pem && !(*owned)->password) {
@@ -1350,12 +1363,12 @@ gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *c) {
                 connector_fail(c, GT_ERR_IO);
                 break;
             }
+            c->stage = CONNECT_HANDSHAKE;
             connector_session(s);
             if (!s->session) {
                 connector_fail(c, GT_ERR_INTERNAL);
                 break;
             }
-            c->stage = CONNECT_HANDSHAKE;
             c->info.phase = GT_SSH_CONNECT_NEGOTIATING;
             break;
         }
@@ -1694,11 +1707,33 @@ void gt_ssh_close(gt_ssh_t *ssh) {
         return;
     }
     if (ssh->session) {
+        libssh2_session_set_blocking(ssh->session, 1);
         libssh2_session_set_timeout(ssh->session, 100);
         if (ssh->connected) {
             libssh2_session_disconnect(ssh->session, "bye");
+            ssh->connected = false;
         }
-        libssh2_session_free(ssh->session);
+        int release_status = LIBSSH2_ERROR_EAGAIN;
+        for (unsigned attempt = 0; attempt < 8; attempt++) {
+            release_status = libssh2_session_free(ssh->session);
+            if (release_status == 0) {
+                ssh->session = NULL;
+                break;
+            }
+            if (release_status != LIBSSH2_ERROR_EAGAIN && release_status != LIBSSH2_ERROR_TIMEOUT) {
+                break;
+            }
+            /* A one-shot close cannot return EAGAIN to an owner that is about
+             * to discard the handle. Tear down the socket after the first
+             * bounded attempt, then let libssh2 finish local cleanup. */
+            if (attempt == 0 && ssh->sock >= 0) {
+                (void)shutdown(ssh->sock, SHUT_RDWR);
+            }
+            libssh2_session_set_timeout(ssh->session, 10);
+        }
+        if (ssh->session) {
+            gt__set_error("SSH: libssh2 session cleanup did not complete (%d)", release_status);
+        }
     }
     if (ssh->sock >= 0) {
         close(ssh->sock);

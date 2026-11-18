@@ -784,6 +784,7 @@ add_test(NAME release_signature COMMAND test_release_signature)
 
 add_executable(test_api tests/test_api.c)
 target_link_libraries(test_api PRIVATE ghosterm_core)
+target_include_directories(test_api PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 add_test(NAME api_smoke COMMAND test_api)
 
 add_executable(test_transport tests/test_transport.c)
@@ -958,7 +959,7 @@ target_include_directories(test_ssh_connector PRIVATE ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(test_ssh_connector PRIVATE ghosterm_core)
 target_compile_options(test_ssh_connector PRIVATE -Wall -Wextra -Werror)
 if(GHOSTERM_WITH_LIBSSH2 AND SSH2_FOUND)
-  foreach(mode deadline cancel clock real-deadline allocation)
+  foreach(mode deadline cancel clock real-deadline allocation tcp-failure)
     add_test(NAME ssh_connector_${mode} COMMAND test_ssh_connector ${mode})
     set_tests_properties(ssh_connector_${mode} PROPERTIES TIMEOUT 5)
   endforeach()
