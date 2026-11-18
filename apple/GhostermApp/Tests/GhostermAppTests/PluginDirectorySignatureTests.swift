@@ -123,6 +123,54 @@ final class PluginDirectorySignatureTests: XCTestCase {
         XCTAssertEqual(try load(152).generation, 2)
     }
 
+    func testConcurrentSameGenerationChannelWritersPreserveOneWinner() async throws {
+        let publisher = Fixture(), root = Fixture()
+        let publicRoot = root.key.publicKey.rawRepresentation
+        var revoked = publisher.policy
+        revoked["revokedKeyIds"] = [publisher.keyID]
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let candidates = try [publisher.policy, revoked].map { input in
+            let policy = try Self.json(input)
+            let statement = try Self.json(["schemaVersion": 1, "channel": "test", "generation": "1",
+                "issuedAt": "100", "expiresAt": "200", "policySHA256": Self.hash(policy)])
+            return (policy: policy, statement: statement,
+                    signature: try root.sign(statement, domain: "ghosterm.channel-policy.v1\0"))
+        }
+        let winners = try await withThrowingTaskGroup(of: String?.self) { tasks in
+            for (policy, statement, signature) in candidates {
+                tasks.addTask {
+                    do {
+                        return try Verifier.refreshChannelPolicy(statement: statement, signature: signature,
+                            policy: policy, channel: "test", channelRoot: publicRoot, now: 150,
+                            stateDirectory: directory).statementSHA256
+                    } catch Failure.channelHistory {
+                        return nil
+                    } catch PluginReleaseCatalog.Failure.busy {
+                        return nil
+                    }
+                }
+            }
+            var committed: [String] = []
+            for try await winner in tasks {
+                if let winner { committed.append(winner) }
+            }
+            return committed
+        }
+        XCTAssertEqual(winners.count, 1)
+        let winner = try XCTUnwrap(winners.first)
+        let losing = try XCTUnwrap(candidates.first { Self.hash($0.statement) != winner })
+        XCTAssertThrowsError(try Verifier.refreshChannelPolicy(statement: losing.statement, signature: losing.signature,
+            policy: losing.policy, channel: "test", channelRoot: publicRoot, now: 150, stateDirectory: directory)) {
+            XCTAssertEqual($0 as? Failure, .channelHistory)
+        }
+        let reopened = try Verifier.loadChannelPolicy(channel: "test", channelRoot: publicRoot, now: 150,
+                                                       stateDirectory: directory)
+        XCTAssertEqual(reopened.statementSHA256, winner)
+    }
+
     func testChannelRefreshCommitsOnlyVerifiedCompleteResponses() async throws {
         let fixture = Fixture(), root = Fixture(), policy = try Self.json(fixture.policy)
         let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

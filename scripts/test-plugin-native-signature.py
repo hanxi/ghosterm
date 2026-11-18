@@ -379,13 +379,13 @@ def main():
             print('PASS ' + label, flush=True)
 
         baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests)' if args.install else '(PluginDirectorySignatureTests|PluginSignatureUITests)'
-        baseline_count = 32 if args.install else 13
+        baseline_count = 33 if args.install else 14
         if args.versions:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests)'
-            baseline_count = 45
+            baseline_count = 46
         if args.remove:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests|PluginReleaseRemovalTests)'
-            baseline_count = 67
+            baseline_count = 68
         if args.policy_review:
             baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
             baseline_count += 26
