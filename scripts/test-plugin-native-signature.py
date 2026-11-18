@@ -133,12 +133,13 @@ def main():
     parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
     parser.add_argument('--diagnose-live-version', action='store_true',
                         help='run only the live version XCTest for diagnosis; no acceptance receipt')
+    parser.add_argument('--diagnose-live-channel-revocation', action='store_true', help='run only the channel revocation SSH XCTest')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
-    if args.diagnose_live_version:
+    if args.diagnose_live_version or args.diagnose_live_channel_revocation:
         if args.mutate or args.case or args.install or args.versions or args.remove or args.policy_review or args.selection_review:
-            parser.error('--diagnose-live-version is a standalone diagnostic')
+            parser.error('live diagnostics must run standalone')
         args.versions = True
     if args.selection_review: args.policy_review = True
     if args.policy_review: args.remove = True
@@ -298,6 +299,8 @@ def main():
         unknown = set(args.case) - {recipe[0] for recipe in recipes}
         if unknown: parser.error('unknown mutation group(s): ' + ', '.join(sorted(unknown)))
         recipes = [recipe for recipe in recipes if recipe[0] in set(args.case)]
+    if not args.mutate:
+        recipes = []
     originals = {name: (ROOT / name).read_bytes() for name in {recipe[1] for recipe in recipes}}
     for label, filename, old, _, _ in recipes:
         assert originals[filename].count(old.encode()) == 1, label
@@ -389,6 +392,10 @@ def main():
         if args.selection_review:
             baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
             baseline_count += 26
+        if args.diagnose_live_channel_revocation:
+            run('live-channel-revocation', 'PluginPaneFlowTests.testManagedPreviewReportsChannelRevocationUntilStopped')
+            print('LIVE CHANNEL REVOCATION PASS', flush=True)
+            return
         if args.diagnose_live_version:
             run('live-version-diagnostic', live)
             print('LIVE VERSION DIAGNOSTIC PASS (no acceptance receipt)', flush=True)

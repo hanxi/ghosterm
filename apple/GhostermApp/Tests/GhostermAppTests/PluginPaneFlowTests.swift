@@ -75,9 +75,14 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true, versionSelectionReview: true)
     }
 
+    func testManagedPreviewReportsChannelRevocationUntilStopped() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionRemoval: true, channelRevocation: true)
+    }
+
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -150,8 +155,40 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         try Data(source.utf8).write(to: config)
         try Data().write(to: known)
+        let channelKey = channelRevocation ? Curve25519.Signing.PrivateKey() : nil
+        let channelDirectory = root.appendingPathComponent("channel")
+        let channelName: String?
+        let initialChannelPolicy: Data?
+        if channelRevocation {
+            let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!)
+            let bytes = try Data(contentsOf: fixture.appendingPathComponent("live/policy.json"))
+            let parsed = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+            channelName = try XCTUnwrap(parsed["channel"] as? String)
+            initialChannelPolicy = bytes
+            try FileManager.default.createDirectory(at: channelDirectory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+        } else {
+            channelName = nil
+            initialChannelPolicy = nil
+        }
+        func refreshChannel(_ generation: UInt64, policy: Data) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+            let key = try XCTUnwrap(channelKey), channel = try XCTUnwrap(channelName)
+            let now = UInt64(Date().timeIntervalSince1970)
+            let digest = SHA256.hash(data: policy).map { String(format: "%02x", $0) }.joined()
+            let statement = try JSONSerialization.data(withJSONObject: [
+                "schemaVersion": 1, "channel": channel, "generation": String(generation),
+                "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": digest,
+            ])
+            let signature = try key.signature(for: Data("ghosterm.channel-policy.v1\0".utf8) + statement)
+            return try PluginDirectorySignatureVerifier.refreshChannelPolicy(statement: statement, signature: signature,
+                policy: policy, channel: channel, channelRoot: key.publicKey.rawRepresentation, now: now,
+                stateDirectory: channelDirectory)
+        }
+        let trust = channelKey.map { key in
+            ExtensionController.ChannelTrust(channel: channelName!, root: key.publicKey.rawRepresentation, stateDirectory: channelDirectory)
+        }
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: known.path,
-                                     pluginResourceDirectory: root.appendingPathComponent("received"))
+                                     pluginResourceDirectory: root.appendingPathComponent("received"), pluginChannelTrust: trust)
         let controller = try XCTUnwrap(model.extensionController)
         addTeardownBlock {
             trace("teardown stops Runtime")
@@ -232,8 +269,15 @@ final class PluginPaneFlowTests: XCTestCase {
         var managed: ExtensionController.InstalledRelease?
         if versionRemoval {
             let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!).appendingPathComponent("live")
-            let prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
-                descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            let prepared: ExtensionController.PreparedRelease
+            if let initialChannelPolicy {
+                _ = try refreshChannel(1, policy: initialChannelPolicy)
+                prepared = try await controller.prepareReleaseUsingConfiguredChannel(artifact: fixture.appendingPathComponent("r/plugin.zip"),
+                    descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"))
+            } else {
+                prepared = try await controller.prepareSignedRelease(artifact: fixture.appendingPathComponent("r/plugin.zip"),
+                    descriptor: fixture.appendingPathComponent("r/release.json"), signature: fixture.appendingPathComponent("r/release.sig"), trustedPolicy: fixture.appendingPathComponent("policy.json"))
+            }
             let installed = try await controller.installPreparedRelease(id: prepared.id)
             XCTAssertEqual(installed.review.digest, digest, "real managed Session must use exactly the reviewed live bytes")
             _ = try await controller.selectInstalledVersion(releaseID: installed.signature.descriptorSHA256, expectedRevision: nil,
@@ -357,6 +401,25 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
         }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+        if let initialChannelPolicy, let managed {
+            var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: initialChannelPolicy) as? [String: Any])
+            fields["revokedKeyIds"] = [managed.signature.keyID]
+            let revoked = try refreshChannel(2, policy: JSONSerialization.data(withJSONObject: fields))
+            let affected = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
+            XCTAssertEqual(affected, 1)
+            let retained = try await controller.stepRuntime()
+            XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue)
+            XCTAssertEqual(window.alphaValue, 0)
+            XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
+            try scrollBottom()
+            try press("plugin-stop")
+            guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
+                XCTFail("explicit stop did not release the instance"); return
+            }
+            let after = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
+            XCTAssertEqual(after, 0)
+            return
+        }
         if versionChanges || versionRemoval {
             let fixture = URL(fileURLWithPath: env["GHOSTERM_TEST_SIGNED_RELEASE"]!)
             let original = try await controller.stepRuntime()
