@@ -14783,3 +14783,8 @@ macOS Codex 直连回环新测中断受理与终态之间的停顿。自有 app-
 回送中断受理，确认 UI 中回合仍在运行；再显式推送 interrupted 终态，
 回合标记才结束。与补丁审批及丢回执同轮三项离屏通过。此用例无真实模型，
 ProxyJump 中断与 Android 设备另验。
+
+Codex 中断受理与终态的隔离检查扩展到 macOS ProxyJump，同一离屏批次直连
+与 ProxyJump 各三项通过，分别覆盖补丁审批、丢回执和中断。Android 两条
+设备路线同步接入 `--interrupt-turn`，测试 APK 后台构建通过，设备未执行。
+本批为隔离 app-server 与真实回环 SSH，不含真实模型。

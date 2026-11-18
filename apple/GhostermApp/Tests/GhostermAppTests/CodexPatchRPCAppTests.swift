@@ -34,6 +34,8 @@ final class CodexPatchRPCAppTests: XCTestCase {
 
     func testInterruptWaitsForTerminalEventOverDirectSSH() async throws { try await run(useJump: false, interruptTurn: true) }
 
+    func testInterruptWaitsForTerminalEventOverProxyJump() async throws { try await run(useJump: true, interruptTurn: true) }
+
     private struct FixtureFailure: Error { let message: String }
 
     private func wait(_ label: String, seconds: Double = 30, until predicate: () -> Bool) async throws {

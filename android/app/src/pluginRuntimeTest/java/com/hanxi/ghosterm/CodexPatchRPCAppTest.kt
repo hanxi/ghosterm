@@ -69,7 +69,10 @@ class CodexPatchRPCAppTest {
     @Test fun lostTurnReplyOverDirectSSH() = run(false, dropTurnReply = true)
     @Test fun lostTurnReplyOverProxyJump() = run(true, dropTurnReply = true)
 
-    private fun run(jump: Boolean, dropTurnReply: Boolean = false) {
+    @Test fun interruptWaitsForTerminalEventOverDirectSSH() = run(false, interruptTurn = true)
+    @Test fun interruptWaitsForTerminalEventOverProxyJump() = run(true, interruptTurn = true)
+
+    private fun run(jump: Boolean, dropTurnReply: Boolean = false, interruptTurn: Boolean = false) {
         assertTrue("requires explicit JS-enabled instrumentation", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture()
         assertEquals("ghosterm-patch-rpc", payload.getString("fixture"))
@@ -152,6 +155,18 @@ class CodexPatchRPCAppTest {
                     assertFalse(extensions.codex.callBusy)
                     assertEquals(errorBeforeRetry, extensions.error)
                 }
+                return
+            }
+            if (interruptTurn) {
+                await("interruption fixture turn did not start") { extensions.codex.turnActive && !extensions.codex.callBusy }
+                ui.onNodeWithTag("plugin-codex-interrupt").performScrollTo().assertIsEnabled().performClick()
+                await("interrupt acknowledgement did not return") { !extensions.codex.callBusy }
+                assertTrue(fixture("interrupt-receipt").getBoolean("received"))
+                assertNull(main { extensions.error })
+                assertTrue(main { extensions.codex.turnActive })
+                assertTrue(fixture("complete-interrupt").getBoolean("ok"))
+                await("terminal event did not end the turn") { !extensions.codex.turnActive }
+                assertNull(main { extensions.error })
                 return
             }
             await("patch/approval did not arrive") { extensions.codex.approvals.size == 1 && !extensions.codex.callBusy || extensions.error != null }
