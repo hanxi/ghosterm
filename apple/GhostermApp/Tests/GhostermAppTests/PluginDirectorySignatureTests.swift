@@ -94,7 +94,16 @@ final class PluginDirectorySignatureTests: XCTestCase {
             try Verifier.verify(descriptor: descriptor, signature: releaseSignature, channelPolicy: policy,
                                 identity: f.identity, now: now, stateDirectory: directory)
         }
-        _ = try verifyRecorded(proof, now: 150)
+        let refreshed = try Verifier.refreshChannelPolicy(statement: statement, signature: signature, policy: policy,
+            channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 150, stateDirectory: directory)
+        XCTAssertEqual(refreshed.statementSHA256, proof.statementSHA256)
+        func load(_ now: UInt64, key: Data = root.key.publicKey.rawRepresentation) throws -> Verifier.VerifiedChannelPolicy {
+            try Verifier.loadChannelPolicy(channel: "test", channelRoot: key, now: now, stateDirectory: directory)
+        }
+        XCTAssertEqual(try load(151).statementSHA256, proof.statementSHA256)
+        rejects(.channelFreshness) { try load(200) }
+        rejects(.channelHistory) { try load(150) }
+        rejects(.channelStatement) { try load(152, key: f.key.publicKey.rawRepresentation) }
         _ = try verifyRecorded(proof, now: 151)
         rejects(.channelHistory) { try verifyRecorded(proof, now: 150) }
         let older = try Self.json(["schemaVersion": 1, "channel": "test", "generation": "1",
@@ -103,6 +112,7 @@ final class PluginDirectorySignatureTests: XCTestCase {
             signature: root.sign(older, domain: "ghosterm.channel-policy.v1\0"), policy: policy,
             channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 152)
         rejects(.channelHistory) { try verifyRecorded(oldProof, now: 152) }
+        XCTAssertEqual(try load(152).generation, 2)
     }
 
     func testIdentityCannotBeReplacedByCaller() throws {

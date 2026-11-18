@@ -227,6 +227,21 @@ final class PluginReleaseCatalog {
         let generation: UInt64
         let digest: String
         let observed: UInt64
+        let envelope: PluginDirectorySignatureVerifier.ChannelEnvelope?
+    }
+
+    // JSON encodes the bounded 64 KiB statement and 128 KiB policy as base64.
+    private static let channelHistoryLimit = 270_000
+    private static func channelHistoryName(_ channel: String) -> String {
+        "channel-policy-v1-" + sha(Data(channel.utf8)) + ".json"
+    }
+
+    func readChannelEnvelope(_ channel: String) throws -> (envelope: PluginDirectorySignatureVerifier.ChannelEnvelope, generation: UInt64, digest: String) {
+        try validate()
+        let raw = try Self.read(fd, name: Self.channelHistoryName(channel), limit: Self.channelHistoryLimit)
+        let record = try JSONDecoder().decode(ChannelHistory.self, from: raw)
+        guard let envelope = record.envelope else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
+        return (envelope, record.generation, record.digest)
     }
 
     func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64,
@@ -236,10 +251,10 @@ final class PluginReleaseCatalog {
         guard policy.issuedAt <= now, now < policy.expiresAt else {
             throw PluginDirectorySignatureVerifier.Failure.channelFreshness
         }
-        let name = "channel-policy-v1-" + Self.sha(Data(policy.channel.utf8)) + ".json"
+        let name = Self.channelHistoryName(policy.channel)
         var info = stat()
         if fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 {
-            let raw = try Self.read(fd, name: name, limit: 1024)
+            let raw = try Self.read(fd, name: name, limit: Self.channelHistoryLimit)
             let previous = try JSONDecoder().decode(ChannelHistory.self, from: raw)
             guard previous.root == policy.rootSHA256, previous.generation > 0,
                   previous.observed > 0, Self.digest(previous.digest), now >= previous.observed,
@@ -251,8 +266,11 @@ final class PluginReleaseCatalog {
             guard errno == ENOENT else { throw Failure.io }
             guard !requireHistory else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
         }
-        let raw = try JSONEncoder().encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
-                                                         digest: policy.statementSHA256, observed: now))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        let raw = try encoder.encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
+            digest: policy.statementSHA256, observed: now, envelope: policy.envelope))
+        guard raw.count <= Self.channelHistoryLimit else { throw Failure.invalid }
         guard try publishRecord(raw, as: name) else { throw Failure.io }
     }
 

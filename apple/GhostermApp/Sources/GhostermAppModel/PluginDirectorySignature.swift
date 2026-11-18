@@ -47,6 +47,12 @@ public enum PluginDirectorySignatureVerifier {
         }
     }
 
+    struct ChannelEnvelope: Codable, Sendable {
+        let statement: Data
+        let signature: Data
+        let policy: Data
+    }
+
     public struct VerifiedChannelPolicy: Sendable {
         public let channel: String
         public let generation: UInt64
@@ -54,14 +60,16 @@ public enum PluginDirectorySignatureVerifier {
         public let expiresAt: UInt64
         public let statementSHA256: String
         let rootSHA256: String
-        let policyBytes: Data
+        let envelope: ChannelEnvelope
+        var policyBytes: Data { envelope.policy }
     }
 
-    public static func verifyChannelPolicy(statement: Data, signature: Data, policy suppliedPolicy: Data,
+    public static func verifyChannelPolicy(statement suppliedStatement: Data, signature suppliedSignature: Data, policy suppliedPolicy: Data,
                                            channel: String, channelRoot: Data, now: UInt64) throws -> VerifiedChannelPolicy {
-        guard statement.count <= 65_536, suppliedPolicy.count <= 131_072 else { throw Failure.limit }
+        guard suppliedStatement.count <= 65_536, suppliedPolicy.count <= 131_072 else { throw Failure.limit }
+        guard channelRoot.count == 32, suppliedSignature.count == 64 else { throw Failure.channelStatement }
+        let statement = Data(Array(suppliedStatement)), signature = Data(Array(suppliedSignature))
         let policyBytes = Data(Array(suppliedPolicy))
-        guard channelRoot.count == 32, signature.count == 64 else { throw Failure.channelStatement }
         let fields = try ReleaseJSON.parse(statement).object()
         guard exact(fields, ["schemaVersion", "channel", "generation", "issuedAt", "expiresAt", "policySHA256"]),
               try fields["schemaVersion"]?.integer(maximum: 1) == 1,
@@ -78,7 +86,8 @@ public enum PluginDirectorySignatureVerifier {
         guard issuedAt <= now, now < expiresAt else { throw Failure.channelFreshness }
         return VerifiedChannelPolicy(channel: channel, generation: generation, issuedAt: issuedAt,
                                      expiresAt: expiresAt, statementSHA256: hash(statement),
-                                     rootSHA256: hash(channelRoot), policyBytes: policyBytes)
+                                     rootSHA256: hash(key.rawRepresentation),
+                                     envelope: ChannelEnvelope(statement: statement, signature: signature, policy: policyBytes))
     }
 
     public static func verify(descriptor: Data, signature: Data, channelPolicy: VerifiedChannelPolicy,
@@ -91,6 +100,34 @@ public enum PluginDirectorySignatureVerifier {
             try catalog.recordChannelPolicy(channelPolicy, now: now)
         }
         return try verify(descriptor: descriptor, signature: signature, trustedPolicy: channelPolicy.policyBytes, identity: identity)
+    }
+
+    public static func refreshChannelPolicy(statement: Data, signature: Data, policy: Data,
+                                            channel: String, channelRoot: Data, now: UInt64,
+                                            stateDirectory: URL) throws -> VerifiedChannelPolicy {
+        let verified = try verifyChannelPolicy(statement: statement, signature: signature, policy: policy,
+            channel: channel, channelRoot: channelRoot, now: now)
+        guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: true) else {
+            throw PluginReleaseCatalog.Failure.root
+        }
+        try catalog.recordChannelPolicy(verified, now: now)
+        return verified
+    }
+
+    public static func loadChannelPolicy(channel: String, channelRoot: Data, now: UInt64,
+                                         stateDirectory: URL) throws -> VerifiedChannelPolicy {
+        guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: true) else {
+            throw PluginReleaseCatalog.Failure.root
+        }
+        let cached = try catalog.readChannelEnvelope(channel)
+        let envelope = cached.envelope
+        let policy = try verifyChannelPolicy(statement: envelope.statement, signature: envelope.signature,
+            policy: envelope.policy, channel: channel, channelRoot: channelRoot, now: now)
+        guard policy.generation == cached.generation, policy.statementSHA256 == cached.digest else {
+            throw Failure.channelHistory
+        }
+        try catalog.recordChannelPolicy(policy, now: now, requireHistory: true)
+        return policy
     }
 
     private static func positiveDecimal(_ field: ReleaseJSON.Value?) throws -> UInt64? {
