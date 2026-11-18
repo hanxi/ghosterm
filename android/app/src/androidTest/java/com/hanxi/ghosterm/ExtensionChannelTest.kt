@@ -428,11 +428,14 @@ class ExtensionChannelTest {
         } finally { close(a); close(b) }
     }
     @Test fun failedParameterCopiesReleaseRegistryReservation() {
-        for (i in 0 until 20) {
+        // Shared JNI registry has 16 * (2 * 8 + 4) slots. Exhaust it if
+        // rejected parameter copies retain their reservations.
+        repeat(321) {
             val hops = listOf(ExtensionChannel.Hop("bad\u0000host", 22, "fixture"))
-            assertThrows(IllegalStateException::class.java) {
+            val failure = assertThrows(IllegalStateException::class.java) {
                 ExtensionChannel.ssh(hops, 4, byteArrayOf(127, 0, 0, 1) + ByteArray(12), bootstrap = "fixed")
             }
+            assertEquals("插件参数含 NUL", failure.message)
         }
         val result = runCatching { pair() }; assertTrue("JNI reservation must be reusable after rejected inputs", result.isSuccess)
         val (a, b) = result.getOrThrow(); close(a); close(b)

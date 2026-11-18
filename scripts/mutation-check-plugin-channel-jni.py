@@ -46,14 +46,14 @@ def main():
         if red:cmd += ['--expect-platform-assertion','android']
         run(label,cmd,budget=300)
     cases=[
-      ('jni-worker','    if (s && owner && !pthread_equal(s->owner, pthread_self())) {\n','    if (s && false && owner && !pthread_equal(s->owner, pthread_self())) {\n','workerAndUiOwnershipAreEnforced'),
+      ('jni-worker','    if (s && owner && !pthread_equal(s->owner, pthread_self())) {\n        pthread_mutex_unlock(&extension_lock);\n        if (!quiet) {\n            extension_error(e, "插件通道必须由创建它的 IO worker 调用");','    if (s && false && owner && !pthread_equal(s->owner, pthread_self())) {\n        pthread_mutex_unlock(&extension_lock);\n        if (!quiet) {\n            extension_error(e, "插件通道必须由创建它的 IO worker 调用");','workerAndUiOwnershipAreEnforced'),
       ('jni-generation','        if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].channel &&\n            !extension_slots[i].retiring) {\n','        if (id > 0 && true && extension_slots[i].channel && !extension_slots[i].retiring) {\n','closeDropsQueuedDataAndRejectsStaleNativeId'),
       ('jni-exit-unknown','                                              i.exit_status_known,\n','                                              1,\n','temporaryArrayIsCopiedBeforeReturning'),
-      ('jni-reservation','        extension_abandon(s);\n        return NULL;\n','        return NULL;\n','failedParameterCopiesReleaseRegistryReservation'),
+      ('jni-reservation','    free(bootstrap);\n    if ((*e)->ExceptionCheck(e)) {\n        extension_abandon(s);\n        return NULL;\n','    free(bootstrap);\n    if ((*e)->ExceptionCheck(e)) {\n        return NULL;\n','failedParameterCopiesReleaseRegistryReservation'),
     ]
     try:
         for label,old,_,_ in cases:
-            if old not in original.decode():raise RuntimeError('missing JNI anchor '+label)
+            if original.decode().count(old)!=1:raise RuntimeError('missing or ambiguous JNI anchor '+label)
         run('install-tests',device+['install','-r',str(test_apk)],budget=60)
         rebuild('baseline');suite('baseline')
         for label,old,new,method in cases:
