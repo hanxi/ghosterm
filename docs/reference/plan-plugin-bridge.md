@@ -13822,3 +13822,11 @@ Node 协议组合 33 项通过，含锁定 Codex 0.166.0 在隔离工程启动�
 使用隔离工程与配置，无模型请求。`mutation-check-plugin-codex-reap.py` 的退出回收
 与 argv 两组通过普通目标断言失败、独立对照、恢复与 SHA256 核对。
 临时目录已清理。真实模型中断和断线矩阵仍需独立验收。
+
+### P4 Claude Native 执行端与实际 CLI 启停复验（2026-11-19）
+
+固定 `2d6289f7` 加本批入口。 `test-plugin-claude-native.py --node-tools`
+对拍现有 Node 依赖目录的 manifest 和 lockfile，在一次性副本重编当前桥代码，
+避免重新安装依赖。新构建的 JS-on gterm 和 C peer 通过两种模式。SDK 协议夹具
+覆盖分页回执与停止回收，锁定真实 CLI 单独通过初始化、停止及回收。macOS
+沙箱拒绝网络，本轮未执行模型请求或真实工具审批，构件和临时目录已清理。

@@ -24,7 +24,9 @@ def main():
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--fetch', action='store_true')
+    parser.add_argument('--node-tools', type=Path, help='reuse installed Node dependencies from the same lockfile')
     args = parser.parse_args()
+    if args.node_tools and args.fetch: parser.error('--node-tools and --fetch are mutually exclusive')
     if os.uname().sysname != 'Darwin': parser.error('requires explicit macOS no-network profile')
     build, package = args.build.resolve(), args.package.resolve()
     digest = hashlib.sha256((package / 'integrity.json').read_bytes()).hexdigest()
@@ -34,7 +36,14 @@ def main():
         environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
         install = ['npm', 'ci', '--prefix', node, '--ignore-scripts', '--no-audit', '--no-fund', '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
         if not args.fetch: install.append('--offline')
-        subprocess.run(list(map(str, install)), env=environment, check=True, capture_output=True, timeout=300)
+        if args.node_tools:
+            tools = args.node_tools.resolve(strict=True)
+            for filename in ('package.json', 'package-lock.json'):
+                if (tools / filename).read_bytes() != (node / filename).read_bytes():
+                    raise RuntimeError(f'Node tools differ from the locked {filename}')
+            (node / 'node_modules').symlink_to((tools / 'node_modules').resolve(strict=True), target_is_directory=True)
+        else:
+            subprocess.run(list(map(str, install)), env=environment, check=True, capture_output=True, timeout=300)
         subprocess.run(['node', str(node / 'node_modules/typescript/bin/tsc'), '-p', str(node / 'tsconfig.json'), '--noEmitOnError'], env=environment, check=True, timeout=120)
         arch = 'arm64' if os.uname().machine == 'arm64' else 'x64'
         cli = node / f'node_modules/@anthropic-ai/claude-agent-sdk-darwin-{arch}/claude'
