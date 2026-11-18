@@ -72,7 +72,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     internal val connectionGroups = androidx.compose.runtime.mutableStateListOf<ExtensionConnectionModel>()
-    internal var groupLaunchBusy by mutableStateOf(false)
+    internal var groupSubmissionBusy by mutableStateOf(false)
         private set
     internal val pendingGroup = androidx.compose.runtime.mutableStateListOf<ExtensionGroupInvocation>()
     internal var selectedGroupInstance: ExtensionPackagesViewModel? by mutableStateOf(null)
@@ -312,6 +312,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     internal fun enqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
         request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
         return try {
+            check(!groupSubmissionBusy) { "正在提交连接配置" }
             check(pendingGroup.size < 8) { "连接组最多八项" }
             val prepared = prepareLaunch(entry, command, request, clientWorkspace)
             check(prepared.request.attachment == null) { "已有前台附着不能加入固定启动组" }
@@ -331,10 +332,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     internal fun launchGroup(target: PreparedSSH, sessions: SessionsViewModel) {
         val snapshot = pendingGroup.toList()
-        if (groupLaunchBusy || snapshot.isEmpty() || sessions.connecting != null || connectionGroups.any { it.busy }) return
+        if (groupSubmissionBusy || snapshot.isEmpty() || sessions.connecting != null || connectionGroups.any { it.busy }) return
         val owner = controller ?: return
         if (connectionGroups.count { !it.closed } >= 16) { error = "插件连接数量已达上限"; return }
-        groupLaunchBusy = true
+        groupSubmissionBusy = true
         viewModelScope.launch {
             try {
                 val group = ExtensionConnectionModel(getApplication(), owner.makeInvocationController(), viewModelScope)
@@ -345,14 +346,27 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = "连接组启动失败：${failure.message}" }
-            finally { groupLaunchBusy = false }
+            finally { groupSubmissionBusy = false }
         }
     }
 
+    internal fun removePendingGroupItem(invocation: ExtensionGroupInvocation) {
+        if (!groupSubmissionBusy) pendingGroup.remove(invocation)
+    }
+
     internal fun addToConnection(connection: ExtensionConnectionModel, invocation: ExtensionGroupInvocation) {
+        if (groupSubmissionBusy || invocation !in pendingGroup || connection !in connectionGroups || !connection.canAdd) return
+        groupSubmissionBusy = true
         viewModelScope.launch {
-            val instance = connection.add(invocation)
-            if (instance != null) { pendingGroup.remove(invocation); selectedGroupInstance = instance.model }
+            try {
+                val instance = connection.add(invocation)
+                if (instance != null) {
+                    pendingGroup.remove(invocation)
+                    selectedGroupInstance = instance.model
+                }
+            } finally {
+                groupSubmissionBusy = false
+            }
         }
     }
 

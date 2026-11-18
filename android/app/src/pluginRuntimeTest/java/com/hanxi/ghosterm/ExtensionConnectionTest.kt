@@ -77,7 +77,7 @@ class ExtensionConnectionTest {
                 extensions.launchGroup(target.copy(alias = "different-target"), sessions)
             }
             await("mismatched group released") {
-                main { extensions.connectionGroups.firstOrNull()?.closed == true && !extensions.groupLaunchBusy }
+                main { extensions.connectionGroups.firstOrNull()?.closed == true && !extensions.groupSubmissionBusy }
             }
             main {
                 assertEquals(8, extensions.pendingGroup.size)

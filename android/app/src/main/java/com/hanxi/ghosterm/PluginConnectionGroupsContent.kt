@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -68,16 +69,19 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 } }
                 model.connectionGroups.filter { it.canAdd }.forEach { group ->
                     TextButton(onClick = { model.addToConnection(group, invocation) },
+                        enabled = !connectionsBusy && !model.groupSubmissionBusy,
                         modifier = Modifier.testTag("plugin-add-${group.id}-${invocation.id}")) {
                         Text("添加到现有连接：${group.title} · ${group.targetDescription}")
                     }
                 }
-                TextButton(onClick = { model.pendingGroup.remove(invocation) }) { Text("移除此项") }
+                TextButton(onClick = { model.removePendingGroupItem(invocation) },
+                    enabled = !connectionsBusy && !model.groupSubmissionBusy) { Text("移除此项") }
             }
         }
-        TextButton(onClick = { onLaunchGroup(model.pendingGroup.first().alias) },
-            enabled = !connectionsBusy && !model.groupLaunchBusy && model.connectionGroups.none { it.busy },
+        TextButton(onClick = { model.pendingGroup.firstOrNull()?.let { onLaunchGroup(it.alias) } },
+            enabled = !connectionsBusy && !model.groupSubmissionBusy && model.connectionGroups.none { it.busy },
             modifier = Modifier.testTag("plugin-group-launch")) { Text("连接并启动整组") }
+        if (model.groupSubmissionBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
     if (model.connectionGroups.isNotEmpty()) {
         TextButton(onClick = { model.selectGroupInstance(null) }, Modifier.testTag("plugin-instance-default")) { Text("查看原单实例入口") }
