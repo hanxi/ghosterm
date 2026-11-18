@@ -13488,3 +13488,14 @@ lintRelease 通过。生成的 `BuildConfig.PLUGIN_JS_ENABLED=false`，APK 通�
 `5a209db2e13eacd74e0c3c292c9d5b57847eab241e48d05721b70ce5c88decf3`，
 构建日志 SHA256 `d67aa0b6daf6a3661c50483654ed57929c9453efa2eae7934268ae66548b32cc`。
 本轮未进行设备安装、正式签名或发布，构建副本已清理。
+
+### P5 开发工具与多步场景集中复验（2026-11-19）
+
+固定 `57313c3e`，使用锁定开发工具、JS-enabled Core、显式 Node 与新构建的候选
+Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py --execute`。
+76 项开发工具、10 项场景全部通过，覆盖构建和打包、Client / Executor 成对运行、
+资源、视图与业务进程，以及官方多步场景和 Node 中断。
+
+工具组合收据 SHA256 `acd0f227b5ab72e637c62574ce91ccef8d34b502e9bd38d8e22d7787bcaadb73`，
+场景组合收据 SHA256 `bccb03891289fda76850c3cf132e0ff56ca6104f18f3d0ff48cbf354d06113f1`。
+本轮为本机 CLI，未执行变异或平台 UI，临时产物已清理。
