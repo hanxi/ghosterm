@@ -62,12 +62,13 @@ import XCTest
 }
 
 @MainActor func isolatedAppModel(configPath: String? = nil, knownHostsPath: String? = nil, settings: SettingsStore? = nil,
-                                pluginResourceDirectory: URL? = nil) -> AppModel {
+                                pluginResourceDirectory: URL? = nil,
+                                pluginChannelTrust: ExtensionController.ChannelTrust? = nil) -> AppModel {
     let resources = pluginResourceDirectory ?? AppModelFixture.shared.root.appendingPathComponent("plugin-resources")
     do { try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true) }
     catch { XCTFail("owned plugin resource fixture failed: \(error)") }
     return AppModel(configPath: configPath, knownHostsPath: knownHostsPath, settings: settings,
-             defaults: AppModelFixture.shared.makeDefaults(), pluginResourceDirectory: resources)
+             defaults: AppModelFixture.shared.makeDefaults(), pluginResourceDirectory: resources, pluginChannelTrust: pluginChannelTrust)
 }
 
 @MainActor func sessionTestDirectory() -> URL { AppModelFixture.shared.root.appendingPathComponent("profile-" + UUID().uuidString) }
