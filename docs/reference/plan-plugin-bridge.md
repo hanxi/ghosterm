@@ -13604,3 +13604,13 @@ NUL、非 UTF-8、控制字符和有效 UTF-8 的夹具字节转成十六进制�
 ProxyJump 两项，核对实际安装的应用和测试 APK 摘要。收据 SHA256
 `d31977f0db19f89b27ab9d92baee9ff1fb54485f28ed17a67bd0cb742070d036`。
 本轮 AVD、回环夹具与构件已清理，未执行对应变异或其它设备。
+
+### P1 SSH provider 变异与二进制对照复验（2026-11-19）
+
+固定 `415d80b1`，使用锁定 SSH 夹具工具链，在隔离副本运行
+`mutation-check-plugin-ssh-stream.py`。14 组 ASan / UBSan 变异全部达成真实重编译、
+目标普通断言红、同库配置对照绿、复原后 16 个回环场景绿和生产输入 SHA256 一致。
+其中 `reuse-terminal` 验证插件不能借用普通终端 owner，恢复对照包含新增的普通
+SSH shell 二进制输出对拍。收据 SHA256
+`8e7698e6597a9ea54c3dcab2304d4eff563b60e5dd8aec64ae35dbd7f9faa043`。
+本轮为 Core provider，平台测试入口与变异另验。隔离副本和 29 份子运行目录已清理。
