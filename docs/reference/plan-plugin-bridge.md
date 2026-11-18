@@ -13860,3 +13860,12 @@ gterm 退出字段。更新校验后复跑，明确保留退出码 7、结果未
 `abdb44a40343708a3ac1c04fc98f1a779c8fb7d4149733ec0448958f83d1dc21`。
 测试使用显式 CLI 夹具，无模型请求，未执行 Android 保留回执专项。
 临时目录、AVD 和一次性 npm 缓存已清理。
+
+### P4 Android Claude 超时后只读回执复验（2026-11-19）
+
+固定 `102b99e9`，复用 JS-on APK 和锁定 Node 依赖，新建 gterm，
+在同一 API 36 arm64 / 4 KiB 页无窗口 AVD 运行 `--observation`。
+直连与 ProxyJump 均让实际 SDK 轮询越过原生期限，随后从原生只读界面
+核对 20,243 字节的原始保留回执，再验停止释放与独立 gterm 结果未知。
+日志 SHA256 `050605eb72fd7ad2d900b4868126635f4e0df2d4c66b7bb98aec6edc3dc43318`。
+使用显式 CLI 夹具，无模型请求。本轮 AVD 和临时目录已清理。
