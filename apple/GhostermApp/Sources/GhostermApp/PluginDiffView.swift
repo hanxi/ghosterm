@@ -40,6 +40,7 @@ struct PluginDiffView: View {
             }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-diff")
+            .announcePluginStatus(model.issue)
             .task { if model.descriptor == nil && model.issue == nil { await model.load() } }
     }
     @ViewBuilder private var controls: some View {

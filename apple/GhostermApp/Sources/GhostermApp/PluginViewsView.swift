@@ -1,3 +1,4 @@
+import AppKit
 import GhostermAppModel
 import SwiftUI
 
@@ -46,5 +47,15 @@ private struct PluginRegisteredView: View {
         }.padding(12).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.3)))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("plugin-registered-view-" + item.id)
+    }
+}
+
+extension View {
+    func announcePluginStatus(_ message: String?) -> some View {
+        onChange(of: message) { message in
+            guard let message, !message.isEmpty, let app = NSApp, app.isActive else { return }
+            NSAccessibility.post(element: app, notification: .announcementRequested,
+                userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        }
     }
 }

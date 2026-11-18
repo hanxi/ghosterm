@@ -44,6 +44,7 @@ struct PluginTableView: View {
                 VStack(alignment: .leading) { controls }
             }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-table")
+            .announcePluginStatus(model.issue)
             .task { if model.descriptor == nil && model.issue == nil { await model.load() } }
     }
     @ViewBuilder private var controls: some View {

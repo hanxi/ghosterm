@@ -24,16 +24,13 @@ struct PluginTaskView: View {
                 }
                 if let result = state.result.text { Text(result).textSelection(.enabled).accessibilityIdentifier("plugin-task-result") }
             }
-            if model.cancellation == .requested && model.snapshot?.phase.terminal != true {
-                Text("取消请求已受理，仍需任务确认停止").accessibilityIdentifier("plugin-task-cancel-status")
-            } else if model.cancellation == .unconfirmed {
-                Text("取消结果不明；不会重发取消请求").accessibilityIdentifier("plugin-task-cancel-status")
-            } else if model.cancellation == .alreadyFinished {
-                Text("取消到达时任务已结束").accessibilityIdentifier("plugin-task-cancel-status")
+            if let cancellationMessage {
+                Text(cancellationMessage).accessibilityIdentifier("plugin-task-cancel-status")
             }
             if model.busy { ProgressView("正在读取任务…").accessibilityIdentifier("plugin-task-loading") }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-task")
+            .announcePluginStatus(model.issue ?? cancellationMessage)
             .task(id: model.available) {
                 if model.descriptor == nil && model.issue == nil { await model.load() }
                 while !Task.isCancelled && model.available {
@@ -42,6 +39,15 @@ struct PluginTaskView: View {
                 }
             }
     }
+    private var cancellationMessage: String? {
+        switch model.cancellation {
+        case .requested where model.snapshot?.phase.terminal != true: return "取消请求已受理，仍需任务确认停止"
+        case .unconfirmed: return "取消结果不明；不会重发取消请求"
+        case .alreadyFinished: return "取消到达时任务已结束"
+        default: return nil
+        }
+    }
+
     @ViewBuilder private var controls: some View {
         Button("读取任务状态") { Task { await model.load() } }
             .disabled(!model.available || model.busy).accessibilityIdentifier("plugin-task-read")
