@@ -14,8 +14,6 @@ final class TestWindowsTests: XCTestCase {
                              styleMask: [.titled, .utilityWindow], backing: .buffered, defer: false)
         defer { first.close(); second.close() }
 
-        first.setFrameOrigin(TestWindows.offscreenOrigin)
-        second.setFrameOrigin(TestWindows.offscreenOrigin)
         first.orderFrontRegardless()
         second.makeKeyAndOrderFront(nil)
 
