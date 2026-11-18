@@ -23,7 +23,8 @@ import kotlinx.coroutines.isActive
     }
     Column(Modifier.fillMaxWidth().testTag("plugin-task"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(state.descriptor?.title ?: "任务", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-        state.issue?.let { Text(it, Modifier.testTag("plugin-task-issue"), color = MaterialTheme.colorScheme.error) }
+        state.issue?.let { Text(it, Modifier.testTag("plugin-task-issue")
+            .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         state.snapshot?.let { snapshot ->
             if (state.issue != null) Text("以下为上次读取的任务状态", style = MaterialTheme.typography.bodySmall)
             Text(snapshot.phase.label, Modifier.testTag("plugin-task-phase"))
@@ -38,9 +39,16 @@ import kotlinx.coroutines.isActive
             }
             snapshot.result.text?.let { SelectionContainer { Text(it, Modifier.testTag("plugin-task-result")) } }
         }
-        if (state.cancellation == PluginTaskModel.Cancellation.REQUESTED && state.snapshot?.phase?.terminal != true) Text("取消请求已受理，仍需任务确认停止", Modifier.testTag("plugin-task-cancel-status"))
-        if (state.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED) Text("取消结果不明；不会重发取消请求", Modifier.testTag("plugin-task-cancel-status"))
-        if (state.cancellation == PluginTaskModel.Cancellation.ALREADY_FINISHED) Text("取消到达时任务已结束", Modifier.testTag("plugin-task-cancel-status"))
+        val cancellationMessage = when (state.cancellation) {
+            PluginTaskModel.Cancellation.REQUESTED ->
+                "取消请求已受理，仍需任务确认停止".takeUnless { state.snapshot?.phase?.terminal == true }
+            PluginTaskModel.Cancellation.UNCONFIRMED -> "取消结果不明；不会重发取消请求"
+            PluginTaskModel.Cancellation.ALREADY_FINISHED -> "取消到达时任务已结束"
+            else -> null
+        }
+        cancellationMessage?.let {
+            Text(it, Modifier.testTag("plugin-task-cancel-status").semantics { liveRegion = LiveRegionMode.Polite })
+        }
         if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { model.load() }, enabled = model.available && !state.busy, modifier = Modifier.testTag("plugin-task-read")) { Text("读取任务状态") }

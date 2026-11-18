@@ -19,7 +19,8 @@ import androidx.compose.ui.unit.dp
     LaunchedEffect(model) { if (model.state.value.descriptor == null && model.state.value.issue == null) model.load()?.join() }
     Column(Modifier.fillMaxWidth().testTag("plugin-table"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(state.descriptor?.title ?: "表格", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-        state.issue?.let { Text(it, Modifier.testTag("plugin-table-issue"), color = MaterialTheme.colorScheme.error) }
+        state.issue?.let { Text(it, Modifier.testTag("plugin-table-issue")
+            .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         if (state.busy) Text("正在读取表格…", Modifier.testTag("plugin-table-loading"))
         val description = state.descriptor; val page = state.page
         if (description != null && page != null) {

@@ -20,7 +20,8 @@ import androidx.compose.ui.unit.dp
     LaunchedEffect(model) { if (model.state.value.descriptor == null && model.state.value.issue == null) model.load()?.join() }
     Column(Modifier.fillMaxWidth().testTag("plugin-diff"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(state.descriptor?.title ?: "差异", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-        state.issue?.let { Text(it, Modifier.testTag("plugin-diff-issue"), color = MaterialTheme.colorScheme.error) }
+        state.issue?.let { Text(it, Modifier.testTag("plugin-diff-issue")
+            .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         if (state.busy) Text("正在读取差异…", Modifier.testTag("plugin-diff-loading"))
         val description = state.descriptor; val page = state.page
         if (description != null && page != null) {
