@@ -13757,3 +13757,13 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 独立 WebKit 探针对照自定义 scheme 的实际 CSS 和 PNG 像素。探针改用每次
 运行独有的 tmp 目录，两次并行复跑均通过并清理临时构件。
 本轮未验证系统文件选择器或 Android 设备。
+
+### P2 Android 原生资源预览复验（2026-11-19）
+
+固定 `27f47f96`，复用工作区现有应用和测试 APK，在专用 API 36 无窗口 AVD
+运行 `PluginResourcePreviewTest` 及 `PluginResourcePreviewUiTest`，共 13 项
+通过。覆盖 Markdown 附件的同目录边界、非法 UTF-8、栅格图限制、HTML 预览、
+资源移除后的选择回退，以及启动和会话授权参数。应用与测试 APK 的 SHA256 分别为
+`59c8fa9587cf3127b2d0545caaa02638aeddcd027caa793d5b31231eb083cb83`、
+`9c79328c0e98e0b04e981b1ebdcb498b6ec6c3aa7be311ed5a3e4ee3ec1b9665`。
+本轮未重新构建 APK，未运行真实 SSH / SAF 或键盘返回流程；专用 AVD 已清理。
