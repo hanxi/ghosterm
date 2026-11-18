@@ -13567,3 +13567,16 @@ SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e4
 收据与既有流专项一致，为
 `2f4dcaed92c57289fb6f495d65038baf32c03ea9845fab64c90f733afc4032ec`。
 本轮两个临时目录均已清理。
+
+### P1 普通 SSH shell 二进制输出对照（2026-11-19）
+
+扩展 `test_bridge_ssh` 的隔离场景。普通 SSH shell 在插件通道活动时及关闭后
+输出包含 NUL、非 UTF-8 字节、ESC、DEL 和有效 UTF-8 的固定序列。通过 Core
+的生产 shell Transport 读取，在标记之后按长度逐字节对拍。既有两种关闭顺序和
+插件通道 64 KiB 往返继续验收。
+
+固定 `528d20a8` 加本批修改，重编译后运行
+`test-plugin-ssh-stream.py --case isolation` 通过。收据 SHA256
+`bcea8cddeb8e2f027d48c3a1076533f6675b66644c6275750cec3e3df1a72b53`。
+改动文件 C 格式和 diff 检查通过，临时夹具已清理。本轮仍需独立补齐应用内
+TerminalSurface 的并行字节对照。

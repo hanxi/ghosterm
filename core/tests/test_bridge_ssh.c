@@ -271,6 +271,8 @@ static void expect_end(gt_bridge_stream_t *s, bool clean, int expected_status) {
 }
 
 static void terminal_echo(gt_transport_t *t, const char *marker) {
+    static const uint8_t suffix[] = {0x00, 0xff, 0x1b, 0x7f, 0xc3, 0xa9};
+    static const char escaped_suffix[] = "\\000\\377\\033\\177\\303\\251'\n";
     char command[512] = "printf '";
     size_t at = strlen(command);
     for (size_t i = 0; marker[i]; i++) {
@@ -278,14 +280,22 @@ static void terminal_echo(gt_transport_t *t, const char *marker) {
         CHECK(k == 4);
         at += 4;
     }
-    CHECK(at + 6 < sizeof(command));
-    memcpy(command + at, "\\n'\n", 5);
-    int n = (int)(at + 4);
-    CHECK(gt_transport_write(t, (const uint8_t *)command, (size_t)n) == GT_OK);
+    CHECK(at + sizeof(escaped_suffix) <= sizeof(command));
+    memcpy(command + at, escaped_suffix, sizeof(escaped_suffix));
+    CHECK(gt_transport_write(t, (const uint8_t *)command, at + sizeof(escaped_suffix) - 1) ==
+          GT_OK);
     char output[4096] = {0};
     size_t used = 0;
     uint64_t end = now() + 5000;
-    while (!strstr(output, marker)) {
+    for (;;) {
+        const char *match = strstr(output, marker);
+        if (match) {
+            size_t offset = (size_t)(match - output) + strlen(marker);
+            if (used >= offset + sizeof(suffix)) {
+                CHECK(memcmp(output + offset, suffix, sizeof(suffix)) == 0);
+                return;
+            }
+        }
         int r = gt_transport_read(t, (uint8_t *)output + used, sizeof(output) - used - 1, 25);
         CHECK(r > 0 || r == GT_TRANSPORT_READ_TIMEOUT);
         CHECK(now() < end && used < sizeof(output) - 1);
