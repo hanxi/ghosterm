@@ -125,8 +125,11 @@ class CodexPatchRPCAppTest {
             assertNotNull("SSH Session missing: ${main { extensions.error }}", main { extensions.activeSession })
             await("Session did not reach consent") { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT }
             ui.onNodeWithText("允许并启动").performClick()
-            await("Client Runtime did not activate") { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE }
-            ui.onNodeWithTag("plugin-codex-start-thread").performScrollTo().performClick()
+            await("Client Runtime did not become available for interaction") {
+                extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+                    extensions.canInteractWithRuntime && !extensions.codex.callBusy
+            }
+            ui.onNodeWithTag("plugin-codex-start-thread").performScrollTo().assertIsEnabled().performClick()
             await("thread did not arrive: ${main { extensions.error }}") { extensions.codex.threadID == "thread-fixture" && !extensions.codex.callBusy }
             ui.onNodeWithTag("plugin-codex-message").performScrollTo().performTextInput("exercise isolated protocol fixture")
             Espresso.closeSoftKeyboard()

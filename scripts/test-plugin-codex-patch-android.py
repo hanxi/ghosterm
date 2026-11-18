@@ -124,8 +124,22 @@ def execute(args):
     page = run([*adb, 'shell', 'getconf', 'PAGE_SIZE']).strip()
     if not api.isdigit() or not page.isdigit() or not abi:
         raise RuntimeError('Could not identify the explicit device')
-    run([*adb, 'install', '-r', ROOT / 'android/app/build/outputs/apk/debug/app-debug.apk'])
-    run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'])
+    artifacts = (
+        ('com.hanxi.ghosterm', 'debug/app-debug.apk', []),
+        ('com.hanxi.ghosterm.test', 'androidTest/debug/app-debug-androidTest.apk', ['-t']),
+    )
+    for application, relative, flags in artifacts:
+        apk = ROOT / 'android/app/build/outputs/apk' / relative
+        with apk.open('rb') as stream:
+            expected = hashlib.file_digest(stream, 'sha256').hexdigest()
+        run([*adb, 'install', '-r', *flags, apk])
+        installed = run([*adb, 'shell', 'pm', 'path', application]).strip().splitlines()
+        if len(installed) != 1 or not installed[0].startswith('package:'):
+            raise RuntimeError(f'Expected one installed APK for {application}')
+        actual = run([*adb, 'shell', 'sha256sum', installed[0].removeprefix('package:')]).split()
+        if not actual or actual[0] != expected:
+            raise RuntimeError(f'Installed APK differs from {relative}')
+        print(f'INSTALLED APK {relative}: {expected}', flush=True)
     package_files = {p.relative_to(package).as_posix(): base64.b64encode(p.read_bytes()).decode('ascii')
                      for p in sorted(package.rglob('*')) if p.is_file()}
     digest = hashlib.sha256((package / 'integrity.json').read_bytes()).hexdigest()
@@ -208,7 +222,8 @@ def execute(args):
                                 time.sleep(.05)
                             exit_status = exited.read_text() if exited.exists() else 'not-exited'
                             exit_error = error.read_text().strip() if error.exists() else 'missing'
-                            expected_error = ('gterm: runtime phase=3 error=6 session-end=6 session-error=3 cleanup=0\n'
+                            expected_error = ('gterm: runtime phase=3 error=6 execution-error=0 child-exit=0 '
+                                              'child-signal=0 session-end=6 session-error=3 cleanup=0\n'
                                               'gterm: executor channel outcome unknown')
                             if exit_status != '7' or exit_error != expected_error:
                                 raise RuntimeError(f'Remote close did not retain its independent unknown outcome: {exit_status}; {exit_error}')
