@@ -49,7 +49,7 @@ def agent(node, work):
         child.stdout.close(); child.stderr.close()
 
 
-def exercise(root, work, tools, node, public, endpoint, selected=None):
+def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools=None):
     def cli(*args, status=0, code=None):
         child = subprocess.Popen([sys.executable, '-B', root / 'scripts/gterm-plugin', *map(str, args)],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')))
@@ -120,26 +120,38 @@ def exercise(root, work, tools, node, public, endpoint, selected=None):
         assert checked['artifactSHA256']==sha(artifact.read_bytes()) and checked['pluginId']=='org.ghosterm.preview'
         assert signed['kind']=='release-signed' and checked['kind']=='release-verified'
     case('success',success)
-    def official_preview():
-        original = ROOT / 'plugins/official/preview'
-        archive = work / 'official-preview.zip'
-        release = work / 'official-preview-release'
+    def official_package(name, original):
+        archive = work / f'official-{name}.zip'
+        release = work / f'official-{name}-release'
+        package_id = f'org.ghosterm.{name}'
+        channel = work / f'official-{name}-policy.json'
+        channel.write_text(json.dumps(dict(trusted, keys=[dict(trusted['keys'][0], pluginIds=[package_id])])))
         cli('pack', '--package', original, '--tools', tools, '--out', archive)
         args = list(sign_args)
         args[args.index('--artifact')+1] = archive
+        args[args.index('--policy')+1] = channel
         cli(*args, '--out', release)
         checked = cli('release', 'verify', '--artifact', release/'plugin.zip',
                       '--descriptor', release/'release.json', '--signature', release/'release.sig',
-                      '--policy', policy, '--tools', tools)
+                      '--policy', channel, '--tools', tools)
         assert checked['publisherAuthenticated'] is True and checked['authorization']=='not-granted'
-        assert checked['installation'] is False and checked['pluginId']=='org.ghosterm.preview'
+        assert checked['installation'] is False and checked['pluginId']==package_id
         assert checked['artifactSHA256']==sha(archive.read_bytes())
         with zipfile.ZipFile(release/'plugin.zip') as signed_zip:
             expected = {p.relative_to(original).as_posix(): p.read_bytes()
                         for p in original.rglob('*') if p.is_file()}
             assert set(signed_zip.namelist()) == set(expected)
             assert all(signed_zip.read(name) == data for name, data in expected.items())
-    case('official-preview', official_preview)
+    case('official-preview', lambda: official_package('preview', ROOT / 'plugins/official/preview'))
+    if sdk_tools is not None:
+        def sample(name):
+            package = work / f'sample-{name}'
+            subprocess.run([sys.executable, '-B', ROOT/'scripts/build-plugin-sample.py',
+                            '--source', ROOT/'plugins/official'/name, '--tools', sdk_tools,
+                            '--out', package], check=True, timeout=200)
+            official_package(name, package)
+        for name in ('table', 'diff', 'task', 'views'):
+            case(f'official-{name}', lambda name=name: sample(name))
     def deterministic():
         other=work/'r2';cli(*sign_args,'--out',other)
         assert {p.name:p.read_bytes() for p in bundle.iterdir()}=={p.name:p.read_bytes() for p in other.iterdir()}
@@ -337,14 +349,17 @@ def exercise(root, work, tools, node, public, endpoint, selected=None):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools',type=Path,required=True)
+    parser.add_argument('--sdk-tools', type=Path, help='also build and verify the official Portable samples')
     parser.add_argument('--mutate',action='store_true')
     parser.add_argument('--receipt',type=Path,default=ROOT/'tmp/plugin-release-receipt.json')
     args=parser.parse_args()
     node=Path(shutil.which('node')).resolve(strict=True)
-    inputs={str(p.relative_to(ROOT)):sha(p.read_bytes()) for directory in ['scripts','packages','plugins/official/preview','core/tests/fixtures'] for p in (ROOT/directory).rglob('*')
+    inputs={str(p.relative_to(ROOT)):sha(p.read_bytes()) for directory in ['scripts','packages','plugins/official/preview','core/tests/fixtures',*(['plugins/official/'+n for n in ('table','diff','task','views')] if args.sdk_tools else [])] for p in (ROOT/directory).rglob('*')
             if p.is_file() and '__pycache__' not in p.parts}
     node_sha=sha(node.read_bytes())
     binary_inputs={str(p):sha(p.read_bytes()) for p in args.tools.resolve().rglob('*') if p.is_file()}
+    if args.sdk_tools:
+        binary_inputs.update({str(p):sha(p.read_bytes()) for p in args.sdk_tools.resolve().rglob('*') if p.is_file()})
     binary_inputs[str(ROOT/'core/build/test_config')]=sha((ROOT/'core/build/test_config').read_bytes())
     with tempfile.TemporaryDirectory(prefix='pr-',dir=ROOT/'tmp') as temporary:
         work=Path(temporary)
@@ -354,7 +369,7 @@ def main():
         (source/'tmp').mkdir()
         with agent(node,work) as (public,endpoint):
             case_root=work/'cases';case_root.mkdir()
-            cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint)
+            cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint,sdk_tools=args.sdk_tools.resolve() if args.sdk_tools else None)
             print('RELEASE PASS: '+str(len(cases))+' cases: '+', '.join(cases),flush=True)
             recipes=[
                 ('number-precision','precise-policy','json.loads(raw, parse_float=number)','json.loads(raw, parse_float=float)'),
