@@ -125,7 +125,7 @@ class ExtensionMixedConnectionTest {
                 runtimes.forEachIndexed { slot, runtime -> extensions.enqueueGroup(entry, review.commands.single(), target.alias,
                     request(slot, runtime, slot % 2 == 1), null, payload.getString("temporary")) }
                 assertNull(extensions.error); assertEquals(8, extensions.pendingGroup.size)
-                extensions.launchGroup(target, sessions)
+                extensions.launchGroup(sessions) { target }
             }
             await("group created") { main { extensions.connectionGroups.isNotEmpty() } }
             val current = main { extensions.connectionGroups.single() }; group = current

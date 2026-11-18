@@ -92,7 +92,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onDismissFrontend: (java.util.UUID) -> Unit = {},
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
     onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
-    onLaunchPluginGroup: (String) -> Unit = {},
+    onLaunchPluginGroup: () -> Unit = {},
     onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }

@@ -25,7 +25,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
     val instance: ExtensionConnectionModel.Instance? = null)
 
 @Composable internal fun PluginConnectionGroupsContent(model: ExtensionPackagesViewModel,
-    connectionsBusy: Boolean, onLaunchGroup: (String) -> Unit) {
+    connectionsBusy: Boolean, onLaunchGroup: () -> Unit) {
     // The pending choice belongs to this view lifetime, never a saved approval.
     var closeRequest by remember(model) { mutableStateOf<PluginCloseRequest?>(null) }
     val selected = closeRequest?.takeIf { request ->
@@ -78,7 +78,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                     enabled = !connectionsBusy && !model.groupSubmissionBusy) { Text("移除此项") }
             }
         }
-        TextButton(onClick = { model.pendingGroup.firstOrNull()?.let { onLaunchGroup(it.alias) } },
+        TextButton(onClick = onLaunchGroup,
             enabled = !connectionsBusy && !model.groupSubmissionBusy && model.connectionGroups.none { it.busy },
             modifier = Modifier.testTag("plugin-group-launch")) { Text("连接并启动整组") }
         if (model.groupSubmissionBusy) LinearProgressIndicator(Modifier.fillMaxWidth())

@@ -330,7 +330,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
-    internal fun launchGroup(target: PreparedSSH, sessions: SessionsViewModel) {
+    internal fun launchGroup(sessions: SessionsViewModel, prepareTarget: suspend (String) -> PreparedSSH) {
         val snapshot = pendingGroup.toList()
         if (groupSubmissionBusy || snapshot.isEmpty() || sessions.connecting != null || connectionGroups.any { it.busy }) return
         val owner = controller ?: return
@@ -338,6 +338,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         groupSubmissionBusy = true
         viewModelScope.launch {
             try {
+                val target = prepareTarget(snapshot.first().alias)
+                check(sessions.connecting == null) { "另一个 SSH 连接正在认证，请稍后重试" }
                 val group = ExtensionConnectionModel(getApplication(), owner.makeInvocationController(), viewModelScope)
                 connectionGroups.add(group)
                 if (group.start(snapshot, target, sessions)) {

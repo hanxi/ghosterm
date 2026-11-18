@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -66,6 +67,7 @@ class ExtensionConnectionTest {
                 if (payload.getString("route") == "jump") listOf(PreparedSSH("mux-jump", "127.0.0.1", payload.getString("user"), ports.getInt(0), emptyList())) else emptyList())
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
+            val targetPreflight = CompletableDeferred<Unit>()
             main {
                 repeat(8) { index ->
                     val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), review.digest, review.digest,
@@ -74,7 +76,15 @@ class ExtensionConnectionTest {
                         target.alias, request, null, payload.getString("temporary"))
                 }
                 assertNull(extensions.error); assertEquals(8, extensions.pendingGroup.size)
-                extensions.launchGroup(target.copy(alias = "different-target"), sessions)
+                extensions.launchGroup(sessions) {
+                    targetPreflight.await()
+                    target.copy(alias = "different-target")
+                }
+                assertTrue(extensions.groupSubmissionBusy)
+                extensions.removePendingGroupItem(extensions.pendingGroup.first())
+                assertEquals(8, extensions.pendingGroup.size)
+                assertTrue(extensions.connectionGroups.isEmpty())
+                targetPreflight.complete(Unit)
             }
             await("mismatched group released") {
                 main { extensions.connectionGroups.firstOrNull()?.closed == true && !extensions.groupSubmissionBusy }
@@ -82,7 +92,7 @@ class ExtensionConnectionTest {
             main {
                 assertEquals(8, extensions.pendingGroup.size)
                 assertNull(extensions.selectedGroupInstance)
-                extensions.launchGroup(target, sessions)
+                extensions.launchGroup(sessions) { target }
             }
             await("group created") { main { extensions.connectionGroups.size == 2 } }
             val current = main { extensions.connectionGroups.last() }; group = current

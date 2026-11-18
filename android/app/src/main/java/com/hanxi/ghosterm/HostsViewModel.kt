@@ -186,9 +186,8 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Same ssh_config policy as launch, with an explicit failure returned to
-     * the inspection form instead of leaving an asynchronous request pending. */
-    internal suspend fun preparePluginInspection(alias: String): com.hanxi.ghosterm.bridge.PreparedSSH {
+    /** Resolve one plugin target against the current ssh_config snapshot. */
+    internal suspend fun preparePluginTarget(alias: String): com.hanxi.ghosterm.bridge.PreparedSSH {
         val base = checkNotNull(snapshot) { "SSH 配置尚未载入" }
         check(base.hosts.any { it.alias == alias }) { "所选 SSH 主机已不存在" }
         val prepared = withContext(Dispatchers.IO) {
