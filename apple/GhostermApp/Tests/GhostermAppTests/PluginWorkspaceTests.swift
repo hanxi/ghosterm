@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import GhostermTerminal
 import SwiftUI
 import XCTest
 @testable import GhostermApp
@@ -124,6 +125,35 @@ import XCTest
         XCTAssertNil(app.extensionPaneCloseRequest)
         try await until { !tab.workspacePanes.contains { $0.id == first.id } }
         XCTAssertFalse(other.closeRequested)
+    }
+
+    func testClosingFocusedPluginReturnsKeyboardToTerminal() async throws {
+        let app = try app()
+        let terminal = TerminalPane()
+        terminal.attachForTesting(surface: try TerminalSurface(app: TerminalApp.shared()))
+        let tab = TerminalTab(kind: .localShell, pane: terminal)
+        let plugin = app.extensionInstance
+        tab.addExtensionPane(plugin)
+        app.tabs.add(tab)
+        let host = WorkspaceHostView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+        let window = KeyWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        TestWindows.presentOffscreenAsKey(window)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+
+        tab.activeWorkspacePaneID = plugin.id
+        host.update(model: app, tab: tab, isActive: true, opts: .init())
+        host.layoutSubtreeIfNeeded()
+        let pluginHost = try XCTUnwrap(host.hosts[plugin.id])
+        XCTAssertTrue(window.firstResponder === pluginHost)
+
+        app.closePane(tabID: tab.id, paneID: plugin.id)
+        try await until { !tab.workspacePanes.contains { $0.id == plugin.id } }
+        XCTAssertEqual(tab.activeWorkspacePaneID, terminal.id)
+        host.update(model: app, tab: tab, isActive: true, opts: .init())
+        host.layoutSubtreeIfNeeded()
+        try await until { window.firstResponder is TerminalHostView }
     }
 
     func testTabCloseDefersRemovalUntilPluginCleanupFinishes() async throws {
