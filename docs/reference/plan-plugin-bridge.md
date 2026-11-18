@@ -12962,3 +12962,11 @@ Task 和 Views。每个包使用仅授权该插件 ID 的测试策略签名并�
 `4dc53e4ecb32438a9524bcd7ecac4597d1d6c5e35a0ae413fd86c898a966fde7`。
 使用临时测试密钥，生产发行及原生安装矩阵仍待分别验收。复现步骤见
 [插件开发指南](../how-to/plugin-development.md)。
+
+### P6 macOS 原生签名与安装基线复验（2026-11-18）
+
+固定 `63ba13e1` 的隔离源码使用启用插件 JS 的 Core 和本机 GhosttyKit 构件，
+后台运行 `test-plugin-native-signature.py --install`。目录签名及 UI、签名 ZIP
+安装事务及 UI 四组 XCTest 共 28 项通过。收据 SHA256
+`419d08b46a66b0985aa3dd36bc918cff2193c21f6c653a8faf4df14484f134ba`。
+本轮覆盖现有测试渠道安装夹具，完整官方包矩阵、版本管理和变异另验。
