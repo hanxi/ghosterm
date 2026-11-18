@@ -703,7 +703,12 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     DisposableEffect(inspectionKey) { onDispose { inspectionJob?.cancel() } }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-        title = { Text("启动 ${command.title}") },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("启动 ${command.title}")
+                problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -887,11 +892,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     if (groupLaunch) OutlinedTextField(groupTemporaryDirectory, { groupTemporaryDirectory = it },
                         modifier = Modifier.testTag("plugin-group-temporary"), label = { Text("执行端连接临时目录（绝对路径）") })
                 }
-                problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
-            TextButton(enabled = !inspectionBusy && selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
+            TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
                 try {
                     val execution = if (attachExisting || runtimeChoice == "Portable JS") null else {
                         val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec

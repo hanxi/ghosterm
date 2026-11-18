@@ -83,8 +83,13 @@ class ClaudeLaunchTest {
             optionalMissingCapabilities = emptyList(), authorizationGranted = false, publisherAuthenticated = false,
             commands = listOf(command))
         var launched: ExtensionRelayBootstrap.Request? = null
+        var attempts = 0
+        val preflightError = "SSH 配置已变化，请重新选择主机"
         ui.setContent { MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
-            listOf("fixture"), {}, { _, request, _ -> launched = request }) } }
+            listOf("fixture"), {}, { _, request, _ ->
+                if (++attempts == 1) error(preflightError)
+                launched = request
+            }) } }
         ui.onNodeWithTag("plugin-executor-directory").performScrollTo().performTextInput("/k")
         ui.onNodeWithTag("plugin-workspace-root").performScrollTo().performTextInput("/w")
         ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextInput("a".repeat(64))
@@ -92,6 +97,9 @@ class ClaudeLaunchTest {
             "[{\"name\":\"claude-node\",\"executable\":\"/bin/node\",\"version\":\"26.4.0\",\"sha256\":\"${"c".repeat(64)}\",\"prefixArguments\":[\"/e\",\"--profile\",\"/p\"]}]")
         ui.onNodeWithTag("plugin-process-environment").performScrollTo().performTextReplacement("[\"CLAUDE_CONFIG_DIR\"]")
         Espresso.closeSoftKeyboard()
+        ui.onNodeWithText("连接并请求授权").assertIsEnabled().performClick()
+        ui.onNodeWithText(preflightError).assertIsDisplayed()
+        ui.runOnIdle { assertNull(launched) }
         ui.onNodeWithText("连接并请求授权").assertIsEnabled().performClick()
         ui.waitForIdle()
         if (launched == null) fail("Launch form did not submit:\n" + ui.onAllNodes(isRoot(), useUnmergedTree = true).printToString(maxDepth = 15))
