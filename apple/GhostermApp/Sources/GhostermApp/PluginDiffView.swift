@@ -20,14 +20,16 @@ struct PluginDiffView: View {
                         ScrollView([.horizontal, .vertical]) {
                             VStack(alignment: .leading, spacing: 12) {
                                 ForEach(Array(page.rows.enumerated()), id: \.offset) { index, row in
+                                    let change = row.kind == .insert ? "新增" : row.kind == .delete ? "删除" : "相同"
                                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                                         Text(row.kind == .insert ? "+ 新增" : row.kind == .delete ? "− 删除" : "= 相同")
                                             .foregroundStyle(row.kind == .insert ? Color.green : row.kind == .delete ? Color.red : Color.secondary)
+                                            .accessibilityHidden(true)
                                         Text("\(row.beforeLine == 0 ? "—" : String(row.beforeLine)) / \(row.afterLine == 0 ? "—" : String(row.afterLine))")
-                                            .monospacedDigit().accessibilityLabel("原 / 新行号")
+                                            .monospacedDigit().accessibilityHidden(true)
                                         Text(row.text).monospaced().textSelection(.enabled)
                                             .fixedSize(horizontal: true, vertical: true)
-                                            .accessibilityLabel("\(row.beforeLine == 0 ? "原文无此行" : "原第 \(row.beforeLine) 行")，\(row.afterLine == 0 ? "新文无此行" : "新第 \(row.afterLine) 行")")
+                                            .accessibilityLabel("\(change)，\(row.beforeLine == 0 ? "原文无此行" : "原第 \(row.beforeLine) 行")，\(row.afterLine == 0 ? "新文无此行" : "新第 \(row.afterLine) 行")")
                                             .accessibilityValue(row.text).accessibilityIdentifier("plugin-diff-text-\(page.offset + index)")
                                         Text(row.ending.label).monospaced().foregroundStyle(.secondary).accessibilityLabel("换行：\(row.ending.label)")
                                             .accessibilityIdentifier("plugin-diff-ending-\(page.offset + index)")

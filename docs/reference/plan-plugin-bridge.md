@@ -14680,3 +14680,10 @@ UndefinedBehaviorSanitizer。范围为 Portable SDK 与 C/QuickJS，对照不代
 QuickJS 与 Node 的往返、契约、注册、schema、跟踪及 Node 中断。收据
 SHA256 `a045b3fa1abd40ee3f42ee58847c280bfc2b1930b04c7ea4a9ff38187c414750`。
 本轮只跑基线，原生辅助技术和设备验收另计。
+
+### P5 macOS 差异行的无障碍变更类型（2026-11-19）
+
+差异正文节点的 AX 标签同时包含变更类型和前后行号。视觉标记与行号免于
+重复成为无障碍元素，正文仍是 AX 值，行尾类型由现有节点提供。两种外观与
+两档字号的离屏 AX 元素和分页断言同轮通过，差异组 15 项、Release 构建
+通过。没有启动 VoiceOver 播报。

@@ -175,6 +175,8 @@ import XCTest
             let nodes = PluginTableRendering.elements(host)
             let text = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-diff-text-0" })
             XCTAssertEqual(PluginTableRendering.attribute(text, "accessibilityValue"), "alpha")
+            let changed = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-diff-text-1" })
+            XCTAssertEqual(PluginTableRendering.attribute(changed, "accessibilityLabel"), "删除，原第 2 行，新文无此行")
             let ending = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-diff-ending-0" })
             // SwiftUI exposes the label of a macOS static text as its AX value.
             XCTAssertEqual(PluginTableRendering.attribute(ending, "accessibilityValue"), "换行：CRLF")
