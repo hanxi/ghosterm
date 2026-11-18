@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeNotNull
@@ -58,7 +59,14 @@ class PluginChannelRefreshTlsTest {
             assertTrue(oversized.toString(), oversized is IllegalStateException && oversized.message!!.contains("超过上限"))
             val mixed = runCatching { refresh("mixed").refresh() }.exceptionOrNull()
             assertEquals(PluginReleaseSignature.Failure.CHANNEL_STATEMENT, (mixed as? PluginReleaseSignature.Rejected)?.reason)
-            assertEquals(2uL, store.useCurrent(now()) { it.generation })
+            val missing = runCatching { refresh("missing-policy").refresh() }.exceptionOrNull()
+            assertTrue(missing.toString(), missing is IllegalStateException && missing.message!!.contains("签名材料"))
+            val reopened = PluginChannelPolicyStore(directory, "fixture", root)
+            reopened.useCurrent(now()) { cached ->
+                assertEquals(valid.generation, cached.generation)
+                assertEquals(valid.statementSHA256, cached.statementSHA256)
+                assertArrayEquals(valid.policyBytes(), cached.policyBytes())
+            }
             assertEquals(3uL, refresh("revoked").refresh().generation)
             val rollback = runCatching { refresh("valid").refresh() }.exceptionOrNull()
             assertEquals(PluginReleaseSignature.Failure.CHANNEL_HISTORY, (rollback as? PluginReleaseSignature.Rejected)?.reason)
