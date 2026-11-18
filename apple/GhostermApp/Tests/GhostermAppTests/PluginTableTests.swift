@@ -182,6 +182,13 @@ final class PluginTableTests: XCTestCase {
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
         defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         let f = PluginTableFixture(); f.description["total"] = 17
+        f.transform = { reply in
+            guard reply["offset"] as? Int == 0, var rows = reply["rows"] as? [[String: Any]] else { return reply }
+            rows[0]["cells"] = ["1", "1", ""]
+            var updated = reply
+            updated["rows"] = rows
+            return updated
+        }
         let m = f.model(); await m.load()
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             for points: CGFloat in [13, 28] {
@@ -203,6 +210,11 @@ final class PluginTableTests: XCTestCase {
                     nodes.map { node in ["accessibilityIdentifier", "accessibilityLabel", "accessibilityValue"].map { name in PluginTableRendering.attribute(node, name) ?? "" } }.description)
                 XCTAssertTrue(PluginTableRendering.attribute(cell, "accessibilityLabel")?.contains("Number") == true)
                 XCTAssertEqual(PluginTableRendering.attribute(cell, "accessibilityValue"), "1")
+                let empty = try XCTUnwrap(nodes.first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-table-cell-1-cube"
+                })
+                XCTAssertEqual(PluginTableRendering.attribute(empty, "accessibilityLabel"), "Cube，第 1 行")
+                XCTAssertEqual(PluginTableRendering.attribute(empty, "accessibilityValue"), "空白")
                 let next = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-table-next" })
                 guard PluginTableRendering.press(next) else {
                     XCTFail("AX press unavailable: \(type(of: next)), role \(PluginTableRendering.attribute(next, "accessibilityRole") ?? "nil"), actions \(next.accessibilityActionNames())")

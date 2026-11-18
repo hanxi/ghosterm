@@ -26,11 +26,12 @@ struct PluginTableView: View {
                             ForEach(Array(page.rows.enumerated()), id: \.element.id) { index, row in
                                 GridRow {
                                     ForEach(descriptor.columns.indices, id: \.self) { column in
-                                        Text(row.cells[column]).textSelection(.enabled)
+                                        let value = row.cells[column]
+                                        Text(value).textSelection(.enabled)
                                             .frame(minWidth: 90, maxWidth: 240, alignment: .leading)
                                             .fixedSize(horizontal: false, vertical: true)
                                             .accessibilityLabel("\(descriptor.columns[column].title)，第 \(page.offset + index + 1) 行")
-                                            .accessibilityValue(row.cells[column])
+                                            .accessibilityValue(value.isEmpty ? "空白" : value)
                                             .accessibilityIdentifier("plugin-table-cell-\(row.id)-\(descriptor.columns[column].id)")
                                     }
                                 }
