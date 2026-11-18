@@ -519,6 +519,12 @@ public actor ExtensionController {
     }
     public func discardPreparedRelease(id: String) async throws { try await worker.discardPreparedRelease(id: id) }
     public func retryFailedInstallCleanup() async throws { try await worker.retryFailedInstallCleanup() }
+    public nonisolated var canRefreshChannelPolicy: Bool { worker.canRefreshChannelPolicy }
+
+    public func refreshConfiguredChannelPolicy() async throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        try await PluginChannelRefresh.refresh(worker.channelTrustForRefresh())
+    }
+
     public func installedVersions() async throws -> InstalledCatalog { try await worker.installedVersions() }
     public func previewVersionRemoval(releaseID: String, expectedRevision: String?) async throws -> RemovalPreview {
         try await worker.previewVersionRemoval(releaseID: releaseID, expectedRevision: expectedRevision)
@@ -1107,6 +1113,18 @@ public actor ExtensionController {
                     current.choices[id].map { InstalledSelection(pluginID: id, releaseID: $0.releaseID, enabled: $0.enabled) }
                 })
         }
+        var canRefreshChannelPolicy: Bool { state.channelTrust?.refreshDirectory != nil }
+
+        func channelTrustForRefresh() async throws -> ChannelTrust {
+            try await perform {
+                try self.checkOpen()
+                guard let trust = self.state.channelTrust, trust.refreshDirectory != nil else {
+                    throw PluginChannelRefresh.Failure.endpoint
+                }
+                return trust
+            }
+        }
+
         func installedVersions() async throws -> InstalledCatalog {
             try await perform {
                 try self.checkOpen()

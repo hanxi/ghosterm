@@ -79,6 +79,19 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             return result
         } catch { invalidatePolicy(); issue = message(error); return nil }
     }
+    var canRefreshChannelPolicy: Bool {
+        !busy && removal == nil && pendingRemoval == nil && selectionReview == nil && policyReview == nil
+    }
+
+    func refreshChannelPolicy(_ controller: ExtensionController) async {
+        guard canRefreshChannelPolicy, controller.canRefreshChannelPolicy else { return }
+        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
+        do {
+            let policy = try await controller.refreshConfiguredChannelPolicy()
+            notice = "已更新 \(policy.channel) 渠道策略至第 \(policy.generation) 代。"
+        } catch { issue = message(error) }
+    }
+
     func refresh(_ controller: ExtensionController) async {
         guard !busy, removal == nil else { return }
         beginActivity(); defer { endActivity() }
@@ -223,6 +236,11 @@ struct PluginInstalledVersionsView: View {
                 Button(draft.busy ? "正在读取…" : "刷新已安装列表") {
                     if let controller { Task { await draft.refresh(controller) } }
                 }.disabled(draft.busy || draft.removal != nil).accessibilityIdentifier("plugin-installed-refresh")
+                if let controller, controller.canRefreshChannelPolicy {
+                    Button("刷新渠道策略") {
+                        Task { await draft.refreshChannelPolicy(controller) }
+                    }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-refresh")
+                }
                 Group {
                     TextField("当前独立可信渠道策略绝对路径", text: $draft.policyPath).accessibilityIdentifier("plugin-installed-policy")
                     Toggle("我已独立核对并信任此策略，用于重新验证所选版本", isOn: $draft.trustedPolicy)

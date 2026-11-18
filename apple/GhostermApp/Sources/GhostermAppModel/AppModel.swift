@@ -249,7 +249,8 @@ public final class AppModel: ObservableObject {
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
                 settings: SettingsStore? = nil, defaults: UserDefaults = .standard,
-                pluginResourceDirectory: URL? = nil) {
+                pluginResourceDirectory: URL? = nil,
+                pluginChannelTrust: ExtensionController.ChannelTrust? = nil) {
         self.configPath = configPath ?? AppModel.defaultConfigPath()
         self.knownHostsPath = knownHostsPath ?? AppModel.defaultKnownHostsPath()
         self.settings = settings
@@ -263,7 +264,8 @@ public final class AppModel: ObservableObject {
                 runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
             self.extensionController = profile.flatMap {
                 try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory,
-                    installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("PluginPackages", isDirectory: true))
+                    installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("PluginPackages", isDirectory: true),
+                    channelTrust: pluginChannelTrust)
             }
         } else {
             self.extensionController = nil

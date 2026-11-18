@@ -130,6 +130,16 @@ final class PluginDirectorySignatureTests: XCTestCase {
         }
         let trust = ExtensionController.ChannelTrust(channel: "test", root: root.key.publicKey.rawRepresentation,
                                                      stateDirectory: state, refreshDirectory: directory)
+        let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0", protocols: [1],
+                                                           runtimes: ["portable-js"], capabilities: [])
+        let unconfigured = try ExtensionController(profile: profile)
+        XCTAssertFalse(unconfigured.canRefreshChannelPolicy)
+        do {
+            _ = try await unconfigured.refreshConfiguredChannelPolicy()
+            XCTFail("missing host configuration must prevent channel refresh")
+        } catch PluginChannelRefresh.Failure.endpoint {}
+        let configured = try ExtensionController(profile: profile, channelTrust: trust)
+        XCTAssertTrue(configured.canRefreshChannelPolicy)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ChannelRefreshProtocol.self]
         let session = URLSession(configuration: configuration)
