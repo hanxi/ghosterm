@@ -15,10 +15,12 @@ def main():
     parser.add_argument('--gterm', type=Path, required=True)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--fetch', action='store_true')
+    parser.add_argument('--node-tools', type=Path, help='reuse installed Node dependencies from the same lockfile')
     parser.add_argument('--observation', action='store_true', help='cancel an admitted start and exercise the production read-only observation button')
     parser.add_argument('--retained-reply', action='store_true', help='hold an actual SDK poll reply through the native deadline, then read the retained document')
     parser.add_argument('--route', choices=['direct', 'jump', 'both'], default='both')
     args = parser.parse_args()
+    if args.node_tools and args.fetch: parser.error('--node-tools and --fetch are mutually exclusive')
     if args.observation and args.retained_reply: parser.error('--observation and --retained-reply are separate scenarios')
     gterm, package = args.gterm.resolve(strict=True), args.package.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='claude-app-sdk-', dir=ROOT / 'tmp') as temporary:
@@ -28,7 +30,14 @@ def main():
         install = ['npm', 'ci', '--prefix', node, '--ignore-scripts', '--no-audit', '--no-fund', '--cache',
                    ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
         if not args.fetch: install.append('--offline')
-        subprocess.run(list(map(str, install)), env=environment, check=True, capture_output=True, timeout=300)
+        if args.node_tools:
+            tools = args.node_tools.resolve(strict=True)
+            for filename in ('package.json', 'package-lock.json'):
+                if (tools / filename).read_bytes() != (node / filename).read_bytes():
+                    raise RuntimeError(f'Node tools differ from the locked {filename}')
+            (node / 'node_modules').symlink_to((tools / 'node_modules').resolve(strict=True), target_is_directory=True)
+        else:
+            subprocess.run(list(map(str, install)), env=environment, check=True, capture_output=True, timeout=300)
         subprocess.run(['node', str(node / 'node_modules/typescript/bin/tsc'), '-p', str(node / 'tsconfig.json'), '--noEmitOnError'],
                        env=environment, check=True, timeout=120)
         environment.update(GHOSTERM_TEST_GTERM=str(gterm), GHOSTERM_TEST_CLAUDE_COMPONENT=str(node),

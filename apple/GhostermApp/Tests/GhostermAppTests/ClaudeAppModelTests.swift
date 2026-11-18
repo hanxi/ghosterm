@@ -73,6 +73,29 @@ final class ClaudeAppModelTests: XCTestCase {
         let interaction = CodexRouteInteraction(); model.interaction = interaction
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model).background(Color(nsColor: .windowBackgroundColor)))
         let probe = ConversationUIProbe(root: pane, width: 1440, height: 2600)
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        func button(_ id: String, enabled: Bool = true) async throws -> NSObject {
+            var found: NSObject?
+            try await wait("Native control unavailable: \(id)") {
+                pane.layoutSubtreeIfNeeded()
+                found = PluginTableRendering.elements(pane).first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == id
+                }
+                guard let control = found else { return false }
+                let selector = NSSelectorFromString("isAccessibilityEnabled")
+                guard control.responds(to: selector), let implementation = control.method(for: selector) else { return false }
+                typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
+                return unsafeBitCast(implementation, to: Enabled.self)(control, selector) == enabled
+            }
+            return try XCTUnwrap(found, id)
+        }
+        func press(_ id: String) async throws {
+            let control = try await button(id)
+            XCTAssertTrue(PluginTableRendering.press(control), id)
+        }
+
         addTeardownBlock {
             await model.stopExtensionRun(); _ = await controller.close()
             await MainActor.run { probe.close() }; try? FileManager.default.removeItem(at: root)
@@ -87,13 +110,13 @@ final class ClaudeAppModelTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue)
         guard model.extensionRunIssue == nil else { return }
         XCTAssertEqual(interaction.hosts.count, jump ? 2 : 1)
-        try await probe.press("批准并启动")
+        try await press("plugin-consent-allow")
         try await wait("Native Claude adapter was not attached to the active Runtime") { model.claudeConversation != nil }
         let conversation = try XCTUnwrap(model.claudeConversation)
         defer { print("CLAUDE_FIXTURE_STATE phase=\(conversation.phase.rawValue) busy=\(conversation.busy) ownerBusy=\(model.extensionRunBusy) runtime=\(model.extensionRun?.runtime?.phase ?? 999) issue=\(conversation.issue ?? "none") ownerIssue=\(model.extensionRunIssue ?? "none")") }
         if env["GHOSTERM_TEST_CLAUDE_RETAINED"] == "1" {
             conversation.draft = "超时后保留草稿 中文😀"
-            try await probe.press("启动Claude对话")
+            try await press("plugin-claude-start")
             let held = workspace.appendingPathComponent("observation-held.json")
             let audit = workspace.appendingPathComponent("observation-calls.json")
             try await wait("Real SDK fixture did not hold its marker reply") { FileManager.default.fileExists(atPath: held.path) }
@@ -108,7 +131,7 @@ final class ClaudeAppModelTests: XCTestCase {
             try Data().write(to: workspace.appendingPathComponent("observation-release"))
             let observationEnd = ProcessInfo.processInfo.systemUptime + 20
             repeat {
-                try await probe.press("查看未确认操作回包")
+                try await press("plugin-claude-observe")
                 try await wait("Observation did not settle") { !conversation.busy }
                 if conversation.observation?.source == .executor { break }
                 try await Task.sleep(nanoseconds: 100_000_000)
@@ -123,12 +146,12 @@ final class ClaudeAppModelTests: XCTestCase {
             try await wait("Complete read-only response was not rendered") { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-observed-response" } }
             let text = try XCTUnwrap(probe.textViews().first { $0.identifier?.rawValue == "plugin-claude-observed-response" })
             XCTAssertTrue(text.string.utf8.elementsEqual(String(decoding: original, as: UTF8.self).utf8) && !text.isEditable && text.isSelectable)
-            try await probe.press("查看未确认操作回包")
+            try await press("plugin-claude-observe")
             try await wait("Cached observation did not settle") { !conversation.busy }
             XCTAssertEqual(try Data(contentsOf: audit), originalAudit, "Cached observation cannot issue another helper command")
             XCTAssertFalse(conversation.canStart || conversation.canSend || conversation.canInterrupt || conversation.canStop)
             print("CLAUDE_RETAINED_REPLY bytes=\(original.count) heldSeconds=\(elapsed) issue=\(issue ?? "none")")
-            try await probe.press("停止并释放插件")
+            try await press("plugin-stop")
             try await wait("Observed Runtime resources not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
             XCTAssertNil(model.extensionRunIssue)
             return
@@ -142,7 +165,7 @@ final class ClaudeAppModelTests: XCTestCase {
             starting.cancel(); await starting.value
             XCTAssertEqual(conversation.phase, .unknown)
             let issue = conversation.issue
-            try await probe.press("查看未确认操作回包")
+            try await press("plugin-claude-observe")
             try await wait("Production AppModel observation was not published") {
                 conversation.observation != nil || conversation.observationIssue != nil
             }
@@ -155,40 +178,40 @@ final class ClaudeAppModelTests: XCTestCase {
             // Cancellation can precede dispatch. An absent receipt remains an
             // observation, never evidence that the original request did not run.
             print("CLAUDE_OBSERVATION_CANCEL source=\(String(describing: conversation.observation?.source)) bytes=\(conversation.observation?.response?.count ?? 0)")
-            try await probe.press("停止并释放插件")
+            try await press("plugin-stop")
             try await wait("Cancelled Runtime owner was not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
             XCTAssertNil(model.extensionRunIssue)
             return
         }
-        try await probe.press("启动Claude对话")
+        try await press("plugin-claude-start")
         try await wait("SDK control initialization did not reach ready") { conversation.phase == .ready || conversation.issue != nil }
         let failureFile = workspace.appendingPathComponent("sdk-fixture-failure.txt")
         let sdkDiagnostic = (try? String(contentsOf: failureFile, encoding: .utf8)) ?? "no fixture diagnostic"
         XCTAssertNil(conversation.issue, sdkDiagnostic); guard conversation.issue == nil else { return }
         conversation.draft = "explicit Native SDK fixture 中文😀\n" + String(repeating: "long input 中文😀", count: 500)
-        try await probe.press("发送")
+        try await press("plugin-claude-send")
         try await wait("Real SDK permission callback did not reach Native controls") { conversation.pending.count == 1 || conversation.issue != nil }
         XCTAssertNil(conversation.issue); guard conversation.issue == nil else { return }
         let tool = conversation.pending[0]
         XCTAssertEqual(tool.toolName, "Bash")
         try await wait("Native tool parameters were not rendered completely") { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-tool-input" && $0.string.utf8.elementsEqual(tool.inputJSON.utf8) } }
-        try await probe.press("批准一次")
+        try await press("plugin-claude-approval-allow")
         try await wait("SDK question callback did not reach Native form") { conversation.pending.first?.isQuestion == true || conversation.issue != nil }
         XCTAssertNil(conversation.issue); guard conversation.issue == nil else { return }
         let question = conversation.pending[0]; XCTAssertEqual(question.questions.count, 4)
-        try await probe.press("提交回答") // disabled: no answer has been selected
+        _ = try await button("plugin-claude-approval-allow", enabled: false)
         XCTAssertTrue(conversation.pending.contains { $0.reference == question.reference })
-        for index in 0..<4 { try await probe.press("One", occurrence: index) }
-        try await probe.press("提交回答")
+        for index in 0..<4 { try await press("plugin-claude-question-\(index)-option-0") }
+        try await press("plugin-claude-approval-allow")
         try await wait("Correlated fixture result was not observed") { conversation.phase == .ready || conversation.issue != nil }
         XCTAssertNil(conversation.issue)
         XCTAssertTrue(conversation.pending.isEmpty && conversation.activeMessageID == nil)
         XCTAssertTrue(conversation.records.contains { $0.json.contains("fixture-audit") })
         XCTAssertTrue(conversation.entries.contains { $0.title == "本轮已完成" })
-        try await probe.press("停止Claude会话")
+        try await press("plugin-claude-stop")
         try await wait("Explicit Node stop/reap did not finish") { conversation.phase == .closed || conversation.issue != nil }
         XCTAssertNil(conversation.issue)
-        try await probe.press("停止并释放插件")
+        try await press("plugin-stop")
         try await wait("Native plugin owners were not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
         XCTAssertNil(model.extensionRunIssue)
     }
