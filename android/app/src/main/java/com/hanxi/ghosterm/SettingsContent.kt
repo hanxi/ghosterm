@@ -93,7 +93,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
     onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     onLaunchPluginGroup: () -> Unit = {},
-    onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
+    onLaunchPlugin: suspend (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
     var launchSelection by remember { mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null) }
@@ -302,8 +302,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     .onSuccess { launchSelection = null }
             },
             onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
-            launchSelection = null
             onLaunchPlugin(entry, command, alias, request, clientWorkspace)
+            launchSelection = null
         })
     }
     val selectedInstance = extensions.selectedGroupInstance ?: extensions
@@ -633,7 +633,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     command: ExtensionController.Command,
     hostAliases: List<String>,
     onDismiss: () -> Unit,
-    onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
+    onLaunch: suspend (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
     onEnqueue: (suspend (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?, String) -> Result<Unit>)? = null,
     onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
     frontendCandidates: List<FrontendCandidate> = emptyList(),
@@ -697,9 +697,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     val currentInspectionKey by rememberUpdatedState(inspectionKey)
     var declaration by remember(inspectionKey) { mutableStateOf<PluginForegroundDeclaration?>(null) }
     var inspectionBusy by remember { mutableStateOf(false) }
-    var enqueueBusy by remember { mutableStateOf(false) }
+    var submissionBusy by remember { mutableStateOf(false) }
     var inspectionJob by remember { mutableStateOf<Job?>(null) }
-    val inspectionScope = rememberCoroutineScope()
+    val formScope = rememberCoroutineScope()
     DisposableEffect(inspectionKey) { onDispose { inspectionJob?.cancel() } }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -743,10 +743,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         modifier = Modifier.testTag("plugin-ipc-directory"), label = { Text("远端私有 IPC 目录") })
                     OutlinedTextField(ipcInstance, { ipcInstance = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-ipc-instance"), label = { Text("前台显示的 32 位实例标识") })
-                    TextButton(enabled = !inspectionBusy && !enqueueBusy && selectedHost in hostAliases, modifier = Modifier.testTag("plugin-ipc-inspect"), onClick = {
+                    TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases, modifier = Modifier.testTag("plugin-ipc-inspect"), onClick = {
                         val capturedKey = inspectionKey
                         inspectionBusy = true; problem = null; declaration = null
-                        inspectionJob = inspectionScope.launch {
+                        inspectionJob = formScope.launch {
                             try {
                                 val value = onInspect(selectedHost, executable, ipcDirectory, ipcInstance)
                                 if (capturedKey == currentInspectionKey) declaration = value
@@ -914,18 +914,23 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }
                     }
-                    if (enqueueGroup != null) {
-                        if (enqueueBusy) return@TextButton
-                        val alias = selectedHost
-                        val temporary = groupTemporaryDirectory
-                        enqueueBusy = true
-                        inspectionScope.launch {
-                            try {
-                                enqueueGroup(alias, request, clientWorkspace, temporary)
-                                    .onFailure { problem = it.message ?: "连接组配置无效" }
-                            } finally { enqueueBusy = false }
-                        }
-                    } else onLaunch(selectedHost, request, clientWorkspace)
+                    if (submissionBusy) return@TextButton
+                    val alias = selectedHost
+                    val temporary = groupTemporaryDirectory
+                    submissionBusy = true
+                    formScope.launch {
+                        try {
+                            if (enqueueGroup != null) {
+                                enqueueGroup(alias, request, clientWorkspace, temporary).getOrThrow()
+                            } else {
+                                onLaunch(alias, request, clientWorkspace)
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            problem = failure.message ?: "插件启动预检失败"
+                        } finally { submissionBusy = false }
+                    }
                 } catch (failure: IllegalArgumentException) {
                     problem = failure.message ?: "插件启动参数无效"
                 }

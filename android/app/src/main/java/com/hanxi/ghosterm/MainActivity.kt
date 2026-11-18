@@ -359,11 +359,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             },
                             onLaunchPluginGroup = { extensions.launchGroup(sessions, hosts::preparePluginTarget) },
                             onLaunchPlugin = { entry, command, alias, request, clientWorkspace ->
-                                val host = hosts.snapshot?.hosts?.singleOrNull { it.alias == alias }
-                                if (host == null) extensions.reportError("所选 SSH 主机已不存在，请重新载入配置")
-                                else hosts.checkConnection(host) { prepared ->
-                                    extensions.launch(entry, command, prepared, request, sessions, clientWorkspace)
-                                }
+                                val target = hosts.preparePluginTarget(alias)
+                                extensions.launch(entry, command, target, request, sessions, clientWorkspace)
                             })
                         Page.ABOUT -> AboutContent(about, runtime)
                     }
