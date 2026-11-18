@@ -151,7 +151,8 @@ import GhostermCore
                                      executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      executorVariantID: String? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
-                                     localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil) async {
+                                     localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil,
+                                     onValidated: (@MainActor () -> Void)? = nil) async {
         guard launchTask == nil, !extensionRunBusy, extensionRun == nil, !cleanupPending else {
             extensionRunIssue = "已有插件运行或资源仍待释放"; return
         }
@@ -165,7 +166,8 @@ import GhostermCore
                 methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots,
                 processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames,
                 executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID,
-                clientWorkspace: clientWorkspace, localLaunch: localLaunch, multiplexedConnectionCommand: multiplexedConnectionCommand)
+                clientWorkspace: clientWorkspace, localLaunch: localLaunch, multiplexedConnectionCommand: multiplexedConnectionCommand,
+                onValidated: onValidated)
         }
         launchTask = task
         await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
@@ -182,7 +184,8 @@ import GhostermCore
                              executorAttachment: ExtensionRelayBootstrap.Attachment?,
                              executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence?,
                              executorVariantID: String?,
-                             clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?) async {
+                             clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?,
+                             onValidated: (@MainActor () -> Void)?) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil; extensionLastLocalTemporary = nil
@@ -219,6 +222,7 @@ import GhostermCore
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
             try Task.checkCancellation()
+            onValidated?()
             if multiplexedConnectionCommand != nil {
                 // The connection owner admitted this exact logical channel.
             } else if let localLaunch, let argv {

@@ -1428,9 +1428,12 @@ public final class AppModel: ObservableObject {
                                      executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      executorVariantID: String? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
-                                     localLaunch: ExtensionLocalLaunch? = nil) async {
-        showExtensionWorkspace()
-        return await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID, clientWorkspace: clientWorkspace, localLaunch: localLaunch)
+                                     localLaunch: ExtensionLocalLaunch? = nil,
+                                     onValidated: (@MainActor () -> Void)? = nil) async {
+        await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID, clientWorkspace: clientWorkspace, localLaunch: localLaunch) {
+            self.showExtensionWorkspace()
+            onValidated?()
+        }
     }
 
     public func decideExtensionConsent(allow: Bool) async {

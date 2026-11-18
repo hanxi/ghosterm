@@ -18,6 +18,7 @@ struct ExtensionsPane: View {
     @State private var issue: String?
     @State private var pendingConnections: [ExtensionGroupInvocation] = []
     @State private var startingConnectionGroup = false
+    @State private var startingClient = false
     @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspectionTask: Task<Void, Never>?
@@ -309,7 +310,7 @@ struct ExtensionsPane: View {
                                 .disabled(startingConnectionGroup || entry.attachExisting || pendingConnections.count >= 8 || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-enqueue-" + entry.review.id)
                             Button("连接并启动 Client 命令") { launch(entry) }
-                                .disabled(!model.extensionInstance.canDiscard || entry.review.commands.isEmpty)
+                                .disabled(startingClient || !model.extensionInstance.canDiscard || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
                         }
                     } else {
@@ -541,15 +542,22 @@ struct ExtensionsPane: View {
     private func launch(_ entry: Entry) {
         do {
             let launch = try configuration(entry), request = launch.request
-            model.showExtensionWorkspace(); SettingsWindow.close()
-            Task {
+            startingClient = true
+            issue = nil
+            Task { @MainActor in
+                defer { startingClient = false }
+                var validated = false
                 await model.startExtensionClient(packageID: launch.packageID, packageDigest: request.clientDigest,
                     command: request.command, arguments: request.arguments, sshAlias: launch.sshAlias,
                     executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
                     methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
                     processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
                     executorExecution: request.execution, executorAttachment: request.attachment, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID,
-                    clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch)
+                    clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch) {
+                    validated = true
+                    SettingsWindow.close()
+                }
+                if !validated { issue = model.extensionRunIssue }
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
