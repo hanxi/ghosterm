@@ -13392,3 +13392,9 @@ SSH 链使用本机隔离服务。普通 SSH PTY 切 pane、切窗口和重附�
 嵌套 tmux 后，独立插件连接继续完成双向资源及业务进程 RPC，进程回执确认回收。
 收据 SHA256 `8b51d2bd52610aeff91fad736f732c96824bcb81669babf63523fcbd8458919e`。
 本轮覆盖两项，隔离产物已清理。
+
+固定 `907496ff`，Android API 36 无窗口 AVD 的 `--tmux nested --stop-tmux` 跑通
+两跳的 Node 双向资源与 Exec 业务进程两项。普通 SSH PTY 与两层 tmux 先结束，
+插件继续完成独立通道 RPC，核对 256 KiB 摘要及进程回收。使用独立 ADB 和自有
+回环夹具。收据 SHA256 `dae96e8e3debd05475f9144e90ce7dbd782af261fcce9dbcf86d8f9e97312ad9`。
+临时 AVD 与构件已清理。
