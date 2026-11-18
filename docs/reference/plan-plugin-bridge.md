@@ -13542,3 +13542,15 @@ SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e4
 及双客户端切 pane 探针。后者复现普通 TTY 回写会落到新选中的 pane。
 原型结果不计为生产 TerminalSurface 证据。本轮未执行 Android 或变异，
 专用夹具与临时构件已清理。
+
+### P1 Android 嵌套 tmux 退出与普通输入复验（2026-11-19）
+
+固定 `9b5d4ec1`，以新构建的 JS / SSH CLI 和锁定工具生成的候选 Node SDK
+运行 `test-plugin-execution-ssh-app.py --headless-api 36 --tmux nested --stop-tmux`。
+专用无窗口 AVD 使用同一组经安装后摘要核对的应用与测试 APK。直连与 ProxyJump
+× Node 与 Exec 的启动、业务进程和双向资源共 12 项通过。先核对隔离 SSH PTY
+输入字节与目标 pane，再确认 tmux 退出后独立无 PTY 插件通道仍完成新 RPC；
+业务进程回收与双向资源的 256 KiB 摘要均核对。收据 SHA256
+`f53deac8a45227ee79990b4538c95621bb5e4b4dfe532edf66e8c44aedaf2c6e`。
+临时 AVD、SSH / tmux 夹具和本轮构件已清理。本轮未执行应用内终端字节对照、
+其它设备或变异。
