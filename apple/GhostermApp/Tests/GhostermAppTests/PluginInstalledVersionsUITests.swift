@@ -123,8 +123,7 @@ final class PluginInstalledVersionsUITests: XCTestCase {
             XCTAssertThrowsError(try preview.confirm(owner: owner))
         }
         try press("plugin-installed-refresh")
-        guard try await until({ node("plugin-installed-remove-pending-cancel") != nil }) else { XCTFail("pending recovery controls missing"); return }
-        try press("plugin-installed-remove-pending-cancel")
+        guard try await waitAndPress("plugin-installed-remove-pending-cancel") else { return }
         try await waitNotice("已撤销尚未开始的删除")
         XCTAssertTrue(FileManager.default.fileExists(atPath: versions[0].directory.path))
         let final = try await controller.installedVersions(); XCTAssertFalse(final.removalPending)
