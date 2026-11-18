@@ -388,7 +388,7 @@ def main():
             baseline_count = 67
         if args.policy_review:
             baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
-            baseline_count += 25
+            baseline_count += 26
         if args.selection_review:
             baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
             baseline_count += 26

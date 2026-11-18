@@ -86,7 +86,7 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         try await waitNotice("活动版本已更新")
         guard try await until({ node("plugin-approve-org.ghosterm.preview") != nil }) else { XCTFail("selected version must enter source review"); return }
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"), "selection must not approve source")
-        try press("plugin-installed-disable-" + versions[1].signature.descriptorSHA256)
+        guard try await waitAndPress("plugin-installed-disable-" + versions[1].signature.descriptorSHA256) else { return }
         try await waitNotice("已禁用新建")
         guard try await waitAndPress("plugin-installed-select-" + versions[0].signature.descriptorSHA256) else { return }
         guard try await confirmSelection() else { return }
@@ -96,7 +96,7 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"))
         XCTAssertNil(model.extensionRun)
         let retired = versions[1].signature.descriptorSHA256
-        try press("plugin-installed-remove-preview-" + retired)
+        guard try await waitAndPress("plugin-installed-remove-preview-" + retired) else { return }
         guard try await until({ node("plugin-installed-remove-cancel") != nil }) else { XCTFail("removal preview missing"); return }
         XCTAssertTrue(FileManager.default.fileExists(atPath: versions[1].directory.path), "preview must not delete")
         try press("plugin-installed-remove-cancel")
