@@ -42,7 +42,7 @@ class PluginTableUiTest {
         ui.onNodeWithTag("plugin-table-next").performScrollTo().performClick()
         ui.runOnIdle { assertEquals("Next button must select the next bounded page", 16, model.state.value.selectedOffset) }
         ui.waitUntil(5000) { model.state.value.page?.offset == 16 }
-        ui.onNodeWithTag("plugin-table-cell-17-n").performScrollTo().assertTextEquals("17").assertContentDescriptionEquals("Number，第 17 行")
+        ui.onNodeWithTag("plugin-table-cell-17-n").performScrollTo().assertTextEquals("17").assertContentDescriptionEquals("Number，第 17 行，17")
         ui.onNodeWithTag("plugin-table-last").performScrollTo().performClick()
         ui.waitUntil(5000) { model.state.value.page?.offset == 999984 }
         ui.onNodeWithTag("plugin-table-cell-1000000-cube").performScrollTo().assertTextEquals("1000000000000000000")

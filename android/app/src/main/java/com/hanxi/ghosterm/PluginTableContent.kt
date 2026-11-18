@@ -44,7 +44,8 @@ import androidx.compose.ui.unit.dp
                             row.cells.forEachIndexed { column, value ->
                                 SelectionContainer {
                                     Text(value, Modifier.width(200.dp).padding(8.dp).semantics {
-                                        contentDescription = "${description.columns[column].title}，第 ${page.offset + index + 1} 行"
+                                        contentDescription = "${description.columns[column].title}，第 ${page.offset + index + 1} 行，" +
+                                            value.ifEmpty { "空白" }
                                         collectionItemInfo = CollectionItemInfo(index + 1, 1, column, 1)
                                     }.testTag("plugin-table-cell-${row.id}-${description.columns[column].id}"))
                                 }
