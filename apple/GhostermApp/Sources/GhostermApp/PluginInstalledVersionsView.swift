@@ -105,17 +105,18 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         }
     }
 
-    func stopAffectedChannelInstances(_ stop: () async throws -> AppModel.ChannelStopResult) async {
+    func stopAffectedChannelInstances(_ controller: ExtensionController, stop: () async throws -> AppModel.ChannelStopResult) async {
         guard canRefreshChannelPolicy, affectedChannelInstances > 0 else { return }
-        beginActivity(); issue = nil; defer { endActivity() }
+        beginActivity(); issue = nil; notice = nil
         do {
             let result = try await stop()
-            affectedChannelInstances = max(0, affectedChannelInstances - result.stopped)
             notice = "已确认停止 \(result.stopped) 个实例。"
             if let firstFailure = result.failures.first {
                 issue = "\(result.failures.count) 个实例未能完成核对或停止：\(firstFailure)"
             }
         } catch { issue = message(error) }
+        endActivity()
+        if !Task.isCancelled { await readChannelPolicy(controller, refresh: false, automatic: true) }
     }
 
     func refresh(_ controller: ExtensionController) async {
@@ -277,9 +278,9 @@ struct PluginInstalledVersionsView: View {
                     Text("本应用仍持有 \(draft.affectedChannelInstances) 个受撤销影响的实例。")
                         .accessibilityIdentifier("plugin-installed-channel-affected")
                 }
-                if let stopRevoked, draft.affectedChannelInstances > 0 {
+                if let controller, let stopRevoked, draft.affectedChannelInstances > 0 {
                     Button("停止受渠道撤销影响的实例") {
-                        Task { await draft.stopAffectedChannelInstances(stopRevoked) }
+                        Task { await draft.stopAffectedChannelInstances(controller, stop: stopRevoked) }
                     }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-stop")
                 }
                 Group {

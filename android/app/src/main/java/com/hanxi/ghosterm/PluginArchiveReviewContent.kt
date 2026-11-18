@@ -203,6 +203,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
                 failed = true
                 status = failure.message ?: "无法核对撤销状态。"
             } finally { busy = false }
+            readPolicy(refresh = false, automatic = true)
         }
     }) { Text("请求停止受渠道撤销影响的实例") }
     status?.let {
