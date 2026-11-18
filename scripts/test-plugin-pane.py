@@ -179,11 +179,11 @@ def main():
              and (ROOT / p).is_file()}
     names.update([PANE, 'scripts/test-plugin-pane.py', 'scripts/apple-app-gate.sh',
                   'scripts/check-abi-apple.sh', 'scripts/build-core.sh',
-                  'scripts/test-plugin-html-webkit.sh', 'scripts/lib/gt-timeout.sh',
+                  'scripts/test-plugin-html-webkit.sh',
                   'apple/GhostermApp/Tests/GhostermAppTests/PluginPaneFlowTests.swift'])
     inputs = {name: sha(ROOT / name) for name in sorted(names)}
     executable_sha = sha(gterm)
-    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1',
+    env = dict(os.environ, GHOSTERM_AUTOMATION_OFFSCREEN='1',
                DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
                GHOSTERM_CORE_TEST_PLUGIN_JS='1', GHOSTERM_TEST_GTERM=str(gterm))
     # The gate, never an inherited endpoint, creates the only authorized SSH service.
@@ -197,6 +197,9 @@ def main():
     commands, groups = [], []
     with tempfile.TemporaryDirectory(prefix='pane-ui-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
+        tool_tmp = work / 'tmp'
+        tool_tmp.mkdir()
+        env.update(TMPDIR=str(tool_tmp), GHOSTERM_APP_TEST_TMP=str(tool_tmp))
         source = work / 'source'
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
             shutil.copytree(ROOT / directory, source / directory, symlinks=True,
@@ -211,21 +214,26 @@ def main():
 
         def run(label, selected=selected_markdown, expected_failure=None, count=1):
             child_env = dict(env, GHOSTERM_APP_TEST_FILTER=selected)
-            command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-pane; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
-                       'plugin-pane', str(ROOT), 'bash', 'scripts/apple-app-gate.sh']
+            log_path = tool_tmp / 'apple-app-test.log'
+            log_path.unlink(missing_ok=True)
+            command = ['bash', 'scripts/apple-app-gate.sh']
             child = subprocess.Popen(command, cwd=ROOT, env=child_env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             try:
-                output, _ = child.communicate(timeout=360)
-            finally:
-                if child.poll() is None:
+                output, _ = child.communicate(timeout=350)
+            except BaseException:
+                try:
                     os.killpg(child.pid, signal.SIGTERM)
-                    try:
-                        child.communicate(timeout=8)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(child.pid, signal.SIGKILL)
-                        child.communicate()
-            log = (ROOT / 'tmp/apple-app-test.log').read_text()
+                except ProcessLookupError:
+                    pass
+                try:
+                    child.communicate(timeout=8)
+                except subprocess.TimeoutExpired:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.communicate()
+                raise
+            assert log_path.is_file(), (label, output.decode(errors='replace')[-4000:])
+            log = log_path.read_text()
             (work / (label + '.log')).write_bytes(output + log.encode())
             if expected_failure:
                 failures = re.findall(r'^.*: error: .* : (?:XCTAssert\w+ failed|failed -)[^\n]*', log, re.M)

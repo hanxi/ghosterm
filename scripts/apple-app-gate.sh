@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Native mutation runners may select an isolated copy; the default app and
 # shared Core/ABI checks still come from this checkout.
 PKG="${GHOSTERM_APP_TEST_PACKAGE:-$ROOT/apple/GhostermApp}"
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_APP_TEST_TMP:-$ROOT/tmp}"
 SSHD="${SSHD:-/usr/sbin/sshd}"
 mkdir -p "$TMP"
 source "$ROOT/scripts/apple-gate-profile.sh" || exit $?
