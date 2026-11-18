@@ -14,7 +14,7 @@ OWNER_MODES='invalid parent ungranted symlink capacity expired clock cancel clos
 JS_MODES='roundtrip large empty read read-large read-empty read-text read-text-empty read-text-invalid read-text-limit leak-ref cancel ungranted close-live invalid-root adapter-unconfirmed adapter-truncated adapter-read-error'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--case',action='append',default=[]);parser.add_argument('--tools',type=Path,help='reuse installed tools with the repository lockfile');args=parser.parse_args()
  for name in [OWNER,ADAPTER,FACADE,SDK]:
   if MARK in (ROOT/name).read_text():print('residual runtime resource mutation: '+name,file=sys.stderr);raise SystemExit(2)
  cases=[
@@ -65,12 +65,16 @@ def main():
   return out
  try:
   shutil.copytree(ROOT/'core',source/'core',ignore=shutil.ignore_patterns('build','build-*'));shutil.copytree(ROOT/'packages/plugin-sdk',source/'packages/plugin-sdk');shutil.copytree(ROOT/'scripts/fixtures/plugin-package-tools',source/'scripts/fixtures/plugin-package-tools');shutil.copytree(ROOT/'scripts/fixtures/plugin-sdk-tools',source/'scripts/fixtures/plugin-sdk-tools');(source/'scripts').mkdir(exist_ok=True);shutil.copyfile(ROOT/'scripts/generate-plugin-package-validator.mjs',source/'scripts/generate-plugin-package-validator.mjs');shutil.copyfile(ROOT/'scripts/generate-plugin-runtime-sdk.mjs',source/'scripts/generate-plugin-runtime-sdk.mjs');(source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True)
-  tools=work/'tools';tools.mkdir()
-  for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures/plugin-sdk-tools'/name,tools/name)
+  tools=args.tools.resolve(strict=True) if args.tools else work/'tools'
+  if not args.tools:
+   tools.mkdir()
+   for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures/plugin-sdk-tools'/name,tools/name)
   for name,e in json.loads((tools/'package-lock.json').read_text())['packages'].items():
    if name and (not e['resolved'].startswith('https://registry.npmjs.org/') or not e['integrity'].startswith('sha512-')):raise RuntimeError('unpinned tool')
   npmrc=work/'empty.npmrc';npmrc.touch();env['NPM_CONFIG_USERCONFIG']=str(npmrc)
-  run('tools',['npm','ci','--prefix',tools,'--ignore-scripts','--no-audit','--no-fund','--offline','--cache',ROOT/'tmp/plugin-sdk-npm-cache']);sdk=work/'sdk';core=source/'core';build=work/'build'
+  if not args.tools:
+   run('tools',['npm','ci','--prefix',tools,'--ignore-scripts','--no-audit','--no-fund','--offline','--cache',ROOT/'tmp/plugin-sdk-npm-cache'])
+  sdk=work/'sdk';core=source/'core';build=work/'build'
   def compile_sdk(label):
    run(label+'-embedded-sdk',['node',source/'scripts/generate-plugin-runtime-sdk.mjs','--tools',tools])
    run(label+'-typescript',['node',tools/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])

@@ -13728,3 +13728,13 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 `TestWindowsTests|PluginWorkspaceTests|WindowFocusTests` 共 17 项离屏通过，
 包括关闭插件窗格后归还终端键盘焦点。系统文件选择器本体的交互仍待验收。
 临时目录已清理。
+
+### P2 资源生命周期与 SDK 对照（2026-11-19）
+
+固定 `9224c4b6` 加本批入口。资源变异可通过 `--tools build/plugin-sdk-tools`
+复用锁定开发工具，继续由 SDK 生成器对拍 manifest、lockfile 与 TypeScript 版本。
+选跑撤权后读取、快照释放、复制引用、未确认回执和截断 EOF 五组，均实际编译后
+触发普通断言失败，同库配置对照、恢复和 SHA256 核对通过。基线覆盖 17 项
+资源 owner 与 19 项 SDK / QuickJS 场景。收据 SHA256
+`6f54eb3959c5dc6862af46ad220997b141449baed04338f24d1100186c77300f`。
+本轮未执行其余资源变异或平台 UI，临时副本与构件已清理。
