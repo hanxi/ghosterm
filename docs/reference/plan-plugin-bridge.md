@@ -14799,3 +14799,8 @@ macOS SSH 执行通道关闭场景扩到 ProxyJump。两条路线同一离屏批
 通过，含补丁审批、中断、app-server 回执丢失、SSH 执行通道关闭。后者在
 对端已接收消息后结束隔离的 gterm 执行进程，仍保留草稿和未知状态。
 本轮不含真实模型、网卡断开或 Android 设备运行。
+
+Android 直连及 ProxyJump 增加 `--close-executor` 设备验收。夹具先核对
+app-server 接收凭据，再由启动器关闭自己的 gterm 子进程。Android 断言检查
+交互失效、草稿和未知状态继续保留、重发被拦截。测试 APK 后台构建通过，本机
+独立检验启动器保持 stdin 且记录 137。设备断言尚未执行。

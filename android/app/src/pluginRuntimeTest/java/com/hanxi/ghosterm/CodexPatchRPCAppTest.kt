@@ -72,7 +72,10 @@ class CodexPatchRPCAppTest {
     @Test fun interruptWaitsForTerminalEventOverDirectSSH() = run(false, interruptTurn = true)
     @Test fun interruptWaitsForTerminalEventOverProxyJump() = run(true, interruptTurn = true)
 
-    private fun run(jump: Boolean, dropTurnReply: Boolean = false, interruptTurn: Boolean = false) {
+    @Test fun executorChannelClosesAfterSendOverDirectSSH() = run(false, closeExecutor = true)
+    @Test fun executorChannelClosesAfterSendOverProxyJump() = run(true, closeExecutor = true)
+
+    private fun run(jump: Boolean, dropTurnReply: Boolean = false, interruptTurn: Boolean = false, closeExecutor: Boolean = false) {
         assertTrue("requires explicit JS-enabled instrumentation", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture()
         assertEquals("ghosterm-patch-rpc", payload.getString("fixture"))
@@ -140,6 +143,24 @@ class CodexPatchRPCAppTest {
             ui.onNodeWithTag("plugin-codex-message").performScrollTo().performTextInput("exercise isolated protocol fixture")
             Espresso.closeSoftKeyboard()
             ui.onNodeWithTag("plugin-codex-send").performScrollTo().performClick()
+            if (closeExecutor) {
+                val deadline = SystemClock.elapsedRealtime() + 10_000
+                while (!fixture("turn-receipt").optBoolean("received")) {
+                    check(SystemClock.elapsedRealtime() < deadline) { "owned Executor did not receive send" }
+                    SystemClock.sleep(50)
+                }
+                assertTrue(fixture("close-executor").getBoolean("ok"))
+                await("closed Executor channel was not reflected in the Host") {
+                    !extensions.canInteractWithRuntime && !extensions.codex.callBusy && extensions.codex.sendUnconfirmed
+                }
+                main {
+                    assertEquals("exercise isolated protocol fixture", extensions.codex.messageDraft)
+                    extensions.sendCodexMessage()
+                    assertFalse(extensions.codex.callBusy)
+                    assertTrue(extensions.codex.sendUnconfirmed)
+                }
+                return
+            }
             if (dropTurnReply) {
                 await("missing send reply was not surfaced") {
                     extensions.codex.sendUnconfirmed && !extensions.codex.callBusy && extensions.error != null

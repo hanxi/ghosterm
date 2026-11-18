@@ -162,6 +162,8 @@ def execute(args):
                         (workspace / "drop-turn-reply").touch()
                     if args.interrupt_turn:
                         (workspace / "interrupt-turn").touch()
+                    if args.close_executor:
+                        (workspace / "hold-turn-reply").touch()
                     environment = {'TMPDIR': str(ROOT / 'tmp'), 'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
                     for variable, name in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_CONFIG_HOME', 'config')):
                         directory = owned / name; directory.mkdir(); environment[variable] = str(directory)
@@ -171,9 +173,18 @@ def execute(args):
                     program.chmod(0o700)
                     error, exited = owned / 'gterm.stderr', owned / 'gterm.exit'
                     wrapper = owned / 'gterm-fixture'
-                    wrapper.write_text('#!/bin/sh\n/usr/bin/env -i ' +
+                    close_marker = owned / 'close-executor'
+                    command = ('/usr/bin/env -i ' +
                         ' '.join(shlex.quote(f'{name}={value}') for name, value in environment.items()) + ' ' +
-                        shlex.quote(str(gterm)) + ' "$@" 2>' + shlex.quote(str(error)) +
+                        shlex.quote(str(gterm)) + ' "$@" 2>' + shlex.quote(str(error)))
+                    if args.close_executor:
+                        command = ('exec 3<&0\n' + command + ' <&3 &\nchild=$!\n'
+                                   "trap 'kill \"$child\" 2>/dev/null; wait \"$child\"; exit 1' HUP INT TERM\n"
+                                   'while kill -0 "$child" 2>/dev/null; do\n'
+                                   '  if [ -f ' + shlex.quote(str(close_marker)) + ' ]; then\n'
+                                   '    kill -KILL "$child"; break\n'
+                                   '  fi\n  sleep 0.05\ndone\nwait "$child"')
+                    wrapper.write_text('#!/bin/sh\n' + command +
                         '\nstatus=$?\nprintf "%s" "$status" >' + shlex.quote(str(exited)) + '\nexit "$status"\n')
                     wrapper.chmod(0o700)
                     fixture = dict(fixture='ghosterm-patch-rpc', ports=ports, user=pwd.getpwuid(os.getuid()).pw_name,
@@ -191,8 +202,15 @@ def execute(args):
                             if action == b'fixture': value = fixture
                             elif action == b'update':
                                 (workspace / 'request-update').touch(); value = {'ok': True}
-                            elif args.lost_reply and action == b'turn-receipt':
-                                value = json.loads((workspace / 'turn-received.json').read_bytes())
+                            elif (args.lost_reply or args.close_executor) and action == b'turn-receipt':
+                                receipt = workspace / 'turn-received.json'
+                                value = json.loads(receipt.read_bytes()) if receipt.exists() else {}
+                            elif args.close_executor and action == b'close-executor':
+                                if not (workspace / 'turn-received.json').is_file():
+                                    value = {'ok': False}
+                                else:
+                                    close_marker.touch()
+                                    value = {'ok': True}
                             elif args.interrupt_turn and action == b'interrupt-receipt':
                                 receipt = workspace / 'interrupt-received.json'
                                 value = json.loads(receipt.read_bytes()) if receipt.exists() else {}
@@ -223,6 +241,8 @@ def execute(args):
                                 method = 'lostTurnReplyOver'
                             elif args.interrupt_turn:
                                 method = 'interruptWaitsForTerminalEventOver'
+                            elif args.close_executor:
+                                method = 'executorChannelClosesAfterSendOver'
                             target = 'com.hanxi.ghosterm.CodexPatchRPCAppTest#' + method + (
                                 'ProxyJump' if route == 'jump' else 'DirectSSH')
                             transcript = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', target,
@@ -245,6 +265,9 @@ def execute(args):
                             if args.lost_reply:
                                 if not exited.exists() or not (workspace / 'turn-received.json').is_file():
                                     raise RuntimeError(f'{route}: missing send receipt or owned process exit')
+                            elif args.close_executor:
+                                if exit_status != '137' or not (workspace / 'turn-received.json').is_file():
+                                    raise RuntimeError(f'{route}: owned Executor did not exit after the send: {exit_status}')
                             elif args.interrupt_turn:
                                 if not exited.exists() or not (workspace / 'interrupt-received.json').is_file():
                                     raise RuntimeError(f'{route}: missing interrupt receipt or owned process exit')
@@ -272,6 +295,7 @@ def main():
     fault = parser.add_mutually_exclusive_group()
     fault.add_argument('--lost-reply', action='store_true', help='close the fixture app-server after it receives the send')
     fault.add_argument('--interrupt-turn', action='store_true', help='verify interrupt acknowledgement before terminal event')
+    fault.add_argument('--close-executor', action='store_true', help='close the owned SSH Executor after it receives the send')
     args = parser.parse_args()
     (ROOT / 'tmp').mkdir(exist_ok=True)
     if args.headless_api:
