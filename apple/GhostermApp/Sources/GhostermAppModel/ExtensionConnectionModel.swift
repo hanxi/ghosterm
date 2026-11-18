@@ -34,7 +34,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     public var canDiscard: Bool { closed && !busy && !cleanupPending }
     public var closeNeedsConfirmation: Bool { !closed && !closing && (busy || instances.contains { $0.closeNeedsConfirmation }) }
     public var canAdd: Bool { nativeReady && !closed && !closing && !busy && !cleanupPending && (state?.error ?? 0) == 0 && instances.filter { !$0.canDiscard }.count < 8 }
-    private var launchTask: Task<Void, Never>?
+    private var launchTask: Task<Bool, Never>?
     private var monitor: Task<Void, Never>?
     private var observations: [AnyCancellable] = []
     private var origin: ExtensionGroupInvocation?
@@ -79,14 +79,15 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     private func observeModels() {
         observations = instances.map { $0.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() } }
     }
-    func start(_ launches: [ExtensionGroupInvocation], app: AppModel) async {
-        guard launchTask == nil, !busy, !closed else { return }
+    func start(_ launches: [ExtensionGroupInvocation], app: AppModel) async -> Bool {
+        guard launchTask == nil, !busy, !closed else { return false }
         busy = true
-        let task = Task { await self.startOnMain(launches, app: app) }; launchTask = task
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-        launchTask = nil; busy = false
+        let task = Task { await self.startOnMain(launches, app: app) }
+        launchTask = task
+        defer { launchTask = nil; busy = false }
+        return await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
-    private func startOnMain(_ launches: [ExtensionGroupInvocation], app: AppModel) async {
+    private func startOnMain(_ launches: [ExtensionGroupInvocation], app: AppModel) async -> Bool {
         do {
             guard let first = launches.first, (1...8).contains(launches.count), launches.allSatisfy({
                 $0.sshAlias == first.sshAlias && $0.localLaunch == first.localLaunch &&
@@ -121,11 +122,13 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             }
             try Task.checkCancellation()
             monitor = Task { await self.observeConnection() }
+            return true
         } catch {
             issue = "连接组启动失败：\(error)"
             await controller.stopMultiplexConnection()
             for instance in instances { _ = await instance.requestClose() }
             cleanupPending = !(await controller.close()); closed = !cleanupPending
+            return false
         }
     }
     private func observeConnection() async {
@@ -140,13 +143,9 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         guard canAdd else { issue = "连接正在处理请求、已结束或八个实例名额已满"; return false }
         busy = true; issue = nil
         let task = Task { await self.addOnMain(selection, app: app) }
-        var success = false
-        let wrapper = Task {
-            await withTaskCancellationHandler(operation: { success = await task.value }, onCancel: { task.cancel() })
-        }; launchTask = wrapper
-        await withTaskCancellationHandler(operation: { await wrapper.value }, onCancel: { task.cancel() })
-        launchTask = nil; busy = false
-        return success
+        launchTask = task
+        defer { launchTask = nil; busy = false }
+        return await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
     private func addOnMain(_ selection: ExtensionGroupInvocation, app: AppModel) async -> Bool {
         var child: ExtensionController?
@@ -194,7 +193,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         monitor?.cancel(); monitor = nil
         defer { closing = false }
         launchTask?.cancel()
-        if let launchTask { await launchTask.value }
+        if let launchTask { _ = await launchTask.value }
         var released = true
         for instance in instances { if !(await instance.requestClose()) { released = false } }
         if released && nativeReady {
@@ -226,12 +225,9 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             extensionConnections.append(connection)
             extensionConnectionObservations[connection.id] = connection.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             extensionConnectionIssue = nil
-            await connection.start(invocations, app: self)
-            if let issue = connection.issue {
-                extensionConnectionIssue = issue
-                return false
-            }
-            return !connection.instances.isEmpty && !connection.closed
+            let started = await connection.start(invocations, app: self)
+            if !started { extensionConnectionIssue = connection.issue }
+            return started
         } catch {
             extensionConnectionIssue = "连接组启动失败：\(error)"
             return false

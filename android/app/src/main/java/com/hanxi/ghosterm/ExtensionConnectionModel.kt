@@ -71,7 +71,7 @@ internal class ExtensionConnectionModel(private val application: Application,
     private var sessions: SessionsViewModel? = null
     private val cleanup = Mutex()
 
-    suspend fun start(launches: List<ExtensionGroupInvocation>, target: PreparedSSH, sessions: SessionsViewModel) {
+    suspend fun start(launches: List<ExtensionGroupInvocation>, target: PreparedSSH, sessions: SessionsViewModel): Boolean {
         check(launchJob == null && !closed && !closing)
         launchJob = currentCoroutineContext()[Job]; busy = true; this.sessions = sessions
         try {
@@ -122,10 +122,12 @@ internal class ExtensionConnectionModel(private val application: Application,
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (failure: Exception) { issue = "共享连接状态查不出来：${failure.message}" }
             }
+            return true
         } catch (failure: Exception) {
             if (failure !is CancellationException) issue = "连接组启动失败：${failure.message ?: failure.javaClass.simpleName}"
             withContext(NonCancellable) { controller.stopMultiplexConnection(); release() }
             if (failure is CancellationException) throw failure
+            return false
         } finally { launchJob = null; busy = false }
     }
 

@@ -13123,3 +13123,19 @@ API 36 arm64 独立无窗口模拟器的 `PluginResourcePreviewUiTest` 八项通
 实际 tmux pane、真机或全故障矩阵。macOS 收据 SHA256
 `44ff845b402152e522be10e2825d345214aa19fe08c020915625bcaf63235c20`，
 Android 收据 SHA256 `2e67c23dc64cffccb5530af7c8aa8989d8e1739a834eaf091a34dbaf80ff199a`。
+
+### 启动组结果与待启动队列（2026-11-18）
+
+两端由启动流程返回明确结果，只有确认启动后才消耗待启动项。Android 失败时不自动选择
+部分创建的实例，释放待确认的连接仍保留清理入口和容量占用。macOS 以启动阶段结果为准，
+运行监控后续报告的错误仍显示在该连接下。
+
+以 `6a075329` 加本批五个源文件的隔离副本，通过 macOS 本机、直连、ProxyJump 三组
+和 Android API 36 arm64 / 4 KiB 页直连、ProxyJump 两组。每组先用不匹配目标验证拒绝
+及释放，再启动八个实际实例并验证独立授权、业务 RPC 和关闭。Android 另验失败保留八个
+待启动项、成功后清空，以及同 APK 既有 24 项对照。均为屏幕外或无窗口运行。本轮未对
+部分实例已创建后清理失败的分支注入故障。
+
+收据 SHA256 分别为 macOS 本机 `a64445b63f52e8f39619d27bde25eceb1b6d1d76e6668bdd5908a991b6b810bf`、
+macOS SSH `705ab7fdafd636c7fa58d030c7a19cdae0e29e5b89a021bf5953a33293e85e04`、
+Android `ff748c2296f250ba88a39cf4c3f91acaacc351e552f884b40b834df7a5fcc093`。

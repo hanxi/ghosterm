@@ -339,9 +339,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             try {
                 val group = ExtensionConnectionModel(getApplication(), owner.makeInvocationController(), viewModelScope)
                 connectionGroups.add(group)
-                group.start(snapshot, target, sessions)
-                if (group.instances.isNotEmpty() && !group.closed) pendingGroup.removeAll(snapshot.toSet())
-                if (selectedGroupInstance == null) selectedGroupInstance = group.instances.firstOrNull()?.model
+                if (group.start(snapshot, target, sessions)) {
+                    pendingGroup.removeAll(snapshot.toSet())
+                    if (selectedGroupInstance == null) selectedGroupInstance = group.instances.firstOrNull()?.model
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = "连接组启动失败：${failure.message}" }
             finally { groupLaunchBusy = false }

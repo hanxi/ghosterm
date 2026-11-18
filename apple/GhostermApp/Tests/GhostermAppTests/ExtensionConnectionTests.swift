@@ -104,7 +104,15 @@ import XCTest
                 executorDigest: review.digest, clientDigest: review.digest, methods: [], command: "table", arguments: ["--count", String(i)]),
                 sshAlias: "mux-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
         }
-        await app.startExtensionGroup(invocations)
+        let mismatched = ExtensionGroupInvocation(packageID: review.id, request: invocations[0].request,
+            sshAlias: "different-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
+        let rejected = await app.startExtensionGroup([invocations[0], mismatched])
+        XCTAssertFalse(rejected)
+        XCTAssertTrue(try XCTUnwrap(app.extensionConnections.last).canDiscard)
+        XCTAssertNotNil(app.extensionConnectionIssue)
+
+        let started = await app.startExtensionGroup(invocations)
+        XCTAssertTrue(started, app.extensionConnectionIssue ?? "")
         let connection = try XCTUnwrap(app.extensionConnections.last)
         XCTAssertNil(connection.issue)
         XCTAssertEqual(connection.instances.count, 8)

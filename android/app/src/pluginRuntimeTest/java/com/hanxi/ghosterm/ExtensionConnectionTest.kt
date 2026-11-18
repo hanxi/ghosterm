@@ -74,10 +74,18 @@ class ExtensionConnectionTest {
                         target.alias, request, null, payload.getString("temporary"))
                 }
                 assertNull(extensions.error); assertEquals(8, extensions.pendingGroup.size)
+                extensions.launchGroup(target.copy(alias = "different-target"), sessions)
+            }
+            await("mismatched group released") {
+                main { extensions.connectionGroups.firstOrNull()?.closed == true && !extensions.groupLaunchBusy }
+            }
+            main {
+                assertEquals(8, extensions.pendingGroup.size)
+                assertNull(extensions.selectedGroupInstance)
                 extensions.launchGroup(target, sessions)
             }
-            await("group created") { main { extensions.connectionGroups.isNotEmpty() } }
-            val current = main { extensions.connectionGroups.single() }; group = current
+            await("group created") { main { extensions.connectionGroups.size == 2 } }
+            val current = main { extensions.connectionGroups.last() }; group = current
             var handled: Triple<Long, Int, SSHAuthPhase>? = null
             val end = SystemClock.elapsedRealtime() + 60000
             while (main { current.busy && current.issue == null } && SystemClock.elapsedRealtime() < end) {
@@ -92,6 +100,7 @@ class ExtensionConnectionTest {
                 }
             }
             assertNull(main { current.issue }); assertFalse(main { current.busy })
+            await("confirmed group consumes pending items") { main { extensions.pendingGroup.isEmpty() } }
             assertEquals(8, main { current.instances.size }); assertEquals(8, main { current.instances.map { it.id }.distinct().size })
             val instances = main { current.instances.toList() }
             for ((index, instance) in instances.withIndex()) {
