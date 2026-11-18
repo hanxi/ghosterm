@@ -186,12 +186,20 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
             finally:
                 path.write_bytes(original)
             restored = compile_apks('android-parent-pump-restored-build')
+            after = {str(p): sha(p) for p in objects[0].parent.glob('ExtensionController*.class')}
+            changed = [Path(name).name for name in sorted(before.keys() | after.keys())
+                if before.get(name) != after.get(name)]
+            (out / 'android-restoration.json').write_text(json.dumps({
+                'sourceRestored': sha(path) == inputs[filename],
+                'workerClassDifferences': changed,
+                'baselineAPKs': baseline,
+                'restoredAPKs': restored,
+            }, indent=2) + '\n')
+            if changed:
+                raise RuntimeError('restored Kotlin worker classes differ from baseline: ' + ', '.join(changed))
+            if sha(path) != inputs[filename]: raise RuntimeError('Android worker source restoration mismatch')
             install('android-parent-pump-restored')
             actual('direct', 'android-parent-pump-restored')
-            after = {str(p): sha(p) for p in objects if p.is_file()}
-            if after != before:
-                raise RuntimeError('restored Kotlin worker classes differ from baseline')
-            if sha(path) != inputs[filename]: raise RuntimeError('Android worker source restoration mismatch')
             mutations.append('android-parent-pump')
             print('PASS Android parent-pump: compiled assertion / same APK Core / restore / classes / SHA256', flush=True)
         else:
