@@ -14159,3 +14159,18 @@ Application Support 下为缓存创建 0700 状态目录。App 启动后，已�
 JS-enabled 签名夹具跳过。覆盖 AppModel 读取公钥和地址、拒绝含凭据 URL、
 以及状态目录权限。macOS Release 构建通过。未运行完整 DMG/ZIP 打包闸门，
 本轮临时目录已清理。
+
+### P6 macOS 渠道配置随包复验（2026-11-19）
+
+固定干净 `615baf0e`，以一次性公开夹具值和保留域名运行
+`package-mac.sh --adhoc`。arm64 dev DMG 和 ZIP 构建通过，包内 Core
+自包含检查、主题与鼠标恢复冒烟、DMG 只读挂载和包内启动通过。未启用 GUI
+冒烟。对原 App、ZIP 解出 App 与 DMG 内 App 分别执行严格深度签名核验，
+并对拍三份 Info.plist 中相同的渠道名、HTTPS 地址和 32 字节根公钥。
+随包 SHA256SUMS 三项验证通过。DMG SHA256
+`13a655e5ac44643c7f69a550471655b4097be935ddb210a22bb44c9760187b76`，
+ZIP SHA256 `f092a072e05bb1e172dd8d9a3416ef89864a2afe76c1dc0f53287de71ce305bc`。
+
+本轮为普通 JS-off 包，只证明配置和签名随包传递。渠道安装行为仍以
+JS-enabled 原生专项为证，未配置实际地址或公钥，未运行打包变异或发行。
+挂载已卸载，临时产物已清理。
