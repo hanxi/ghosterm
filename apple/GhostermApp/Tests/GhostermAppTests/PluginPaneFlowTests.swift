@@ -439,6 +439,9 @@ final class PluginPaneFlowTests: XCTestCase {
             await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
             XCTAssertEqual(installedDraft.affectedChannelInstances, 1)
             XCTAssertNil(installedDraft.notice)
+            let staleDraft = PluginInstalledVersionsDraft()
+            await staleDraft.readChannelPolicy(controller, refresh: false, automatic: true)
+            XCTAssertEqual(staleDraft.affectedChannelInstances, 1)
             let retained = try await controller.stepRuntime()
             XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue)
             XCTAssertEqual(window.alphaValue, 0)
@@ -463,9 +466,12 @@ final class PluginPaneFlowTests: XCTestCase {
             let afterStop = try await controller.installedVersions()
             let releasedVersion = try XCTUnwrap(afterStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(releasedVersion.inUse, false, "the stopped Runtime must release its version lease")
-            let repeatedStop = try await model.stopInstancesWithRevokedPublisher()
-            XCTAssertTrue(repeatedStop.failures.isEmpty)
-            XCTAssertEqual(repeatedStop.stopped, 0, "repeating the request must not report a second stop")
+            await staleDraft.stopAffectedChannelInstances(controller) {
+                try await model.stopInstancesWithRevokedPublisher()
+            }
+            XCTAssertEqual(staleDraft.notice, "已确认停止 0 个实例。")
+            XCTAssertNil(staleDraft.issue)
+            XCTAssertEqual(staleDraft.affectedChannelInstances, 0, "recheck clears the stale count even when no stop was needed")
             return
         }
         if versionChanges || versionRemoval {
