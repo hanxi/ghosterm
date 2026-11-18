@@ -13657,3 +13657,16 @@ Session 21 组涵盖授权、旧 epoch、序号、迟到读写、租约和释放
 Session 收据为 `cefbfcee19d145addbd673cd4541ae5c2911e859ae65e9ebe2bc54a55acf4452`，
 RPC 收据为 `097f29f7f6a349cafdec9e434a5c77b6d32edd2f71c5b5c6eaa88c7a5386ea1e`。
 两套隔离副本和 46 个 SSH 子运行目录已清理。此轮为 Core，未运行平台 UI。
+
+### 当前 Core 与绑定闸门复验（2026-11-19）
+
+固定 `d0dfe1c8`，完整 Xcode 下默认 JS-off 的 `scripts/gate.sh` 通过
+612 项 CTest、206 个公共 ABI 符号和未实现入口冒烟。Apple ABI 对拍
+203 引用 / 3 登记未用，Android 167 / 39。clang-format 19.1.7 检查
+297 个文件通过。
+
+JS-on 首次配置缺 Portable SDK，在构建前显式失败。用锁定工具编译 SDK 后，
+SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_discovery`
+和 `tmux_login_ssh` 发生超时。以同一源码与同档配置重新构建并串行运行，
+两项分别在 2.25 秒和 1.93 秒通过。JS-on 证据分轮记录，首轮不计整轮通过。
+临时构件和日志已清理。
