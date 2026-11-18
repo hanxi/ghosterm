@@ -13469,3 +13469,12 @@ API 36 arm64 / 4 KiB 页无窗口。42 项对照收据 SHA256
 `f8553d2c57f5c99d7b9dae6c14235dd5a1c15adc582c68b158f52a2df90cf39c`。
 前置完整签名夹具运行受已有 tmp 同前缀目录影响，随后只生成七个所需签名样例。
 未发布或运行模型。测试缓存、独立 ADB 与 AVD 已清理。
+
+### P6 macOS 默认应用干净打包复验（2026-11-19）
+
+固定 `4c6a4d10`，短路径干净检出复用本机 GhosttyKit 与 host-native 构件，
+运行 `package-mac.sh --adhoc`，生成 App、DMG 和 ZIP。Core 缓存确认插件 JS 关闭。
+通过 bundle 自包含、签名、随包主题、终端冒烟、DMG 挂载复验及 SHA256SUMS 对拍。
+全程命令行，无 GUI smoke。打包日志 SHA256
+`a8f812d7e2f5ef85151067bbdcd48cf65bb6130500b362eadc12796e8bfe60b9`。
+本轮为本机 ad-hoc，未做 Developer ID 签名、公证、发布或打包变异。产物已清理。
