@@ -103,14 +103,21 @@ int main(int argc, char **argv) {
     } else if (!strcmp(mode, "strings")) {
         const char *starts[] = {"\033]0;", "\033_G", "\033P", "\033X", "\033^", "\x90", "\x9d"};
         for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
-            feed(d, starts[i], strlen(starts[i]), 100);
-            /* U+009C encoded as UTF-8 must not end the surrounding string. */
-            feed(d, "\xc2\x9c", 2, 100);
+            for (size_t byte = 0; starts[i][byte]; byte++) {
+                feed(d, starts[i] + byte, 1, 100);
+            }
+            /* A UTF-8 continuation byte stays inside its string across reads. */
+            feed(d, "\xc2", 1, 100);
+            feed(d, "\x9c", 1, 100);
             char original[sizeof(valid)];
             memcpy(original, valid, sizeof(valid));
-            feed(d, original, sizeof(original) - 1, 100);
-            CHECK(!memcmp(original, valid, sizeof(valid)) && !poll(d).available);
-            feed(d, "\033\\", 2, 100);
+            for (size_t byte = 0; byte < sizeof(original) - 1; byte++) {
+                feed(d, original + byte, 1, 100);
+                CHECK(!poll(d).available);
+            }
+            CHECK(!memcmp(original, valid, sizeof(valid)));
+            feed(d, "\033", 1, 100);
+            feed(d, "\\", 1, 100);
             feed(d, valid, sizeof(valid) - 1, 100);
             expect(d, "/work/front");
         }
