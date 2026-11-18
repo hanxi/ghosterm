@@ -17,6 +17,7 @@ import SwiftUI
 @MainActor
 final class SettingsSelection: ObservableObject {
     @Published var pane: SettingsView.Pane
+    @Published var observesChannelPolicy = true
 
     init(pane: SettingsView.Pane) { self.pane = pane }
 }
@@ -123,7 +124,7 @@ struct SettingsView: View {
             case .appearance: AppearancePane(model: model)
             case .keyboard: KeyboardPane()
             case .configuration: ConfigurationPane(model: model)
-            case .extensions: ExtensionsPane(model: model)
+            case .extensions: ExtensionsPane(model: model, observesChannelPolicy: selection.observesChannelPolicy)
             }
         }
         .padding(.horizontal, DS.Padding.xl)

@@ -9,6 +9,7 @@ import WebKit
 /// Runtime content is owned by the generic workspace leaf.
 struct ExtensionsPane: View {
     @ObservedObject var model: AppModel
+    var observesChannelPolicy = true
     // A caller can supply a directory chooser (e.g. an embedded host). The
     // default remains SwiftUI's system fileImporter. Both use the same review
     // completion; selecting a directory never approves or activates a package.
@@ -124,7 +125,7 @@ struct ExtensionsPane: View {
                     var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry)
                 }
             }
-            PluginInstalledVersionsView(controller: model.extensionController, didRemove: { releaseID in
+            PluginInstalledVersionsView(controller: model.extensionController, observesChannelPolicy: observesChannelPolicy, didRemove: { releaseID in
                 entries.removeAll { $0.installation?.signature.descriptorSHA256 == releaseID }
             }, stopRevoked: { try await model.stopInstancesWithRevokedPublisher() }) { pluginID, result in
                 for index in entries.indices where entries[index].review.id == pluginID { entries[index].decision = "尚未批准" }

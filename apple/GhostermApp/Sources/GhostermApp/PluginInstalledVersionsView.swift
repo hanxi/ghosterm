@@ -253,6 +253,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
 
 struct PluginInstalledVersionsView: View {
     let controller: ExtensionController?
+    var observesChannelPolicy = true
     var didRemove: (String) -> Void = { _ in }
     var stopRevoked: (() async throws -> AppModel.ChannelStopResult)? = nil
     let didChange: (String, ExtensionController.VersionSelectionResult) -> Void
@@ -372,15 +373,15 @@ struct PluginInstalledVersionsView: View {
                     await draft.cancel(controller)
                 }
             }
-        }.task {
-            guard let controller, controller.hasConfiguredChannel else { return }
+        }.task(id: observesChannelPolicy) {
+            guard observesChannelPolicy, let controller, controller.hasConfiguredChannel else { return }
             while !Task.isCancelled {
                 await draft.readChannelPolicy(controller, refresh: false, automatic: true)
                 do { try await Task.sleep(for: .seconds(5)) }
                 catch { return }
             }
         }.onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            if let controller { Task { await draft.readChannelPolicy(controller, refresh: false, automatic: true) } }
+            if observesChannelPolicy, let controller { Task { await draft.readChannelPolicy(controller, refresh: false, automatic: true) } }
         }.onDisappear { if let controller { Task { await draft.cancel(controller) } } }
     }
     private func residueRow(_ entry: ExtensionController.InstallationResidue) -> some View {

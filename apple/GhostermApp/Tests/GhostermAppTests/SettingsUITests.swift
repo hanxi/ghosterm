@@ -42,6 +42,25 @@ final class SettingsUITests: XCTestCase {
                         settings: SettingsStore(terminalConfigPath: dir + "/ghostty.conf"))
     }
 
+    @MainActor
+    func testClosingReusedSettingsWindowSuspendsChannelObservation() throws {
+        let model = try makeModel()
+        SettingsWindow.close()
+        defer { SettingsWindow.close() }
+        SettingsWindow.open(model: model, pane: .extensions)
+        let controller = try XCTUnwrap(SettingsWindow.controller)
+        XCTAssertTrue(controller.selection.observesChannelPolicy)
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertEqual(window.alphaValue, 0)
+        XCTAssertEqual(NSApp.activationPolicy(), .prohibited)
+
+        SettingsWindow.close()
+        XCTAssertFalse(controller.selection.observesChannelPolicy)
+        SettingsWindow.open(model: model, pane: .extensions)
+        XCTAssertTrue(SettingsWindow.controller === controller)
+        XCTAssertTrue(controller.selection.observesChannelPolicy)
+    }
+
     // MARK: - 页签
 
     /// 页签固定在主设置入口；关于仍由独立窗口提供。

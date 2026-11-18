@@ -33,6 +33,7 @@ enum SettingsWindow {
         if let controller {
             controller.show(pane: pane)
             if let window = controller.window { WindowPresentation.present(window) }
+            controller.selection.observesChannelPolicy = true
             return
         }
         let made = SettingsWindowController(model: model, pane: pane)
@@ -46,7 +47,7 @@ enum SettingsWindow {
 
 /// 设置窗口。只干两件事：装上内容、把窗口尺寸**贴着内容**改。
 @MainActor
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     let selection: SettingsSelection
     private let container: SettingsContainerController
 
@@ -62,6 +63,7 @@ final class SettingsWindowController: NSWindowController {
         // 关掉后再 ⌘, 要能复用同一张窗口（`open` 里靠 controller 是否存活判断）。
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
         // 先挂回调再设 contentViewController：`viewDidLoad` 里就会量一次高度。
         container.onSizeChange = { [weak self] in self?.fit() }
         window.contentViewController = container
@@ -70,6 +72,18 @@ final class SettingsWindowController: NSWindowController {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) 未实现") }
+
+    func windowWillClose(_ notification: Notification) {
+        selection.observesChannelPolicy = false
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        selection.observesChannelPolicy = false
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        selection.observesChannelPolicy = true
+    }
 
     /// 切到某一页（幂等：`SettingsSelection` 自己去重）。
     func show(pane: SettingsView.Pane) {
