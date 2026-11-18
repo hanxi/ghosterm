@@ -14767,3 +14767,9 @@ Android 将 Codex 回执丢失纳入直连与 ProxyJump 设备入口
 本地草稿和未知提示、禁用发送以及直接调用重发守卫。成功回执的 turn ID
 亦须为非空字符串，数字等类型不得解除未知状态。启用 JS 的 Debug 和测试
 APK 后台构建通过，ADB 无连接设备，本轮未执行断言。
+
+Codex 重新发送时清除上一次请求的错误提示。macOS 真实直连回环进一步验证
+超限消息收到显式 INVALID_INPUT / 无效果，保留草稿且仍可修正后发送。
+同轮丢失回执不能重发，共两项离屏通过。首轮测试误读异步按钮执行前的旧提示，
+调整等待新结果后复验通过。macOS Release 与 Android JS-enabled Debug
+APK 构建通过，Android 设备与真实模型另验。

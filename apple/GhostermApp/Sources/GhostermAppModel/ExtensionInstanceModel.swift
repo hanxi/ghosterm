@@ -456,6 +456,7 @@ import GhostermCore
         guard !text.isEmpty else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
+        extensionRunIssue = nil
         codexSendUnconfirmed = true
         defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {

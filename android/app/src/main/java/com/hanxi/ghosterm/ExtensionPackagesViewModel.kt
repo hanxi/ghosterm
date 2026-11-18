@@ -417,6 +417,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         if (!canCallCodex("codex.turn.send") || codex.threadID == null || codex.turnActive || codex.sendUnconfirmed) return
         val text = codex.messageDraft.trim()
         if (text.isEmpty() || text.toByteArray().size > 2048) return
+        error = null
         codex = codex.copy(sendUnconfirmed = true)
         callCodex("无法确认 Codex 消息发送") {
             val input = JSONObject().put("text", text).toString().toByteArray(Charsets.UTF_8)

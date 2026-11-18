@@ -149,6 +149,16 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await wait("Client Runtime did not activate") { model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
         try await press(pane, id: "plugin-codex-start-thread")
         try await wait("Fixture thread did not reach the Native UI") { model.codexThreadID == "thread-fixture" && !model.codexCallBusy }
+        if !useJump && !dropTurnReply {
+            let invalidDraft = String(repeating: "x", count: 2049)
+            model.codexMessageDraft = invalidDraft
+            await model.sendCodexMessage()
+            XCTAssertFalse(model.extensionInstance.codexSendUnconfirmed)
+            XCTAssertFalse(model.codexTurnActive)
+            XCTAssertEqual(model.codexMessageDraft, invalidDraft)
+            XCTAssertTrue(model.extensionRunIssue?.contains("Codex 未发送消息") == true)
+        }
+        let previousSendIssue = model.extensionRunIssue
         model.codexMessageDraft = "exercise the isolated patch protocol fixture"
         try await press(pane, id: "plugin-codex-send")
         if dropTurnReply {
@@ -169,7 +179,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         }
         try await wait("Patch and file approval did not arrive over Host RPC") {
             (model.codexPendingApprovals.count == 1 && model.codexTimeline.contains { $0.changeReference != nil } && !model.codexCallBusy) ||
-                model.extensionRunIssue != nil
+                (model.extensionRunIssue != nil && model.extensionRunIssue != previousSendIssue)
         }
         XCTAssertNil(model.extensionRunIssue)
         guard model.extensionRunIssue == nil else { return }
