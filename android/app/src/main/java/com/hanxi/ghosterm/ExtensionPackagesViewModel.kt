@@ -141,51 +141,63 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     fun launch(entry: Entry, command: ExtensionController.Command, target: PreparedSSH,
         request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
         clientWorkspace: ExtensionController.ClientWorkspace? = null) {
-        val owner = controller ?: return
-        val prepared = try { prepareLaunch(entry, command, request, clientWorkspace) }
-        catch (failure: IllegalArgumentException) { error = failure.message; return }
-        val selectedCommand = prepared.command; val launchRequest = prepared.request
-        if (launchBusy) return
-        if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
-        if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
-        try { ExtensionRelayBootstrap.build(launchRequest) }
-        catch (failure: IllegalArgumentException) { error = failure.message; return }
-        launchBusy = true; error = null
         viewModelScope.launch {
             try {
-                val exact = owner.resolve(selectedCommand.path, entry.review.id, entry.review.digest)
-                check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == selectedCommand) {
-                    "命令声明已变化，请重新核对插件来源"
-                }
-                val decoded = owner.decodeClientArguments(entry.review.id, entry.review.digest,
-                    selectedCommand.path, launchRequest.arguments)
-                val id = sessions.connectExtensionRoute(target, launchRequest) { ready ->
-                    try {
-                        check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
-                        adoptReadyInstance(owner, prepared, decoded, target.alias, ExtensionRelayBootstrap.build(launchRequest))
-                        true
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Throwable) {
-                        error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
-                        launchBusy = false
-                        false
-                    }
-                }
-                if (id == null) {
-                    launchBusy = false
-                    error = "无法开始插件 SSH 连接；请确认没有其它连接正在进行"
-                } else {
-                    while (sessions.connecting?.id == id) delay(25)
-                    if (activeSession == null) launchBusy = false
-                }
+                submitLaunch(entry, command, target, request, sessions, clientWorkspace)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (failure: Throwable) {
+            } catch (failure: Exception) {
                 error = "插件参数校验或启动失败：${failure.message ?: failure.javaClass.simpleName}"
-                launchBusy = false
             }
         }
+    }
+
+    internal suspend fun submitLaunch(entry: Entry, command: ExtensionController.Command, target: PreparedSSH,
+        request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
+        clientWorkspace: ExtensionController.ClientWorkspace?) {
+        val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
+        check(!launchBusy) { "插件启动正在进行" }
+        check(activeSession == null) { "请先停止并释放当前插件 Session。" }
+        check(sessions.connecting == null) { "当前已有 SSH 连接请求，请完成或取消后再启动插件" }
+        val prepared = prepareLaunch(entry, command, request, clientWorkspace)
+        val launchRequest = prepared.request
+        val bootstrap = ExtensionRelayBootstrap.build(launchRequest)
+        launchBusy = true
+        error = null
+        var admitted = false
+        try {
+            val decoded = decodeApprovedArguments(owner, prepared.entry, prepared.command, launchRequest.arguments)
+            currentCoroutineContext().ensureActive()
+            val id = checkNotNull(sessions.connectExtensionRoute(target, launchRequest) { ready ->
+                try {
+                    check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
+                    adoptReadyInstance(owner, prepared, decoded, target.alias, bootstrap)
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
+                    launchBusy = false
+                    false
+                }
+            }) { "无法开始插件 SSH 连接；请确认没有其它连接正在进行" }
+            admitted = true
+            viewModelScope.launch {
+                while (sessions.connecting?.id == id) delay(25)
+                if (activeSession == null) launchBusy = false
+            }
+        } finally {
+            if (!admitted) launchBusy = false
+        }
+    }
+
+    private suspend fun decodeApprovedArguments(owner: ExtensionController, entry: Entry,
+        command: ExtensionController.Command, arguments: List<String>): String? {
+        val exact = owner.resolve(command.path, entry.review.id, entry.review.digest)
+        check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == command) {
+            "Client 摘要或命令尚未批准"
+        }
+        return owner.decodeClientArguments(entry.review.id, entry.review.digest, command.path, arguments)
     }
 
     internal data class PreparedLaunch(val entry: Entry, val command: ExtensionController.Command,
@@ -313,11 +325,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
         return try {
             val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
-            val exact = owner.resolve(command.path, entry.review.id, entry.review.digest)
-            check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == command) {
-                "Client 摘要或命令尚未批准"
-            }
-            owner.decodeClientArguments(entry.review.id, entry.review.digest, command.path, request.arguments)
+            decodeApprovedArguments(owner, entry, command, request.arguments)
             currentCoroutineContext().ensureActive()
             enqueueGroup(entry, command, alias, request, clientWorkspace, temporaryDirectory)
         } catch (cancelled: CancellationException) {

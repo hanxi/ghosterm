@@ -360,7 +360,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             onLaunchPluginGroup = { extensions.launchGroup(sessions, hosts::preparePluginTarget) },
                             onLaunchPlugin = { entry, command, alias, request, clientWorkspace ->
                                 val target = hosts.preparePluginTarget(alias)
-                                extensions.launch(entry, command, target, request, sessions, clientWorkspace)
+                                extensions.submitLaunch(entry, command, target, request, sessions, clientWorkspace)
                             })
                         Page.ABOUT -> AboutContent(about, runtime)
                     }
