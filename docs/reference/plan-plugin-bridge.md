@@ -13089,3 +13089,13 @@ Android SDK 仍缺失，设备验收保留为待完成。
 `test-gterm-catalog.py --faults` 共 56 项通过，含文件同步、目录同步和目录关闭
 三种故障，验证提交与持久性结果的区分。故障开关仅用于测试构建。
 日志 SHA256 `760de37aa23d54fe266142b1f3e506abaf4c1aa332d4498e3a46eacb4db6cf5f`。
+
+### Core 默认离线基线（2026-11-18）
+
+固定 `9edb3586` 的 macOS 隔离源码以默认 JS-off Debug 配置通过 `-Werror` 构建。
+首轮 CTest 610/612 通过，`bridge_ssh_e2e` 与 `bridge_exec_e2e` 因隔离目录
+未接入已准备的锁定 SSH 夹具工具链而失败。接入同一工作区的工具链后，在同一构建
+对两项定向复跑均通过。独立执行 ABI 对拍通过（204 个公共符号），
+`test_api` 62 项通过。以上为分轮证据，首轮 `gate.sh` 仍记失败。
+首轮 CTest 日志 SHA256 `8d0c065fe978744577d72b1a006d8828c56a19f2728f3fe5f6d8392fce03a146`，
+复跑与 ABI 日志 SHA256 `c39ab3f1a33f46a9f306208ca4ad7d9ed75b5aab311bb071f7016907f1dab70e`。
