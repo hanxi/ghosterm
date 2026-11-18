@@ -89,6 +89,8 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         do {
             let policy = try await controller.refreshConfiguredChannelPolicy()
             notice = "已更新 \(policy.channel) 渠道策略至第 \(policy.generation) 代。"
+            let count = try await controller.runningInstancesWithRevokedPublisher(in: policy)
+            if count > 0 { notice = (notice ?? "") + " 本应用仍持有 \(count) 个受撤销影响的实例，可在实例页停止。" }
         } catch { issue = message(error) }
     }
 

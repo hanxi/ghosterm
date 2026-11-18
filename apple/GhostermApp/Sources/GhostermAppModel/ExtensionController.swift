@@ -534,6 +534,10 @@ public actor ExtensionController {
         try await PluginChannelRefresh.refresh(worker.channelTrustForRefresh())
     }
 
+    public func runningInstancesWithRevokedPublisher(in policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy) async throws -> Int {
+        try await worker.runningInstancesWithRevokedPublisher(in: policy)
+    }
+
     public func installedVersions() async throws -> InstalledCatalog { try await worker.installedVersions() }
     public func previewVersionRemoval(releaseID: String, expectedRevision: String?) async throws -> RemovalPreview {
         try await worker.previewVersionRemoval(releaseID: releaseID, expectedRevision: expectedRevision)
@@ -825,6 +829,10 @@ public actor ExtensionController {
                 } else { hostCapabilities = [] }
             }
         }
+        private struct ChannelAdmission {
+            let root: String
+            let proof: PluginDirectorySignature
+        }
         private final class Run {
             let id = UUID()
             var parent: Run?
@@ -851,6 +859,7 @@ public actor ExtensionController {
             var runtime: ExtensionRuntime?
             var sessionVersionLease: PluginReleaseCatalog.VersionHandle?
             var runtimeVersionLease: PluginReleaseCatalog.VersionHandle?
+            var channelAdmission: ChannelAdmission?
             var runtimePackageKey: String?
             var runtimeInstanceID: String?
             var runtimeCommand: String?
@@ -1098,17 +1107,29 @@ public actor ExtensionController {
             return (policy, catalog)
         }
 
-        private func authorizeChannelStart(_ record: Record, access: ManagedAccess) throws -> PluginReleaseCatalog? {
+        private func authorizeChannelStart(_ record: Record, access: ManagedAccess) throws -> (ChannelAdmission, PluginReleaseCatalog)? {
             guard let id = record.managedReleaseID, let owner = access.owner else { return nil }
             let handle = try owner.openVersion(id)
             guard let (policy, catalog) = try currentChannelPolicy(for: handle) else { return nil }
             let descriptor = try handle.read("release.json", limit: 65536)
             guard PluginReleaseCatalog.sha(descriptor) == id else { throw PluginReleaseCatalog.Failure.changed }
             let metadata = try record.package.metadata()
-            _ = try PluginDirectorySignatureVerifier.verify(descriptor: descriptor, signature: handle.read("release.sig", limit: 64),
+            let proof = try PluginDirectorySignatureVerifier.verify(descriptor: descriptor, signature: handle.read("release.sig", limit: 64),
                 trustedPolicy: policy.policyBytes, identity: .init(id: metadata.id, version: metadata.version,
                     publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
-            return catalog
+            return (ChannelAdmission(root: policy.rootSHA256, proof: proof), catalog)
+        }
+
+        func runningInstancesWithRevokedPublisher(in policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy) async throws -> Int {
+            try await perform {
+                try self.checkOpen()
+                let revoked = Set(try PluginDirectorySignatureVerifier.policy(policy.policyBytes).revokedIDs)
+                return self.state.runs.values.count { run in
+                    guard let admission = run.channelAdmission, admission.root == policy.rootSHA256,
+                          admission.proof.channel == policy.channel, run.session != nil || run.runtime != nil else { return false }
+                    return revoked.contains(admission.proof.keyID)
+                }
+            }
         }
 
         private func versionLease(_ record: Record, access: ManagedAccess) throws -> PluginReleaseCatalog.VersionHandle? {
@@ -1826,7 +1847,7 @@ public actor ExtensionController {
                 defer { withExtendedLifetime(access.owner) {} }
                 guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
                 let channelPolicyLease = try self.authorizeChannelStart(record, access: access)
-                defer { withExtendedLifetime(channelPolicyLease) {} }
+                defer { withExtendedLifetime(channelPolicyLease?.1) {} }
                 guard executorDigest.utf8.count == 64,
                       executorDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                       !hostVersion.isEmpty, hostVersion.utf8.count <= 64,
@@ -1879,6 +1900,7 @@ public actor ExtensionController {
                 self.session = session
                 self.sessionPackageKey = packageKey
                 self.sessionVersionLease = versionLease
+                self.run.channelAdmission = channelPolicyLease?.0
                 return try self.sessionState(session, packageKey: packageKey)
             }
         }
@@ -1932,7 +1954,7 @@ public actor ExtensionController {
                 defer { withExtendedLifetime(access.owner) {} }
                 guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
                 let channelPolicyLease = try self.authorizeChannelStart(record, access: access)
-                defer { withExtendedLifetime(channelPolicyLease) {} }
+                defer { withExtendedLifetime(channelPolicyLease?.1) {} }
                 let selected = try self.registryOnQueue().resolve(command: command, executor: false,
                                                                    selectedID: pluginID,
                                                                    selectedDigest: packageDigest)
@@ -1971,6 +1993,7 @@ public actor ExtensionController {
                 self.session = nil; self.sessionPackageKey = nil
                 self.runtime = runtime; self.runtimePackageKey = sessionKey
                 self.runtimeVersionLease = self.sessionVersionLease; self.sessionVersionLease = nil
+                self.run.channelAdmission = channelPolicyLease?.0
                 self.runtimeCommand = command; self.runtimeInstanceID = UUID().uuidString
                 self.runtimeViewScope = registry ? (sessionInfo.instance, String(sessionInfo.epoch)) : nil
                 self.runtimeViewIssue = nil
@@ -2339,7 +2362,7 @@ public actor ExtensionController {
                     if done { released = true; break }
                 }
                 guard released, clientSource == nil else { throw (local || run.parent != nil) ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
-                self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
+                self.runtime = nil; run.channelAdmission = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
                 runtimeVersionLease = nil
                 runtimeViewScope = nil; runtimeViewIssue = nil
                 clientPublication = nil
@@ -2360,7 +2383,7 @@ public actor ExtensionController {
                     if done { released = true; break }
                 }
                 guard released else { throw (local || run.parent != nil) ? ControllerError.localProcessDraining : ControllerError.sessionUnavailable }
-                self.session = nil; sessionPackageKey = nil; sessionVersionLease = nil
+                self.session = nil; run.channelAdmission = nil; sessionPackageKey = nil; sessionVersionLease = nil
             }
             try closeResourceStore()
             if let channel {
