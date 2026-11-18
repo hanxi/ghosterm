@@ -13398,3 +13398,12 @@ SSH 链使用本机隔离服务。普通 SSH PTY 切 pane、切窗口和重附�
 插件继续完成独立通道 RPC，核对 256 KiB 摘要及进程回收。使用独立 ADB 和自有
 回环夹具。收据 SHA256 `dae96e8e3debd05475f9144e90ce7dbd782af261fcce9dbcf86d8f9e97312ad9`。
 临时 AVD 与构件已清理。
+
+### P1 SSH 流变异复验（2026-11-19）
+
+固定 `c1a66f36`，在自有回环 SSH 夹具运行 `mutation-check-plugin-ssh-stream.py`。
+14 组实际编译后目标正常断言红、同库配置对照绿、恢复后各 16 场景通过，
+源码 SHA256 一致。覆盖无 PTY 路由、标准错误隔离与预算、EOF、取消、退出码未知、
+准入时限和资源回收。ASan / UBSan 错误均未计作目标红。
+收据 SHA256 `d952ac889d0badb5455eec8651bb41bff9639102a7171c440b6ef959d7dfb7a6`。
+本轮隔离源码、构件和日志已清理。
