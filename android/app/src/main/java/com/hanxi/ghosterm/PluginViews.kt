@@ -144,5 +144,11 @@ internal class PluginViewsModel(private val scope: CoroutineScope, private val i
             } catch (_: Exception) { if (available && state.value.items.any { it === item }) item.closeFailed() }
         }
     }
-    fun invalidate() { main(); state.value.items.forEach { it.invalidate() }; mutable.value = State(valid = false) }
+    fun invalidate() {
+        main()
+        val current = state.value
+        if (!current.valid) return
+        current.items.forEach { it.invalidate() }
+        mutable.value = current.copy(items = emptyList(), valid = false)
+    }
 }

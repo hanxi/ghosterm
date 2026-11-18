@@ -92,6 +92,10 @@ class PluginViewsTest {
     @Test fun unknownMethodBindingRejected() = main {
         val f = PluginViewsFixture(); val m = f.populated(this); f.entries += f.entry(5, "new-table", "table", "unapproved"); f.revision++
         assertTrue(rejects { m.apply(f.data()) } && !m.state.value.valid)
+        val issue = checkNotNull(m.state.value.issue)
+        m.invalidate()
+        assertEquals(issue, m.state.value.issue)
+        assertTrue(m.state.value.items.isEmpty())
     }
     @Test fun undeclaredKindRejected() = main {
         val f = PluginViewsFixture(); val m = f.model(this, setOf(PluginViewRegistration.Kind.TABLE))
@@ -132,6 +136,21 @@ class PluginViewsTest {
         val pending = t.load()!!; withTimeout(5000) { f.alpha.entered.await() }
         m.invalidate(); f.alpha.release.complete(Unit); pending.join()
         assertTrue(t.state.value.page == null && !t.state.value.valid && m.state.value.items.isEmpty())
+    }
+    @Test fun invalidationRejectsLateCloseSnapshot() = main {
+        val f = PluginViewsFixture(); val m = f.populated(this)
+        f.pauseClose = true
+        val item = m.state.value.items.first()
+        val pending = checkNotNull(m.closeView(item.handle))
+        withTimeout(5000) { f.closeEntered.await() }
+        m.invalidate()
+        f.closeRelease.complete(Unit)
+        pending.join()
+        assertFalse(m.state.value.valid)
+        assertTrue(m.state.value.items.isEmpty())
+        assertNull(item.closeIssue)
+        assertNull(m.closeView(item.handle))
+        assertEquals(listOf(item.handle), f.closes)
     }
     @Test fun taskReopenKeepsUnknownCancellationIdentity() = main {
         val f = PluginViewsFixture(); val m = f.populated(this); val old = task(m)
