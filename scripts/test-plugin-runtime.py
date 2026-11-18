@@ -10,8 +10,9 @@ MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype
 VIEW_MODES='roundtrip native-close reopen js-close dispose disabled executor ungranted direction kind limit duplicate native-limit native-duplicate native-method'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--case',action='append',help='run named mutation groups only; requires --mutate');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--case',action='append',help='run named mutation groups only; requires --mutate');parser.add_argument('--fetch',action='store_true');parser.add_argument('--tools',type=Path,help='reuse installed tools with the repository lockfile');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
  if args.case and not args.mutate:parser.error('--case requires --mutate')
+ if args.tools and args.fetch:parser.error('--tools and --fetch are mutually exclusive')
  runtime=ROOT/'core/src/extension/runtime-quickjs.inc'
  if MARK in runtime.read_text():print('residual runtime mutation',file=sys.stderr);raise SystemExit(2)
  inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and 'build' not in p.relative_to(ROOT/folder).parts and p.suffix in ['.c','.h','.inc','.cmake','.json','.ts','.md']]
@@ -33,15 +34,24 @@ def main():
   shutil.copytree(ROOT/'patches/quickjs-ng',source/'patches/quickjs-ng')
   shutil.copytree(ROOT/'scripts',source/'scripts',ignore=shutil.ignore_patterns('__pycache__'))
   (source/'vendor').mkdir();vendor=source/'vendor/quickjs-ng';vendor.symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True)
-  tools=work/'tools';tools.mkdir()
-  for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures/plugin-sdk-tools'/name,tools/name)
+  tools=args.tools.resolve() if args.tools else work/'tools'
+  if not args.tools:tools.mkdir()
+  for name in ['package.json','package-lock.json']:
+   pinned=ROOT/'scripts/fixtures/plugin-sdk-tools'/name
+   if args.tools:
+    if (tools/name).read_bytes()!=pinned.read_bytes():raise RuntimeError('Tool input differs from pinned '+name)
+   else:shutil.copyfile(pinned,tools/name)
   lock=json.loads((tools/'package-lock.json').read_text())
   for name,entry in lock['packages'].items():
    if name and (not entry['resolved'].startswith('https://registry.npmjs.org/') or not entry['integrity'].startswith('sha512-')):raise RuntimeError('unpinned developer tool')
   npmrc=work/'empty.npmrc';npmrc.touch();env['NPM_CONFIG_USERCONFIG']=str(npmrc)
   cmd=['npm','ci','--prefix',tools,'--ignore-scripts','--no-audit','--no-fund','--cache',ROOT/'tmp/plugin-sdk-npm-cache','--registry','https://registry.npmjs.org']
   if not args.fetch:cmd.append('--offline')
-  run('tools',cmd);sdk=work/'sdk';run('typescript',['node',tools/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
+  if not args.tools:run('tools',cmd)
+  compiler=tools/'node_modules/typescript/bin/tsc'
+  version='Version '+lock['packages']['node_modules/typescript']['version']
+  if run('typescript-version',['node',compiler,'--version']).strip()!=version:raise RuntimeError('TypeScript version differs from pinned lockfile')
+  sdk=work/'sdk';run('typescript',['node',compiler,'-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
   build=work/'build';core=source/'core'
   base=['cmake','-S',core,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_BUILD_TESTS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo']
   run('configure',[*base,'-B',build,'-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'],budget=120)

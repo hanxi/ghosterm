@@ -13679,3 +13679,12 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 两项 tmux 测试分别为 2.01 秒与 2.22 秒。日志 SHA256
 `97c235614df44e8859110aaac84987660556351663122b33fcc8cfadbf11c787`。
 本轮构件和日志已清理。
+
+### P2 运行时集中验证复用锁定开发工具（2026-11-19）
+
+`test-plugin-runtime.py --tools build/plugin-sdk-tools` 可复用已安装的 TypeScript，
+先对照仓库的 manifest、lockfile 和编译器版本，避免每轮重新准备 npm 依赖。
+固定 `50ee59bf` 加本批入口，离线完成 ASan / UBSan 集中验证。55 项运行时与
+视图测试、四项时钟测试、六项进程场景、四项配置守卫和 206 个 ABI 符号通过。
+收据 SHA256 `66ebf38f232fdc5eb4c8615537992a21e5b239a0912f8e379858bda26fdef950`。
+本轮未运行变异或平台 UI，临时目录已清理。
