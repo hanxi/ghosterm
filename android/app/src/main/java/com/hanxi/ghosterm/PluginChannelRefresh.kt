@@ -14,10 +14,11 @@ import java.net.URI
 import java.util.Base64
 import javax.net.ssl.HttpsURLConnection
 
-internal class PluginChannelRefresh private constructor(
+internal class PluginChannelRefresh(
     val store: PluginChannelPolicyStore,
     private val cache: File,
     private val directory: URI,
+    private val connect: (URI) -> HttpsURLConnection = { it.toURL().openConnection() as HttpsURLConnection },
 ) {
     suspend fun refresh(): PluginReleaseSignature.VerifiedChannelPolicy = withContext(Dispatchers.IO) {
         withTimeout(45_000) { download() }
@@ -26,7 +27,7 @@ internal class PluginChannelRefresh private constructor(
     private suspend fun download(): PluginReleaseSignature.VerifiedChannelPolicy {
         val context = kotlin.coroutines.coroutineContext
         fun fetch(name: String, limit: Int): ByteArray {
-            val connection = directory.resolve(name).toURL().openConnection() as HttpsURLConnection
+            val connection = connect(directory.resolve(name))
             connection.instanceFollowRedirects = false
             connection.useCaches = false
             connection.connectTimeout = 15_000
