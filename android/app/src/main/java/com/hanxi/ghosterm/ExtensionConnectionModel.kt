@@ -155,6 +155,7 @@ internal class ExtensionConnectionModel(private val application: Application,
         if (!canAdd) { issue = "连接正在处理请求、已结束或八个实例名额已满"; return null }
         launchJob = currentCoroutineContext()[Job]; busy = true; issue = null
         var child: ExtensionController? = null
+        var added: Instance? = null
         try {
             val first = checkNotNull(origin); val request = invocation.launch.request
             require(acceptsConfiguration(invocation)) {
@@ -182,11 +183,21 @@ internal class ExtensionConnectionModel(private val application: Application,
             check(JSONObject(controller.manageMultiplex("open", input)).opt("admitted") == true) { "新增实例准入未确认" }
             currentCoroutineContext().ensureActive()
             val model = createInstance(owner, invocation); scopes[invocation.id] = scope
+            val instance = instances.last()
+            added = instance
             model.startMultiplexInstance(invocation.launch, first.alias, "此连接的在线实例 · " + targetDescription)
-            return instances.last()
+            currentCoroutineContext().ensureActive()
+            return instance
         } catch (failure: Exception) {
             issue = "新增实例失败：${failure.message ?: failure.javaClass.simpleName}"
-            withContext(NonCancellable) { try { child?.close() } catch (_: Exception) { cleanupPending = true } }
+            withContext(NonCancellable) {
+                try {
+                    val instance = added
+                    if (instance != null) closeInstance(instance) else child?.close()
+                } catch (_: Exception) {
+                    cleanupPending = true
+                }
+            }
             if (failure is CancellationException) throw failure
             return null
         } finally { launchJob = null; busy = false }

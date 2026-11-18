@@ -168,6 +168,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     }
     private func addOnMain(_ selection: ExtensionGroupInvocation, app: AppModel) async -> Bool {
         var child: ExtensionController?
+        var added: ExtensionInstanceModel?
         do {
             guard let first = origin, acceptsConfiguration(selection) else {
                 throw GhostermError.failed("新增实例须沿用此连接的目标、gterm、临时目录和原本机环境授权；更换范围请新建连接")
@@ -194,12 +195,20 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             guard Self.nativeBoolean(result["admitted"]) == true else { throw GhostermError.failed("新增实例准入未确认") }
             try Task.checkCancellation()
             let model = ExtensionInstanceModel(controller: owner)
-            instances.append(model); scopes[model.id] = scope; observeModels(); app.showExtensionWorkspace(model)
+            added = model
+            instances.append(model); scopes[model.id] = scope; observeModels()
             await launch(model, selection, command: "此连接的在线实例 · " + targetDescription)
+            try Task.checkCancellation()
+            guard model.extensionRun != nil else {
+                throw GhostermError.failed(model.extensionRunIssue ?? "新增实例未进入待授权状态")
+            }
+            app.showExtensionWorkspace(model)
             return true
         } catch {
             issue = "新增实例失败：\(error)"
-            if let child, !(await child.close()) { cleanupPending = true }
+            if let added {
+                if !(await added.requestClose()) { cleanupPending = true }
+            } else if let child, !(await child.close()) { cleanupPending = true }
             return false
         }
     }
