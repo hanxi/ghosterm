@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import GhostermCore
 import ImageIO
 import SwiftUI
@@ -171,7 +172,7 @@ final class PluginPaneFlowTests: XCTestCase {
             channelName = nil
             initialChannelPolicy = nil
         }
-        func refreshChannel(_ generation: UInt64, policy: Data) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        func signChannel(_ generation: UInt64, policy: Data) throws -> (Data, Data) {
             let key = try XCTUnwrap(channelKey), channel = try XCTUnwrap(channelName)
             let now = UInt64(Date().timeIntervalSince1970)
             let digest = SHA256.hash(data: policy).map { String(format: "%02x", $0) }.joined()
@@ -180,6 +181,12 @@ final class PluginPaneFlowTests: XCTestCase {
                 "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": digest,
             ])
             let signature = try key.signature(for: Data("ghosterm.channel-policy.v1\0".utf8) + statement)
+            return (statement, signature)
+        }
+        func refreshChannel(_ generation: UInt64, policy: Data) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+            let (statement, signature) = try signChannel(generation, policy: policy)
+            let key = try XCTUnwrap(channelKey), channel = try XCTUnwrap(channelName)
+            let now = UInt64(Date().timeIntervalSince1970)
             return try PluginDirectorySignatureVerifier.refreshChannelPolicy(statement: statement, signature: signature,
                 policy: policy, channel: channel, channelRoot: key.publicKey.rawRepresentation, now: now,
                 stateDirectory: channelDirectory)
@@ -404,7 +411,28 @@ final class PluginPaneFlowTests: XCTestCase {
         if let initialChannelPolicy, let managed {
             var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: initialChannelPolicy) as? [String: Any])
             fields["revokedKeyIds"] = [managed.signature.keyID]
-            let revoked = try refreshChannel(2, policy: JSONSerialization.data(withJSONObject: fields))
+            let policy = try JSONSerialization.data(withJSONObject: fields)
+            let (statement, signature) = try signChannel(2, policy: policy)
+            let child = Process()
+            child.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            child.arguments = ["xctest", "-XCTest", "GhostermAppTests.PluginChannelCacheProcessTests/testCommitOwnedChannelPolicy",
+                               Bundle(for: PluginChannelCacheProcessTests.self).bundleURL.path]
+            var childEnvironment = env.filter { ["PATH", "DEVELOPER_DIR"].contains($0.key) }
+            childEnvironment["TMPDIR"] = root.path
+            childEnvironment["GHOSTERM_AUTOMATION_OFFSCREEN"] = "1"
+            childEnvironment["GHOSTERM_CHANNEL_CACHE_FIXTURE"] = channelDirectory.path
+            childEnvironment["GHOSTERM_CHANNEL_NAME"] = try XCTUnwrap(channelName)
+            childEnvironment["GHOSTERM_CHANNEL_PUBLIC_ROOT"] = try XCTUnwrap(channelKey).publicKey.rawRepresentation.base64EncodedString()
+            childEnvironment["GHOSTERM_CHANNEL_STATEMENT"] = statement.base64EncodedString()
+            childEnvironment["GHOSTERM_CHANNEL_SIGNATURE"] = signature.base64EncodedString()
+            childEnvironment["GHOSTERM_CHANNEL_POLICY"] = policy.base64EncodedString()
+            child.environment = childEnvironment
+            try child.run()
+            defer { if child.isRunning { kill(child.processIdentifier, SIGKILL); child.waitUntilExit() } }
+            guard try await until({ !child.isRunning }) else { XCTFail("channel cache writer did not exit"); return }
+            XCTAssertEqual(child.terminationStatus, 0)
+            let revoked = try await controller.cachedChannelPolicy()
+            XCTAssertEqual(revoked.generation, 2)
             let affected = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
             XCTAssertEqual(affected, 1)
             let retained = try await controller.stepRuntime()
