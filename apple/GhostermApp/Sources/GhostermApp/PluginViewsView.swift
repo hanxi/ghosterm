@@ -28,11 +28,13 @@ private struct PluginRegisteredView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(item.registration.viewID).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button(item.closing ? "正在关闭视图…" : "关闭视图") { Task { await manager.closeView(handle: item.id) } }
                     .disabled(!manager.available || item.closing)
                     .focused(focusedHandle, equals: item.id)
                     .accessibilityIdentifier("plugin-view-close")
+                    .accessibilityLabel(item.closing ? "正在关闭视图 \(item.registration.viewID)" : "关闭视图 \(item.registration.viewID)")
                     .accessibilityHint("只关闭此视图，不取消执行端任务")
             }
             if let issue = item.closeIssue { Text(issue).foregroundStyle(.red).accessibilityIdentifier("plugin-view-close-issue") }

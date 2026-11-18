@@ -9,6 +9,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
@@ -63,12 +65,16 @@ class PluginViewsUiTest {
     }
     @Test fun unconfirmedCloseRetainsWidgetAndRestartsPolling() = fixture { m, f ->
         val item = m.state.value.items.last(); val task = (item.content as PluginViewItem.Content.Task).model
+        ui.onNodeWithText("task-a").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
         ui.runOnIdle { f.pauseClose = true; f.closeFails = true }
         ui.onNodeWithContentDescription("关闭视图 task-a，不取消任务").performScrollTo().performClick()
         await { item.closing && f.closeEntered.isCompleted }
+        ui.onNodeWithContentDescription("正在关闭视图 task-a").assertIsNotEnabled()
         ui.mainClock.advanceTimeBy(600); ui.waitForIdle()
         ui.runOnIdle { f.task.state.put("completed", "5").put("sequence", "2"); f.closeRelease.complete(Unit) }
         await { item.closeIssue != null && !item.closing }
+        ui.onNodeWithTag("plugin-view-close-issue")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         ui.mainClock.advanceTimeBy(600); await { task.state.value.snapshot?.completed == "5" }
         assertTrue(m.state.value.items.size == 4 && f.task.calls.none { it.first == "view.task.cancel" })
     }
