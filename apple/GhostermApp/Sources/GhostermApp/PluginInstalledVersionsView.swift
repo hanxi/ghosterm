@@ -371,7 +371,13 @@ struct PluginInstalledVersionsView: View {
                 } else {
                     await draft.cancel(controller)
                 }
-                if !Task.isCancelled { await draft.readChannelPolicy(controller, refresh: false, automatic: true) }
+            }
+        }.task {
+            guard let controller, controller.hasConfiguredChannel else { return }
+            while !Task.isCancelled {
+                await draft.readChannelPolicy(controller, refresh: false, automatic: true)
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
             }
         }.onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             if let controller { Task { await draft.readChannelPolicy(controller, refresh: false, automatic: true) } }

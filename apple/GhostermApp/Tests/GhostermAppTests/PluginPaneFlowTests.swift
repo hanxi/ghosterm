@@ -409,6 +409,20 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
         if let initialChannelPolicy, let managed {
+            let settings = ConversationUIProbe(root: NSHostingView(rootView: ScrollView {
+                ExtensionsPane(model: model)
+            }))
+            defer { settings.close() }
+            func settingsNode(_ identifier: String) -> NSObject? {
+                settings.root.layoutSubtreeIfNeeded()
+                return PluginTableRendering.elements(settings.root).first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier
+                }
+            }
+            guard try await until({ settingsNode("plugin-installed-channel-cache") != nil }) else {
+                XCTFail("settings did not show the channel cache control"); return
+            }
+            XCTAssertNil(settingsNode("plugin-installed-channel-affected"))
             var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: initialChannelPolicy) as? [String: Any])
             fields["revokedKeyIds"] = [managed.signature.keyID]
             let policy = try JSONSerialization.data(withJSONObject: fields)
@@ -446,18 +460,8 @@ final class PluginPaneFlowTests: XCTestCase {
             let beforeStop = try await controller.installedVersions()
             let retainedVersion = try XCTUnwrap(beforeStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(retainedVersion.inUse, true, "revocation observation retains the running version lease")
-            let settings = ConversationUIProbe(root: NSHostingView(rootView: ScrollView {
-                ExtensionsPane(model: model)
-            }))
-            defer { settings.close() }
-            func settingsNode(_ identifier: String) -> NSObject? {
-                settings.root.layoutSubtreeIfNeeded()
-                return PluginTableRendering.elements(settings.root).first {
-                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier
-                }
-            }
             guard try await until({ settingsNode("plugin-installed-channel-stop") != nil }) else {
-                XCTFail("collapsed settings did not observe the revoked instance"); return
+                XCTFail("open settings did not observe the cross-process revocation"); return
             }
             XCTAssertNil(settingsNode("plugin-installed-refresh"), "installed versions must remain collapsed")
             XCTAssertNotNil(settingsNode("plugin-installed-channel-affected"))
