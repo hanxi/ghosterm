@@ -14674,3 +14674,9 @@ JS-on 10,297,276 字节，SHA256
 每组验证正常断言红、独立对照、重建复原及 SHA256，启用 AddressSanitizer 与
 UndefinedBehaviorSanitizer。范围为 Portable SDK 与 C/QuickJS，对照不代表
 原生视图、真机或发行包行为。
+
+固定 `7fa484ef`，锁定工具独立构建 Node SDK 和 JS-on Core。开发 CLI
+`test-plugin-dev-scenarios.py --execute` 后台通过全部 10 项，涵盖官方多视图包在
+QuickJS 与 Node 的往返、契约、注册、schema、跟踪及 Node 中断。收据
+SHA256 `a045b3fa1abd40ee3f42ee58847c280bfc2b1930b04c7ea4a9ff38187c414750`。
+本轮只跑基线，原生辅助技术和设备验收另计。
