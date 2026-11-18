@@ -54,12 +54,13 @@ public enum PluginDirectorySignatureVerifier {
         public let expiresAt: UInt64
         public let statementSHA256: String
         let rootSHA256: String
-        fileprivate let policyBytes: Data
+        let policyBytes: Data
     }
 
-    public static func verifyChannelPolicy(statement: Data, signature: Data, policy policyBytes: Data,
+    public static func verifyChannelPolicy(statement: Data, signature: Data, policy suppliedPolicy: Data,
                                            channel: String, channelRoot: Data, now: UInt64) throws -> VerifiedChannelPolicy {
-        guard statement.count <= 65_536, policyBytes.count <= 131_072 else { throw Failure.limit }
+        guard statement.count <= 65_536, suppliedPolicy.count <= 131_072 else { throw Failure.limit }
+        let policyBytes = Data(Array(suppliedPolicy))
         guard channelRoot.count == 32, signature.count == 64 else { throw Failure.channelStatement }
         let fields = try ReleaseJSON.parse(statement).object()
         guard exact(fields, ["schemaVersion", "channel", "generation", "issuedAt", "expiresAt", "policySHA256"]),

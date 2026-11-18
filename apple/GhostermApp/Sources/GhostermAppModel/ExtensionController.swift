@@ -490,7 +490,13 @@ public actor ExtensionController {
     public func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
                                      trustedPolicy: URL) async throws -> PreparedRelease {
         try await worker.prepareSignedRelease(artifact: artifact, descriptor: descriptor,
-            signature: signature, trustedPolicy: trustedPolicy)
+            signature: signature, policySource: .offline(trustedPolicy))
+    }
+    public func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
+                                     channelPolicy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy,
+                                     channelStateDirectory: URL) async throws -> PreparedRelease {
+        try await worker.prepareSignedRelease(artifact: artifact, descriptor: descriptor,
+            signature: signature, policySource: .channel(channelPolicy, channelStateDirectory))
     }
     public func installPreparedRelease(id: String) async throws -> InstalledRelease {
         try await worker.installPreparedRelease(id: id)
@@ -698,6 +704,39 @@ public actor ExtensionController {
     /// Explicitly releases package and registry owners. Repeated close is safe.
     @discardableResult public func close() async -> Bool { await worker.close() }
 
+    private enum ReleasePolicySource: Sendable {
+        case offline(URL)
+        case channel(PluginDirectorySignatureVerifier.VerifiedChannelPolicy, URL)
+
+        func openChannelState() throws -> PluginReleaseCatalog? {
+            guard case let .channel(_, directory) = self else { return nil }
+            guard let state = try PluginReleaseCatalog(directory: directory, exclusive: true) else {
+                throw PluginReleaseCatalog.Failure.root
+            }
+            return state
+        }
+
+        func checkChannelState(_ state: PluginReleaseCatalog?, requireHistory: Bool = false) throws {
+            guard case let .channel(policy, _) = self else { return }
+            guard let state else { throw PluginReleaseCatalog.Failure.root }
+            let seconds = Date().timeIntervalSince1970
+            guard seconds >= 0, seconds < Double(UInt64.max) else {
+                throw PluginDirectorySignatureVerifier.Failure.channelFreshness
+            }
+            try state.recordChannelPolicy(policy, now: UInt64(seconds), requireHistory: requireHistory)
+        }
+
+        func read() throws -> Data {
+            switch self {
+            case let .offline(url):
+                return try PluginSignatureFile.read(url, limit: 131072)
+            case let .channel(policy, _):
+                try checkChannelState(openChannelState())
+                return policy.policyBytes
+            }
+        }
+    }
+
     private final class Worker: @unchecked Sendable {
         private enum SourceDecision: Equatable { case unknown, denied, allowed }
         private struct Record {
@@ -711,6 +750,7 @@ public actor ExtensionController {
             let value: PreparedRelease
             let record: Record
             let stage: PluginReleaseStage
+            let policySource: ReleasePolicySource
         }
 
         private final class State {
@@ -1310,7 +1350,7 @@ public actor ExtensionController {
         }
 
         func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
-                                  trustedPolicy: URL) async throws -> PreparedRelease {
+                                  policySource: ReleasePolicySource) async throws -> PreparedRelease {
             try await perform {
                 try self.checkOpen()
                 if let failed = self.retainedInstallStages.last ?? self.failedInstallDiscards.first.flatMap({ self.prepared[$0]?.stage }) {
@@ -1320,7 +1360,7 @@ public actor ExtensionController {
                 guard let directory = self.installationDirectory else { throw ControllerError.runtimeUnavailable }
                 let payload = try PluginSignatureFile.read(descriptor, limit: 65536)
                 let signed = try PluginSignatureFile.read(signature, limit: 64)
-                let policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072)
+                let policy = try policySource.read()
                 let authentication = try PluginDirectorySignatureVerifier.authenticate(descriptor: payload,
                     signature: signed, trustedPolicy: policy)
                 let archive = try PluginSignatureFile.read(artifact, limit: PluginReleaseArchive.limit)
@@ -1359,7 +1399,7 @@ public actor ExtensionController {
                     }
                     let value = PreparedRelease(id: UUID().uuidString, review: captured.review, signature: proof,
                         sdkVersion: metadata.sdkVersion, protocols: metadata.protocols, permissions: permissions, executorDeclarations: executor)
-                    self.prepared[value.id] = Prepared(value: value, record: captured, stage: stage)
+                    self.prepared[value.id] = Prepared(value: value, record: captured, stage: stage, policySource: policySource)
                     return value
                 } catch {
                     try? record?.package.close()
@@ -1379,7 +1419,12 @@ public actor ExtensionController {
             try await perform {
                 try self.checkOpen()
                 guard let pending = self.prepared[id] else { throw ControllerError.invalidPackageURL }
-                let result = try pending.stage.publish(id: pending.value.signature.descriptorSHA256)
+                let channelState = try pending.policySource.openChannelState()
+                let result = try withExtendedLifetime(channelState) {
+                    try pending.stage.publish(id: pending.value.signature.descriptorSHA256) {
+                        try pending.policySource.checkChannelState(channelState, requireHistory: true)
+                    }
+                }
                 self.prepared.removeValue(forKey: id)
                 let review = pending.value.review, packageKey = self.key(review.id, review.digest)
                 if self.packages[packageKey] == nil { self.packages[packageKey] = pending.record }

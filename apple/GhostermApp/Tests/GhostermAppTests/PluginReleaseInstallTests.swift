@@ -49,6 +49,51 @@ final class PluginReleaseInstallTests: XCTestCase {
     }
     private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
+    func testChannelGenerationAdvancePreventsPreparedReleasePublication() async throws {
+        let input = try fixture(), root = try directory(), owner = try controller(root)
+        let stateDirectory = root.appendingPathComponent("channel")
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        let policy = try Data(contentsOf: input.appendingPathComponent("policy.json"))
+        let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: policy) as? [String: Any])
+        let channel = try XCTUnwrap(fields["channel"] as? String)
+        let key = Curve25519.Signing.PrivateKey()
+        let now = UInt64(Date().timeIntervalSince1970)
+        func proof(_ generation: String) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+            let statement = try JSONSerialization.data(withJSONObject: [
+                "schemaVersion": 1, "channel": channel, "generation": generation,
+                "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": hash(policy),
+            ])
+            var message = Data("ghosterm.channel-policy.v1\0".utf8)
+            message.append(statement)
+            return try PluginDirectorySignatureVerifier.verifyChannelPolicy(statement: statement,
+                signature: key.signature(for: message), policy: policy, channel: channel,
+                channelRoot: key.publicKey.rawRepresentation, now: now)
+        }
+        func prepare(_ generation: String) async throws -> ExtensionController.PreparedRelease {
+            try await owner.prepareSignedRelease(artifact: input.appendingPathComponent("r/plugin.zip"),
+                descriptor: input.appendingPathComponent("r/release.json"), signature: input.appendingPathComponent("r/release.sig"),
+                channelPolicy: proof(generation), channelStateDirectory: stateDirectory)
+        }
+
+        let stale = try await prepare("1")
+        do {
+            let state = try XCTUnwrap(PluginReleaseCatalog(directory: stateDirectory, exclusive: true))
+            try state.recordChannelPolicy(proof("2"), now: UInt64(Date().timeIntervalSince1970))
+        }
+        do {
+            _ = try await owner.installPreparedRelease(id: stale.id)
+            XCTFail("publication must reject a superseded channel policy")
+            return
+        } catch PluginDirectorySignatureVerifier.Failure.channelHistory {}
+        let store = root.appendingPathComponent("installed")
+        XCTAssertFalse(try names(store).contains(stale.signature.descriptorSHA256))
+        try await owner.discardPreparedRelease(id: stale.id)
+        let current = try await prepare("2")
+        let installed = try await owner.installPreparedRelease(id: current.id)
+        XCTAssertEqual(installed.signature, current.signature)
+    }
+
     func testPreparedReleaseIsPrivateAndCancelCleansIt() async throws {
         let input = try fixture(), root = try directory(), controller = try controller(root)
         let prepared = try await prepare(controller, input)

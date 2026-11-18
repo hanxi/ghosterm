@@ -184,6 +184,8 @@ def main():
         install = 'apple/GhostermApp/Sources/GhostermApp/PluginReleaseInstallView.swift'
         selected = 'PluginReleaseInstallTests.'
         recipes += [
+            ('install-channel-generation', CONTROLLER, 'try pending.policySource.checkChannelState(channelState, requireHistory: true)',
+             '_ = channelState', selected + 'testChannelGenerationAdvancePreventsPreparedReleasePublication'),
             ('install-artifact', archive, 'digest == proof.artifactSHA256 else', 'digest.count == proof.artifactSHA256.count else', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
             ('install-crc', archive, 'guard UInt32(checksum) == member.crc else', 'guard checksum <= 0xffff_ffff else', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
             ('install-stream', archive, 'stream.total_in == member.compressed,', 'stream.total_in <= member.compressed,', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
@@ -370,13 +372,13 @@ def main():
             print('PASS ' + label, flush=True)
 
         baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests)' if args.install else '(PluginDirectorySignatureTests|PluginSignatureUITests)'
-        baseline_count = 28 if args.install else 11
+        baseline_count = 30 if args.install else 12
         if args.versions:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests)'
-            baseline_count = 41
+            baseline_count = 43
         if args.remove:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests|PluginReleaseRemovalTests)'
-            baseline_count = 63
+            baseline_count = 65
         if args.policy_review:
             baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
             baseline_count += 25

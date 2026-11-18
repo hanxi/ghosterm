@@ -229,7 +229,8 @@ final class PluginReleaseCatalog {
         let observed: UInt64
     }
 
-    func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64) throws {
+    func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64,
+                             requireHistory: Bool = false) throws {
         guard exclusive else { throw Failure.io }
         try validate()
         guard policy.issuedAt <= now, now < policy.expiresAt else {
@@ -246,8 +247,9 @@ final class PluginReleaseCatalog {
                   policy.generation != previous.generation || policy.statementSHA256 == previous.digest else {
                 throw PluginDirectorySignatureVerifier.Failure.channelHistory
             }
-        } else if errno != ENOENT {
-            throw Failure.io
+        } else {
+            guard errno == ENOENT else { throw Failure.io }
+            guard !requireHistory else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
         }
         let raw = try JSONEncoder().encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
                                                          digest: policy.statementSHA256, observed: now))
