@@ -3,7 +3,6 @@ import CryptoKit
 import Foundation
 import GhostermCore
 import SwiftUI
-import Vision
 @testable import GhostermApp
 @testable import GhostermAppModel
 import XCTest
@@ -40,60 +39,32 @@ final class CodexPatchRPCAppTests: XCTestCase {
         if !predicate() { throw FixtureFailure(message: label) }
     }
 
-    private func buttonPoint(_ root: NSView, label: String) throws -> NSPoint? {
-        let window = try XCTUnwrap(root.window)
-        window.alphaValue = 0
-        guard NSScreen.screens.allSatisfy({ !$0.frame.intersects(window.frame) }) else {
-            throw FixtureFailure(message: "Automation window must stay outside every screen: \(window.frame)")
-        }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    private func control(_ root: NSView, id: String) -> NSObject? {
         root.layoutSubtreeIfNeeded()
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(root.bounds.width * 2),
-            pixelsHigh: Int(root.bounds.height * 2), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-        bitmap.size = root.bounds.size
-        root.cacheDisplay(in: root.bounds, to: bitmap)
-        guard let image = bitmap.cgImage else { return nil }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.minimumTextHeight = 0.002
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["zh-Hans", "en-US"]
-        request.customWords = [label]
-        try VNImageRequestHandler(cgImage: image).perform([request])
-        let matches = (request.results ?? []).filter {
-            $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "") == label
-        }.sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-        guard let match = matches.first else {
-            if let data = bitmap.representation(using: .png, properties: [:]) {
-                try data.write(to: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-                    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-                    .deletingLastPathComponent().appendingPathComponent("tmp/codex-patch-pane.png"))
-            }
-            return nil
+        return PluginTableRendering.elements(root).first {
+            PluginTableRendering.attribute($0, "accessibilityIdentifier") == id
         }
-        let box = match.boundingBox
-        return NSPoint(x: box.midX * root.bounds.width,
-                       y: (root.isFlipped ? 1 - box.midY : box.midY) * root.bounds.height)
     }
 
     private func press(_ root: NSView, id: String) async throws {
-        let labels = ["plugin-consent-allow": "批准并启动", "plugin-codex-start-thread": "启动Codex对话",
-                      "plugin-codex-send": "发送", "plugin-codex-approval-allow": "批准一次", "plugin-stop": "停止并释放插件"]
-        let label = id.hasPrefix("plugin-codex-read-change-") ? "读取完整补丁" : try XCTUnwrap(labels[id])
-        var point: NSPoint?
-        let deadline = ProcessInfo.processInfo.systemUptime + 5
-        while point == nil && ProcessInfo.processInfo.systemUptime < deadline {
-            point = try buttonPoint(root, label: label)
-            if point == nil { try await Task.sleep(for: .milliseconds(100)) }
+        try await wait("Native button unavailable: \(id)", seconds: 5) {
+            guard let button = self.control(root, id: id) else { return false }
+            return self.isEnabled(button)
         }
-        let location = root.convert(try XCTUnwrap(point, "Native rendered button missing: \(id)"), to: nil)
-        let window = try XCTUnwrap(root.window)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            window.sendEvent(event)
+        XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(control(root, id: id))), id)
+    }
+
+    private func isEnabled(_ button: NSObject) -> Bool {
+        let selector = NSSelectorFromString("isAccessibilityEnabled")
+        guard button.responds(to: selector), let implementation = button.method(for: selector) else { return false }
+        typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Enabled.self)(button, selector)
+    }
+
+    private func assertApprovalDisabled(_ root: NSView) async throws {
+        try await wait("Native approval did not become disabled", seconds: 5) {
+            guard let button = self.control(root, id: "plugin-codex-approval-allow") else { return false }
+            return !self.isEnabled(button)
         }
     }
 
@@ -148,6 +119,9 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let window = FixtureWindow(contentRect: pane.frame,
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         TestWindows.presentOffscreen(window)
         addTeardownBlock {
             await model.stopExtensionRun(); _ = await controller.close()
@@ -186,7 +160,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         XCTAssertTrue(model.codexTimeline.first { $0.changeReference != nil }?.fileChanges.isEmpty == true)
         XCTAssertEqual(model.codexTimeline.first { $0.changeReference != nil }?.omittedFileCount, 10)
         XCTAssertNil(model.codexApprovalSnapshot(approval))
-        try await press(pane, id: "plugin-codex-approval-allow")
+        try await assertApprovalDisabled(pane)
         XCTAssertNil(model.extensionRunIssue, "Disabled unread approval must not invoke the response handler")
         XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("approved.json").path))
         try await press(pane, id: "plugin-codex-read-change-\(old.snapshotID)")
@@ -209,7 +183,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
             model.codexChangeReview == nil
         }
         let current = try XCTUnwrap(model.codexTimeline.first { $0.changeReference != nil }?.changeReference)
-        try await press(pane, id: "plugin-codex-approval-allow")
+        try await assertApprovalDisabled(pane)
         XCTAssertNil(model.extensionRunIssue, "A changed unread patch must keep Native approval disabled")
         let input = try JSONSerialization.data(withJSONObject: ["requestID": approval.id, "decisionJSON": "\"accept\"", "snapshotID": old.snapshotID])
         let admission = try await controller.requestExecutorRPC(method: "codex.approval.respond", input: input)
