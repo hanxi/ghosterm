@@ -14761,3 +14761,9 @@ macOS 原生 Codex 补丁专项增加回执丢失夹具：自有 app-server 收�
 工作区保持草稿、显示结果未知、禁用发送，直接调用重发入口仍被守卫拦下。
 同轮直连和 ProxyJump 补丁审批也通过，共三项离屏。故障注入位置是 app-server
 管道，SSH 仍由隔离夹具持有，本轮无模型请求。
+
+Android 将 Codex 回执丢失纳入直连与 ProxyJump 设备入口
+`test-plugin-codex-patch-android.py --lost-reply`。测试核对远端接收凭据、
+本地草稿和未知提示、禁用发送以及直接调用重发守卫。成功回执的 turn ID
+亦须为非空字符串，数字等类型不得解除未知状态。启用 JS 的 Debug 和测试
+APK 后台构建通过，ADB 无连接设备，本轮未执行断言。

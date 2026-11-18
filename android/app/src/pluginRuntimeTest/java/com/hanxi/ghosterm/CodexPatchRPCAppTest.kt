@@ -66,7 +66,10 @@ class CodexPatchRPCAppTest {
     @Test fun completePatchAndVersionedApprovalOverDirectSSH() = run(false)
     @Test fun completePatchAndVersionedApprovalOverProxyJump() = run(true)
 
-    private fun run(jump: Boolean) {
+    @Test fun lostTurnReplyOverDirectSSH() = run(false, dropTurnReply = true)
+    @Test fun lostTurnReplyOverProxyJump() = run(true, dropTurnReply = true)
+
+    private fun run(jump: Boolean, dropTurnReply: Boolean = false) {
         assertTrue("requires explicit JS-enabled instrumentation", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture()
         assertEquals("ghosterm-patch-rpc", payload.getString("fixture"))
@@ -134,6 +137,23 @@ class CodexPatchRPCAppTest {
             ui.onNodeWithTag("plugin-codex-message").performScrollTo().performTextInput("exercise isolated protocol fixture")
             Espresso.closeSoftKeyboard()
             ui.onNodeWithTag("plugin-codex-send").performScrollTo().performClick()
+            if (dropTurnReply) {
+                await("missing send reply was not surfaced") {
+                    extensions.codex.sendUnconfirmed && !extensions.codex.callBusy && extensions.error != null
+                }
+                assertTrue(fixture("turn-receipt").getBoolean("received"))
+                ui.onNodeWithTag("plugin-codex-send-unconfirmed").performScrollTo().assertIsDisplayed()
+                ui.onNodeWithTag("plugin-codex-send").performScrollTo().assertIsNotEnabled()
+                main {
+                    assertFalse(extensions.codex.turnActive)
+                    assertEquals("exercise isolated protocol fixture", extensions.codex.messageDraft)
+                    val errorBeforeRetry = extensions.error
+                    extensions.sendCodexMessage()
+                    assertFalse(extensions.codex.callBusy)
+                    assertEquals(errorBeforeRetry, extensions.error)
+                }
+                return
+            }
             await("patch/approval did not arrive") { extensions.codex.approvals.size == 1 && !extensions.codex.callBusy || extensions.error != null }
             assertNull(extensions.error)
             val approval = main { extensions.codex.approvals.single() }

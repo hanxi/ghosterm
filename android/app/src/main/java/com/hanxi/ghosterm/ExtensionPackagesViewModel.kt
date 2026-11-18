@@ -422,7 +422,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             val input = JSONObject().put("text", text).toString().toByteArray(Charsets.UTF_8)
             try {
                 val result = CodexHostEvents.decodeOutcome(requestExtensionRPC("codex.turn.send", input, returnTerminalOutcome = true))
-                check(result.optString("turnID").isNotBlank()) { "Codex 回合 ID 缺失" }
+                check((result.opt("turnID") as? String)?.isNotBlank() == true) { "Codex 回合 ID 缺失" }
                 codex = codex.copy(messageDraft = "", sendUnconfirmed = false)
             } catch (failure: CodexHostEvents.ConfirmedNoEffect) {
                 codex = codex.copy(sendUnconfirmed = false)

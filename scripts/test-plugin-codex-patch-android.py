@@ -158,6 +158,8 @@ def execute(args):
                     owned = work / ('codex-patch-' + route); owned.mkdir()
                     workspace = owned / 'workspace'; workspace.mkdir()
                     (workspace / 'fixture.json').write_text('{"fixture":"ghosterm-patch-rpc","version":1}')
+                    if args.lost_reply:
+                        (workspace / "drop-turn-reply").touch()
                     environment = {'TMPDIR': str(ROOT / 'tmp'), 'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
                     for variable, name in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_CONFIG_HOME', 'config')):
                         directory = owned / name; directory.mkdir(); environment[variable] = str(directory)
@@ -187,6 +189,8 @@ def execute(args):
                             if action == b'fixture': value = fixture
                             elif action == b'update':
                                 (workspace / 'request-update').touch(); value = {'ok': True}
+                            elif args.lost_reply and action == b'turn-receipt':
+                                value = json.loads((workspace / 'turn-received.json').read_bytes())
                             elif action == b'audit':
                                 audit = workspace / 'approved.json'
                                 value = json.loads(audit.read_bytes()) if audit.exists() else {}
@@ -206,7 +210,8 @@ def execute(args):
                             # Direct may dial only the target; jump may dial only the forwarding-only first hop.
                             for port in (fixture_port, ports[0] if route == 'jump' else ports[1]):
                                 run([*adb, 'reverse', f'tcp:{port}', f'tcp:{port}']); mapped.append(port)
-                            target = 'com.hanxi.ghosterm.CodexPatchRPCAppTest#completePatchAndVersionedApprovalOver' + (
+                            method = 'lostTurnReplyOver' if args.lost_reply else 'completePatchAndVersionedApprovalOver'
+                            target = 'com.hanxi.ghosterm.CodexPatchRPCAppTest#' + method + (
                                 'ProxyJump' if route == 'jump' else 'DirectSSH')
                             transcript = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', target,
                                 '-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token,
@@ -225,7 +230,10 @@ def execute(args):
                             expected_error = ('gterm: runtime phase=3 error=6 execution-error=0 child-exit=0 '
                                               'child-signal=0 session-end=6 session-error=3 cleanup=0\n'
                                               'gterm: executor channel outcome unknown')
-                            if exit_status != '7' or exit_error != expected_error:
+                            if args.lost_reply:
+                                if not exited.exists() or not (workspace / 'turn-received.json').is_file():
+                                    raise RuntimeError(f'{route}: missing send receipt or owned process exit')
+                            elif exit_status != '7' or exit_error != expected_error:
                                 raise RuntimeError(f'Remote close did not retain its independent unknown outcome: {exit_status}; {exit_error}')
                         finally:
                             run([*adb, 'shell', 'am', 'force-stop', 'com.hanxi.ghosterm'])
@@ -246,6 +254,7 @@ def main():
     parser.add_argument('--gterm', required=True, type=Path)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-codex')
     parser.add_argument('--route', choices=('direct', 'jump', 'both'), default='both')
+    parser.add_argument('--lost-reply', action='store_true', help='close the fixture app-server after it receives the send')
     args = parser.parse_args()
     (ROOT / 'tmp').mkdir(exist_ok=True)
     if args.headless_api:
