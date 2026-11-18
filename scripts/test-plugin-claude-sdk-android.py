@@ -128,7 +128,9 @@ def execute(args, component, helper):
                             while not exited.exists() and time.monotonic() < end: time.sleep(.05)
                             status = exited.read_text().strip() if exited.exists() else 'not-exited'
                             stderr = error.read_text().strip() if error.exists() else 'missing'
-                            unknown = 'gterm: runtime phase=3 error=6 session-end=6 session-error=3 cleanup=0\ngterm: executor channel outcome unknown'
+                            unknown = ('gterm: runtime phase=3 error=6 execution-error=0 child-exit=0 '
+                                       'child-signal=0 session-end=6 session-error=3 cleanup=0\n'
+                                       'gterm: executor channel outcome unknown')
                             if not (status == '0' and not stderr or status == '7' and stderr == unknown):
                                 raise RuntimeError(f'Remote lifecycle did not confirm cleanup: {status}; {stderr}')
                             if args.observation:
@@ -156,8 +158,10 @@ def main():
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--route', choices=['direct', 'jump', 'both', 'arguments', 'all'], default='both')
     parser.add_argument('--fetch', action='store_true')
+    parser.add_argument('--node-tools', type=Path, help='reuse installed Node dependencies from the same lockfile')
     parser.add_argument('--observation', action='store_true', help='hold a real poll reply through the native deadline and read the retained document')
     args = parser.parse_args(); (ROOT / 'tmp').mkdir(exist_ok=True)
+    if args.node_tools and args.fetch: parser.error('--node-tools and --fetch are mutually exclusive')
     if args.observation and args.route in ['arguments', 'all']: parser.error('--observation requires direct, jump or both')
     if sys.platform != 'darwin': parser.error('Owned SDK fixture currently requires macOS sandbox-exec; no fallback')
     helper = load('claude_sdk_owned_android', ROOT / 'scripts/test-plugin-codex-patch-android.py')
@@ -165,7 +169,14 @@ def main():
         component = Path(temporary) / 'node'; shutil.copytree(ROOT / 'plugins/official/ai-claude/node', component)
         install = ['npm', 'ci', '--prefix', component, '--ignore-scripts', '--no-audit', '--no-fund', '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
         if not args.fetch: install.append('--offline')
-        run(install, 300)
+        if args.node_tools:
+            tools = args.node_tools.resolve(strict=True)
+            for filename in ('package.json', 'package-lock.json'):
+                if (tools / filename).read_bytes() != (component / filename).read_bytes():
+                    raise RuntimeError(f'Node tools differ from the locked {filename}')
+            (component / 'node_modules').symlink_to((tools / 'node_modules').resolve(strict=True), target_is_directory=True)
+        else:
+            run(install, 300)
         run(['node', component / 'node_modules/typescript/bin/tsc', '-p', component / 'tsconfig.json', '--noEmitOnError'])
         if args.headless_api:
             with helper.headless(args.headless_api) as serial: args.android = serial; execute(args, component, helper)
