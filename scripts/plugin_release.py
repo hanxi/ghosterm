@@ -24,6 +24,7 @@ import zipfile
 import zlib
 
 DOMAIN = b'GHOSTERM-PLUGIN-RELEASE-V1\0'
+CHANNEL_DOMAIN = b'ghosterm.channel-policy.v1\0'
 ARCHIVE_LIMIT = 75497472
 MEMBER_LIMIT = 16777216
 TOTAL_LIMIT = 67108864
@@ -307,12 +308,48 @@ def signer(api, work, config, message):
 
 
 def execute(args, api):
+    if args.release_action == 'sign-policy':
+        return sign_channel_policy(args, api)
     if args.release_action == 'verify-policy':
         return verify_channel_policy(args, api)
     try:
         return checked_release(args, api)
     except (zipfile.BadZipFile, struct.error, zlib.error):
         raise api.Failure('RELEASE_ZIP_CONTENT') from None
+
+
+def positive_decimal(api, value):
+    api.require(isinstance(value, str) and re.fullmatch('[1-9][0-9]{0,19}', value) and
+                int(value) <= (1 << 64) - 1, 'CHANNEL_POLICY_INTEGER')
+    return int(value)
+
+
+def sign_channel_policy(args, api):
+    policy_bytes = stable_file(api, args.policy, 131072)
+    trusted = public_json(api, policy_bytes)
+    keys = policy(api, trusted)
+    root = public_key(api, args.channel_root)
+    api.require(api.sha(root) not in keys, 'CHANNEL_ROOT_IS_PUBLISHER', 6)
+    api.require(trusted['channel'] == args.channel, 'RELEASE_CHANNEL_MISMATCH', 6)
+    positive_decimal(api, args.generation)
+    issued = positive_decimal(api, args.issued_at)
+    expires = positive_decimal(api, args.expires_at)
+    api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+    statement = dict(schemaVersion=1, channel=args.channel, generation=args.generation,
+                     issuedAt=args.issued_at, expiresAt=args.expires_at, policySHA256=api.sha(policy_bytes))
+    payload = api.encoded(statement) + b'\n'
+    with tempfile.TemporaryDirectory(prefix='channel-sign-', dir=api.TMP) as temporary:
+        work = Path(temporary)
+        signature = signer(api, work, api.read_json(args.signer_json), CHANNEL_DOMAIN + payload)
+        verify_signature(api, work, {'publicKey': args.channel_root}, payload, signature, kind='channel-policy')
+        output = work / 'channel'
+        output.mkdir()
+        (output / 'channel-policy.json').write_bytes(payload)
+        (output / 'channel-policy.sig').write_bytes(signature)
+        (output / 'policy.json').write_bytes(policy_bytes)
+        api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+        api.publish(output, args.out)
+    return dict(kind='signed-channel-policy', **statement, statementSHA256=api.sha(payload)), 0
 
 
 def verify_channel_policy(args, api):
@@ -332,14 +369,9 @@ def check_channel_statement(api, channel, channel_root, statement_path, signatur
         'schemaVersion', 'channel', 'generation', 'issuedAt', 'expiresAt', 'policySHA256'
     } and type(statement['schemaVersion']) is int and statement['schemaVersion'] == 1, 'CHANNEL_POLICY_STATEMENT')
 
-    def positive_decimal(value):
-        api.require(isinstance(value, str) and re.fullmatch('[1-9][0-9]{0,19}', value) and
-                    int(value) <= (1 << 64) - 1, 'CHANNEL_POLICY_INTEGER')
-        return int(value)
-
-    generation = positive_decimal(statement['generation'])
-    issued = positive_decimal(statement['issuedAt'])
-    expires = positive_decimal(statement['expiresAt'])
+    generation = positive_decimal(api, statement['generation'])
+    issued = positive_decimal(api, statement['issuedAt'])
+    expires = positive_decimal(api, statement['expiresAt'])
     with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
         verify_signature(api, Path(temporary), {'publicKey': channel_root}, statement_bytes, signature,
                          kind='channel-policy')
