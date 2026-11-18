@@ -27,6 +27,9 @@ final class PluginPaneFlowTests: XCTestCase {
     func testForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: false, foreground: true)
     }
+    func testProxyJumpForegroundInspectionAndAttachmentThroughControls() async throws {
+        try await runPreview(.markdown, jump: true, foreground: true)
+    }
     func testDiscoveredForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: false, foreground: true, discovery: true)
     }
