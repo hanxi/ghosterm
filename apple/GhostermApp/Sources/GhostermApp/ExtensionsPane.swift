@@ -145,6 +145,7 @@ struct ExtensionsPane: View {
 
             if let issue {
                 Text(issue).foregroundStyle(.red).textSelection(.enabled)
+                    .accessibilityIdentifier("plugin-package-issue")
             }
             if !model.frontendCandidates.isEmpty {
                 Text("终端候选尚未核实。请审查对应 Client 包，并明确选择实际执行端后检查；来源终端和外层 SSH 不证明执行端身份。")

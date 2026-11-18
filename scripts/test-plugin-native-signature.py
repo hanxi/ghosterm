@@ -120,6 +120,8 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools', type=Path, required=True)
+    parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build',
+                        help='reuse a separate JS-enabled Core build')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
     parser.add_argument('--official-packages', nargs=3, type=Path, metavar=('SDK_TOOLS', 'CODEX', 'CLAUDE'),
@@ -146,6 +148,7 @@ def main():
         if not args.gterm: parser.error('--versions requires --gterm')
     if args.official_packages and not args.install: parser.error('--official-packages requires --install')
     out, tools = args.out.resolve(), args.tools.resolve(strict=True)
+    core_build = args.core_build.resolve(strict=True)
     assert ROOT / 'tmp' in out.parents
     spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
     helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
@@ -153,7 +156,7 @@ def main():
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'plugins/official/preview', 'scripts']
               for p in (ROOT / directory).rglob('*') if p.is_file() and not any(x in p.parts for x in ['.build', '.swiftpm', '__pycache__'])}
     binaries = {str(p): sha(p) for p in tools.rglob('*') if p.is_file()}
-    for p in [node, ROOT / 'core/build/libghosterm_core.a', ROOT / 'core/build/libghosterm_quickjs.a', ROOT / 'build/host-native/lib/libssh2.a']:
+    for p in [node, core_build / 'libghosterm_core.a', core_build / 'libghosterm_quickjs.a', ROOT / 'build/host-native/lib/libssh2.a']:
         binaries[str(p)] = sha(p)
     if args.gterm:
         args.gterm = args.gterm.resolve(strict=True)
@@ -313,8 +316,8 @@ def main():
             shutil.copytree(ROOT / directory, source / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
         (source / 'core').mkdir()
-        for name in ['include', 'build']:
-            (source / 'core' / name).symlink_to(ROOT / 'core' / name, target_is_directory=True)
+        (source / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
+        (source / 'core/build').symlink_to(core_build, target_is_directory=True)
         for name in ['build', 'patches', 'plugins']:
             (source / name).symlink_to(ROOT / name, target_is_directory=True)
         (source / 'tmp').mkdir()

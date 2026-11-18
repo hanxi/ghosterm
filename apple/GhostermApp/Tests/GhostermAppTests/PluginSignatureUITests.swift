@@ -22,8 +22,16 @@ final class PluginSignatureUITests: XCTestCase {
                                      pluginResourceDirectory: root.appendingPathComponent("ui-resources"))
         let controller = try XCTUnwrap(model.extensionController)
         addTeardownBlock { let closed = await controller.close(); XCTAssertTrue(closed) }
+        var choices: [Result<[URL], Error>] = [
+            .success([]),
+            .failure(CocoaError(.fileReadNoPermission)),
+            .success([root.appendingPathComponent("p")])
+        ]
         let pane = NSHostingView(rootView: ScrollView {
-            ExtensionsPane(model: model, packagePicker: { $0(.success([root.appendingPathComponent("p")])) })
+            ExtensionsPane(model: model, packagePicker: { completion in
+                guard !choices.isEmpty else { XCTFail("Unexpected package picker request"); return }
+                completion(choices.removeFirst())
+            })
         })
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1400),
             styleMask: [.borderless], backing: .buffered, defer: false)
@@ -53,7 +61,16 @@ final class PluginSignatureUITests: XCTestCase {
         }
         guard try await until({ node("plugin-package-import") != nil }) else { XCTFail("import missing"); return }
         try press("plugin-package-import")
+        XCTAssertEqual(choices.count, 2)
+        XCTAssertNil(node("plugin-signature-disclosure"))
+        XCTAssertNil(node("plugin-package-issue"))
+        try press("plugin-package-import")
+        guard try await until({ node("plugin-package-issue") != nil }) else { XCTFail("picker failure missing"); return }
+        XCTAssertNil(node("plugin-signature-disclosure"))
+        XCTAssertNil(model.extensionRun)
+        try press("plugin-package-import")
         guard try await until({ node("plugin-signature-disclosure") != nil }) else { XCTFail("signature review missing"); return }
+        XCTAssertNil(node("plugin-package-issue"))
         try press("plugin-signature-disclosure")
         guard try await until({ node("plugin-signature-descriptor") != nil }) else { XCTFail("signature fields missing"); return }
         for (id, value) in [("descriptor", "r/release.json"), ("file", "r/release.sig"), ("policy", "policy.json")] {
