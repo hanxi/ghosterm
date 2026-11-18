@@ -1003,11 +1003,13 @@ target_compile_options(test_tmux PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(test_tmux PRIVATE ghosterm_core)
 add_test(NAME tmux_discovery COMMAND ${Python3_EXECUTABLE}
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/test-tmux-discovery.py $<TARGET_FILE:test_tmux>)
-set_tests_properties(tmux_discovery PROPERTIES TIMEOUT 40)
+# Discovery shares one wall-clock budget across sequential shell probes.
+# Keep CPU-heavy tests from competing with those subprocesses.
+set_tests_properties(tmux_discovery PROPERTIES TIMEOUT 40 RUN_SERIAL TRUE)
 if(SSH2_FOUND)
   add_test(NAME tmux_login_ssh COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/ssh_e2e.sh
            ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/test-tmux-login-ssh.py)
-  set_tests_properties(tmux_login_ssh PROPERTIES TIMEOUT 60
+  set_tests_properties(tmux_login_ssh PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE
       ENVIRONMENT "GT_TMUX_TEST_BINARY=$<TARGET_FILE:test_tmux>")
 endif()
 add_test(NAME tmux_command COMMAND test_tmux command)
