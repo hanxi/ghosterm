@@ -96,7 +96,11 @@ final class PluginPaneFlowTests: XCTestCase {
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         trace("enable accessibility")
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
-        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        defer {
+            trace("restore accessibility")
+            NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced)
+            trace("accessibility restored")
+        }
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -159,7 +163,13 @@ final class PluginPaneFlowTests: XCTestCase {
         window.contentView = pane
         trace("present offscreen window")
         TestWindows.presentOffscreen(window)
-        defer { window.orderOut(nil); window.contentView = nil }
+        defer {
+            trace("order window out")
+            window.orderOut(nil)
+            trace("detach hosting view")
+            window.contentView = nil
+            trace("hosting view detached")
+        }
         func nodes() -> [NSObject] { pane.layoutSubtreeIfNeeded(); return PluginTableRendering.elements(pane) }
         func node(_ identifier: String) -> NSObject? {
             nodes().first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier }
@@ -478,10 +488,12 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
         try scrollBottom()
         try press("plugin-stop")
+        trace("stop action returned")
         guard try await until({ model.extensionRun == nil && !model.extensionRunBusy && webViews(pane).isEmpty }) else { XCTFail("stop control did not release run"); return }
         guard try await until({ retainedHTML.allSatisfy { htmlClosed($0, path: imagePath) } }) else {
             XCTFail("stopped HTML must detach delegates and revoke retained attachment handlers"); return
         }
+        trace("runtime and embedded views released")
         XCTAssertNil(model.extensionRunIssue)
         for item in resources { XCTAssertNil(node("plugin-resource-select-" + item.resourceID)) }
         XCTAssertNil(node("plugin-consent-allow"))
