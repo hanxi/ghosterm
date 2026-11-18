@@ -13218,3 +13218,22 @@ Android 收据 SHA256 `30799e95f01a306d68d8c7a859af3cb4183ba555cb21cd56365f0de22
 公共 ABI 符号及 API 冒烟。签名组合日志 SHA256
 `7997efdd5ce3bc3f373b7952f71c90af87211a48ddefb2656027093e99efb94f`，
 Core 闸门日志 SHA256 `7115c828ad9dd7ddcb9e39670303187d24a3e143e70a19a5bf704f223ae412d3`。
+
+### 连接组提交与待授权状态复验（2026-11-18）
+
+固定 `fd2871c2`。两端串行提交待启动项，仅展示配置匹配的在线连接。
+Android 从 SSH 配置预检开始锁定快照。两端整组与在线添加均等实例进入待授权后才
+消费相应条目；启动清理失败仍留连接的释放入口。
+
+macOS 使用隔离副本，以屏幕外 XCTest 跑通本机、直连和 ProxyJump 各一条八实例
+用例，覆盖逐项授权、在线添加、关闭及其余实例的 RPC。Android API 36 arm64 /
+4 KiB 页的独立无窗口 AVD 跑通两跳 ProxyJump 八实例用例，包含预检期间阻止移除、
+不匹配目标保留队列、正常授权和在线补位。连接均使用自有回环夹具。
+
+首次 macOS 准备只构建 Core 静态库，缺 CLI 夹具，未运行测试。切换到 gterm 的
+CMake 入口后复验通过。此轮未覆盖 Android 直连、部分握手失败的故障注入或真机。
+
+Android 同 APK 的 24 项对照为 23 通过、1 失败，失败项为
+`ExtensionControllerTest.reviewApprovalConflictDenialAndCloseAreExplicit`。
+八实例用例单独通过，对照整轮仍为红。隔离目录清理后保留了失败用例名，具体异常
+需在复跑时留取。本轮不据此记录整轮 Android 验收通过。
