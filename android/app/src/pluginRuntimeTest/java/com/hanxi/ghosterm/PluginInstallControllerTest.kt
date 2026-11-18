@@ -153,3 +153,39 @@ class PluginInstallControllerTest {
         } finally { owner.close(); PluginInstallTestFiles.clean(root) }
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class PluginOfficialReleaseInstallTest {
+    @Test fun installsSevenCandidatesWithoutApprovingTheirSources() = runBlocking {
+        val input = InstrumentationRegistry.getArguments().getString("officialReleaseRoot")
+        org.junit.Assume.assumeNotNull(input)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = PluginInstallTestFiles.root()
+        val owner = ExtensionController(ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"),
+            listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views")), context)
+        try {
+            for (name in listOf("preview", "table", "diff", "task", "views", "ai-codex", "ai-claude")) {
+                val directory = File(input, "official-$name-release")
+                val raw = File(directory, "release.json").readBytes()
+                val signature = File(directory, "release.sig").readBytes()
+                val policy = File(input, "official-$name-policy.json").readBytes()
+                ParcelFileDescriptor.open(File(directory, "plugin.zip"), ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    val preview = owner.inspectSignedArchive(fd, raw, signature, policy)
+                    assertEquals("org.ghosterm.$name", preview.review.id)
+                    val installed = owner.installSignedArchive(fd, raw, signature, policy, preview, root)
+                    assertTrue(installed.publication.durabilityConfirmed)
+                    assertFalse(installed.snapshot.review.sourceApproved)
+                    val payload = File(installed.publication.directory, "payload/integrity.json")
+                    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(payload.readBytes())
+                        .joinToString("") { "%02x".format(it.toInt() and 255) }
+                    assertEquals(preview.review.digest, digest)
+                    val command = preview.review.commands.first().path
+                    assertNotEquals(ExtensionRegistry.Status.OK, owner.resolve(command, preview.review.id, preview.review.digest).status)
+                }
+            }
+        } finally {
+            owner.close()
+            PluginInstallTestFiles.clean(root)
+        }
+    }
+}

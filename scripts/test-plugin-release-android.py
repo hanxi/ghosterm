@@ -265,11 +265,38 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         if status: raise RuntimeError('Device mutation driver failed')
 
 
+def install_official_candidates(selected, environment, fixture):
+    """Feed signed public files into the owned debug app, without staging on shared storage."""
+    guest = 'cache/official-release-' + uuid.uuid4().hex
+    identity = ['run-as', 'com.hanxi.ghosterm']
+    run([*selected, 'shell', *identity, 'mkdir', '-p', guest], environment)
+    try:
+        for name in ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude'):
+            directory = f'official-{name}-release'
+            run([*selected, 'shell', *identity, 'mkdir', '-p', f'{guest}/{directory}'], environment)
+            for relative in (f'official-{name}-policy.json', *(f'{directory}/{file}' for file in ('plugin.zip', 'release.json', 'release.sig'))):
+                command = shlex.join([*identity, 'sh', '-c', 'cat > ' + shlex.quote(f'{guest}/{relative}')])
+                with (fixture / relative).open('rb') as data:
+                    subprocess.run([*selected, 'shell', '-T', command], stdin=data,
+                                   env=environment, check=True, timeout=30)
+        output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+                      'com.hanxi.ghosterm.PluginOfficialReleaseInstallTest',
+                      '-e', 'officialReleaseRoot', '/data/user/0/com.hanxi.ghosterm/' + guest,
+                      'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
+        if ('OK (1 test)' not in output or 'INSTRUMENTATION_STATUS_CODE: -4' in output or
+                'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output):
+            raise RuntimeError('Native official package installation failed:\n' + output)
+        print('ANDROID OFFICIAL INSTALL PASS: seven candidates', flush=True)
+    finally:
+        run([*selected, 'shell', *identity, 'rm', '-rf', guest], environment)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument('--headless-api', choices=[29, 36], type=int)
     choice.add_argument('--android', help='Explicitly authorized device serial')
+    parser.add_argument('--official-release-directory', type=Path, help='Also install seven pre-signed official test releases on an owned headless AVD')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--signature-ui', action='store_true', help='Include documents, draft and actual SAF Settings tests')
     parser.add_argument('--archive', action='store_true', help='Include strict ZIP and signed Core preview conformance')
@@ -286,6 +313,11 @@ def main():
     parser.add_argument('--maintenance', action='store_true', help='Include persistent install ownership, explicit stage removal/metadata retirement and Settings UI; implies --removal')
     parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
     args = parser.parse_args()
+    if args.official_release_directory:
+        if args.android: parser.error('Official install fixtures require an owned headless AVD')
+        args.official_release_directory = args.official_release_directory.resolve(strict=True)
+        if not args.official_release_directory.is_relative_to(ROOT / 'tmp'):
+            parser.error('Official install fixtures must be under project tmp/')
     if args.version_changes: args.policy_review = True
     if args.policy_review: args.unclassified = True
     if args.unclassified: args.maintenance = True
@@ -315,6 +347,8 @@ def main():
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
                 execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
+                if args.official_release_directory:
+                    install_official_candidates(selected, isolated, args.official_release_directory)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 

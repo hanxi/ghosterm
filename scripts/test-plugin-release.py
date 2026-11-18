@@ -111,8 +111,9 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
         signature=work/(label+'.sig');signature.write_bytes(request.stdout)
         cli('release','verify','--artifact',bad,'--descriptor',description,'--signature',signature,'--policy',policy,'--tools',tools,status=2,code=code)
     cases = []
+    requested = {selected} if isinstance(selected, str) else selected
     def case(name, action):
-        if selected is None or name==selected:
+        if requested is None or name in requested:
             action();cases.append(name)
     def success():
         checked=verify()
@@ -344,7 +345,7 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
                 except subprocess.TimeoutExpired: os.killpg(child.pid,signal.SIGKILL);child.communicate()
     case('interrupt-int',lambda:interrupted_sign(signal.SIGINT))
     case('interrupt-term',lambda:interrupted_sign(signal.SIGTERM))
-    assert selected is None or cases==[selected],selected
+    assert requested is None or set(cases) == requested, selected
     return cases
 
 

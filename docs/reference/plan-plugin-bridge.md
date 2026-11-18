@@ -13456,3 +13456,16 @@ GhosttyKit 运行 `test-plugin-native-signature.py --install`。离屏 XCTest 28
 28 项安装基线和一条包含七包的安装测试均离屏通过。
 收据 SHA256 `1b113333c50696aacbfdc985fea85e275cc7971bf7d522f2739ebb946f958d28`。
 本轮没有发布候选包，未执行 Android 七包矩阵或安装变异，隔离产物已清理。
+
+### P6 Android 七个官方候选原生安装（2026-11-19）
+
+固定 `73cbf6e5` 加本批测试。签名工具生成七个限插件 ID 的测试渠道归档。
+`test-plugin-release-android.py --headless-api 36 --official-release-directory` 将对应
+策略、描述、签名和 ZIP 直接送入自有测试 App 缓存，同一 APK 先通过 42 项签名和
+控制器对照，再通过一条逐包原生安装测试。七包均确认提交持久性、安装完整性摘要及
+来源未批准，未经批准的命令不获得可运行解析结果。
+
+API 36 arm64 / 4 KiB 页无窗口。42 项对照收据 SHA256
+`f8553d2c57f5c99d7b9dae6c14235dd5a1c15adc582c68b158f52a2df90cf39c`。
+前置完整签名夹具运行受已有 tmp 同前缀目录影响，随后只生成七个所需签名样例。
+未发布或运行模型。测试缓存、独立 ADB 与 AVD 已清理。
