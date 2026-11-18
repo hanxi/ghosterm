@@ -154,7 +154,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
                     failed = false
                     status = if (refresh) "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
                         else "本机已验证 ${current.channel} 渠道策略第 ${current.generation} 代。"
-                }""
+                }
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                 affected = 0
                 if (!automatic) {
