@@ -13528,3 +13528,17 @@ JS 关闭）。运行 `ctest --test-dir core/build -j 6 --output-on-failure -R
 SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e48d`
 与 `3364f2b1cadabf5f330707e88268c465c629439c0fb3957e16a9e8d2ca047b34`。
 测试服务与产物已清理。本轮未运行 Android、交互 tmux、原始终端字节对照或变异。
+
+### P1 macOS 嵌套 tmux 退出与普通输入复验（2026-11-19）
+
+固定 `e50bf7aa`，以新构建的 JS / SSH CLI 和锁定工具生成的候选 Node SDK 离屏运行
+`test-plugin-execution-ssh-app.py --macos --tmux nested --stop-tmux`。
+直连与 ProxyJump × Node 与 Exec 的启动、业务进程和双向资源共 12 项通过。
+自有 SSH PTY 核对普通输入字节及目标 pane，确认 tmux server / pane 退出后，
+独立无 PTY 插件通道仍完成新 RPC 和对应业务。收据 SHA256
+`53f51d48579540e8e9e2eca8b1feff6d1eb1ed11af43fd834d780816f5428b8b`。
+
+同一提交的 `test-plugin-bridge.py --tmux` 通过八组 ASan / UBSan 原型分帧用例
+及双客户端切 pane 探针。后者复现普通 TTY 回写会落到新选中的 pane。
+原型结果不计为生产 TerminalSurface 证据。本轮未执行 Android 或变异，
+专用夹具与临时构件已清理。
