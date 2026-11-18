@@ -309,6 +309,24 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         launchBusy = false
     }
 
+    internal suspend fun validateAndEnqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
+        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
+        return try {
+            val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
+            val exact = owner.resolve(command.path, entry.review.id, entry.review.digest)
+            check(exact.status == com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK && exact.command == command) {
+                "Client 摘要或命令尚未批准"
+            }
+            owner.decodeClientArguments(entry.review.id, entry.review.digest, command.path, request.arguments)
+            currentCoroutineContext().ensureActive()
+            enqueueGroup(entry, command, alias, request, clientWorkspace, temporaryDirectory)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Result.failure(failure)
+        }
+    }
+
     internal fun enqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
         request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
         return try {
