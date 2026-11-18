@@ -99,9 +99,11 @@ def main():
    path=source/name;original=path.read_bytes();binary=build/('test_runtime_resources' if kind=='owner' else 'test_runtime_resource_close' if kind=='close' else 'test_runtime_resource_js');location=sdk if kind=='js' else build;target=[binary,location] if mode is None else [binary,mode,location]
    try:
     path.write_text(original.decode().replace(old,new)+'\n/* '+MARK+' */\n')
-    compile_sdk(label);rebuild(label);run(label+'-target',target,red=True,budget=30);run(label+'-control',[build/'test_config',core/'tests/fixtures'])
+    if name == SDK:compile_sdk(label)
+    rebuild(label);run(label+'-target',target,red=True,budget=30);run(label+'-control',[build/'test_config',core/'tests/fixtures'])
    finally:path.write_bytes(original);assert sha(path)==hashlib.sha256(original).hexdigest()
-   compile_sdk(label+'-restored');rebuild(label+'-restored');run(label+'-restored',target,budget=30);print(label+': actual C/TS/archive/executable assertion red / same archive config green / restored / SHA256',flush=True)
+   if name == SDK:compile_sdk(label+'-restored')
+   rebuild(label+'-restored');run(label+'-restored',target,budget=30);print(label+': rebuilt assertion red / same archive config green / restored / SHA256',flush=True)
   suite('final')
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
   (logs/'result.json').write_text(json.dumps(dict(accepted=True,groups=[c[0] for c in cases],inputs_sha256=hashes,commands=commands,owner_cases=len(OWNER_MODES)+1,js_cases=len(JS_MODES)+1,c_sanitizers=['address','undefined'],leak_sanitizer=False,sdk_sha256={p.name:sha(p) for p in sdk.glob('*.js')},scope='native runtime resource owner and actual SDK/QuickJS/Core file+snapshot transport; no App activation, gateway, physical device, WAN or release'),indent=2)+'\n');shutil.rmtree(source);print('RUNTIME RESOURCE MUTATIONS PASS; logs: '+str(logs),flush=True)
