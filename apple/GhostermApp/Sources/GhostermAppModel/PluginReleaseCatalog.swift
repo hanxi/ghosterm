@@ -215,6 +215,46 @@ final class PluginReleaseCatalog {
         guard choices.count <= 64 else { throw Failure.invalid }
         let raw = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "nonce": UUID().uuidString, "choices": choices], options: [.sortedKeys])
         guard raw.count <= 131072 else { throw Failure.invalid }
+        let durable = try publishRecord(raw, as: Self.selectionName) {
+            try beforeRename?()
+            guard try selection().revision == expected else { throw Failure.conflict }
+        }
+        return (Selection(revision: Self.sha(raw), choices: proposed.choices), durable)
+    }
+
+    private struct ChannelHistory: Codable {
+        let root: String
+        let generation: UInt64
+        let digest: String
+        let observed: UInt64
+    }
+
+    func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64) throws {
+        guard exclusive else { throw Failure.io }
+        try validate()
+        guard policy.issuedAt <= now, now < policy.expiresAt else {
+            throw PluginDirectorySignatureVerifier.Failure.channelFreshness
+        }
+        let name = "channel-policy-v1-" + Self.sha(Data(policy.channel.utf8)) + ".json"
+        var info = stat()
+        if fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 {
+            let raw = try Self.read(fd, name: name, limit: 1024)
+            let previous = try JSONDecoder().decode(ChannelHistory.self, from: raw)
+            guard previous.root == policy.rootSHA256, previous.generation > 0,
+                  previous.observed > 0, Self.digest(previous.digest), now >= previous.observed,
+                  policy.generation >= previous.generation,
+                  policy.generation != previous.generation || policy.statementSHA256 == previous.digest else {
+                throw PluginDirectorySignatureVerifier.Failure.channelHistory
+            }
+        } else if errno != ENOENT {
+            throw Failure.io
+        }
+        let raw = try JSONEncoder().encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
+                                                         digest: policy.statementSHA256, observed: now))
+        guard try publishRecord(raw, as: name) else { throw Failure.io }
+    }
+
+    private func publishRecord(_ raw: Data, as destination: String, beforeRename: () throws -> Void = {}) throws -> Bool {
         let name = ".selection-" + UUID().uuidString
         let output = openat(fd, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard output >= 0 else { throw Failure.io }
@@ -229,11 +269,10 @@ final class PluginReleaseCatalog {
             }
         }
         guard fsync(output) == 0 else { throw Failure.io }
-        try validate(); try beforeRename?()
-        guard try selection().revision == expected else { throw Failure.conflict }
-        guard renameat(fd, name, fd, Self.selectionName) == 0 else { throw Failure.io }
+        try validate(); try beforeRename()
+        guard renameat(fd, name, fd, destination) == 0 else { throw Failure.io }
         published = true
-        return (Selection(revision: Self.sha(raw), choices: proposed.choices), parentSync(fd) == 0)
+        return parentSync(fd) == 0
     }
     func removalRoot() throws -> Int32 {
         guard exclusive else { throw Failure.io }

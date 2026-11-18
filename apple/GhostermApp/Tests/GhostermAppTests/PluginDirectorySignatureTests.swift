@@ -86,6 +86,23 @@ final class PluginDirectorySignatureTests: XCTestCase {
         rejects(.channelStatement) { try verified(policy + Data([10]), signature) }
         rejects(.channelStatement) { try verified(policy, f.sign(statement, domain: "ghosterm.channel-policy.v1\0")) }
         rejects(.channelStatement) { try verified(policy, root.sign(statement)) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func verifyRecorded(_ policy: Verifier.VerifiedChannelPolicy, now: UInt64) throws -> PluginDirectorySignature {
+            try Verifier.verify(descriptor: descriptor, signature: releaseSignature, channelPolicy: policy,
+                                identity: f.identity, now: now, stateDirectory: directory)
+        }
+        _ = try verifyRecorded(proof, now: 150)
+        _ = try verifyRecorded(proof, now: 151)
+        rejects(.channelHistory) { try verifyRecorded(proof, now: 150) }
+        let older = try Self.json(["schemaVersion": 1, "channel": "test", "generation": "1",
+                                   "issuedAt": "100", "expiresAt": "200", "policySHA256": Self.hash(policy)])
+        let oldProof = try Verifier.verifyChannelPolicy(statement: older,
+            signature: root.sign(older, domain: "ghosterm.channel-policy.v1\0"), policy: policy,
+            channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 152)
+        rejects(.channelHistory) { try verifyRecorded(oldProof, now: 152) }
     }
 
     func testIdentityCannotBeReplacedByCaller() throws {

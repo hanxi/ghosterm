@@ -26,7 +26,7 @@ public enum PluginDirectorySignatureVerifier {
 
     public enum Failure: String, Error, Sendable, LocalizedError {
         case json, duplicateKey, limit, file, changed, policy, descriptor, unknownKey, revokedKey, scope, signature, identity
-        case channelStatement, channelFreshness
+        case channelStatement, channelFreshness, channelHistory
         public var errorDescription: String? {
             switch self {
             case .json, .duplicateKey: return "签名描述或渠道策略不是有效且无重复字段的 JSON。"
@@ -42,6 +42,7 @@ public enum PluginDirectorySignatureVerifier {
             case .identity: return "发布描述与当前已审查的目录包摘要或身份不一致。"
             case .channelStatement: return "渠道策略声明格式、签名或摘要无效。"
             case .channelFreshness: return "渠道策略尚未生效或已过期。"
+            case .channelHistory: return "渠道根、策略代次或系统时间与已记录状态不一致。"
             }
         }
     }
@@ -52,6 +53,7 @@ public enum PluginDirectorySignatureVerifier {
         public let issuedAt: UInt64
         public let expiresAt: UInt64
         public let statementSHA256: String
+        let rootSHA256: String
         fileprivate let policyBytes: Data
     }
 
@@ -74,12 +76,19 @@ public enum PluginDirectorySignatureVerifier {
         guard key.isValidSignature(signature, for: message) else { throw Failure.channelStatement }
         guard issuedAt <= now, now < expiresAt else { throw Failure.channelFreshness }
         return VerifiedChannelPolicy(channel: channel, generation: generation, issuedAt: issuedAt,
-                                     expiresAt: expiresAt, statementSHA256: hash(statement), policyBytes: policyBytes)
+                                     expiresAt: expiresAt, statementSHA256: hash(statement),
+                                     rootSHA256: hash(channelRoot), policyBytes: policyBytes)
     }
 
     public static func verify(descriptor: Data, signature: Data, channelPolicy: VerifiedChannelPolicy,
-                              identity: Identity, now: UInt64) throws -> PluginDirectorySignature {
+                              identity: Identity, now: UInt64, stateDirectory: URL? = nil) throws -> PluginDirectorySignature {
         guard channelPolicy.issuedAt <= now, now < channelPolicy.expiresAt else { throw Failure.channelFreshness }
+        if let stateDirectory {
+            guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: true) else {
+                throw PluginReleaseCatalog.Failure.root
+            }
+            try catalog.recordChannelPolicy(channelPolicy, now: now)
+        }
         return try verify(descriptor: descriptor, signature: signature, trustedPolicy: channelPolicy.policyBytes, identity: identity)
     }
 
