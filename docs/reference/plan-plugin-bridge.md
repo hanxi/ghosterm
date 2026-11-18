@@ -13554,3 +13554,16 @@ SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e4
 `f53deac8a45227ee79990b4538c95621bb5e4b4dfe532edf66e8c44aedaf2c6e`。
 临时 AVD、SSH / tmux 夹具和本轮构件已清理。本轮未执行应用内终端字节对照、
 其它设备或变异。
+
+### P1 macOS 终端宿主与流变异复验（2026-11-19）
+
+固定 `313e6aea`，在完整 Xcode 下设置 `GHOSTERM_AUTOMATION_OFFSCREEN=1`，
+运行 `swift test --package-path apple/GhostermTerminal --filter TerminalSurfaceTests`。
+15 项通过，覆盖原生 Ghostty 网格收件、输入回调、回车和终端查询应答。
+本轮使用测试 Transport，应用内 SSH 终端与活跃插件的并行字节对照仍待验收。
+
+同批重跑 `mutation-check-plugin-stream.py` 的 13 组隔离 ASan / UBSan 变异。
+各组目标普通断言红、同库配置对照绿、复原九种流测试绿、生产输入 SHA256 一致。
+收据与既有流专项一致，为
+`2f4dcaed92c57289fb6f495d65038baf32c03ea9845fab64c90f733afc4032ec`。
+本轮两个临时目录均已清理。
