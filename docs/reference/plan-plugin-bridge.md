@@ -14833,7 +14833,10 @@ app-server 夹具，真实 Claude 模型和 Android 设备另验。
 macOS 重查时先撤下旧声明，发起检查的条目显示进度，检查结束后才允许再次发起。
 面板关闭后丢弃已取消检查的结果及错误。Android 在点击时固定请求参数，忽略取消后的
 迟到结果。macOS arm64 Release、Android Debug 及测试 APK 已编译。Android 新增
-改动目标再改回、旧检查迟到报错的测试，设备执行待集中运行。
+改动目标再改回、旧检查迟到报错的测试。随后复用已编译的两个 APK，在专用
+API 36 arm64 / 4 KiB 页无窗口模拟器运行 `PluginForegroundInspectionTest`，
+三项均通过，含迟到错误断言。Android 该组使用注入的检查回调；实际 SSH 附着
+的证据另见前台实例附着专项。模拟器和本轮临时 AVD 已清理。
 
 macOS 设置离屏专项三项通过，覆盖手填直连、手填 ProxyJump、真实 PTY 候选直连。
 三条路径均核对活声明、原许可保留、采用声明后重置附着批准、另行授权及实际预览。
