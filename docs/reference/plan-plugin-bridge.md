@@ -13887,3 +13887,12 @@ arm64 无窗口 AVD 运行 `test-plugin-views-android-native.py --api 36`。
 点击动作。新构建 JS-on 应用及测试 APK 后，在专用 API 36 无窗口 AVD 上
 `PluginViewsUiTest` 七项全部通过。证据覆盖 Compose 语义和绘制，
 读屏实际播报与其它设备另验。本轮 AVD 与临时目录已清理。
+
+### P5 Android 原生标题、关闭与轮询变异（2026-11-19）
+
+固定 `a485ac37` 加新增 `native-heading` 定向变异，移除真正视图标题的 heading
+语义。API 36 无窗口 AVD 同轮通过三组：标题语义、关闭动作和关闭未确认后的轮询
+恢复。均实际重编 APK，目标普通断言失败，同 APK Core 对照、复原及 SHA256 核对
+通过。通用基线、表格 / 差异 / 任务回归及直连和 ProxyJump 视图两项通过。
+收据 SHA256 `8fa03f6435553ff3c27c67c4647a11be9cc03c59e05cc4c338c2f54820f6ae88`。
+临时目录和 AVD 已清理。本轮未执行其余变异、读屏播报或其它设备。

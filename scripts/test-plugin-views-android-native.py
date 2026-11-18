@@ -51,6 +51,7 @@ CASES = [
     ('native-owner', APP + 'ExtensionController.kt', 'runtimeInstanceID == instanceID && runtimeViewScope != null', 'runtimeViewScope != null', None),
     ('native-render', APP + 'SettingsContent.kt', 'extensions.registeredViews?.let { PluginViewsContent(it) }', 'extensions.registeredViews?.let { _ -> Unit }', None),
     ('native-close', UI, 'onClick = { model.closeView(item.handle) }', 'onClick = { Unit }', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
+    ('native-heading', UI, 'Modifier.weight(1f).semantics { heading() }', 'Modifier.weight(1f)', 'UI#darkLargeTextPaints'),
     ('native-restart', APP + 'PluginTaskContent.kt', 'LaunchedEffect(model, model.available)', 'LaunchedEffect(model)', 'UI#unconfirmedCloseRetainsWidgetAndRestartsPolling'),
 ]
 
