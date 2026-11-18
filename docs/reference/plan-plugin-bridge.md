@@ -14174,3 +14174,21 @@ ZIP SHA256 `f092a072e05bb1e172dd8d9a3416ef89864a2afe76c1dc0f53287de71ce305bc`。
 本轮为普通 JS-off 包，只证明配置和签名随包传递。渠道安装行为仍以
 JS-enabled 原生专项为证，未配置实际地址或公钥，未运行打包变异或发行。
 挂载已卸载，临时产物已清理。
+
+### P6 macOS 本地实验插件包（2026-11-19）
+
+固定 `3db252b2` 加本批。显式 `package-mac.sh --experimental-plugin-js
+--out 工程内临时目录 --adhoc` 构建本地插件实验包，自动链接锁定 QuickJS，
+附原始 MIT 许可，填入构建信息，产物名有 `-plugin-js` 后缀且无正式更新
+验签公钥。普通出包保持 JS-off 和原资产名。实验选项拒绝缺显式输出目录、
+release 轨和非 ad-hoc 签名。CI 发布调用未启用此选项。
+
+实验包 DMG、ZIP 和内置包校验通过，App 包可执行文件含实际 QuickJS
+运行时符号；再验签名、MIT 文本逐字节一致、渠道夹具配置和无更新公钥。
+DMG SHA256 `90f752028532731f226afed93ea95fa028c9cb139cebced2dfc054fdf0cda909`，
+ZIP SHA256 `01d34410999bddb6c34ef9ac2189aaac978ca9dadd18055ddce9479b599b8f8d`。
+未通过成品窗口执行插件，未启用 GUI 冒烟、生产渠道或发行。
+
+显式输出缺失与 release 轨两个拒绝夹具通过；随后普通 app-only 出包复验通过，
+签名有效，包内没有 QuickJS 符号或许可。根 Core 恢复 JS-off / tests-on，
+本轮未执行完整打包变异。挂载与临时产物已清理。
