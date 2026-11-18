@@ -355,9 +355,19 @@ def main():
     parser.add_argument('--sdk-tools', type=Path, help='also build and verify the official Portable samples')
     parser.add_argument('--ai-packages', nargs=2, type=Path, metavar=('CODEX', 'CLAUDE'),
                         help='verify signed archives of the two built official AI packages')
+    parser.add_argument('--export-official-fixtures', type=Path,
+                        help='write only the seven signed test releases to a new project tmp directory')
     parser.add_argument('--mutate',action='store_true')
     parser.add_argument('--receipt',type=Path,default=ROOT/'tmp/plugin-release-receipt.json')
     args=parser.parse_args()
+    official = ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')
+    export = args.export_official_fixtures
+    if export is not None:
+        if not args.sdk_tools or not args.ai_packages or args.mutate:
+            parser.error('--export-official-fixtures requires --sdk-tools and --ai-packages without --mutate')
+        export = export.resolve()
+        if not export.is_relative_to(ROOT / 'tmp') or export.exists() or args.export_official_fixtures.is_symlink():
+            parser.error('official fixtures require a new directory under project tmp/')
     node=Path(shutil.which('node')).resolve(strict=True)
     inputs={str(p.relative_to(ROOT)):sha(p.read_bytes()) for directory in ['scripts','packages','plugins/official/preview','core/tests/fixtures',*(['plugins/official/'+n for n in ('table','diff','task','views')] if args.sdk_tools else [])] for p in (ROOT/directory).rglob('*')
             if p.is_file() and '__pycache__' not in p.parts}
@@ -380,7 +390,8 @@ def main():
         with agent(node,work) as (public,endpoint):
             case_root=work/'cases';case_root.mkdir()
             cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint,sdk_tools=args.sdk_tools.resolve() if args.sdk_tools else None,
-                           ai_packages=ai_packages)
+                           ai_packages=ai_packages,
+                           selected=frozenset('official-' + name for name in official) if export else None)
             print('RELEASE PASS: '+str(len(cases))+' cases: '+', '.join(cases),flush=True)
             recipes=[
                 ('number-precision','precise-policy','json.loads(raw, parse_float=number)','json.loads(raw, parse_float=float)'),
@@ -421,6 +432,19 @@ def main():
                 exercise(source,restored,args.tools.resolve(),node,public,endpoint,selected)
                 assert sha(target.read_bytes())==sha(original)
                 groups.append(label);print('PASS assertion/control/restore '+label,flush=True)
+        if export is not None:
+            export.mkdir(mode=0o700)
+            try:
+                for name in official:
+                    basename = 'official-' + name
+                    release = basename + '-release'
+                    (export / release).mkdir()
+                    for filename in ('plugin.zip', 'release.json', 'release.sig'):
+                        shutil.copyfile(case_root / release / filename, export / release / filename)
+                    shutil.copyfile(case_root / (basename + '-policy.json'), export / (basename + '-policy.json'))
+            except BaseException:
+                shutil.rmtree(export)
+                raise
     assert all(sha((ROOT/name).read_bytes())==value for name,value in inputs.items()),'source changed'
     assert sha(node.read_bytes())==node_sha,'Node changed'
     assert all(sha(Path(name).read_bytes())==value for name,value in binary_inputs.items()),'tool inputs changed'

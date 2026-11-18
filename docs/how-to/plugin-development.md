@@ -602,6 +602,19 @@ python3 -B scripts/test-plugin-release.py \
   --receipt tmp/official-release/receipt.json
 ```
 
+Android 七包原生安装可复用上面构建的两个 AI 候选。以下命令只生成七包的
+测试签名材料，并在独立无窗口 AVD 验证安装：
+
+```sh
+python3 -B scripts/test-plugin-release.py \
+  --tools tmp/plugin-dev/tools --sdk-tools build/plugin-sdk-tools \
+  --ai-packages tmp/official-release/ai-codex tmp/official-release/ai-claude \
+  --export-official-fixtures tmp/official-release/android-fixtures \
+  --receipt tmp/official-release/android-fixtures.json
+python3 -B scripts/test-plugin-release-android.py --headless-api 36 \
+  --official-release-directory tmp/official-release/android-fixtures
+```
+
 测试通过后，收据应包含 44 项基线，其中七项分别核对 Preview、Table、Diff、Task、
 Views、Codex 和 Claude 的签名归档。每个测试策略限定一个插件 ID，验签后逐成员
 比对归档与构建目录。Claude 的 `--fetch` 允许下载锁定的构建依赖。完成核对后可清理
