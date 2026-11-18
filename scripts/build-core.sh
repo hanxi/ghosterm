@@ -25,5 +25,6 @@ esac
 
 python3 "$ROOT/scripts/build-host-ssh2.py"
 
-cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug "${SYSROOT_FLAG[@]}" "${CORE_PLUGIN_JS_FLAG[@]}" >/dev/null
+# 签名实验用独立 CMake 构建目录，避免普通 Swift 链接继承缓存中的 libcrypto。
+cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_RELEASE_SIGNATURE=OFF "${SYSROOT_FLAG[@]}" "${CORE_PLUGIN_JS_FLAG[@]}" >/dev/null
 cmake --build "$ROOT/core/build"
