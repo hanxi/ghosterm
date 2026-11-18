@@ -30,6 +30,34 @@ int main(void) {
     CHECK(events_preserved,
           "event queue grows without losing terminal events above initial capacity");
 
+    for (uint64_t i = 1; i <= 512; i++) {
+        gt__emit_event(GT_EVENT_STATUS, i, 0, "fill ring before reserved completion");
+    }
+    void *terminal_reservation = gt__event_reserve_terminal();
+    gt__emit_reserved_job_done(terminal_reservation, 9001, GT_JOB_FAILED, "reserved completion");
+    gt_event_t terminal_batch[513];
+    size_t terminal_count = gt_core_poll_events(terminal_batch, 513);
+    bool terminal_preserved = false;
+    for (size_t i = 0; i < terminal_count; i++) {
+        if (terminal_batch[i].kind == GT_EVENT_JOB_DONE && terminal_batch[i].job_id == 9001 &&
+            terminal_batch[i].code == GT_JOB_FAILED) {
+            terminal_preserved = true;
+        }
+    }
+    CHECK(terminal_preserved,
+          "a preallocated terminal event survives a full ring containing no progress slots");
+    gt__emit_event(GT_EVENT_PROGRESS, 9002, 0, "stale progress");
+    terminal_reservation = gt__event_reserve_terminal();
+    gt__emit_reserved_job_done(terminal_reservation, 9002, GT_JOB_OK, "terminal follows progress");
+    size_t terminal_first_count = gt_core_poll_events(terminal_batch, 513);
+    bool terminal_first = terminal_first_count > 0 && terminal_batch[0].kind == GT_EVENT_JOB_DONE &&
+                          terminal_batch[0].job_id == 9002;
+    for (size_t i = 0; terminal_first && i < terminal_first_count; i++) {
+        terminal_first =
+            !(terminal_batch[i].kind == GT_EVENT_PROGRESS && terminal_batch[i].job_id == 9002);
+    }
+    CHECK(terminal_first, "job completion precedes and removes stale progress for that job");
+
     const char *views_json = (void *)1;
     size_t views_size = 123;
     CHECK(gt_ext_runtime_views_enable(NULL, 1) == GT_ERR_INVALID_ARG &&

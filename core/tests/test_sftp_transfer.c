@@ -20,12 +20,17 @@ static FILE *file_open(const char *, const char *);
 static int file_close(FILE *);
 static int file_seek(FILE *, off_t, int);
 static off_t file_tell(FILE *);
+static ssize_t remote_read(LIBSSH2_SFTP_HANDLE *, char *, size_t);
+static int remote_fstat(LIBSSH2_SFTP_HANDLE *, LIBSSH2_SFTP_ATTRIBUTES *);
 static int tracked_remote_close(LIBSSH2_SFTP_HANDLE *);
 static ssize_t remote_write(LIBSSH2_SFTP_HANDLE *, const char *, size_t);
 #define fopen file_open
 #define fclose file_close
 #define fseeko file_seek
 #define ftello file_tell
+#define libssh2_sftp_read remote_read
+#undef libssh2_sftp_fstat
+#define libssh2_sftp_fstat remote_fstat
 #define libssh2_sftp_write remote_write
 #define libssh2_sftp_close_handle tracked_remote_close
 #include "../src/sftp.c"
@@ -33,6 +38,8 @@ static ssize_t remote_write(LIBSSH2_SFTP_HANDLE *, const char *, size_t);
 #undef fclose
 #undef fseeko
 #undef ftello
+#undef libssh2_sftp_read
+#undef libssh2_sftp_fstat
 #undef libssh2_sftp_write
 #undef libssh2_sftp_close_handle
 
@@ -73,6 +80,22 @@ static int file_close(FILE *file) {
         }
     }
     return fclose(file);
+}
+
+static ssize_t remote_read(LIBSSH2_SFTP_HANDLE *handle, char *buffer, size_t length) {
+    if (is("download-short") && atomic_fetch_add(&injected, 1) == 0) {
+        return 0;
+    }
+    return libssh2_sftp_read(handle, buffer, length);
+}
+
+static int remote_fstat(LIBSSH2_SFTP_HANDLE *handle, LIBSSH2_SFTP_ATTRIBUTES *attributes) {
+    int result = libssh2_sftp_fstat_ex(handle, attributes, 0);
+    if (result == 0 && is("download-size-unknown")) {
+        attributes->flags &= ~LIBSSH2_SFTP_ATTR_SIZE;
+        atomic_fetch_add(&injected, 1);
+    }
+    return result;
 }
 
 static int file_seek(FILE *file, off_t offset, int whence) {
@@ -218,9 +241,12 @@ static void run_case(char **argv, const char *name, bool peer) {
     bool upload = !strncmp(mode, "upload-", 7);
     bool empty = strstr(mode, "empty") != NULL;
     bool cancelled = strstr(mode, "cancelled") != NULL;
-    bool okay = is("upload-normal") || is("download-normal") || is("upload-zero-write") || empty;
+    bool okay = is("upload-normal") || is("download-normal") || is("download-staged-overwrite") ||
+                is("download-staged-create") || is("upload-zero-write") || empty;
     size_t size = empty ? 0 : sizeof content - 1;
-    put(local, upload ? content : sentinel, upload ? size : sizeof sentinel - 1);
+    if (!is("download-staged-create")) {
+        put(local, upload ? content : sentinel, upload ? size : sizeof sentinel - 1);
+    }
     if (!peer && !is("download-missing")) {
         put(remote, upload ? sentinel : content, upload ? sizeof sentinel - 1 : size);
     }
@@ -240,7 +266,11 @@ static void run_case(char **argv, const char *name, bool peer) {
         sftp->quit = false;
     }
     uint64_t id =
-        upload ? gt_sftp_upload(sftp, local, remote) : gt_sftp_download(sftp, remote, local);
+        upload ? gt_sftp_upload(sftp, local, remote)
+        : !strncmp(mode, "download-staged-", 16)
+            ? gt_sftp_download_staged(sftp, remote, local, is("download-staged-overwrite"), size)
+        : is("download-limited") ? gt_sftp_download_staged(sftp, remote, local, false, size - 1)
+                                 : gt_sftp_download(sftp, remote, local);
     if (cancelled) {
         CHECK(gt_sftp_cancel(sftp, id) == GT_OK, "queued cancellation accepted");
         if (pthread_create(&sftp->worker, NULL, worker_main, sftp)) {
@@ -273,6 +303,27 @@ static void run_case(char **argv, const char *name, bool peer) {
               "preflight failure or queued cancellation preserves target");
         CHECK(atomic_load(&local_opens) == 0, "no local stream opened before admission");
     }
+    if (is("download-size-unknown")) {
+        CHECK(equal(local, sentinel, sizeof sentinel - 1),
+              "unknown source length fails preflight without truncating local target");
+        CHECK(atomic_load(&injected) == 1, "unknown source size injected exactly once");
+    }
+    if (is("download-limited")) {
+        CHECK(equal(local, sentinel, sizeof sentinel - 1),
+              "known oversized source is rejected before local target truncation");
+    }
+    if (is("download-staged-no-overwrite")) {
+        CHECK(equal(local, sentinel, sizeof sentinel - 1),
+              "atomic no-overwrite publication preserves a competing destination");
+    }
+    if (is("download-staged-create")) {
+        CHECK(equal(local, content, size),
+              "atomic no-overwrite publication creates a new destination");
+    }
+    if (is("download-short")) {
+        CHECK(atomic_load(&injected) == 1, "early EOF injected exactly once");
+        CHECK(!equal(local, content, size), "early EOF is not reported as a complete copy");
+    }
     if (is("upload-seek-end") || is("upload-seek-start") || is("upload-tell")) {
         CHECK(equal(remote, sentinel, sizeof sentinel - 1),
               "source positioning failure preserves remote target");
@@ -303,6 +354,12 @@ int main(int argc, char **argv) {
                                "download-missing",
                                "download-local-open",
                                "download-local-close",
+                               "download-short",
+                               "download-size-unknown",
+                               "download-limited",
+                               "download-staged-overwrite",
+                               "download-staged-no-overwrite",
+                               "download-staged-create",
                                "upload-local-close",
                                "upload-seek-end",
                                "upload-seek-start",

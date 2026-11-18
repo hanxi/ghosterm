@@ -7,6 +7,7 @@
   "gt_sftp_create_controlled": "Android 专属文件 owner 统一使用可暂停的 controllable 入口；保留旧观察/受控 API 供其他调用方使用",
   "gt_sftp_create_observed": "Android 专属文件 owner 统一使用可暂停的 controllable 入口；保留旧观察/受控 API 供其他调用方使用",
   "gt_sftp_download": "A4/A5: 文件浏览与安全复制接入时绑定",
+  "gt_sftp_download_staged": "macOS 旧 job 的有界原子本机发布入口；Android 使用受控 receive/create/publish，不绑定此 API",
   "gt_sftp_list": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_lstat": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_mkdir": "A4/A5: 文件浏览与安全复制接入时绑定",

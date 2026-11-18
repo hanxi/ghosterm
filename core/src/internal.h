@@ -23,6 +23,12 @@ void gt__emit_status(int code, const char *message);
 /* 通用事件入队：SFTP job（PROGRESS / JOB_DONE）等带 job_id 的低频事件。 */
 void gt__emit_event(gt_event_kind_t kind, uint64_t job_id, int code, const char *message);
 
+/* JOB_DONE storage is reserved when a job is accepted, so finishing it never
+ * needs an allocation and cannot be lost to a full event queue/OOM. */
+void *gt__event_reserve_terminal(void);
+void gt__emit_reserved_job_done(void *reservation, uint64_t job_id, int code, const char *message);
+void gt__event_discard_reservation(void *reservation);
+
 /* ------------------------------------------------------------------ */
 /* known_hosts 的枚举（真值来源是**文件**，不是 libssh2 的会话缓存）    */
 /* Mutates one line; false for comment/blank, malformed records remain visible. */

@@ -58,7 +58,12 @@ struct sftp_job {
     gt_sftp_t *sftp;
     char *remote;
     char *local;
+    char *staging_template;
     uint64_t job_id;
+    uint64_t max_download_bytes;
+    void *terminal_event_reservation;
+    bool staged_download;
+    bool overwrite_destination;
     bool upload; /* false = download */
     atomic_bool cancelled;
     atomic_bool paused;
@@ -92,11 +97,15 @@ static void emit_progress(uint64_t job_id, uint64_t done, uint64_t total) {
     gt__emit_event(GT_EVENT_PROGRESS, job_id, 0, msg);
 }
 
-static void emit_job_done(uint64_t job_id, int result, const char *detail) {
+static void emit_job_done(sftp_job_t *job, int result, const char *detail) {
     char msg[GT_EVENT_MESSAGE_MAX];
-    snprintf(
-        msg, sizeof msg, "sftp job %llu: %s", (unsigned long long)job_id, detail ? detail : "");
-    gt__emit_event(GT_EVENT_JOB_DONE, job_id, result, msg);
+    snprintf(msg,
+             sizeof msg,
+             "sftp job %llu: %s",
+             (unsigned long long)job->job_id,
+             detail ? detail : "");
+    gt__emit_reserved_job_done(job->terminal_event_reservation, job->job_id, result, msg);
+    job->terminal_event_reservation = NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -329,6 +338,8 @@ void gt_sftp_close(gt_sftp_t *sftp) {
         sftp_job_t *next = j->next_all;
         free(j->remote);
         free(j->local);
+        free(j->staging_template);
+        gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
         j = next;
     }
@@ -2402,17 +2413,7 @@ static int job_download(sftp_job_t *j) {
     LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(s->sftp, j->remote, LIBSSH2_FXF_READ, 0);
     SFTP_UNLOCK(s);
     if (!h) {
-        emit_job_done(j->job_id, GT_JOB_FAILED, "打开远端文件失败");
-        return GT_JOB_FAILED;
-    }
-    /* Do not truncate a local target until the source has actually opened. This
-   * legacy API still overwrites; safe copy needs an independent commit API. */
-    FILE *f = fopen(j->local, "wb");
-    if (!f) {
-        SFTP_LOCK(s);
-        libssh2_sftp_close(h);
-        SFTP_UNLOCK(s);
-        emit_job_done(j->job_id, GT_JOB_FAILED, "打开本地目标失败");
+        emit_job_done(j, GT_JOB_FAILED, "打开远端文件失败");
         return GT_JOB_FAILED;
     }
     LIBSSH2_SFTP_ATTRIBUTES a;
@@ -2420,7 +2421,43 @@ static int job_download(sftp_job_t *j) {
     SFTP_LOCK(s);
     int frc = libssh2_sftp_fstat(h, &a);
     SFTP_UNLOCK(s);
-    uint64_t total = (frc == 0 && (a.flags & LIBSSH2_SFTP_ATTR_SIZE)) ? a.filesize : 0;
+    if (frc != 0 || !(a.flags & LIBSSH2_SFTP_ATTR_SIZE)) {
+        SFTP_LOCK(s);
+        (void)libssh2_sftp_close(h);
+        SFTP_UNLOCK(s);
+        emit_job_done(j, GT_JOB_FAILED, "远端源尺寸未知，无法确认下载完整性");
+        return GT_JOB_FAILED;
+    }
+    const uint64_t total = a.filesize;
+    if (total > j->max_download_bytes) {
+        SFTP_LOCK(s);
+        (void)libssh2_sftp_close(h);
+        SFTP_UNLOCK(s);
+        emit_job_done(j, GT_JOB_FAILED, "远端文件超过下载字节上限");
+        return GT_JOB_FAILED;
+    }
+    /* Staged paths are created beside the destination so the final publication
+     * is an atomic same-filesystem operation. */
+    FILE *f = NULL;
+    if (j->staged_download) {
+        int descriptor = mkstemp(j->staging_template);
+        if (descriptor >= 0) {
+            f = fdopen(descriptor, "wb");
+            if (!f) {
+                close(descriptor);
+                (void)unlink(j->staging_template);
+            }
+        }
+    } else {
+        f = fopen(j->local, "wb");
+    }
+    if (!f) {
+        SFTP_LOCK(s);
+        libssh2_sftp_close(h);
+        SFTP_UNLOCK(s);
+        emit_job_done(j, GT_JOB_FAILED, "打开本地目标失败");
+        return GT_JOB_FAILED;
+    }
 
     char buf[GT_SFTP_CHUNK];
     uint64_t done = 0;
@@ -2445,6 +2482,10 @@ static int job_download(sftp_job_t *j) {
             rc = GT_JOB_FAILED;
             break;
         }
+        if ((uint64_t)n > total - done || (uint64_t)n > j->max_download_bytes - done) {
+            rc = GT_JOB_FAILED;
+            break;
+        }
         if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) {
             rc = GT_JOB_FAILED;
             break;
@@ -2461,16 +2502,35 @@ static int job_download(sftp_job_t *j) {
     SFTP_UNLOCK(s);
     int local_close = fclose(f);
     bool close_failed = remote_close != 0 || local_close != 0;
+    bool staging_cleanup_failed = false;
+    if (rc == GT_JOB_OK && done != total) {
+        rc = GT_JOB_FAILED;
+    }
     if (close_failed && rc != GT_JOB_CANCELLED) {
         rc = GT_JOB_FAILED;
     }
-    const char *detail =
-        close_failed ? (rc == GT_JOB_CANCELLED ? "download cancelled; close failed（部分文件保留）"
-                                               : "download close failed")
-        : rc == GT_JOB_OK        ? "download done"
-        : rc == GT_JOB_CANCELLED ? "download cancelled（已写部分保留）"
-                                 : "download failed";
-    emit_job_done(j->job_id, rc, detail);
+    if (j->staged_download) {
+        if (rc == GT_JOB_OK && !close_failed) {
+            int published = j->overwrite_destination ? rename(j->staging_template, j->local)
+                                                     : link(j->staging_template, j->local);
+            if (published == 0 && !j->overwrite_destination && unlink(j->staging_template) != 0) {
+                staging_cleanup_failed = true;
+            } else if (published != 0) {
+                rc = GT_JOB_FAILED;
+            }
+        }
+        if (rc != GT_JOB_OK) {
+            (void)unlink(j->staging_template);
+        }
+    }
+    const char *detail = staging_cleanup_failed   ? "download done; staging cleanup failed"
+                         : close_failed           ? (rc == GT_JOB_CANCELLED
+                                                         ? "download cancelled; close failed（部分文件保留）"
+                                                         : "download close failed")
+                         : rc == GT_JOB_OK        ? "download done"
+                         : rc == GT_JOB_CANCELLED ? "download cancelled（已写部分保留）"
+                                                  : "download failed";
+    emit_job_done(j, rc, detail);
     return rc;
 }
 
@@ -2478,13 +2538,13 @@ static int job_upload(sftp_job_t *j) {
     int rc = GT_JOB_FAILED;
     FILE *f = fopen(j->local, "rb");
     if (!f) {
-        emit_job_done(j->job_id, GT_JOB_FAILED, strerror(errno));
+        emit_job_done(j, GT_JOB_FAILED, strerror(errno));
         return GT_JOB_FAILED;
     }
     off_t length;
     if (fseeko(f, 0, SEEK_END) != 0 || (length = ftello(f)) < 0 || fseeko(f, 0, SEEK_SET) != 0) {
         fclose(f);
-        emit_job_done(j->job_id, GT_JOB_FAILED, "读取本地源尺寸或定位失败");
+        emit_job_done(j, GT_JOB_FAILED, "读取本地源尺寸或定位失败");
         return GT_JOB_FAILED;
     }
     uint64_t total = (uint64_t)length;
@@ -2496,7 +2556,7 @@ static int job_upload(sftp_job_t *j) {
     SFTP_UNLOCK(s);
     if (!h) {
         fclose(f);
-        emit_job_done(j->job_id, GT_JOB_FAILED, "打开远端文件失败");
+        emit_job_done(j, GT_JOB_FAILED, "打开远端文件失败");
         return GT_JOB_FAILED;
     }
 
@@ -2557,7 +2617,7 @@ out:
         : rc == GT_JOB_OK        ? "upload done"
         : rc == GT_JOB_CANCELLED ? "upload cancelled（已传部分保留）"
                                  : "upload failed";
-    emit_job_done(j->job_id, rc, detail);
+    emit_job_done(j, rc, detail);
     return rc;
 }
 
@@ -2580,7 +2640,7 @@ static void *worker_main(void *arg) {
         pthread_mutex_unlock(&sftp->qlock);
 
         if (atomic_load(&j->cancelled)) {
-            emit_job_done(j->job_id, GT_JOB_CANCELLED, "cancelled before opening files");
+            emit_job_done(j, GT_JOB_CANCELLED, "cancelled before opening files");
         } else if (j->upload) {
             job_upload(j);
         } else {
@@ -2599,13 +2659,23 @@ static void *worker_main(void *arg) {
         pthread_mutex_unlock(&sftp->qlock);
         free(j->remote);
         free(j->local);
+        free(j->staging_template);
+        gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
     }
     return NULL;
 }
 
-static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b, bool upload) {
-    if (!sftp || !sftp->sftp || !a || !b || !*a || !*b) {
+static uint64_t submit_job(gt_sftp_t *sftp,
+                           const char *a,
+                           const char *b,
+                           bool upload,
+                           uint64_t max_download_bytes,
+                           bool staged_download,
+                           bool overwrite_destination) {
+    if (!sftp || !sftp->sftp || !a || !b || !*a || !*b || strlen(a) >= 65536 ||
+        strlen(b) >= 65536 ||
+        (staged_download && max_download_bytes != UINT64_MAX && max_download_bytes > INT64_MAX)) {
         gt__set_error("sftp job: 参数非法或 SFTP 未就绪");
         return 0;
     }
@@ -2619,14 +2689,34 @@ static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b, bool u
     }
     j->sftp = sftp;
     j->upload = upload;
+    j->staged_download = staged_download;
+    j->overwrite_destination = overwrite_destination;
     j->remote = gt__strdup(upload ? b : a);
     j->local = gt__strdup(upload ? a : b);
     j->job_id = __sync_fetch_and_add(&g_next_job_id, 1);
+    j->max_download_bytes = max_download_bytes;
+    if (staged_download && j->local) {
+        const char *slash = strrchr(j->local, '/');
+        size_t directory_size = slash ? (size_t)(slash - j->local + 1) : 0;
+        size_t template_size = directory_size + sizeof(".ghosterm-XXXXXX");
+        j->staging_template = gt__alloc(template_size);
+        if (j->staging_template) {
+            snprintf(j->staging_template,
+                     template_size,
+                     "%.*s.ghosterm-XXXXXX",
+                     (int)directory_size,
+                     j->local);
+        }
+    }
+    j->terminal_event_reservation = gt__event_reserve_terminal();
     atomic_init(&j->cancelled, false);
     atomic_init(&j->paused, false);
-    if (!j->remote || !j->local) {
+    if (!j->remote || !j->local || !j->terminal_event_reservation ||
+        (staged_download && !j->staging_template)) {
         free(j->remote);
         free(j->local);
+        free(j->staging_template);
+        gt__event_discard_reservation(j->terminal_event_reservation);
         free(j);
         return 0;
     }
@@ -2649,11 +2739,16 @@ static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b, bool u
 }
 
 uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local) {
-    return submit_job(sftp, remote, local, false);
+    return submit_job(sftp, remote, local, false, UINT64_MAX, false, true);
+}
+
+uint64_t gt_sftp_download_staged(
+    gt_sftp_t *sftp, const char *remote, const char *local, bool overwrite, uint64_t max_bytes) {
+    return submit_job(sftp, remote, local, false, max_bytes, true, overwrite);
 }
 
 uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote) {
-    return submit_job(sftp, local, remote, true);
+    return submit_job(sftp, local, remote, true, UINT64_MAX, false, true);
 }
 
 /* cancel / pause 都按 job_id 查在途表（调用可来自任意线程）。 */
@@ -3088,6 +3183,17 @@ uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local
     (void)remote;
     (void)local;
     gt__set_error("gt_sftp_download: libssh2 未编译进核心");
+    return 0;
+}
+
+uint64_t gt_sftp_download_staged(
+    gt_sftp_t *sftp, const char *remote, const char *local, bool overwrite, uint64_t max_bytes) {
+    (void)sftp;
+    (void)remote;
+    (void)local;
+    (void)overwrite;
+    (void)max_bytes;
+    gt__set_error("gt_sftp_download_staged: libssh2 未编译进核心");
     return 0;
 }
 

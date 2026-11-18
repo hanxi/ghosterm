@@ -1135,6 +1135,20 @@ public final class SFTPSession {
         return id
     }
 
+    /// 发起带本机暂存/原子发布的下载 job。no-overwrite 发布由文件系统原子保证。
+    @discardableResult
+    public func downloadStaged(remote: String, local: String,
+                               overwrite: Bool, maxBytes: UInt64) throws -> UInt64 {
+        guard maxBytes == UInt64.max || maxBytes <= UInt64(Int64.max) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid download byte limit")
+        }
+        let id = remote.withCString { r in
+            local.withCString { l in gt_sftp_download_staged(handle, r, l, overwrite, maxBytes) }
+        }
+        guard id != 0 else { throw GhostermError.failed(Ghosterm.lastError) }
+        return id
+    }
+
     /// 发起上传 job。
     @discardableResult
     public func upload(local: String, remote: String) throws -> UInt64 {

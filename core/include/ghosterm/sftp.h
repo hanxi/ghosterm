@@ -405,6 +405,11 @@ int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth, gt_sftp_walk_
  * cancelled before execution open neither file. Event delivery can overflow;
  * a missing completion event must never be inferred as success. */
 uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local);
+
+/* 通过同目录临时文件接收并原子发布。max_bytes 是硬写入上限；overwrite=false
+ * 时以原子独占链接发布，目标竞争失败不会覆盖目标。 */
+uint64_t gt_sftp_download_staged(
+    gt_sftp_t *sftp, const char *remote, const char *local, bool overwrite, uint64_t max_bytes);
 uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote);
 
 /* 取消一个进行中的 job。 */

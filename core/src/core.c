@@ -81,7 +81,61 @@ static gt_event_t g_ev_initial[GT_EVENT_QUEUE_INITIAL];
 static gt_event_t *g_events = g_ev_initial;
 static size_t g_ev_head, g_ev_count;
 static size_t g_ev_capacity = GT_EVENT_QUEUE_INITIAL;
+
+typedef struct gt_terminal_event_node {
+    struct gt_terminal_event_node *next;
+    gt_event_t event;
+} gt_terminal_event_node_t;
+
+static gt_terminal_event_node_t *g_terminal_head, *g_terminal_tail;
 static pthread_mutex_t g_ev_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *gt__event_reserve_terminal(void) {
+    gt_terminal_event_node_t *node = calloc(1, sizeof *node);
+    if (!node) {
+        gt__set_error("out of memory reserving terminal event");
+    }
+    return node;
+}
+
+void gt__event_discard_reservation(void *reservation) {
+    free(reservation);
+}
+
+void gt__emit_reserved_job_done(void *reservation, uint64_t job_id, int code, const char *message) {
+    gt_terminal_event_node_t *node = reservation;
+    if (!node) {
+        return;
+    }
+    memset(&node->event, 0, sizeof node->event);
+    node->event.kind = GT_EVENT_JOB_DONE;
+    node->event.job_id = job_id;
+    node->event.code = code;
+    if (message) {
+        strncpy(node->event.message, message, GT_EVENT_MESSAGE_MAX - 1);
+    }
+    pthread_mutex_lock(&g_ev_lock);
+    size_t retained = 0;
+    for (size_t i = 0; i < g_ev_count; i++) {
+        const size_t source = (g_ev_head + i) % g_ev_capacity;
+        const gt_event_t event = g_events[source];
+        if (event.kind == GT_EVENT_PROGRESS && event.job_id == job_id) {
+            continue;
+        }
+        const size_t destination = (g_ev_head + retained) % g_ev_capacity;
+        g_events[destination] = event;
+        retained++;
+    }
+    g_ev_count = retained;
+    node->next = NULL;
+    if (g_terminal_tail) {
+        g_terminal_tail->next = node;
+    } else {
+        g_terminal_head = node;
+    }
+    g_terminal_tail = node;
+    pthread_mutex_unlock(&g_ev_lock);
+}
 
 static void event_push(const gt_event_t *ev) {
     pthread_mutex_lock(&g_ev_lock);
@@ -139,6 +193,15 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap) {
     }
     size_t n = 0;
     pthread_mutex_lock(&g_ev_lock);
+    while (n < cap && g_terminal_head) {
+        gt_terminal_event_node_t *node = g_terminal_head;
+        g_terminal_head = node->next;
+        if (!g_terminal_head) {
+            g_terminal_tail = NULL;
+        }
+        out[n++] = node->event;
+        free(node);
+    }
     while (n < cap && g_ev_count) {
         out[n++] = g_events[g_ev_head];
         g_ev_head = (g_ev_head + 1) % g_ev_capacity;
