@@ -13377,3 +13377,12 @@ wire 收据 SHA256 `b588d5e6ec060041fd5fef942fab1ffcb040be746b55adb68fbe69ef44be
 首次构建遗漏 `GHOSTERM_GTERM_TESTS`，缺探针二进制，未运行用例。补齐后通过。
 收据 SHA256 `b57ee1b9ad50ce2bf4903c0e033739b4e986c086923b55cccf2838e02b495aca`。
 本轮为自有回环与普通 PTY 夹具，未覆盖 App TerminalSurface、Android 或所有 tmux 故障。
+
+### Android 插件与嵌套 tmux 共存复验（2026-11-19）
+
+固定 `9a04f7cd`，在 API 36 无窗口 AVD 上复跑 `test-plugin-execution-ssh-app.py
+--headless-api 36 --tmux nested` 的 Node / Exec × 双向资源 / 进程共四项。真实两跳
+SSH 链使用本机隔离服务。普通 SSH PTY 切 pane、切窗口和重附着时，插件独立无 PTY
+连接继续工作。两路业务进程回执均确认回收，资源和进程均核对 256 KiB 摘要。
+收据 SHA256 `c73f6399c0bf4a5470dfe1d3349c576dfad09e42030af32b5cd3e58298cea2d4`。
+本轮不覆盖 Android 终端焦点、IME 或物理设备。独立 ADB 与隔离产物已清理。
