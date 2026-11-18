@@ -221,6 +221,16 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
                 throw GhostermError.failed("插件连接数量已达上限或启动组为空")
             }
             let owner = try await extensionController.makeInvocationController()
+            // Creating the owner suspends on the Core worker. Recheck before
+            // publishing the connection, while admission is on the main actor.
+            guard !Task.isCancelled else {
+                _ = await owner.close()
+                return false
+            }
+            guard extensionConnections.filter({ !$0.canDiscard }).count < 16 else {
+                _ = await owner.close()
+                throw GhostermError.failed("插件连接数量已达上限")
+            }
             let connection = ExtensionConnectionModel(controller: owner, title: first.localLaunch == nil ? first.sshAlias : "本机")
             extensionConnections.append(connection)
             extensionConnectionObservations[connection.id] = connection.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
