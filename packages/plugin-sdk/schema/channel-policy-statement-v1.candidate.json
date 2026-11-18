@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/channel-policy-statement-v1.candidate.json",
+  "$comment": "Candidate metadata for a detached signature from a host-trusted channel root. policySHA256 covers the exact policy-file bytes. The verifier must check integer bounds, time ordering and freshness, channel binding, signature and the persisted generation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "channel", "generation", "issuedAt", "expiresAt", "policySHA256"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "channel": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$"},
+    "generation": {"$ref": "#/$defs/positiveDecimal"},
+    "issuedAt": {"$ref": "#/$defs/positiveDecimal", "description": "UTC Unix seconds at issuance."},
+    "expiresAt": {"$ref": "#/$defs/positiveDecimal", "description": "UTC Unix seconds at the exclusive expiry boundary."},
+    "policySHA256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "positiveDecimal": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"}
+  }
+}
