@@ -13907,3 +13907,13 @@ arm64 无窗口 AVD 运行 `test-plugin-views-android-native.py --api 36`。
 收据 SHA256 `b0b78209a295b68b4444d19c2b2e19f99b374287cb3b4380d8e02d65099339b7`。
 本轮临时构件与日志已清理，默认 Core 恢复 JS-off。在线策略新鲜度、
 生产信任根与发布仍待独立验收。
+
+### P6 Android 签名与策略复核集中验收（2026-11-19）
+
+固定 `6254384b`，新构建 JS-on 应用和测试 APK，
+`test-plugin-release-android.py --headless-api 36 --policy-review` 全部 310 项通过。
+API 36 arm64 / 4 KiB 页，安装后对拍两份 APK，覆盖签名、归档、安装事务、
+版本选择与移除、维护、未知目录核对、当前策略复核和显式禁用。收据 SHA256
+`22957b1711d09e1f0a4ec6477794ac37165652d290000b074ef0c49b43a77430`。
+本轮未加 `--selection-channel`、进程死亡或变异，也未验证在线策略新鲜度。
+无窗口 AVD 与本轮日志已清理。
