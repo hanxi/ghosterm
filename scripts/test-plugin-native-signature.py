@@ -313,6 +313,7 @@ def main():
                     if key.startswith('GHOSTERM_SSH_'): del child_env[key]
                 # AppKit may abort an isolated XCTest before XCTest emits an assertion.
                 child_env['OBJC_PRINT_EXCEPTIONS'] = 'YES'
+                child_env['GHOSTERM_TEST_PLUGIN_UI_TRACE'] = '1'
                 payload = ['bash', 'scripts/apple-app-gate.sh']
             else: payload = ['swift', 'test', '--package-path', str(package), '--filter', selected]
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require native-signature; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
@@ -330,7 +331,7 @@ def main():
             full_output = log.encode()
             (work / (label + '.log')).write_bytes(full_output)
             if child.returncode != 0 and not red:
-                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:|exception|unexpected signal', line, re.I))[:12000], flush=True)
+                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:|plugin-ui-step:|exception|unexpected signal', line, re.I))[:12000], flush=True)
             if red:
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
                 assert re.search(r': error: .* : (?:XCTAssert\w+ failed|failed -)', log), (label, log[-9000:])

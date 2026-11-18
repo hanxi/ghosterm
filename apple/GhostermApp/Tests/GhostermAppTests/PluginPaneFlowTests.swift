@@ -87,8 +87,14 @@ final class PluginPaneFlowTests: XCTestCase {
         if jump && (env["GHOSTERM_SSH_JUMP_HOST"] == nil || env["GHOSTERM_SSH_JUMP_PORT"] == nil) {
             throw XCTSkip("requires explicitly requested owned forwarding-only jump fixture")
         }
+        func trace(_ step: String) {
+            guard env["GHOSTERM_TEST_PLUGIN_UI_TRACE"] == "1" else { return }
+            FileHandle.standardError.write(Data("plugin-ui-step: \(step)\n".utf8))
+        }
+        trace("enter automation mode")
         TestWindows.enterAutomationMode()
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        trace("enable accessibility")
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
         defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -143,6 +149,7 @@ final class PluginPaneFlowTests: XCTestCase {
         let interaction = CodexRouteInteraction()
         model.interaction = interaction
         var selections = 0
+        trace("create hosting view")
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model, packagePicker: { completion in
             selections += 1
             completion(.success([package]))
@@ -150,6 +157,7 @@ final class PluginPaneFlowTests: XCTestCase {
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1400),
                                        styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = pane
+        trace("present offscreen window")
         TestWindows.presentOffscreen(window)
         defer { window.orderOut(nil); window.contentView = nil }
         func nodes() -> [NSObject] { pane.layoutSubtreeIfNeeded(); return PluginTableRendering.elements(pane) }
@@ -157,10 +165,12 @@ final class PluginPaneFlowTests: XCTestCase {
             nodes().first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier }
         }
         func press(_ identifier: String) throws {
+            trace("press \(identifier)")
             let control = try XCTUnwrap(node(identifier), identifier)
             XCTAssertTrue(PluginTableRendering.press(control), identifier)
         }
         func set(_ identifier: String, _ value: String) throws {
+            trace("edit \(identifier)")
             let control = try XCTUnwrap(node(identifier), identifier)
             let selector = NSSelectorFromString("setAccessibilityValue:")
             guard control.responds(to: selector) else { throw GhostermError.failed("not editable: \(identifier)") }
@@ -186,6 +196,7 @@ final class PluginPaneFlowTests: XCTestCase {
                 }
             }
         }
+        trace("locate package import control")
         guard try await until({ node("plugin-package-import") != nil }) else { XCTFail("import control missing"); return }
         XCTAssertNil(model.extensionRun)
         try press("plugin-package-import")
