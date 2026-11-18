@@ -17,6 +17,7 @@ struct ExtensionsPane: View {
     @State private var entries: [Entry] = []
     @State private var issue: String?
     @State private var pendingConnections: [ExtensionGroupInvocation] = []
+    @State private var startingConnectionGroup = false
     @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspectionTask: Task<Void, Never>?
@@ -296,7 +297,7 @@ struct ExtensionsPane: View {
                                     .accessibilityIdentifier("plugin-group-temporary-" + entry.review.id)
                             }
                             Button("加入连接组") { enqueue(entry) }
-                                .disabled(entry.attachExisting || pendingConnections.count >= 8)
+                                .disabled(startingConnectionGroup || entry.attachExisting || pendingConnections.count >= 8)
                                 .accessibilityIdentifier("plugin-enqueue-" + entry.review.id)
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(!model.extensionInstance.canDiscard)
@@ -551,13 +552,16 @@ struct ExtensionsPane: View {
                         Text(verbatim: launch.packageID + " · " + launch.request.command)
                         Spacer()
                         Button("移除") { pendingConnections.removeAll { $0.id == launch.id } }
+                            .disabled(startingConnectionGroup)
                     }
                     ForEach(model.extensionConnections.filter { $0.canAdd }) { connection in
                         Button("添加到现有连接：" + connection.title + " · " + connection.targetDescription) {
                             Task { @MainActor in
                                 if await connection.add(launch, app: model) { pendingConnections.removeAll { $0.id == launch.id }; SettingsWindow.close() }
                             }
-                        }.accessibilityIdentifier("plugin-add-" + connection.id.uuidString + "-" + launch.id.uuidString)
+                        }
+                        .disabled(startingConnectionGroup)
+                        .accessibilityIdentifier("plugin-add-" + connection.id.uuidString + "-" + launch.id.uuidString)
                     }
                     DisclosureGroup("查看配置") {
                         Text(verbatim: "目标：" + (launch.localLaunch == nil ? launch.sshAlias : "本机") + " · " + launch.request.executable)
@@ -577,11 +581,20 @@ struct ExtensionsPane: View {
                         Text(verbatim: "选定环境名称：" + launch.request.processEnvironmentNames.joined(separator: ", "))
                     }.font(DS.Font.caption).textSelection(.enabled)
                 }
-                Button("连接并启动整组") {
-                    let snapshot = pendingConnections; pendingConnections = []
-                    SettingsWindow.close()
-                    Task { await model.startExtensionGroup(snapshot) }
-                }.accessibilityIdentifier("plugin-launch-group")
+                Button(startingConnectionGroup ? "正在启动整组…" : "连接并启动整组") {
+                    let snapshot = pendingConnections
+                    startingConnectionGroup = true
+                    Task {
+                        defer { startingConnectionGroup = false }
+                        if await model.startExtensionGroup(snapshot) {
+                            let launchedIDs = Set(snapshot.map(\.id))
+                            pendingConnections.removeAll { launchedIDs.contains($0.id) }
+                            SettingsWindow.close()
+                        }
+                    }
+                }
+                .disabled(startingConnectionGroup)
+                .accessibilityIdentifier("plugin-launch-group")
             }
         }
         if let issue = model.extensionConnectionIssue { Text(verbatim: issue).foregroundStyle(.red) }

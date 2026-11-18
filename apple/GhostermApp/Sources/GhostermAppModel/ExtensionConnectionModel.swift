@@ -214,8 +214,9 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
 }
 
 @MainActor public extension AppModel {
-    func startExtensionGroup(_ invocations: [ExtensionGroupInvocation]) async {
-        guard let extensionController else { extensionConnectionIssue = "此构建未启用插件运行时"; return }
+    @discardableResult
+    func startExtensionGroup(_ invocations: [ExtensionGroupInvocation]) async -> Bool {
+        guard let extensionController else { extensionConnectionIssue = "此构建未启用插件运行时"; return false }
         do {
             guard extensionConnections.filter({ !$0.canDiscard }).count < 16, let first = invocations.first else {
                 throw GhostermError.failed("插件连接数量已达上限或启动组为空")
@@ -226,6 +227,14 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             extensionConnectionObservations[connection.id] = connection.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             extensionConnectionIssue = nil
             await connection.start(invocations, app: self)
-        } catch { extensionConnectionIssue = "连接组启动失败：\(error)" }
+            if let issue = connection.issue {
+                extensionConnectionIssue = issue
+                return false
+            }
+            return !connection.instances.isEmpty && !connection.closed
+        } catch {
+            extensionConnectionIssue = "连接组启动失败：\(error)"
+            return false
+        }
     }
 }
