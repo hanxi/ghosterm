@@ -375,6 +375,7 @@ def check_channel_statement(api, channel, channel_root, statement_path, signatur
     with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
         verify_signature(api, Path(temporary), {'publicKey': channel_root}, statement_bytes, signature,
                          kind='channel-policy')
+    api.require(api.sha(root) not in {key['id'] for key in trusted['keys']}, 'CHANNEL_ROOT_IS_PUBLISHER', 6)
     api.require(statement['channel'] == trusted['channel'] == channel, 'RELEASE_CHANNEL_MISMATCH', 6)
     api.require(digest_value(api, statement['policySHA256']) == api.sha(policy_bytes), 'CHANNEL_POLICY_DIGEST', 6)
     digest = api.sha(statement_bytes)

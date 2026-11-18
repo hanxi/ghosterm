@@ -70,6 +70,12 @@ class PluginReleaseSignatureTest {
         reject(PluginReleaseSignature.Failure.CHANNEL_STATEMENT) { read(trust = key) }
         reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { read(now = 99u) }
         reject(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS) { accepted.authenticate(descriptor, signature, 200u) }
+        val dualUse = channel.getJSONObject("dualUse")
+        reject(PluginReleaseSignature.Failure.CHANNEL_ROOT_IS_PUBLISHER) {
+            PluginReleaseSignature.verifyChannelPolicy(dualUse.getString("statement").toByteArray(),
+                Base64.getDecoder().decode(dualUse.getString("signature")), dualUse.getString("policy").toByteArray(),
+                "fixture", root, 150u)
+        }
         val directory = PluginInstallTestFiles.root()
         try {
             val store = PluginChannelPolicyStore(directory, "fixture", root)

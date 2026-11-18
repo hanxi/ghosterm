@@ -77,6 +77,20 @@ def main():
             sign(rejected, generation='02', expected='CHANNEL_POLICY_INTEGER')
             sign(rejected, expires=now, expected='CHANNEL_POLICY_FRESHNESS')
             assert not rejected.exists()
+            dual_use = work / 'dual-use'
+            dual_use.mkdir()
+            overlap = json.loads(policy.read_bytes())
+            overlap['keys'][0].update(id=helper.sha(base64.b64decode(root)), publicKey=root)
+            shared_policy = json.dumps(overlap).encode()
+            statement = json.loads((output / 'channel-policy.json').read_bytes())
+            statement['policySHA256'] = helper.sha(shared_policy)
+            raw = json.dumps(statement).encode()
+            signed_overlap = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', root_endpoint],
+                input=b'ghosterm.channel-policy.v1\0' + raw, capture_output=True, check=True, env=env, timeout=15).stdout
+            (dual_use / 'policy.json').write_bytes(shared_policy)
+            (dual_use / 'channel-policy.json').write_bytes(raw)
+            (dual_use / 'channel-policy.sig').write_bytes(signed_overlap)
+            verify(dual_use, expected='CHANNEL_ROOT_IS_PUBLISHER')
             old = work / 'old'
             sign(old, generation='1')
             verify(old, expected='CHANNEL_POLICY_ROLLBACK')

@@ -86,6 +86,14 @@ final class PluginDirectorySignatureTests: XCTestCase {
         rejects(.channelStatement) { try verified(policy + Data([10]), signature) }
         rejects(.channelStatement) { try verified(policy, f.sign(statement, domain: "ghosterm.channel-policy.v1\0")) }
         rejects(.channelStatement) { try verified(policy, root.sign(statement)) }
+        let rootPolicy = try Self.json(root.policy)
+        let rootStatement = try Self.json(["schemaVersion": 1, "channel": "test", "generation": "3",
+                                           "issuedAt": "100", "expiresAt": "200", "policySHA256": Self.hash(rootPolicy)])
+        rejects(.channelRootIsPublisher) {
+            try Verifier.verifyChannelPolicy(statement: rootStatement,
+                signature: root.sign(rootStatement, domain: "ghosterm.channel-policy.v1\0"), policy: rootPolicy,
+                channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 150)
+        }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])

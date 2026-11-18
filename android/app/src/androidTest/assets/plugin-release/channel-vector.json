@@ -1,17 +1,22 @@
 {
-  "root": "qZbCDlPwKCHGXfKupzBAFptooapHwbTQpgVkJKb3V9Y=",
+  "root": "pFXyjlKKxR7DTjceQrSx62AOosHe5gevBubsSDjPd2I=",
   "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"2\",\"issuedAt\":\"100\",\"expiresAt\":\"200\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
-  "signature": "yA12lLEXEpyrDLoB/RMae4bRosZaBmr22y7JUS8BOxqc3RgH4DZgN1MrujqpS8XsQbZut8RJVySHwdbGNb/ACg==",
+  "signature": "3bwyofS7Kc4lA3u/Xh/lQcbo/p/JTUjoEz4YYc4tic70bhCbp2e5i4PX0XTnm0C1XzOobWPKRWeIhOIBUSFTCA==",
   "older": {
     "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"1\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
-    "signature": "hblIQBP4zjCZM6tttrnMVOuKgWI5ulvL/OCZAvd9wYFEIGUuebrZ1wOCkGk7qfTohI8DVVu2szTQR+Fk4S/3AQ=="
+    "signature": "pr/xy5ffhymyIf0cU+mSSnDZsxDKVh/G6Np3cjOED8ucsj1quCoa4ynvPp5j6CR/MjMQxuDgZenX4i/emmGxAw=="
   },
   "fork": {
     "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"2\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
-    "signature": "R32fZEsHl0D+MJMUgpk2yaJ/VSWBZDyZfxOvvv98q7ZQbN9VKLWpBWDOTNUN5koY8gUewCTuWKd/vTVS/tp7Dw=="
+    "signature": "3LhMgFd6J4RHdaJSx6LeLw8MLliAqkGMteyPetbDM5W8OFFWi1G4LXasdPdUouDLzg6vI0iv44EQaDaqG8+bAg=="
   },
   "next": {
     "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"3\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"2f72e13fe4298709163149d014b52ebe54c119520085fe8c2da4f0e9b3cfe227\"}",
-    "signature": "xAnz1ax8hcm5SA6pYRbRlxd+76ApsMWmXbTjj/z0u9lth5zL5FKXRZslEcYW80s3UPBKGLeOlHdP5Ezis9mkBg=="
+    "signature": "9DL7LswSuIZ6sZKwsxtBQYTtb3G2Kvpp4D8JQA1g68bXwkONr3QJKxri/KS5bEL003mPG5SQiUH5utyr4LU7DQ=="
+  },
+  "dualUse": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"3\",\"issuedAt\":\"100\",\"expiresAt\":\"300\",\"policySHA256\":\"24192072ac99e1b613d1e55ebfd01d7b0bd8fd5427a10ff2bfdc419aad6d6ca1\"}",
+    "signature": "zqJd9OACmeJEPpKiYLjD9dUbiHX6keU+HbKJdw5XE1BOagzWTkLLw2rVfAIerVwGE06QQ/XzZktqo88dHBnGBg==",
+    "policy": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"keys\":[{\"id\":\"c2fd515d28c1eaac77a08118bfa0e944a6b683bcd00e3963b74db95e5484f133\",\"algorithm\":\"ed25519\",\"publicKey\":\"pFXyjlKKxR7DTjceQrSx62AOosHe5gevBubsSDjPd2I=\",\"publisher\":\"fixture\",\"pluginIds\":[\"org.ghosterm.signature\"]}],\"revokedKeyIds\":[]}"
   }
 }

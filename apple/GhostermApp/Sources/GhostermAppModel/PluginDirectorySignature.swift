@@ -26,7 +26,7 @@ public enum PluginDirectorySignatureVerifier {
 
     public enum Failure: String, Error, Sendable, LocalizedError {
         case json, duplicateKey, limit, file, changed, policy, descriptor, unknownKey, revokedKey, scope, signature, identity
-        case channelStatement, channelFreshness, channelHistory
+        case channelStatement, channelFreshness, channelHistory, channelRootIsPublisher
         public var errorDescription: String? {
             switch self {
             case .json, .duplicateKey: return "签名描述或渠道策略不是有效且无重复字段的 JSON。"
@@ -42,6 +42,7 @@ public enum PluginDirectorySignatureVerifier {
             case .identity: return "发布描述与当前已审查的目录包摘要或身份不一致。"
             case .channelStatement: return "渠道策略声明格式、签名或摘要无效。"
             case .channelFreshness: return "渠道策略尚未生效或已过期。"
+            case .channelRootIsPublisher: return "渠道根公钥不能同时用于插件发布。"
             case .channelHistory: return "渠道根、策略代次或系统时间与已记录状态不一致。"
             }
         }
@@ -78,15 +79,18 @@ public enum PluginDirectorySignatureVerifier {
               let generation = try positiveDecimal(fields["generation"]),
               let issuedAt = try positiveDecimal(fields["issuedAt"]),
               let expiresAt = try positiveDecimal(fields["expiresAt"]) else { throw Failure.channelStatement }
-        guard try policy(policyBytes).channel == channel else { throw Failure.scope }
+        let trusted = try policy(policyBytes)
+        guard trusted.channel == channel else { throw Failure.scope }
         var message = Data("ghosterm.channel-policy.v1\0".utf8)
         message.append(statement)
         let key = try Curve25519.Signing.PublicKey(rawRepresentation: channelRoot)
         guard key.isValidSignature(signature, for: message) else { throw Failure.channelStatement }
+        let rootDigest = hash(key.rawRepresentation)
+        guard trusted.keys[rootDigest] == nil else { throw Failure.channelRootIsPublisher }
         guard issuedAt <= now, now < expiresAt else { throw Failure.channelFreshness }
         return VerifiedChannelPolicy(channel: channel, generation: generation, issuedAt: issuedAt,
                                      expiresAt: expiresAt, statementSHA256: hash(statement),
-                                     rootSHA256: hash(key.rawRepresentation),
+                                     rootSHA256: rootDigest,
                                      envelope: ChannelEnvelope(statement: statement, signature: signature, policy: policyBytes))
     }
 

@@ -13,7 +13,7 @@ import java.util.Base64
 
 /** Explicit policy bytes only; authentication is separate from source/Session consent. */
 internal object PluginReleaseSignature {
-    enum class Failure { JSON, DUPLICATE_KEY, LIMIT, POLICY, DESCRIPTOR, UNKNOWN_KEY, REVOKED_KEY, SCOPE, SIGNATURE, IDENTITY, UNSUPPORTED, CRYPTO_UNKNOWN, CHANNEL_STATEMENT, CHANNEL_FRESHNESS, CHANNEL_HISTORY }
+    enum class Failure { JSON, DUPLICATE_KEY, LIMIT, POLICY, DESCRIPTOR, UNKNOWN_KEY, REVOKED_KEY, SCOPE, SIGNATURE, IDENTITY, UNSUPPORTED, CRYPTO_UNKNOWN, CHANNEL_STATEMENT, CHANNEL_FRESHNESS, CHANNEL_HISTORY, CHANNEL_ROOT_IS_PUBLISHER }
     class Rejected(val reason: Failure) : IllegalArgumentException(when (reason) {
         Failure.REVOKED_KEY -> "此签名密钥已被所选策略撤销。"
         Failure.UNKNOWN_KEY -> "所选策略不认识此签名密钥。"
@@ -23,6 +23,7 @@ internal object PluginReleaseSignature {
         Failure.UNSUPPORTED -> "当前构建不支持发布签名验证。"
         Failure.CRYPTO_UNKNOWN -> "发布签名验证未完成，不能判断为有效或签名不匹配。"
         Failure.CHANNEL_STATEMENT -> "渠道签名声明与信任根或策略摘要不匹配。"
+        Failure.CHANNEL_ROOT_IS_PUBLISHER -> "渠道根公钥不能同时用于插件发布。"
         Failure.CHANNEL_HISTORY -> "插件渠道缓存缺失，或策略代次、信任根及系统时间不一致。"
         Failure.CHANNEL_FRESHNESS -> "渠道策略尚未生效或已过期。"
         Failure.LIMIT -> "发布签名材料超过读取或结构上限。"
@@ -74,13 +75,15 @@ internal object PluginReleaseSignature {
         val generation = decimal("generation")
         val issuedAt = decimal("issuedAt")
         val expiresAt = decimal("expiresAt")
-        ensure(parsePolicy(policyBytes).channel == channel, Failure.SCOPE)
+        val trusted = parsePolicy(policyBytes)
+        ensure(trusted.channel == channel, Failure.SCOPE)
         when (ReleaseSignature.verifyChannelPolicy(root, signed, payload)) {
             0 -> Unit
             4 -> reject(Failure.CHANNEL_STATEMENT)
             7 -> reject(Failure.UNSUPPORTED)
             else -> reject(Failure.CRYPTO_UNKNOWN)
         }
+        ensure(hash(root) !in trusted.keys, Failure.CHANNEL_ROOT_IS_PUBLISHER)
         ensure(issuedAt <= now && now < expiresAt, Failure.CHANNEL_FRESHNESS)
         return VerifiedChannelPolicy(channel, generation, issuedAt, expiresAt, hash(payload), policyBytes)
     }
