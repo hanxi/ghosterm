@@ -476,11 +476,13 @@ public actor ExtensionController {
         public let channel: String
         public let root: Data
         public let stateDirectory: URL
+        public let refreshDirectory: URL?
 
-        public init(channel: String, root: Data, stateDirectory: URL) {
+        public init(channel: String, root: Data, stateDirectory: URL, refreshDirectory: URL? = nil) {
             self.channel = channel
             self.root = Data(Array(root))
             self.stateDirectory = stateDirectory
+            self.refreshDirectory = refreshDirectory
         }
     }
 

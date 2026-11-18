@@ -115,6 +115,43 @@ final class PluginDirectorySignatureTests: XCTestCase {
         XCTAssertEqual(try load(152).generation, 2)
     }
 
+    func testChannelRefreshCommitsOnlyVerifiedCompleteResponses() async throws {
+        let fixture = Fixture(), root = Fixture(), policy = try Self.json(fixture.policy)
+        let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: state) }
+        let directory = try XCTUnwrap(URL(string: "https://channel.invalid/test/"))
+        let now = UInt64(Date().timeIntervalSince1970)
+        func responses(_ generation: String, body: Data) throws -> [String: Data] {
+            let statement = try Self.json(["schemaVersion": 1, "channel": "test", "generation": generation,
+                                           "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": Self.hash(policy)])
+            return ["channel-policy.json": statement, "channel-policy.sig": try root.sign(statement, domain: "ghosterm.channel-policy.v1\0"),
+                    "policy.json": body]
+        }
+        let trust = ExtensionController.ChannelTrust(channel: "test", root: root.key.publicKey.rawRepresentation,
+                                                     stateDirectory: state, refreshDirectory: directory)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ChannelRefreshProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); ChannelRefreshProtocol.set([:]) }
+        ChannelRefreshProtocol.set(try responses("1", body: policy))
+        let first = try await PluginChannelRefresh.refresh(trust, session: session)
+        XCTAssertEqual(first.generation, 1)
+        ChannelRefreshProtocol.set(try responses("2", body: policy + Data([10])))
+        do {
+            _ = try await PluginChannelRefresh.refresh(trust, session: session)
+            XCTFail("mixed statement and policy responses must be rejected")
+        } catch Failure.channelStatement {}
+        ChannelRefreshProtocol.set(try responses("2", body: Data(repeating: 0, count: 131_073)))
+        do {
+            _ = try await PluginChannelRefresh.refresh(trust, session: session)
+            XCTFail("oversized streamed response must be rejected")
+        } catch PluginChannelRefresh.Failure.length {}
+        let cached = try Verifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
+                                                     now: UInt64(Date().timeIntervalSince1970), stateDirectory: state)
+        XCTAssertEqual(cached.generation, 1)
+    }
+
     func testIdentityCannotBeReplacedByCaller() throws {
         let f = Fixture()
         for identity in [
@@ -264,3 +301,34 @@ final class PluginDirectorySignatureTests: XCTestCase {
 
 private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 private func json(_ value: Any) throws -> Data { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) }
+
+private final class ChannelRefreshProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var bodies: [String: Data] = [:]
+
+    static func set(_ values: [String: Data]) {
+        lock.lock()
+        defer { lock.unlock() }
+        bodies = values
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        Self.lock.lock()
+        let data = Self.bodies[url.lastPathComponent]
+        Self.lock.unlock()
+        guard url.host == "channel.invalid", let data else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
