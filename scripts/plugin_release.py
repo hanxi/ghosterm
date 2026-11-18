@@ -316,7 +316,7 @@ def execute(args, api):
 
 
 def verify_channel_policy(args, api):
-    public_key(api, args.channel_root)
+    root = public_key(api, args.channel_root)
     statement_bytes = stable_file(api, args.statement, 65536)
     signature = stable_file(api, args.signature, 64)
     policy_bytes = stable_file(api, args.policy, 131072)
@@ -330,7 +330,7 @@ def verify_channel_policy(args, api):
                     int(value) <= (1 << 64) - 1, 'CHANNEL_POLICY_INTEGER')
         return int(value)
 
-    positive_decimal(statement['generation'])
+    generation = positive_decimal(statement['generation'])
     issued = positive_decimal(statement['issuedAt'])
     expires = positive_decimal(statement['expiresAt'])
     with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
@@ -340,10 +340,48 @@ def verify_channel_policy(args, api):
     policy(api, trusted)
     api.require(statement['channel'] == trusted['channel'] == args.channel, 'RELEASE_CHANNEL_MISMATCH', 6)
     api.require(digest_value(api, statement['policySHA256']) == api.sha(policy_bytes), 'CHANNEL_POLICY_DIGEST', 6)
-    api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+    digest = api.sha(statement_bytes)
+    if args.record_state is None:
+        api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+    else:
+        record_channel_policy(api, args.record_state, args.channel, api.sha(root), generation, digest, issued, expires)
     return dict(kind='verified-channel-policy', channel=args.channel, generation=statement['generation'],
                 expiresAt=statement['expiresAt'], policySHA256=statement['policySHA256'],
-                statementSHA256=api.sha(statement_bytes)), 0
+                statementSHA256=digest), 0
+
+
+def record_channel_policy(api, path, channel, root, generation, digest, issued, expires):
+    import sqlite3
+    from contextlib import closing
+
+    api.require(not path.is_symlink(), 'CHANNEL_POLICY_STATE', 6)
+    try:
+        with closing(sqlite3.connect(path)) as db, db:
+            db.execute('PRAGMA synchronous=FULL')
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE IF NOT EXISTS channel_policy ('
+                       'channel TEXT PRIMARY KEY, root TEXT NOT NULL, generation TEXT NOT NULL, '
+                       'digest TEXT NOT NULL, observed INTEGER NOT NULL)')
+            previous = db.execute('SELECT root, generation, digest, observed FROM channel_policy '
+                                  'WHERE channel = ?', (channel,)).fetchone()
+            now = int(time.time())
+            if previous is not None:
+                prior_root, prior_generation, prior_digest, prior_time = previous
+                api.require(isinstance(prior_generation, str) and
+                            re.fullmatch('[1-9][0-9]{0,19}', prior_generation) and
+                            0 < int(prior_generation) < (1 << 64) and
+                            isinstance(prior_digest, str) and re.fullmatch('[0-9a-f]{64}', prior_digest) and
+                            type(prior_time) is int and prior_time > 0, 'CHANNEL_POLICY_STATE', 6)
+                api.require(root == prior_root, 'CHANNEL_POLICY_ROOT_CHANGED', 6)
+                api.require(now >= prior_time, 'CHANNEL_POLICY_CLOCK_ROLLBACK', 6)
+                old = int(prior_generation)
+                api.require(generation >= old, 'CHANNEL_POLICY_ROLLBACK', 6)
+                api.require(generation != old or digest == prior_digest, 'CHANNEL_POLICY_FORK', 6)
+            api.require(issued <= now < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+            db.execute('INSERT OR REPLACE INTO channel_policy VALUES (?, ?, ?, ?, ?)',
+                       (channel, root, str(generation), digest, now))
+    except (sqlite3.Error, TypeError, ValueError) as error:
+        raise api.Failure('CHANNEL_POLICY_STATE', 6) from error
 
 
 def checked_release(args, api):
