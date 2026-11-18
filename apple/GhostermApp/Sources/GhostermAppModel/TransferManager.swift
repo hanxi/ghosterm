@@ -33,6 +33,8 @@ public final class TransferManager: ObservableObject {
         public var direction: Direction
         public var local: String
         public var remote: String
+        var maxDownloadBytes: UInt64? = nil
+        var overwriteDestination = false
         public var status: Status = .queued
         public var controlError: String?
         public var done: UInt64 = 0
@@ -109,10 +111,11 @@ public final class TransferManager: ObservableObject {
 
     public func enqueueDownload(_ backend: TransferBackend, remote: String, local: String,
                                 name: String, isDirectory: Bool,
+                                maxBytes: UInt64? = nil,
                                 onFinish: ((Status) -> Void)? = nil) {
         if isDirectory { expandDirectory(backend, direction: .download, remote: remote, local: local, name: name, onFinish: onFinish) }
         else { addAndStart(backend, direction: .download, local: local, remote: remote,
-                           name: name, size: 0, onFinish: onFinish) }
+                           name: name, size: 0, maxDownloadBytes: maxBytes, onFinish: onFinish) }
     }
 
     public func enqueueUpload(_ backend: TransferBackend, local: String, remote: String,
@@ -125,6 +128,7 @@ public final class TransferManager: ObservableObject {
 
     private func addAndStart(_ backend: TransferBackend, direction: Direction,
                              local: String, remote: String, name: String, size: UInt64,
+                             maxDownloadBytes: UInt64? = nil,
                              onFinish: ((Status) -> Void)? = nil, parentID: UUID? = nil) {
         var j = Job(name: name, direction: direction, local: local, remote: remote)
         j.onFinish = onFinish
@@ -135,6 +139,7 @@ public final class TransferManager: ObservableObject {
             j.cancellation = parent.cancellation
         }
         j.total = size
+        j.maxDownloadBytes = maxDownloadBytes
         j.backend = backend
         j.retryBackend = { [weak backend] in backend }
         jobs.append(j)
@@ -154,6 +159,7 @@ public final class TransferManager: ObservableObject {
             }
             guard active else { return }
             var job = original
+                var overwriteDestination = false
             do {
                 try job.cancellation?.checkpoint()
                 var destination = job.direction == .download ? job.local : job.remote
@@ -193,12 +199,17 @@ public final class TransferManager: ObservableObject {
                         else { job.remote = destination }
                         job.name = (destination as NSString).lastPathComponent
                     case .overwrite:
+                        overwriteDestination = true
                         break
                     }
                 }
+                job.overwriteDestination = overwriteDestination
                 let core: UInt64
                 switch job.direction {
-                case .download: core = try backend.download(remote: job.remote, local: job.local)
+                case .download:
+                    core = try backend.downloadStaged(remote: job.remote, local: job.local,
+                                                      overwrite: job.overwriteDestination,
+                                                      maxBytes: job.maxDownloadBytes ?? UInt64.max)
                 case .upload: core = try backend.upload(local: job.local, remote: job.remote)
                 }
                 DispatchQueue.main.sync {
@@ -290,7 +301,8 @@ public final class TransferManager: ObservableObject {
                     try cancellation.checkpoint()
                     try fm.createDirectory(atPath: local, withIntermediateDirectories: true)
                     var directories: [String] = [], invalid = false
-                    try backend.walk(root: remote, maxDepth: -1) { e in
+                    try backend.walk(root: remote, maxDepth: -1,
+                                     isCancelled: { cancellation.cancelled }) { e in
                         if cancellation.waitWhilePaused() { return false }
                         if cancellation.cancelled { return false }
                         if e.path == remote && e.isDirectory { return true }

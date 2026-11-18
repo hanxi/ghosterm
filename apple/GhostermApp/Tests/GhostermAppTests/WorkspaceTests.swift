@@ -793,6 +793,8 @@ final class WorkspaceBackend: TransferBackend {
     func walk(root: String, maxDepth: Int, visit: @escaping (FileEntry) -> Bool) throws {}
     func exists(_ path: String) -> Bool { false }
     func download(remote: String, local: String) throws -> UInt64 { downloads.append(remote); id += 1; return id }
+    func downloadStaged(remote: String, local: String, overwrite: Bool,
+                        maxBytes: UInt64) throws -> UInt64 { downloads.append(remote); id += 1; return id }
     func upload(local: String, remote: String) throws -> UInt64 { uploads.append(remote); id += 1; return id }
     func pause(jobID: UInt64, _ p: Bool) throws {}
     func cancel(jobID: UInt64) throws {}

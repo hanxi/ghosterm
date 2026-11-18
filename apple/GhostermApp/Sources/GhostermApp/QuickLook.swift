@@ -5,11 +5,13 @@
 // QLPreviewPanel 的弹出无法在无头环境断言（诚实标注：这一条无闸门）。
 import AppKit
 import GhostermAppModel
+import GhostermCore
 import UniformTypeIdentifiers
 
 enum QuickLook {
     private static let maximumRemotePreviewBytes: UInt64 = 32 * 1024 * 1024
     @MainActor private static var remoteGeneration: UInt64 = 0
+    @MainActor private static var remoteCancellation: SSHCancellation?
     /// 远端预览的临时副本路径（纯函数，可断言）。
     static func tempPreviewPath(for name: String, token: String = UUID().uuidString) -> String {
         QuickLookPaths.tempPreviewPath(for: name, token: token)
@@ -26,6 +28,9 @@ enum QuickLook {
     /// 远端条目：下临时副本（经队列）→ 完成后预览。
     @MainActor
     static func previewRemote(entry: FileEntry, backend: TransferBackend) {
+        remoteGeneration &+= 1
+        remoteCancellation?.cancel()
+        remoteCancellation = nil
         guard entry.kind == .file else {
             reportPreviewError("只支持预览普通文件")
             return
@@ -34,8 +39,9 @@ enum QuickLook {
             reportPreviewError(entry.sizeKnown ? "文件超过远端预览上限（32 MiB）" : "文件大小未知，无法安全预览")
             return
         }
-        remoteGeneration &+= 1
         let generation = remoteGeneration
+        let cancellation = SSHCancellation()
+        remoteCancellation = cancellation
         let name = entry.name.isEmpty ? (entry.path as NSString).lastPathComponent : entry.name
         let dst = tempPreviewPath(for: name)
         do {
@@ -43,29 +49,68 @@ enum QuickLook {
                 atPath: (dst as NSString).deletingLastPathComponent,
                 withIntermediateDirectories: true)
         } catch {
+            remoteCancellation?.cancel()
+            remoteCancellation = nil
             reportPreviewError("无法准备预览缓存：\(error)")
             return
         }
-        TransferManager.shared.enqueueDownload(
-            backend, remote: entry.path, local: dst, name: name, isDirectory: false,
-            onFinish: { status in
+        if let owner = backend as? SFTPFileBackend {
+            owner.receivePreview(remote: entry.path, local: dst,
+                                 maxBytes: maximumRemotePreviewBytes,
+                                 cancellation: cancellation) { result in
                 guard generation == remoteGeneration else {
                     QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
                     return
                 }
-                guard case .done = status else {
+                remoteCancellation = nil
+                guard case .success = result else {
                     QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                    if case .failure(let error) = result {
+                        reportPreviewError("远端读取未完成：\(error)")
+                    }
                     return
                 }
-                let attributes = try? FileManager.default.attributesOfItem(atPath: dst)
-                let size = (attributes?[.size] as? NSNumber)?.uint64Value
-                guard let size, size <= maximumRemotePreviewBytes else {
-                    QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
-                    reportPreviewError("下载后的预览副本超过 32 MiB 或无法读取大小")
-                    return
-                }
-                QuickLookPanel.shared.show([URL(fileURLWithPath: dst)], deleteWhenClosed: true)
-            })
+                showRemotePreview(dst, generation: generation)
+            }
+        } else {
+            TransferManager.shared.enqueueDownload(
+                backend, remote: entry.path, local: dst, name: name, isDirectory: false,
+                maxBytes: maximumRemotePreviewBytes,
+                onFinish: { status in
+                    guard generation == remoteGeneration else {
+                        QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                        return
+                    }
+                    remoteCancellation = nil
+                    guard case .done = status else {
+                        QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                        if case .failed(let message) = status { reportPreviewError("远端读取失败：\(message)") }
+                        if case .unknown(let message) = status { reportPreviewError("远端读取结果未知：\(message)") }
+                        return
+                    }
+                    showRemotePreview(dst, generation: generation)
+                })
+        }
+    }
+
+    @MainActor private static func showRemotePreview(_ path: String, generation: UInt64) {
+        guard generation == remoteGeneration else {
+            discardRemotePreview(at: URL(fileURLWithPath: path)); return
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attributes?[.size] as? NSNumber)?.uint64Value
+        guard let size, size <= maximumRemotePreviewBytes else {
+            discardRemotePreview(at: URL(fileURLWithPath: path))
+            reportPreviewError("下载后的预览副本超过 32 MiB 或无法读取大小")
+            return
+        }
+        QuickLookPanel.shared.show([URL(fileURLWithPath: path)], deleteWhenClosed: true)
+    }
+
+    @MainActor static func cancelRemotePreview() {
+        remoteGeneration &+= 1
+        remoteCancellation?.cancel()
+        remoteCancellation = nil
     }
 
     @MainActor private static func reportPreviewError(_ message: String) {
@@ -79,7 +124,7 @@ enum QuickLook {
     /// 本地路径预览。
     @MainActor
     static func show(localPath: String) {
-        remoteGeneration &+= 1
+        cancelRemotePreview()
         QuickLookPanel.shared.show([URL(fileURLWithPath: localPath)])
     }
 
@@ -118,11 +163,13 @@ final class QuickLookPanel: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDe
         previous.forEach(QuickLook.discardRemotePreview(at:))
     }
 
-    func previewPanelWillClose(_ notification: Notification) {
+    @MainActor func previewPanelWillClose(_ notification: Notification) {
+        QuickLook.cancelRemotePreview()
         discardCurrentPreview()
     }
 
-    func dismiss(_ panel: QLPreviewPanel) {
+    @MainActor func dismiss(_ panel: QLPreviewPanel) {
+        QuickLook.cancelRemotePreview()
         panel.orderOut(nil)
         discardCurrentPreview()
     }

@@ -20,6 +20,8 @@ final class FakeTransferBackend: TransferBackend {
     /// walk 要产出的条目（相对 root 的完整路径）。
     var walkEntries: [FileEntry] = []
     var submittedDownloads: [(String, String)] = []
+    var boundedDownloadLimits: [UInt64] = []
+    var overwriteDecisions: [Bool] = []
     var submittedUploads: [(String, String)] = []
     var walkStarted: DispatchSemaphore?
     var walkGate: DispatchSemaphore?
@@ -42,6 +44,12 @@ final class FakeTransferBackend: TransferBackend {
     }
     func download(remote: String, local: String) throws -> UInt64 {
         submittedDownloads.append((remote, local)); defer { nextJob += 1 }; return nextJob
+    }
+    func downloadStaged(remote: String, local: String, overwrite: Bool,
+                        maxBytes: UInt64) throws -> UInt64 {
+        submittedDownloads.append((remote, local)); boundedDownloadLimits.append(maxBytes)
+        overwriteDecisions.append(overwrite)
+        defer { nextJob += 1 }; return nextJob
     }
     func upload(local: String, remote: String) throws -> UInt64 {
         submittedUploads.append((local, remote)); defer { nextJob += 1 }; return nextJob
@@ -110,6 +118,31 @@ final class TransferManagerTests: XCTestCase {
         // 完成 → done。
         m.handle(jobDone(core, 0 /* GT_JOB_OK */))
         XCTAssertEqual(m.jobs[0].status, .done)
+    }
+
+    func testDownloadByteLimitReachesBackend() {
+        let manager = makeManager(), backend = FakeTransferBackend()
+        manager.enqueueDownload(backend, remote: "/r/preview", local: workspaceTestTmp + "preview",
+                                name: "preview", isDirectory: false, maxBytes: 32 * 1024 * 1024)
+        let id = manager.jobs[0].id
+        XCTAssertTrue(waitForJob(manager, id: id) { $0.coreJob == 1 })
+        XCTAssertEqual(backend.boundedDownloadLimits, [32 * 1024 * 1024])
+        XCTAssertEqual(backend.overwriteDecisions, [false])
+        XCTAssertTrue(backend.submittedDownloads.contains(where: { $0.0 == "/r/preview" }))
+    }
+
+    func testExplicitOverwriteIsPassedToAtomicDownloadPublisher() throws {
+        let dir = workspaceTestTmp + "gt-overwrite-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
+        let destination = dir + "/exists"
+        try Data([1]).write(to: URL(fileURLWithPath: destination))
+        let backend = FakeTransferBackend(), manager = makeManager()
+        manager.conflictResolver = { _, _ in .init(.overwrite) }
+        manager.enqueueDownload(backend, remote: "/r/exists", local: destination,
+                                name: "exists", isDirectory: false)
+        XCTAssertTrue(waitForJob(manager, id: manager.jobs[0].id) { $0.coreJob == 1 })
+        XCTAssertEqual(backend.overwriteDecisions, [true])
     }
 
     func testFailureNotFoldedIntoSuccess() {

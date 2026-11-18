@@ -275,19 +275,26 @@ public final class FilesPanelModel: ObservableObject {
             guard !entry.isSymlink else {
                 throw GhostermError.failed("符号链接不支持改权限")
             }
+            guard recursive, entry.isDirectory else {
+                try b.chmod(entry.path, mode: mode)
+                return
+            }
+            // First finish the owner-held walk, then issue chmod requests. A
+            // visitor must not re-enter the serialized SFTP owner queue.
+            var children: [FileEntry] = []
+            try b.walk(root: entry.path, maxDepth: -1) { child in
+                children.append(child)
+                return true
+            }
             try b.chmod(entry.path, mode: mode)
-            guard recursive, entry.isDirectory else { return }
             // 保留逐项结果：扫描失败不能伪装成部分成功，链接明确跳过。
             var failures: [String] = []
             var skippedLinks = 0
-            do {
-                try b.walk(root: entry.path, maxDepth: -1) { child in
-                    if child.isSymlink { skippedLinks += 1; return true }
-                    do { try b.chmod(child.path, mode: mode) }
-                    catch { failures.append("\(child.path): \(error)") }
-                    return true
-                }
-            } catch { failures.append("目录扫描: \(error)") }
+            for child in children {
+                if child.isSymlink { skippedLinks += 1; continue }
+                do { try b.chmod(child.path, mode: mode) }
+                catch { failures.append("\(child.path): \(error)") }
+            }
             guard failures.isEmpty, skippedLinks == 0 else {
                 let details = failures.sorted().prefix(5).joined(separator: "；")
                 throw GhostermError.failed("递归改权限未完全完成：失败 \(failures.count)，跳过符号链接 \(skippedLinks)\(details.isEmpty ? "" : "；\(details)")")

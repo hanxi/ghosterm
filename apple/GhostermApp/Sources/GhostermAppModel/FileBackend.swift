@@ -68,11 +68,15 @@ public protocol FileBackend: AnyObject {
     func chmod(_ path: String, mode: UInt32) throws
     func realpath(_ path: String) throws -> String
     func walk(root: String, maxDepth: Int, visit: @escaping (FileEntry) -> Bool) throws
+    func walk(root: String, maxDepth: Int, isCancelled: @escaping () -> Bool,
+              visit: @escaping (FileEntry) -> Bool) throws
 }
 
 /// 只会远端有的能力：传输 + 远端搜索。
 public protocol TransferBackend: FileBackend {
     func download(remote: String, local: String) throws -> UInt64
+    func downloadStaged(remote: String, local: String, overwrite: Bool,
+                        maxBytes: UInt64) throws -> UInt64
     func upload(local: String, remote: String) throws -> UInt64
     /// 远端路径是否存在（冲突检测用；符号链接按链接自身判）。
     func exists(_ path: String) -> Bool
@@ -91,6 +95,22 @@ public protocol TransferBackend: FileBackend {
 
 public extension TransferBackend {
     func checkedExists(_ path: String) throws -> Bool { exists(path) }
+    func downloadStaged(remote: String, local: String, overwrite: Bool,
+                        maxBytes: UInt64) throws -> UInt64 {
+        _ = overwrite
+        throw GhostermError.failed("此传输后端不支持有字节上限的下载")
+    }
+}
+
+public extension FileBackend {
+    func walk(root: String, maxDepth: Int, isCancelled: @escaping () -> Bool,
+              visit: @escaping (FileEntry) -> Bool) throws {
+        guard !isCancelled() else { throw GhostermError.failed("目录遍历已取消") }
+        try walk(root: root, maxDepth: maxDepth) { entry in
+            !isCancelled() && visit(entry)
+        }
+        if isCancelled() { throw GhostermError.failed("目录遍历已取消") }
+    }
 }
 
 // MARK: - 本地后端（Foundation / POSIX）

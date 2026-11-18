@@ -77,6 +77,8 @@ final class FakeTransferBackend2: TransferBackend {
     func walk(root: String, maxDepth: Int, visit: @escaping (FileEntry) -> Bool) throws {}
     func exists(_ path: String) -> Bool { false }
     func download(remote: String, local: String) throws -> UInt64 { 1 }
+    func downloadStaged(remote: String, local: String, overwrite: Bool,
+                        maxBytes: UInt64) throws -> UInt64 { 1 }
     func upload(local: String, remote: String) throws -> UInt64 { 2 }
     func pause(jobID: UInt64, _ p: Bool) throws {}
     func cancel(jobID: UInt64) throws {}
