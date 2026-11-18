@@ -36,6 +36,10 @@ final class CodexPatchRPCAppTests: XCTestCase {
 
     func testInterruptWaitsForTerminalEventOverProxyJump() async throws { try await run(useJump: true, interruptTurn: true) }
 
+    func testExecutorChannelClosesAfterSendOverDirectSSH() async throws {
+        try await run(useJump: false, closeExecutor: true)
+    }
+
     private struct FixtureFailure: Error { let message: String }
 
     private func wait(_ label: String, seconds: Double = 30, until predicate: () -> Bool) async throws {
@@ -83,7 +87,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         "@@ -1 +1 @@\n" + (0..<600).map { "+REV-\(revision) row-\($0) 中文😀\n" }.joined() + "+FINAL-REV-\(revision)\n"
     }
 
-    private func run(useJump: Bool, dropTurnReply: Bool = false, interruptTurn: Bool = false) async throws {
+    private func run(useJump: Bool, dropTurnReply: Bool = false, interruptTurn: Bool = false, closeExecutor: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let program = env["GHOSTERM_TEST_CODEX_PATCH_FIXTURE"], let packagePath = env["GHOSTERM_TEST_CODEX_PACKAGE"],
@@ -103,6 +107,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let workspace = root.appendingPathComponent("workspace")
         if dropTurnReply { try Data().write(to: workspace.appendingPathComponent("drop-turn-reply")) }
         if interruptTurn { try Data().write(to: workspace.appendingPathComponent("interrupt-turn")) }
+        if closeExecutor { try Data().write(to: workspace.appendingPathComponent("hold-turn-reply")) }
         try Data(#"{"fixture":"ghosterm-patch-rpc","version":1}"#.utf8).write(to: workspace.appendingPathComponent("fixture.json"))
         func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
         let childEnvironment = ["HOME": root.appendingPathComponent("home").path,
@@ -111,7 +116,9 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let assignments = childEnvironment.sorted { $0.key < $1.key }.map { quote("\($0.key)=\($0.value)") }.joined(separator: " ")
         let launcher = root.appendingPathComponent("gterm-fixture")
         let diagnostics = root.appendingPathComponent("executor.log")
-        try Data("#!/bin/sh\nexec /usr/bin/env -i \(assignments) \(quote(gterm)) \"$@\" 2>\(quote(diagnostics.path))\n".utf8).write(to: launcher)
+        let executorPID = root.appendingPathComponent("executor.pid")
+        let announcePID = closeExecutor ? "printf '%s' \"$$\" > \(quote(executorPID.path))\n" : ""
+        try Data("#!/bin/sh\n\(announcePID)exec /usr/bin/env -i \(assignments) \(quote(gterm)) \"$@\" 2>\(quote(diagnostics.path))\n".utf8).write(to: launcher)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: launcher.path)
         var config = "Host patch-fixture\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
         if useJump {
@@ -155,7 +162,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await wait("Client Runtime did not activate") { model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
         try await press(pane, id: "plugin-codex-start-thread")
         try await wait("Fixture thread did not reach the Native UI") { model.codexThreadID == "thread-fixture" && !model.codexCallBusy }
-        if !useJump && !dropTurnReply && !interruptTurn {
+        if !useJump && !dropTurnReply && !interruptTurn && !closeExecutor {
             let invalidDraft = String(repeating: "x", count: 2049)
             model.codexMessageDraft = invalidDraft
             await model.sendCodexMessage()
@@ -167,6 +174,23 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let previousSendIssue = model.extensionRunIssue
         model.codexMessageDraft = "exercise the isolated patch protocol fixture"
         try await press(pane, id: "plugin-codex-send")
+        if closeExecutor {
+            let receipt = workspace.appendingPathComponent("turn-received.json")
+            try await wait("owned Executor did not receive the request") {
+                FileManager.default.fileExists(atPath: receipt.path) && model.codexCallBusy
+            }
+            let pid = try XCTUnwrap(Int32(String(contentsOf: executorPID, encoding: .utf8)))
+            guard pid > 1, pid != getpid() else { throw FixtureFailure(message: "invalid owned Executor PID") }
+            XCTAssertEqual(kill(pid, SIGKILL), 0, "only the launcher-owned loopback Executor is terminated")
+            try await wait("closed Executor channel was not reflected in the Host") {
+                !model.extensionInstance.canInteractWithRuntime && !model.codexCallBusy && model.extensionInstance.codexSendUnconfirmed
+            }
+            XCTAssertEqual(model.codexMessageDraft, "exercise the isolated patch protocol fixture")
+            await model.sendCodexMessage()
+            XCTAssertFalse(model.codexCallBusy)
+            XCTAssertTrue(model.extensionInstance.codexSendUnconfirmed)
+            return
+        }
         if dropTurnReply {
             try await wait("missing turn reply was not reported") {
                 model.extensionInstance.codexSendUnconfirmed && !model.codexCallBusy &&

@@ -14788,3 +14788,9 @@ Codex 中断受理与终态的隔离检查扩展到 macOS ProxyJump，同一离�
 与 ProxyJump 各三项通过，分别覆盖补丁审批、丢回执和中断。Android 两条
 设备路线同步接入 `--interrupt-turn`，测试 APK 后台构建通过，设备未执行。
 本批为隔离 app-server 与真实回环 SSH，不含真实模型。
+
+macOS Codex 直连新增执行通道关闭用例。拥有的 app-server 确认收到请求但
+保持管道打开，测试随后结束本轮回环 SSH launcher 原位 exec 的 gterm，
+使真实 SSH 执行通道退出。Host 停止交互后仍保留草稿和发送未知状态，直接调用
+重发入口保持拦截。直连离屏四项通过。初轮使用错误模型访问器编译失败，
+修正后复验。未切断宿主网卡或其它 SSH 会话，未发起模型请求。

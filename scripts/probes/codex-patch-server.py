@@ -96,6 +96,9 @@ def main():
                 approvalsReviewer='user', sandbox={'type': 'readOnly', 'networkAccess': False}, reasoningEffort=None)))
             notification('thread/started', {'thread': thread})
         elif method == 'turn/start':
+            if Path('hold-turn-reply').exists():
+                receipt('turn-received.json', {'received': True})
+                continue
             if Path('drop-turn-reply').exists():
                 receipt('turn-received.json', {'received': True})
                 return

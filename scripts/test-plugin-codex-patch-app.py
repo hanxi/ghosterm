@@ -27,7 +27,7 @@ def main():
                            shlex.quote(str(ROOT / 'scripts/probes/codex-patch-server.py')) + ' "$@"\n')
         program.chmod(0o700)
         selected = 'CodexPatchRPCAppTests' if args.route == 'both' else \
-            'CodexPatchRPCAppTests.test(PatchAndApprovalOverDirectSSH|LostTurnReplyOverDirectSSH|InterruptWaitsForTerminalEventOverDirectSSH)' if args.route == 'direct' else \
+            'CodexPatchRPCAppTests.test(PatchAndApprovalOverDirectSSH|LostTurnReplyOverDirectSSH|InterruptWaitsForTerminalEventOverDirectSSH|ExecutorChannelClosesAfterSendOverDirectSSH)' if args.route == 'direct' else \
             'CodexPatchRPCAppTests.test(PatchAndApprovalOverProxyJump|LostTurnReplyOverProxyJump|InterruptWaitsForTerminalEventOverProxyJump)'
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_TEST_GTERM=str(gterm),
                    GHOSTERM_TEST_CODEX_PACKAGE=str(package), GHOSTERM_TEST_CODEX_PATCH_FIXTURE=str(program),
@@ -44,7 +44,7 @@ def main():
         result = subprocess.run(command, cwd=ROOT, env=env)
         if result.returncode:
             raise SystemExit(result.returncode)
-        expected = 6 if args.route == 'both' else 3
+        expected = {'both': 7, 'direct': 4, 'jump': 3}[args.route]
         log = (ROOT / 'tmp/apple-app-test.log').read_text()
         summary = f'Executed {expected} test' + ('s' if expected != 1 else '') + ', with 0 failures'
         if summary not in log or 'skipped' in log.lower():
