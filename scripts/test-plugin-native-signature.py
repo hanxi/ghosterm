@@ -405,7 +405,9 @@ def main():
             run('official-install', 'PluginOfficialReleaseInstallTests')
         if args.versions: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
-        if args.policy_review: run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
+        if args.policy_review:
+            run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
+            run('live-channel-revocation', 'PluginPaneFlowTests.testManagedPreviewReportsChannelRevocationUntilStopped')
         if args.selection_review: run('live-selection-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesSelectionReviewAndCommit')
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
@@ -431,8 +433,10 @@ def main():
              'macOS version inventory, explicit policy revalidation, atomic select/disable/rollback, and active owned SSH Runtime; no permission persistence' if args.versions else
              'macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
+    if args.policy_review:
+        scope += '; live channel cache delivery, explicit stop and version lease release'
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
-        baselineTests=baseline_count, lifetimeTests=4 if args.selection_review else 3 if args.policy_review else 2 if args.remove else 1 if args.versions else 0, installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review, selectionReview=args.selection_review,
+        baselineTests=baseline_count, lifetimeTests=sum(test['label'].startswith('live-') for test in commands), installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review, selectionReview=args.selection_review,
         inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 
