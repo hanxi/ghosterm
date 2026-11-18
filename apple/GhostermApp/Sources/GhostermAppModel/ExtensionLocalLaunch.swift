@@ -14,15 +14,25 @@ public struct ExtensionLocalLaunch: Sendable, Equatable {
     public var reviewDescription: String {
         "本机进程 · SHA-256：\(executableSHA256)\n工作目录：\(workingDirectory)\n临时根目录：\(temporaryDirectory)\n每次新建私有子目录，结束后清理其内容；不会清理根目录或工作目录。\n每次持久预约 256 MiB，总预约上限 1 GiB；残留记录继续占用预约。这不是文件系统写入配额。\n本次执行与临时清理：" + (authorized ? "已明确允许" : "未允许")
     }
+    func validateConfiguration(executable: String) throws {
+        guard authorized, Self.validAbsolutePath(executable), executableSHA256.utf8.count == 64,
+              executableSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+            throw GhostermLocalLaunchError.invalid("本机程序需要绝对路径、精确 SHA-256 和本次明确允许")
+        }
+        guard Self.validAbsolutePath(workingDirectory), Self.validAbsolutePath(temporaryDirectory) else {
+            throw GhostermLocalLaunchError.invalid("本机目录必须是明确的绝对路径")
+        }
+    }
+
+    private static func validAbsolutePath(_ path: String) -> Bool {
+        path.hasPrefix("/") && path.utf8.count <= 4096 && !path.utf8.contains(0)
+    }
+
     /// Runs only on the Native IO worker. Keeps the verified executable fd until
     /// construction returns; checks the path again before spawn. This does not
     /// defend against malicious same-UID replacement between check and execve.
     func withValidatedDirectory<T>(executable: String, _ body: (Int32, Int32) throws -> T) throws -> T {
-        guard authorized, executable.hasPrefix("/"), executable.utf8.count <= 4096,
-              !executable.utf8.contains(0), executableSHA256.utf8.count == 64,
-              executableSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw GhostermLocalLaunchError.invalid("本机程序需要绝对路径、精确 SHA-256 和本次明确允许")
-        }
+        try validateConfiguration(executable: executable)
         let program = executable.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK) }
         guard program >= 0 else { throw GhostermLocalLaunchError.invalid("无法打开所选本机程序") }
         defer { Darwin.close(program) }
@@ -57,7 +67,6 @@ public struct ExtensionLocalLaunch: Sendable, Equatable {
         a.st_ctimespec.tv_sec == b.st_ctimespec.tv_sec && a.st_ctimespec.tv_nsec == b.st_ctimespec.tv_nsec
     }
     private func openDirectory(_ path: String) throws -> Int32 {
-        guard path.hasPrefix("/"), path.utf8.count <= 4096, !path.utf8.contains(0) else { throw GhostermLocalLaunchError.invalid("本机目录必须是明确的绝对路径") }
         let fd = path.withCString { open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) }
         guard fd >= 0 else { throw GhostermLocalLaunchError.invalid("无法打开所选本机目录") }
         return fd

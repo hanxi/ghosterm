@@ -222,6 +222,7 @@ import GhostermCore
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
             try Task.checkCancellation()
+            try localLaunch?.validateConfiguration(executable: executable)
             onValidated?()
             if multiplexedConnectionCommand != nil {
                 // The connection owner admitted this exact logical channel.

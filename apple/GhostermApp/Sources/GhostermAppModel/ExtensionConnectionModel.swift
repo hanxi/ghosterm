@@ -23,6 +23,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         if let local = first.localLaunch, local.temporaryDirectory != first.temporaryDirectory {
             throw GhostermError.failed("本机启动与连接临时目录不一致")
         }
+        try first.localLaunch?.validateConfiguration(executable: first.request.executable)
         return first
     }
 
