@@ -51,6 +51,9 @@ def main():
         baseline = 'PluginPaneFlowTests.test.*ThroughProxyJumpControls$'
     baseline_count = 10 if args.route == 'both' else 5
     cases = [
+        ('picker-cancel', 'if (error as? CocoaError)?.code == .userCancelled { return }',
+         '// fixture mutation: handle cancellation as an import failure',
+         'cancelling the picker must not display an import error'),
         ('digest', 'Text("摘要：\\(entry.review.digest)")', 'Text("摘要：unverified")',
          'review must display the exact immutable package digest'),
         ('approval', 'decide(entry: entry, approve: true)', 'decide(entry: entry, approve: false)',
