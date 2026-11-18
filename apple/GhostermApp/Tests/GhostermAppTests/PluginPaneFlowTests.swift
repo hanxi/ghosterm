@@ -438,7 +438,7 @@ final class PluginPaneFlowTests: XCTestCase {
             let installedDraft = PluginInstalledVersionsDraft()
             await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
             XCTAssertEqual(installedDraft.affectedChannelInstances, 1)
-            XCTAssertNil(installedDraft.notice)
+            XCTAssertNil(installedDraft.channelNotice)
             let staleDraft = PluginInstalledVersionsDraft()
             await staleDraft.readChannelPolicy(controller, refresh: false, automatic: true)
             XCTAssertEqual(staleDraft.affectedChannelInstances, 1)
@@ -453,8 +453,8 @@ final class PluginPaneFlowTests: XCTestCase {
             await installedDraft.stopAffectedChannelInstances(controller) {
                 try await model.stopInstancesWithRevokedPublisher()
             }
-            XCTAssertEqual(installedDraft.notice, "已确认停止 1 个实例。")
-            XCTAssertNil(installedDraft.issue)
+            XCTAssertEqual(installedDraft.channelNotice, "已确认停止 1 个实例。")
+            XCTAssertNil(installedDraft.channelIssue)
             XCTAssertEqual(installedDraft.affectedChannelInstances, 0)
             guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
                 XCTFail("explicit stop did not release the instance"); return
@@ -469,8 +469,8 @@ final class PluginPaneFlowTests: XCTestCase {
             await staleDraft.stopAffectedChannelInstances(controller) {
                 try await model.stopInstancesWithRevokedPublisher()
             }
-            XCTAssertEqual(staleDraft.notice, "已确认停止 0 个实例。")
-            XCTAssertNil(staleDraft.issue)
+            XCTAssertEqual(staleDraft.channelNotice, "已确认停止 0 个实例。")
+            XCTAssertNil(staleDraft.channelIssue)
             XCTAssertEqual(staleDraft.affectedChannelInstances, 0, "recheck clears the stale count even when no stop was needed")
             return
         }
