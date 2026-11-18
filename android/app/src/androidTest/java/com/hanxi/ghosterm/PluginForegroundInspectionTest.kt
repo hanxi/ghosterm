@@ -15,6 +15,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 /** Focused parser / production form smoke. The route callback is injected;
  * actual SSH ownership and device matrices remain separate verification. */
@@ -54,12 +57,15 @@ class PluginForegroundInspectionTest {
             "portable-js", listOf("session.rpc", "resource.receive"), emptyList(), false, false, listOf(command))
         var captured: ExtensionRelayBootstrap.Request? = null
         var inspections = 0
+        var pendingInspection: Continuation<PluginForegroundDeclaration>? = null
         ui.setContent { MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
             listOf("host"), onDismiss = {}, onLaunch = { _, request, _ -> captured = request },
             onInspect = { alias, executable, directory, selected ->
                 assertEquals("host", alias); assertEquals("gterm", executable)
                 assertEquals("/private/front", directory); assertEquals(instance, selected)
-                inspections++; PluginForegroundDeclaration.parse(declaration(), selected)
+                inspections++
+                if (inspections == 1) PluginForegroundDeclaration.parse(declaration(), selected)
+                else suspendCoroutine { pendingInspection = it }
             }) } }
         ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
         ui.onNodeWithTag("plugin-ipc-directory").performTextInput("/private/front")
@@ -82,11 +88,20 @@ class PluginForegroundInspectionTest {
             assertTrue(captured?.attachment?.authorized == true && captured?.attachment?.scopedFiles == true)
             assertFalse(captured?.attachment?.remoteProcesses ?: true)
         }
+        ui.onNodeWithTag("plugin-ipc-inspect").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-declaration").assertDoesNotExist()
+        ui.onNodeWithTag("plugin-ipc-inspect").assertIsNotEnabled()
+        ui.runOnIdle { assertNotNull(pendingInspection) }
         ui.onNodeWithTag("plugin-ipc-instance").performScrollTo().performTextReplacement("2".repeat(32))
         Espresso.closeSoftKeyboard()
         ui.onNodeWithTag("plugin-ipc-declaration").assertDoesNotExist()
         ui.onNodeWithTag("plugin-ipc-allow").assertIsOff()
         ui.onNodeWithTag("plugin-ipc-files").assertIsOff()
+        ui.onNodeWithTag("plugin-ipc-instance").performTextReplacement(instance)
+        Espresso.closeSoftKeyboard()
+        ui.runOnIdle { checkNotNull(pendingInspection).resumeWithException(IllegalStateException("late inspection failure")) }
+        ui.onNodeWithText("前台检查失败：late inspection failure").assertDoesNotExist()
+        ui.onNodeWithTag("plugin-ipc-inspect").assertIsEnabled()
     }
 
     @Test fun terminalCandidateRequiresExplicitHostSelectionBeforeInspection() {
