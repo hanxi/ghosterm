@@ -16,24 +16,28 @@ import XCTest
         return UserDefaults(suiteName: suite)!
     }
     private override init() {
-        var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
-        project = project.appendingPathComponent("build").resolvingSymlinksInPath().deletingLastPathComponent()
-        root = project.appendingPathComponent("tmp/app-model-" + String(UUID().uuidString.prefix(8)))
+        root = Self.fixtureProject.appendingPathComponent("tmp/app-model-" + String(UUID().uuidString.prefix(8)))
         super.init()
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         } catch { XCTFail("owned application session fixture failed: \(error)") }
         XCTestObservationCenter.shared.addTestObserver(self)
     }
+    private nonisolated static var fixtureProject: URL {
+        var project = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { project.deleteLastPathComponent() }
+        // Native signature tests compile a copied Swift package whose build
+        // directory links back to the checkout running the SSH fixture.
+        return project.appendingPathComponent("build").resolvingSymlinksInPath().deletingLastPathComponent()
+    }
+
     // Only the gate's explicit disposable key may be retired. Never infer
     // permission from an arbitrary GHOSTERM_SSH_KEY or scan the user's Keychain.
     nonisolated func testCaseDidFinish(_ testCase: XCTestCase) {
         guard let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE"],
               path == ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"] else { return }
-        var project = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { project.deleteLastPathComponent() }
         let file = URL(fileURLWithPath: path).standardizedFileURL
-        let expectedRoot = project.appendingPathComponent("tmp").standardizedFileURL.path + "/"
+        let expectedRoot = Self.fixtureProject.appendingPathComponent("tmp").standardizedFileURL.path + "/"
         guard file.path.hasPrefix(expectedRoot), file.lastPathComponent == "clientkey",
               file.deletingLastPathComponent().lastPathComponent.hasPrefix("apple-app-") else {
             XCTFail("owned Keychain fixture reference is outside the gate's disposable directory")
