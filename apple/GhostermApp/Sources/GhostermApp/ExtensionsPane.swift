@@ -588,7 +588,7 @@ struct ExtensionsPane: View {
                         Button("移除") { pendingConnections.removeAll { $0.id == launch.id } }
                             .disabled(startingConnectionGroup)
                     }
-                    ForEach(model.extensionConnections.filter { $0.canAdd }) { connection in
+                    ForEach(model.extensionConnections.filter { $0.canAdd && $0.acceptsConfiguration(launch) }) { connection in
                         Button("添加到现有连接：" + connection.title + " · " + connection.targetDescription) {
                             addToConnection(launch, connection: connection)
                         }

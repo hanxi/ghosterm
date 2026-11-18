@@ -67,7 +67,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                     }
                     Text("选定环境名称：${request.processEnvironmentNames.joinToString()}")
                 } }
-                model.connectionGroups.filter { it.canAdd }.forEach { group ->
+                model.connectionGroups.filter { it.canAdd && it.acceptsConfiguration(invocation) }.forEach { group ->
                     TextButton(onClick = { model.addToConnection(group, invocation) },
                         enabled = !connectionsBusy && !model.groupSubmissionBusy,
                         modifier = Modifier.testTag("plugin-add-${group.id}-${invocation.id}")) {

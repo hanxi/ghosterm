@@ -144,15 +144,20 @@ internal class ExtensionConnectionModel(private val application: Application,
         instances.add(Instance(invocation.id, invocation.launch.command.title, model, store))
         return model
     }
+    fun acceptsConfiguration(invocation: ExtensionGroupInvocation): Boolean {
+        val first = origin ?: return false
+        val request = invocation.launch.request
+        return invocation.alias == first.alias && invocation.temporaryDirectory == first.temporaryDirectory &&
+            request.executable == first.launch.request.executable && request.attachment == null &&
+            (request.execution == null || request.execution.temporaryDirectory == first.temporaryDirectory)
+    }
     suspend fun add(invocation: ExtensionGroupInvocation): Instance? {
         if (!canAdd) { issue = "连接正在处理请求、已结束或八个实例名额已满"; return null }
         launchJob = currentCoroutineContext()[Job]; busy = true; issue = null
         var child: ExtensionController? = null
         try {
             val first = checkNotNull(origin); val request = invocation.launch.request
-            require(invocation.alias == first.alias && invocation.temporaryDirectory == first.temporaryDirectory &&
-                request.executable == first.launch.request.executable && request.attachment == null &&
-                (request.execution == null || request.execution.temporaryDirectory == first.temporaryDirectory)) {
+            require(acceptsConfiguration(invocation)) {
                 "新增实例须沿用此连接的目标、gterm 与临时目录；更换范围请新建连接"
             }
             val exact = controller.resolve(invocation.launch.command.path, invocation.launch.entry.review.id, invocation.launch.entry.review.digest)

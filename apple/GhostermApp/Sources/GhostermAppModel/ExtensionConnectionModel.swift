@@ -150,6 +150,14 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
         }
     }
+    public func acceptsConfiguration(_ selection: ExtensionGroupInvocation) -> Bool {
+        guard let first = origin else { return false }
+        return selection.sshAlias == first.sshAlias && selection.localLaunch == first.localLaunch &&
+            selection.request.executable == first.request.executable && selection.temporaryDirectory == first.temporaryDirectory &&
+            selection.request.attachment == nil &&
+            (selection.request.execution == nil || selection.request.execution?.temporaryDirectory == first.temporaryDirectory) &&
+            (first.localLaunch == nil || Set(selection.request.processEnvironmentNames).isSubset(of: environmentNames))
+    }
     @discardableResult public func add(_ selection: ExtensionGroupInvocation, app: AppModel) async -> Bool {
         guard canAdd else { issue = "连接正在处理请求、已结束或八个实例名额已满"; return false }
         busy = true; issue = nil
@@ -161,10 +169,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     private func addOnMain(_ selection: ExtensionGroupInvocation, app: AppModel) async -> Bool {
         var child: ExtensionController?
         do {
-            guard let first = origin, selection.sshAlias == first.sshAlias, selection.localLaunch == first.localLaunch,
-                  selection.request.executable == first.request.executable, selection.temporaryDirectory == first.temporaryDirectory,
-                  selection.request.attachment == nil, selection.request.execution == nil || selection.request.execution?.temporaryDirectory == first.temporaryDirectory,
-                  first.localLaunch == nil || Set(selection.request.processEnvironmentNames).isSubset(of: environmentNames) else {
+            guard let first = origin, acceptsConfiguration(selection) else {
                 throw GhostermError.failed("新增实例须沿用此连接的目标、gterm、临时目录和原本机环境授权；更换范围请新建连接")
             }
             let request = try await prepare(selection)
