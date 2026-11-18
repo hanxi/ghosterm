@@ -251,6 +251,10 @@ test("conversation interrupts only its active turn and reports closed work as un
   const interruptRequest = writes.at(-1);
   client.receiveLine(JSON.stringify({ id: interruptRequest.id, result: {} }));
   await interrupting;
+  assert.equal(conversation.state, "running", "interrupt acknowledgement is not completion");
+  const writesAfterInterrupt = writes.length;
+  await assert.rejects(conversation.sendMessage("must wait for turn completion"), CodexProtocolError);
+  assert.equal(writes.length, writesAfterInterrupt, "a second turn must not reach the server");
   client.receiveLine(JSON.stringify({ method: "turn/completed", params: {
     threadId: "thread-b", turn: turnFixture("turn-b", "interrupted"),
   } }));
