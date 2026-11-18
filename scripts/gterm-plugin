@@ -636,6 +636,11 @@ def main():
         else:
             command.add_argument('--descriptor', type=Path, required=True)
             command.add_argument('--signature', type=Path, required=True)
+            command.add_argument('--channel', help='expected channel for a signed policy statement')
+            command.add_argument('--channel-root')
+            command.add_argument('--policy-statement', type=Path)
+            command.add_argument('--policy-signature', type=Path)
+            command.add_argument('--record-state', type=Path)
     args = parser.parse_args()
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
     if args.action == 'release':

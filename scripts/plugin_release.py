@@ -316,10 +316,17 @@ def execute(args, api):
 
 
 def verify_channel_policy(args, api):
-    root = public_key(api, args.channel_root)
-    statement_bytes = stable_file(api, args.statement, 65536)
-    signature = stable_file(api, args.signature, 64)
     policy_bytes = stable_file(api, args.policy, 131072)
+    trusted = public_json(api, policy_bytes)
+    policy(api, trusted)
+    return check_channel_statement(api, args.channel, args.channel_root, args.statement,
+                                   args.signature, args.record_state, trusted, policy_bytes), 0
+
+
+def check_channel_statement(api, channel, channel_root, statement_path, signature_path, state, trusted, policy_bytes):
+    root = public_key(api, channel_root)
+    statement_bytes = stable_file(api, statement_path, 65536)
+    signature = stable_file(api, signature_path, 64)
     statement = public_json(api, statement_bytes)
     api.require(isinstance(statement, dict) and set(statement) == {
         'schemaVersion', 'channel', 'generation', 'issuedAt', 'expiresAt', 'policySHA256'
@@ -334,20 +341,18 @@ def verify_channel_policy(args, api):
     issued = positive_decimal(statement['issuedAt'])
     expires = positive_decimal(statement['expiresAt'])
     with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
-        verify_signature(api, Path(temporary), {'publicKey': args.channel_root}, statement_bytes, signature,
+        verify_signature(api, Path(temporary), {'publicKey': channel_root}, statement_bytes, signature,
                          kind='channel-policy')
-    trusted = public_json(api, policy_bytes)
-    policy(api, trusted)
-    api.require(statement['channel'] == trusted['channel'] == args.channel, 'RELEASE_CHANNEL_MISMATCH', 6)
+    api.require(statement['channel'] == trusted['channel'] == channel, 'RELEASE_CHANNEL_MISMATCH', 6)
     api.require(digest_value(api, statement['policySHA256']) == api.sha(policy_bytes), 'CHANNEL_POLICY_DIGEST', 6)
     digest = api.sha(statement_bytes)
-    if args.record_state is None:
+    if state is None:
         api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
     else:
-        record_channel_policy(api, args.record_state, args.channel, api.sha(root), generation, digest, issued, expires)
-    return dict(kind='verified-channel-policy', channel=args.channel, generation=statement['generation'],
+        record_channel_policy(api, state, channel, api.sha(root), generation, digest, issued, expires)
+    return dict(kind='verified-channel-policy', channel=channel, generation=statement['generation'],
                 expiresAt=statement['expiresAt'], policySHA256=statement['policySHA256'],
-                statementSHA256=digest), 0
+                statementSHA256=digest)
 
 
 def record_channel_policy(api, path, channel, root, generation, digest, issued, expires):
@@ -391,6 +396,13 @@ def checked_release(args, api):
     policy_bytes = stable_file(api, args.policy, 131072)
     trusted = public_json(api, policy_bytes)
     keys = policy(api, trusted)
+    channel_statement = None
+    if args.release_action == 'verify':
+        statement_args = (args.channel, args.channel_root, args.policy_statement, args.policy_signature, args.record_state)
+        if any(value is not None for value in statement_args):
+            api.require(all(value is not None for value in statement_args), 'CHANNEL_POLICY_OPTIONS')
+            channel_statement = statement_args
+    channel_receipt = check_channel_statement(api, *channel_statement, trusted, policy_bytes) if channel_statement else None
     with tempfile.TemporaryDirectory(prefix='plugin-release-', dir=api.TMP) as temporary:
         work = Path(temporary)
         archive = work / 'plugin.zip'
@@ -431,8 +443,11 @@ def checked_release(args, api):
             (output / 'release.sig').write_bytes(signature)
             os.rename(archive, output / 'plugin.zip')
             api.publish(output, args.out)
-        return dict(kind='release-signed' if args.release_action == 'sign' else 'release-verified',
+        result = dict(kind='release-signed' if args.release_action == 'sign' else 'release-verified',
                     channel=release['channel'], keyId=release['keyId'], **identity,
                     artifactSHA256=digest, artifactBytes=size, publisherAuthenticated=True,
                     policySHA256=api.sha(policy_bytes), trustSource='explicit-policy-snapshot',
-                    authorization='not-granted', installation=False, compatibility=report['compatibility']), 0
+                    authorization='not-granted', installation=False, compatibility=report['compatibility'])
+        if channel_receipt is not None:
+            result.update(trustSource='verified-channel-policy', channelPolicy=channel_receipt)
+        return result, 0
