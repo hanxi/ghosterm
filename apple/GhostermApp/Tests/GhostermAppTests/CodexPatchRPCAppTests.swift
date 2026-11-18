@@ -32,6 +32,8 @@ final class CodexPatchRPCAppTests: XCTestCase {
     func testLostTurnReplyOverDirectSSH() async throws { try await run(useJump: false, dropTurnReply: true) }
     func testLostTurnReplyOverProxyJump() async throws { try await run(useJump: true, dropTurnReply: true) }
 
+    func testInterruptWaitsForTerminalEventOverDirectSSH() async throws { try await run(useJump: false, interruptTurn: true) }
+
     private struct FixtureFailure: Error { let message: String }
 
     private func wait(_ label: String, seconds: Double = 30, until predicate: () -> Bool) async throws {
@@ -79,7 +81,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         "@@ -1 +1 @@\n" + (0..<600).map { "+REV-\(revision) row-\($0) 中文😀\n" }.joined() + "+FINAL-REV-\(revision)\n"
     }
 
-    private func run(useJump: Bool, dropTurnReply: Bool = false) async throws {
+    private func run(useJump: Bool, dropTurnReply: Bool = false, interruptTurn: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let program = env["GHOSTERM_TEST_CODEX_PATCH_FIXTURE"], let packagePath = env["GHOSTERM_TEST_CODEX_PACKAGE"],
@@ -98,6 +100,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         }
         let workspace = root.appendingPathComponent("workspace")
         if dropTurnReply { try Data().write(to: workspace.appendingPathComponent("drop-turn-reply")) }
+        if interruptTurn { try Data().write(to: workspace.appendingPathComponent("interrupt-turn")) }
         try Data(#"{"fixture":"ghosterm-patch-rpc","version":1}"#.utf8).write(to: workspace.appendingPathComponent("fixture.json"))
         func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
         let childEnvironment = ["HOME": root.appendingPathComponent("home").path,
@@ -150,7 +153,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await wait("Client Runtime did not activate") { model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
         try await press(pane, id: "plugin-codex-start-thread")
         try await wait("Fixture thread did not reach the Native UI") { model.codexThreadID == "thread-fixture" && !model.codexCallBusy }
-        if !useJump && !dropTurnReply {
+        if !useJump && !dropTurnReply && !interruptTurn {
             let invalidDraft = String(repeating: "x", count: 2049)
             model.codexMessageDraft = invalidDraft
             await model.sendCodexMessage()
@@ -176,6 +179,20 @@ final class CodexPatchRPCAppTests: XCTestCase {
             XCTAssertEqual(model.extensionRunIssue, issue)
             XCTAssertTrue(model.extensionInstance.codexSendUnconfirmed)
             XCTAssertFalse(model.codexCallBusy)
+            return
+        }
+        if interruptTurn {
+            try await wait("interruption fixture turn did not start") { model.codexTurnActive && !model.codexCallBusy }
+            try await press(pane, id: "plugin-codex-interrupt")
+            let receipt = workspace.appendingPathComponent("interrupt-received.json")
+            try await wait("interrupt acknowledgement did not return") {
+                FileManager.default.fileExists(atPath: receipt.path) && !model.codexCallBusy
+            }
+            XCTAssertNil(model.extensionRunIssue)
+            XCTAssertTrue(model.codexTurnActive, "acknowledgement must not end the turn")
+            try Data().write(to: workspace.appendingPathComponent("complete-interrupt"))
+            try await wait("terminal event did not end the turn") { !model.codexTurnActive }
+            XCTAssertNil(model.extensionRunIssue)
             return
         }
         try await wait("Patch and file approval did not arrive over Host RPC") {

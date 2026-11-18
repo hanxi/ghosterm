@@ -52,9 +52,15 @@ def main():
         raise RuntimeError('Run only in the explicit Ghosterm disposable fixture')
     revision = 1
     running = False
+    interrupt_fixture = Path("interrupt-turn").exists()
+    interrupted = False
     pending = bytearray()
     receipt('started.json', {'fixture': 'ghosterm-patch-rpc'})
     while True:
+        if interrupted and Path('complete-interrupt').exists():
+            notification('turn/completed', dict(threadId=THREAD, turn=turn('interrupted')))
+            running = False
+            interrupted = False
         if running and revision == 1 and Path('request-update').exists():
             revision = 2
             notification('item/fileChange/patchUpdated', dict(threadId=THREAD, turnId=TURN, itemId=ITEM, changes=changes(revision)))
@@ -97,11 +103,20 @@ def main():
                 raise RuntimeError('Fixture accepts one explicit turn')
             running = True
             notification('turn/started', dict(threadId=THREAD, turn=turn('inProgress')))
+            if interrupt_fixture:
+                send(dict(id=message['id'], result={'turn': turn('inProgress')}))
+                continue
             notification('item/started', dict(threadId=THREAD, turnId=TURN, startedAtMs=1,
                 item=dict(type='fileChange', id=ITEM, changes=changes(revision), status='inProgress')))
             send(dict(id=APPROVAL, method='item/fileChange/requestApproval',
                 params=dict(threadId=THREAD, turnId=TURN, itemId=ITEM, startedAtMs=1)))
             send(dict(id=message['id'], result={'turn': turn('inProgress')}))
+        elif method == 'turn/interrupt' and interrupt_fixture:
+            if not running or interrupted or message['params'] != {'threadId': THREAD, 'turnId': TURN}:
+                raise RuntimeError('Unexpected fixture interrupt')
+            interrupted = True
+            receipt('interrupt-received.json', {'received': True})
+            send(dict(id=message['id'], result={}))
         elif message.get('id') == APPROVAL and 'result' in message:
             if not running or revision != 2 or message['result'] != {'decision': 'accept'}:
                 raise RuntimeError('Unexpected approval before the current fixture revision')

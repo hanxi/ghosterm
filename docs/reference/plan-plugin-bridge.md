@@ -14778,3 +14778,8 @@ macOS 将 Codex 回执丢失夹具扩到真实回环 ProxyJump。收到 turn/sta
 关闭 app-server 管道，应用保留草稿、显示未知并拦截重发。ProxyJump 丢回执
 和补丁审批同轮两项离屏通过。此前直连已单轮验收，真实模型和 SSH 链路
 中断仍属不同证据。
+
+macOS Codex 直连回环新测中断受理与终态之间的停顿。自有 app-server 单独
+回送中断受理，确认 UI 中回合仍在运行；再显式推送 interrupted 终态，
+回合标记才结束。与补丁审批及丢回执同轮三项离屏通过。此用例无真实模型，
+ProxyJump 中断与 Android 设备另验。
