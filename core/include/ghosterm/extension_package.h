@@ -39,6 +39,8 @@ typedef struct {
 typedef struct {
     const char *host_json, *registry_json;
     uint64_t memory_bytes, stack_bytes;
+    /* Evaluator thread CPU time in milliseconds. Zero selects 1000;
+     * nonzero values must be at most 5000. */
     uint32_t cpu_ms;
 } gt_ext_package_check_config_t;
 
