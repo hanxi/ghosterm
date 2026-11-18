@@ -4,6 +4,7 @@
 #include "ssh/connector.h"
 #include "internal.h"
 #include "base/secure-random.h"
+#include "base/sha256.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -271,19 +272,24 @@ static void expect_end(gt_bridge_stream_t *s, bool clean, int expected_status) {
 }
 
 static void terminal_echo(gt_transport_t *t, const char *marker) {
-    static const uint8_t suffix[] = {0x00, 0xff, 0x1b, 0x7f, 0xc3, 0xa9};
-    static const char escaped_suffix[] = "\\000\\377\\033\\177\\303\\251'\n";
+    static const uint8_t payload[] = "\0\377\033\177\303\251"
+                                     "\033_Ga=q;AAAA\033\\"
+                                     "\033]0;owned-fixture\007";
+    static const char end_marker[] = "<fixture-end>";
     char command[512] = "printf '";
     size_t at = strlen(command);
-    for (size_t i = 0; marker[i]; i++) {
-        int k = snprintf(command + at, sizeof(command) - at, "\\%03o", (unsigned char)marker[i]);
-        CHECK(k == 4);
-        at += 4;
+    const uint8_t *parts[] = {(const uint8_t *)marker, payload, (const uint8_t *)end_marker};
+    const size_t lengths[] = {strlen(marker), sizeof(payload) - 1, sizeof(end_marker) - 1};
+    for (size_t part = 0; part < sizeof(lengths) / sizeof(lengths[0]); part++) {
+        for (size_t i = 0; i < lengths[part]; i++) {
+            CHECK(sizeof(command) - at >= 5);
+            CHECK(snprintf(command + at, sizeof(command) - at, "\\%03o", parts[part][i]) == 4);
+            at += 4;
+        }
     }
-    CHECK(at + sizeof(escaped_suffix) <= sizeof(command));
-    memcpy(command + at, escaped_suffix, sizeof(escaped_suffix));
-    CHECK(gt_transport_write(t, (const uint8_t *)command, at + sizeof(escaped_suffix) - 1) ==
-          GT_OK);
+    CHECK(sizeof(command) - at >= 2);
+    memcpy(command + at, "'\n", 2);
+    CHECK(gt_transport_write(t, (const uint8_t *)command, at + 2) == GT_OK);
     char output[4096] = {0};
     size_t used = 0;
     uint64_t end = now() + 5000;
@@ -291,8 +297,17 @@ static void terminal_echo(gt_transport_t *t, const char *marker) {
         const char *match = strstr(output, marker);
         if (match) {
             size_t offset = (size_t)(match - output) + strlen(marker);
-            if (used >= offset + sizeof(suffix)) {
-                CHECK(memcmp(output + offset, suffix, sizeof(suffix)) == 0);
+            if (used >= offset + lengths[1] + lengths[2]) {
+                CHECK(memcmp(output + offset + lengths[1], end_marker, lengths[2]) == 0);
+                gt_sha256_t hash;
+                char actual[65], expected[65];
+                gt__sha256_init(&hash);
+                CHECK(gt__sha256_update(&hash, output + offset, lengths[1]));
+                CHECK(gt__sha256_final(&hash, actual));
+                gt__sha256_init(&hash);
+                CHECK(gt__sha256_update(&hash, payload, lengths[1]));
+                CHECK(gt__sha256_final(&hash, expected));
+                CHECK(strcmp(actual, expected) == 0);
                 return;
             }
         }

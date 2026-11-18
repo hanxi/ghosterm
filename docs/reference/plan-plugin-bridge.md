@@ -13614,3 +13614,13 @@ ProxyJump 两项，核对实际安装的应用和测试 APK 摘要。收据 SHA2
 SSH shell 二进制输出对拍。收据 SHA256
 `8e7698e6597a9ea54c3dcab2304d4eff563b60e5dd8aec64ae35dbd7f9faa043`。
 本轮为 Core provider，平台测试入口与变异另验。隔离副本和 29 份子运行目录已清理。
+
+### P1 SSH 终端原始字节 SHA256 对照（2026-11-19）
+
+普通 SSH shell 隔离场景在既有二进制字节后加入 Kitty APC 查询样本与 OSC 标题
+控制串。按固定标记划出载荷并校验结束标记及 SHA256，覆盖插入、丢失或改序。
+固定 `31383141` 加本批修改，Core 真编译后的隔离回环场景、C 格式及 diff
+检查通过。收据 SHA256
+`a0ea44ce7653ce341e5d64507118d50d5a912884412ea7fdf6b4084ad3c9f7dd`。
+临时夹具已清理。本轮验证 Core Transport 透传，Kitty 渲染与 OSC 平台行为
+仍按各端专项验收。
