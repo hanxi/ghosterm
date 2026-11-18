@@ -38,13 +38,19 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
             { captured, descriptor, signature, policy ->
                 captured.borrow().use { fd ->
                     val worker = controller.newReleaseInspector()
-                    try { worker.inspectSignedArchive(fd, descriptor, signature, policy) }
+                    try {
+                        if (policy == null) worker.inspectConfiguredChannelArchive(fd, descriptor, signature)
+                        else worker.inspectSignedArchive(fd, descriptor, signature, policy)
+                    }
                     finally { withContext(NonCancellable) { worker.close() } }
                 }
             }, { captured, descriptor, signature, policy, expected ->
                 captured.borrow().use { fd ->
                     val worker = controller.newReleaseInspector()
-                    try { worker.installSignedArchive(fd, descriptor, signature, policy, expected) }
+                    try {
+                        if (policy == null) worker.installConfiguredChannelArchive(fd, descriptor, signature, expected)
+                        else worker.installSignedArchive(fd, descriptor, signature, policy, expected)
+                    }
                     finally { withContext(NonCancellable) { worker.close() } }
                 }
             })
@@ -57,8 +63,17 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
         }
     } }
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("选择 ZIP、发布描述、公开签名，以及从独立可信来源取得的渠道公钥策略。", style = MaterialTheme.typography.bodySmall)
-        PluginArchiveMaterial.entries.forEach { kind ->
+        Text(if (model.useConfiguredChannel) "选择 ZIP、发布描述和公开签名。"
+            else "选择 ZIP、发布描述、公开签名，以及从独立可信来源取得的渠道公钥策略。",
+            style = MaterialTheme.typography.bodySmall)
+        if (controller.hasConfiguredChannel) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .testTag("plugin-zip-channel")
+            .toggleable(model.useConfiguredChannel, enabled = !model.busy && model.pending == null,
+                role = Role.Checkbox, onValueChange = model::selectConfiguredChannel)) {
+            Checkbox(model.useConfiguredChannel, onCheckedChange = null)
+            Text("使用已验证的渠道缓存")
+        }
+        PluginArchiveMaterial.entries.filter { !model.useConfiguredChannel || it != PluginArchiveMaterial.POLICY }.forEach { kind ->
             OutlinedButton(onClick = { model.beginPick(kind) }, enabled = !model.busy && model.pending == null,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-pick-${kind.name}")) { Text("选择${kind.label}") }
             val bytes = if (kind == PluginArchiveMaterial.ARCHIVE) model.archive?.bytes else model.documents[kind.signatureKind]?.size?.toLong()
@@ -68,7 +83,7 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
                     style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
         }
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-trust")
+        if (!model.useConfiguredChannel) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-zip-trust")
             .toggleable(model.trustedPolicy, enabled = !model.installing && PluginSignatureMaterial.POLICY in model.documents,
                 role = Role.Checkbox, onValueChange = model::trustPolicy)) {
             Checkbox(model.trustedPolicy, onCheckedChange = null)
@@ -83,6 +98,7 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
         model.receipt?.let { result ->
             Text("ZIP 已检查：${result.review.id} ${result.review.version}", Modifier.testTag("plugin-zip-verified"), style = MaterialTheme.typography.titleMedium)
             SelectionContainer { Column(Modifier.testTag("plugin-zip-declarations"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                result.channelGeneration?.let { Text("已验证渠道策略 · 第 ${it} 代") }
                 Text("签名发布者 ${result.proof.publisher} · 渠道 ${result.proof.channel}")
                 Text("许可证 ${result.review.license} · Client ${result.review.runtime}")
                 Text("SDK 声明 ${result.declarations.sdkRange} · 本机选择 ${result.declarations.selectedSDK}\n协议声明 ${result.declarations.protocolRange.joinToString()} · 可用交集 ${result.declarations.protocols.joinToString()}")

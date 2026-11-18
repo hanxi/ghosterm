@@ -38,6 +38,7 @@ internal fun PluginVersionPolicyContent(model: PluginVersionSelectionModel, enab
 @Composable
 private fun VersionDeclarations(value: ExtensionController.SignedArchiveReview, prefix: String) {
     SelectionContainer { Column(Modifier.testTag("plugin-version-$prefix-declarations"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        value.channelGeneration?.let { Text("已验证渠道策略 · 第 ${it} 代") }
         Text("${value.review.id} ${value.review.version} · 签名发布者 ${value.proof.publisher} · 渠道 ${value.proof.channel}")
         Text("许可证 ${value.review.license} · Client ${value.review.runtime}")
         Text("SDK 声明 ${value.declarations.sdkRange} · 本机选择 ${value.declarations.selectedSDK}\n协议声明 ${value.declarations.protocolRange.joinToString()} · 可用 ${value.declarations.protocols.joinToString()}")

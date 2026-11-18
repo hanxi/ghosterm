@@ -35,8 +35,10 @@ internal class PluginVersionSelectionModel(
     var acknowledged by mutableStateOf(false); private set
     var issue: String? by mutableStateOf(null); private set
     var result: ExtensionController.VersionSelectionResult? by mutableStateOf(null); private set
-    val canPreview get() = !closed && !busy && pending == null && policy != null && trusted
-    val canConfirm get() = !closed && !busy && preview != null && acknowledged && trusted
+    private val readyForReview get() = !closed && !busy && pending == null
+    val canPreview get() = readyForReview && policy != null && trusted
+    fun canPreview(requiresChannelPolicy: Boolean) = if (requiresChannelPolicy) readyForReview else canPreview
+    val canConfirm get() = !closed && !busy && preview != null && acknowledged && (trusted || preview?.candidate?.channelStatementSHA256 != null)
     val canDisable get() = !closed && !busy && disableTarget != null && acknowledged
     private fun main() { check(Looper.myLooper() == Looper.getMainLooper()) }
     private fun invalidate() {
@@ -66,11 +68,11 @@ internal class PluginVersionSelectionModel(
         main(); if (closed || committing || value && policy == null) return
         invalidate(); trusted = value; policyChanged(policy, value)
     }
-    fun inspect(releaseID: String, revision: String?) {
-        main(); if (!canPreview) return
+    fun inspect(releaseID: String, revision: String?, requiresChannelPolicy: Boolean = false) {
+        main(); if (!canPreview(requiresChannelPolicy)) return
         invalidate()
         val id = UUID.randomUUID().toString(); requestID = id
-        val generation = epoch; val bytes = policy!!.copyBytes(); busy = true
+        val generation = epoch; val bytes = if (requiresChannelPolicy) byteArrayOf() else policy!!.copyBytes(); busy = true
         operation = scope.launch(Dispatchers.Main.immediate) {
             try {
                 val value = inspect(id, releaseID, revision, bytes)

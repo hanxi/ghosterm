@@ -18,8 +18,8 @@ internal class PluginArchiveReviewModel(
     private val scope: CoroutineScope,
     private val capture: suspend (Uri) -> PluginArchiveCapture,
     private val read: suspend (Uri, PluginSignatureMaterial) -> PluginSignatureDocument,
-    private val inspect: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray) -> ExtensionController.SignedArchiveReview,
-    private val install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease =
+    private val inspect: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray?) -> ExtensionController.SignedArchiveReview,
+    private val install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray?, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease =
         { _, _, _, _, _ -> error("安装服务未接入") },
 ) {
     class Pick internal constructor(val kind: PluginArchiveMaterial)
@@ -29,6 +29,7 @@ internal class PluginArchiveReviewModel(
     var pending: Pick? by mutableStateOf(null); private set
     var archive: PluginArchiveCapture? by mutableStateOf(null); private set
     var documents: Map<PluginSignatureMaterial, PluginSignatureDocument> by mutableStateOf(emptyMap()); private set
+    var useConfiguredChannel by mutableStateOf(false); private set
     var trustedPolicy by mutableStateOf(false); private set
     var busy by mutableStateOf(false); private set
     var receipt: ExtensionController.SignedArchiveReview? by mutableStateOf(null); private set
@@ -36,7 +37,8 @@ internal class PluginArchiveReviewModel(
     var installAcknowledged by mutableStateOf(false); private set
     var installing by mutableStateOf(false); private set
     var installation: ExtensionController.InstalledRelease? by mutableStateOf(null); private set
-    val canInspect get() = !closed && !busy && pending == null && archive != null && trustedPolicy && documents.size == 3
+    val canInspect get() = !closed && !busy && pending == null && archive != null && PluginSignatureMaterial.DESCRIPTOR in documents &&
+        PluginSignatureMaterial.SIGNATURE in documents && (useConfiguredChannel || trustedPolicy && PluginSignatureMaterial.POLICY in documents)
     private fun main() { check(Looper.myLooper() == Looper.getMainLooper()) }
     val canInstall get() = canInspect && receipt != null && installAcknowledged && installation == null
     private fun invalidate() {
@@ -80,6 +82,15 @@ internal class PluginArchiveReviewModel(
             finally { busy = false }
         }
     }
+    fun selectConfiguredChannel(value: Boolean) {
+        main()
+        if (closed || busy || pending != null || value == useConfiguredChannel) return
+        invalidate()
+        useConfiguredChannel = value
+    }
+    private fun policyBytes() = if (useConfiguredChannel) null
+        else documents.getValue(PluginSignatureMaterial.POLICY).copyBytes()
+
     fun trustPolicy(value: Boolean) {
         main()
         if (installing) return
@@ -88,7 +99,7 @@ internal class PluginArchiveReviewModel(
     }
     fun acknowledgeInstall(value: Boolean) {
         main()
-        if (closed || busy || receipt == null || !trustedPolicy || installation != null) return
+        if (closed || busy || receipt == null || (!useConfiguredChannel && !trustedPolicy) || installation != null) return
         installAcknowledged = value
     }
     fun installArchive() {
@@ -99,7 +110,7 @@ internal class PluginArchiveReviewModel(
         val expected = receipt!!
         val descriptor = documents.getValue(PluginSignatureMaterial.DESCRIPTOR).copyBytes()
         val signature = documents.getValue(PluginSignatureMaterial.SIGNATURE).copyBytes()
-        val policy = documents.getValue(PluginSignatureMaterial.POLICY).copyBytes()
+        val policy = policyBytes()
         busy = true; installing = true; issue = null
         operation = scope.launch {
             try {
@@ -122,12 +133,12 @@ internal class PluginArchiveReviewModel(
         val selected = archive!!
         val descriptor = documents.getValue(PluginSignatureMaterial.DESCRIPTOR).copyBytes()
         val signature = documents.getValue(PluginSignatureMaterial.SIGNATURE).copyBytes()
-        val policy = documents.getValue(PluginSignatureMaterial.POLICY).copyBytes()
+        val policy = policyBytes()
         busy = true
         operation = scope.launch {
             try {
                 val value = inspect(selected, descriptor, signature, policy)
-                if (!closed && generation === epoch && trustedPolicy) receipt = value
+                if (!closed && generation === epoch && (useConfiguredChannel || trustedPolicy)) receipt = value
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { if (!closed && generation === epoch) issue = message(failure) }
             finally { busy = false }

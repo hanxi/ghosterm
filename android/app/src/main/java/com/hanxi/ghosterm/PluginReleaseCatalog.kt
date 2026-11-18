@@ -38,7 +38,8 @@ internal class PluginReleaseCatalog private constructor(
         val modified: Long, val modifiedNS: Long, val changed: Long, val changedNS: Long)
     data class Choice(val releaseID: String, val enabled: Boolean, val generation: String)
     data class Selection(val revision: String?, val choices: Map<String, Choice>)
-    data class DeclaredVersion(val releaseID: String, val pluginID: String, val version: String, val publisher: String, val packageSHA256: String)
+    data class DeclaredVersion(val releaseID: String, val pluginID: String, val version: String, val publisher: String, val packageSHA256: String,
+        val requiresChannelPolicy: Boolean = false)
     data class Observation(val versions: List<DeclaredVersion>, val issues: List<String>, val maintenanceCount: Int,
         val selection: Selection?, val selectionIssue: String?)
     data class Publication(val selection: Selection, val durabilityConfirmed: Boolean)
@@ -125,7 +126,7 @@ internal class PluginReleaseCatalog private constructor(
                 }
                 val id = text("pluginId"); val hash = text("packageSHA256")
                 demand(pluginID(id) && digest(hash))
-                versions += DeclaredVersion(name, id, text("pluginVersion"), text("publisher"), hash)
+                versions += DeclaredVersion(name, id, text("pluginVersion"), text("publisher"), hash, version.requiresChannelPolicy())
             } } catch (_: Exception) { issues += "$name：无法读取完整的只读版本声明。" }
         }
         val selected = runCatching { selection() }

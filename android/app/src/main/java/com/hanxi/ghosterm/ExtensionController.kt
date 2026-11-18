@@ -54,6 +54,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         this(Shared(profile, context, File(context.applicationContext.filesDir, "plugin-releases"),
             refresh.store, channelRefresh = refresh), true)
 
+    internal val hasConfiguredChannel: Boolean get() = shared.channelStore != null
     internal val canRefreshChannelPolicy: Boolean get() = shared.channelRefresh != null
     internal suspend fun refreshChannelPolicy() =
         checkNotNull(shared.channelRefresh) { "本构建未配置插件渠道。" }.refresh()
@@ -103,7 +104,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
         val commands: List<Command>, val sourceApproved: Boolean = false,
     )
     internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof,
-        val declarations: PluginReleaseDeclarations.Data, val channelStatementSHA256: String? = null)
+        val declarations: PluginReleaseDeclarations.Data, val channelStatementSHA256: String? = null,
+        val channelGeneration: ULong? = null)
     internal data class InstalledRelease(val snapshot: SignedArchiveReview, val publication: PluginReleaseStage.Publication)
     internal enum class PreviousVersionState { NONE, VERIFIED, UNKNOWN }
     internal data class VersionPreview(val id: String, val revision: String?, val releaseID: String,
@@ -815,6 +817,13 @@ class ExtensionController private constructor(private val shared: Shared, privat
         }
     }
 
+    internal suspend fun inspectConfiguredChannelArchive(fd: ParcelFileDescriptor, descriptor: ByteArray, signature: ByteArray) =
+        inspectSignedArchive(fd, descriptor, signature, byteArrayOf(), checkNotNull(shared.channelStore), ::configuredChannelTime)
+
+    internal suspend fun installConfiguredChannelArchive(fd: ParcelFileDescriptor, descriptor: ByteArray, signature: ByteArray,
+        expected: SignedArchiveReview) = installSignedArchive(fd, descriptor, signature, byteArrayOf(), expected,
+            channelStore = checkNotNull(shared.channelStore), channelClock = ::configuredChannelTime)
+
     /** Preview a signed archive without registering a source or keeping an install.
      * The caller supplies a seekable read-only capture, not a provider stream.
      * Own the duplicate across queueing/cancellation and keep all writes private. */
@@ -850,7 +859,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                                 }
                                 Os.fchmod(fd, if (member.executable) 320 else 256)
                             } finally { Os.close(fd) }
-                        }, { captureCheckedPackage(stage) }).copy(channelStatementSHA256 = channel?.statementSHA256)
+                        }, { captureCheckedPackage(stage) }).copy(channelStatementSHA256 = channel?.statementSHA256, channelGeneration = channel?.generation)
                     } finally {
                         // This is our just-created private preview tree. No
                         // package links are accepted and no install is published.
@@ -907,7 +916,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                         { phase -> caller.ensureActive(); checkpoint(phase) }, parentSync).use { stage ->
                         val fresh = inspectArchiveContents(archive, authenticated, caller::ensureActive,
                             { member, content -> stage.write("payload/${member.path}", content, member.executable) },
-                            { stage.payload().use { captureCheckedPackage(it.fd) } }).copy(channelStatementSHA256 = channel?.statementSHA256)
+                            { stage.payload().use { captureCheckedPackage(it.fd) } }).copy(channelStatementSHA256 = channel?.statementSHA256, channelGeneration = channel?.generation)
                         check(fresh == expected) { "安装包或声明与已确认的完整预检不一致" }
                         stage.write("release.json", raw)
                         stage.write("release.sig", signed)
@@ -992,7 +1001,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                 if (identity != authenticated.identity) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
                 val declarations = PluginReleaseDeclarations.decode(version.readPayload("plugin.json", 65536), metadata)
                 owner.validateVersion(version, payload)
-                return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations, channel?.statementSHA256), fsIdentity(payload.fileDescriptor))
+                return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations, channel?.statementSHA256, channel?.generation), fsIdentity(payload.fileDescriptor))
             } catch (failure: Throwable) { bytes.close(); throw failure }
         }
     }

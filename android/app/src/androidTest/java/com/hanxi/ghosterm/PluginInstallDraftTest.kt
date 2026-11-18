@@ -23,7 +23,7 @@ class PluginInstallDraftTest {
         ExtensionController.Review("org.ghosterm.fixture", "1.0.0", "fixture", "MIT", "a".repeat(64), "portable-js", listOf("session.rpc"), emptyList(), false, false, emptyList()),
         PluginReleaseSignature.Proof("org.ghosterm.fixture", "a".repeat(64), "fixture", "b".repeat(64), "fixture", "c".repeat(64), "d".repeat(64), "e".repeat(64), 32),
         PluginReleaseDeclarations.Data("f".repeat(64), "^1.0.0", "1.0.0", listOf(1), listOf(1), emptyList(), null))
-    private fun model(scope: CoroutineScope, install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease) =
+    private fun model(scope: CoroutineScope, install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray?, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease) =
         PluginArchiveReviewModel(scope, { captured() }, { _, _ -> PluginSignatureDocument(ByteArray(64)) }, { _, _, _, _ -> receipt() }, install)
     private fun published(expected: ExtensionController.SignedArchiveReview, durable: Boolean = true) = ExtensionController.InstalledRelease(expected,
         PluginReleaseStage.Publication(expected.proof.descriptorSHA256, java.io.File(context.filesDir, "fixture-no-write"), durable, if (durable) null else "unconfirmed"))

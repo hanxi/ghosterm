@@ -113,7 +113,7 @@ def main():
         ('draft-freeze-policy', model + 'installationFreezesPolicyAndRejectsAnotherPickerUntilReceipt', draft,
          'if (installing) return', 'if (false) return'),
         ('draft-freeze-ack', model + 'installationFreezesPolicyAndRejectsAnotherPickerUntilReceipt', draft,
-         'closed || busy || receipt == null || !trustedPolicy || installation != null', 'closed || receipt == null || !trustedPolicy || installation != null'),
+         'closed || busy || receipt == null || (!useConfiguredChannel && !trustedPolicy) || installation != null', 'closed || receipt == null || (!useConfiguredChannel && !trustedPolicy) || installation != null'),
         ('draft-fresh-retry', model + 'unknownReceiptIsVisibleAndRequiresFreshAcknowledgementForRetry', draft,
          'finally { installAcknowledged = false; busy = false; installing = false }', 'finally { busy = false; installing = false }'),
         ('draft-completion', model + 'installationFreezesPolicyAndRejectsAnotherPickerUntilReceipt', draft,

@@ -105,8 +105,8 @@ private fun PluginInstalledVersionsList(controller: ExtensionController, onChang
                         else -> "活动记录选择此版本（禁用）"
                     })
                 } }
-                OutlinedButton(onClick = { policyModel.cancel(); removalModel.cancel(); selectionModel.inspect(version.releaseID, selected?.revision) },
-                    enabled = !policyModel.busy && policyModel.review == null && selectionModel.canPreview && selected != null && !model.busy && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
+                OutlinedButton(onClick = { policyModel.cancel(); removalModel.cancel(); selectionModel.inspect(version.releaseID, selected?.revision, version.requiresChannelPolicy) },
+                    enabled = !policyModel.busy && policyModel.review == null && selectionModel.canPreview(version.requiresChannelPolicy) && selected != null && !model.busy && !removalModel.busy && removalModel.preview == null && removalModel.saved == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-version-select-${version.releaseID}")) { Text("核验并选择此版本…") }
                 OutlinedButton(onClick = { policyModel.cancel(); selectionModel.cancel(); maintenanceModel.cancel(); removalModel.inspect(version.releaseID, selected?.revision) },
                     enabled = !policyModel.busy && policyModel.review == null && removalModel.canPreview && !selectionModel.busy && !model.busy && selected != null && selected.choices.values.none { it.enabled && it.releaseID == version.releaseID },

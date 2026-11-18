@@ -153,7 +153,7 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         count += 23
     if archive_ui:
         classes += ',com.hanxi.ghosterm.PluginArchiveCaptureTest,com.hanxi.ghosterm.PluginArchiveDraftTest,com.hanxi.ghosterm.PluginReleaseDeclarationsTest,com.hanxi.ghosterm.PluginArchivePreviewTest,com.hanxi.ghosterm.PluginArchiveReviewUITest'
-        count += 24
+        count += 25
     if install:
         classes += ',com.hanxi.ghosterm.PluginReleaseStageTest,com.hanxi.ghosterm.PluginInstallFilesTest,com.hanxi.ghosterm.PluginInstallDraftTest,com.hanxi.ghosterm.PluginInstallControllerTest,com.hanxi.ghosterm.PluginInstallUITest'
         count += 38
@@ -162,7 +162,7 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         count += 31
     if selection:
         classes += ',com.hanxi.ghosterm.PluginVersionSelectionControllerTest,com.hanxi.ghosterm.PluginVersionSelectionModelTest,com.hanxi.ghosterm.PluginVersionSelectionUITest'
-        count += 24
+        count += 25
     if removal:
         classes += ',com.hanxi.ghosterm.PluginRemovalFilesTest,com.hanxi.ghosterm.PluginReleaseRemovalTest,com.hanxi.ghosterm.PluginVersionRemovalControllerTest,com.hanxi.ghosterm.PluginVersionRemovalModelTest,com.hanxi.ghosterm.PluginVersionRemovalUITest'
         count += 33

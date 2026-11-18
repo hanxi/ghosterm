@@ -58,6 +58,28 @@ class PluginVersionSelectionModelTest {
             main { model.confirm() }; assertEquals(1, h.commits)
         } finally { close(h, model) }
     }
+    @Test fun channelVersionCanBeReviewedWithoutOfflinePolicyButStillRequiresAcknowledgement() = runBlocking {
+        val h = Harness()
+        val model = model(h, inspect = { id, _, _, bytes ->
+            assertTrue(bytes.isEmpty())
+            val preview = value(id)
+            preview.copy(candidate = preview.candidate.copy(channelStatementSHA256 = "a".repeat(64), channelGeneration = 2u))
+        })
+        try {
+            main { model.inspect("e".repeat(64), null, requiresChannelPolicy = true) }
+            idle(model)
+            main {
+                assertEquals(2uL, model.preview?.candidate?.channelGeneration)
+                assertFalse(model.canConfirm)
+                model.acknowledge(true)
+                assertTrue(model.canConfirm)
+                model.confirm()
+            }
+            idle(model)
+            assertEquals(1, h.commits)
+        } finally { close(h, model) }
+    }
+
     @Test fun trustWithdrawalAndNewPolicyInvalidatePreviewAndReleaseKnownRequest() = runBlocking {
         val h = Harness(); val model = model(h)
         try {

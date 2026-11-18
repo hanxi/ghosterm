@@ -23,7 +23,7 @@ class PluginArchiveDraftTest {
         ExtensionController.Review("org.ghosterm.fixture", "1.0.0", "fixture", "MIT", "a".repeat(64), "portable-js", listOf("session.rpc"), emptyList(), false, false, emptyList()),
         PluginReleaseSignature.Proof("org.ghosterm.fixture", "a".repeat(64), "fixture", "b".repeat(64), "fixture", "c".repeat(64), "d".repeat(64), "e".repeat(64), 32),
         PluginReleaseDeclarations.Data("f".repeat(64), "^1.0.0", "1.0.0", listOf(1), listOf(1), emptyList(), null))
-    private fun model(scope: CoroutineScope, inspect: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray) -> ExtensionController.SignedArchiveReview = { _, _, _, _ -> receipt() }) =
+    private fun model(scope: CoroutineScope, inspect: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray?) -> ExtensionController.SignedArchiveReview = { _, _, _, _ -> receipt() }) =
         PluginArchiveReviewModel(scope, { captured() }, { _, _ -> PluginSignatureDocument(ByteArray(64)) }, inspect)
     private suspend fun <T> main(body: () -> T) = withContext(Dispatchers.Main.immediate) { body() }
     private suspend fun idle(model: PluginArchiveReviewModel) = withTimeout(3000) { while (main { model.busy }) delay(10) }
@@ -47,6 +47,31 @@ class PluginArchiveDraftTest {
             assertEquals(1, calls); assertNotNull(main { model.receipt })
         } finally { main { model.close() }; scope.cancel(); releaseProvider() }
     }
+    @Test fun configuredChannelDoesNotRequireOfflinePolicyAndModeChangesInvalidateReview() = runBlocking {
+        val scope = scope()
+        val model = model(scope) { _, _, _, bytes ->
+            assertNull(bytes)
+            receipt().copy(channelStatementSHA256 = "a".repeat(64), channelGeneration = 2u)
+        }
+        try {
+            for (kind in PluginArchiveMaterial.entries.filter { it != PluginArchiveMaterial.POLICY }) choose(model, kind)
+            main {
+                assertFalse(model.canInspect)
+                model.selectConfiguredChannel(true)
+                assertTrue(model.canInspect)
+            }
+            check(model)
+            main {
+                assertEquals(2uL, model.receipt?.channelGeneration)
+                model.acknowledgeInstall(true)
+                assertTrue(model.canInstall)
+                model.selectConfiguredChannel(false)
+                assertNull(model.receipt)
+                assertFalse(model.canInstall)
+            }
+        } finally { main { model.close() }; scope.cancel(); releaseProvider() }
+    }
+
     @Test fun archiveReselectionReleasesOldOwnerAndCancellationClearsSlot() = runBlocking {
         val scope = scope(); val model = model(scope)
         try {
