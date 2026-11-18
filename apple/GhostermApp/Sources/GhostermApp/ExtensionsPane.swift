@@ -260,8 +260,17 @@ struct ExtensionsPane: View {
                             TextField("Executor SHA-256", text: $entry.executorDigest)
                                 .font(.system(size: 11, design: .monospaced))
                                 .accessibilityIdentifier("plugin-executor-digest-\(entry.review.id)")
-                            TextField("完整命令路径", text: $entry.command)
+                            if entry.review.commands.isEmpty {
+                                Text("此 Client 包没有可启动的命令。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            } else {
+                                Picker("Client 命令", selection: $entry.command) {
+                                    ForEach(entry.review.commands, id: \.path) { command in
+                                        Text(verbatim: "\(command.title) · \(command.path)").tag(command.path)
+                                    }
+                                }
                                 .accessibilityIdentifier("plugin-command-\(entry.review.id)")
+                            }
                             TextField("命令参数 JSON 字符串数组", text: $entry.argumentsJSON)
                                 .accessibilityIdentifier("plugin-arguments-\(entry.review.id)")
                             TextField("Executor RPC allowlist JSON", text: $entry.methodsJSON)
@@ -297,10 +306,10 @@ struct ExtensionsPane: View {
                                     .accessibilityIdentifier("plugin-group-temporary-" + entry.review.id)
                             }
                             Button("加入连接组") { enqueue(entry) }
-                                .disabled(startingConnectionGroup || entry.attachExisting || pendingConnections.count >= 8)
+                                .disabled(startingConnectionGroup || entry.attachExisting || pendingConnections.count >= 8 || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-enqueue-" + entry.review.id)
                             Button("连接并启动 Client 命令") { launch(entry) }
-                                .disabled(!model.extensionInstance.canDiscard)
+                                .disabled(!model.extensionInstance.canDiscard || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
                         }
                     } else {
@@ -495,6 +504,9 @@ struct ExtensionsPane: View {
     }
 
     private func configuration(_ entry: Entry) throws -> ExtensionGroupInvocation {
+    guard entry.review.commands.contains(where: { $0.path == entry.command }) else {
+        throw GhostermError.failed("请选择此 Client 包已声明的命令")
+    }
     let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
     var methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
     var hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
