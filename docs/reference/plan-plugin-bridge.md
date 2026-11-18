@@ -13110,3 +13110,16 @@ API 36 arm64 独立无窗口模拟器的 `PluginResourcePreviewUiTest` 八项通
 明确的入组拒绝回调，实际远端附着与启动组故障矩阵仍待验。
 
 测试日志 SHA256 `001a2c07012f182dcd8a72d2a17defcccb430fcde7e9dfcfbb2b220d81c2c6d7`。
+
+### 两端真实 SSH 前台实例附着复验（2026-11-18）
+
+固定 `272c307f` 的隔离源码，构建 JS/SSH-enabled gterm、Exec 夹具和候选 Node SDK，
+使用独立回环 SSH 目标与独立前台 IPC。macOS 屏幕外 XCTest 和 Android API 36 arm64
+无窗口模拟器各八项通过。两端分别核对 Node / Exec 的直连与 ProxyJump 正常附着，
+以及两跳拒绝、直连实例标识不匹配、待授权取消与两跳断连。首轮 macOS 缺少隔离目录
+的 GhosttyKit 链接，编译失败，接入后重跑才取证。
+
+本轮走两端产品运行模型和授权测试入口，前台进程使用专用夹具，未覆盖完整设置页点击、
+实际 tmux pane、真机或全故障矩阵。macOS 收据 SHA256
+`44ff845b402152e522be10e2825d345214aa19fe08c020915625bcaf63235c20`，
+Android 收据 SHA256 `2e67c23dc64cffccb5530af7c8aa8989d8e1739a834eaf091a34dbaf80ff199a`。
