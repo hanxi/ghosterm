@@ -87,7 +87,7 @@ final class PluginPaneFlowTests: XCTestCase {
         if jump && (env["GHOSTERM_SSH_JUMP_HOST"] == nil || env["GHOSTERM_SSH_JUMP_PORT"] == nil) {
             throw XCTSkip("requires explicitly requested owned forwarding-only jump fixture")
         }
-        func trace(_ step: String) {
+        @Sendable func trace(_ step: String) {
             guard env["GHOSTERM_TEST_PLUGIN_UI_TRACE"] == "1" else { return }
             FileHandle.standardError.write(Data("plugin-ui-step: \(step)\n".utf8))
         }
@@ -109,7 +109,11 @@ final class PluginPaneFlowTests: XCTestCase {
         let root = repository.appendingPathComponent("tmp/pane-" + UUID().uuidString.prefix(8))
         let workspace = root.appendingPathComponent("workspace")
         try FileManager.default.createDirectory(at: workspace.appendingPathComponent("site"), withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock {
+            trace("remove fixture tree")
+            try? FileManager.default.removeItem(at: root)
+            trace("fixture tree removed")
+        }
         let png = try redPNG()
         let markdown = Data("# Preview controls\n\n![red sample](image.png)\n\nOwned SSH pane flow token\n".utf8)
         let unicodeHTML = format == .htmlUnicode
@@ -149,7 +153,14 @@ final class PluginPaneFlowTests: XCTestCase {
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: known.path,
                                      pluginResourceDirectory: root.appendingPathComponent("received"))
         let controller = try XCTUnwrap(model.extensionController)
-        addTeardownBlock { await model.stopExtensionRun(); let closed = await controller.close(); XCTAssertTrue(closed) }
+        addTeardownBlock {
+            trace("teardown stops Runtime")
+            await model.stopExtensionRun()
+            trace("teardown closes controller")
+            let closed = await controller.close()
+            XCTAssertTrue(closed)
+            trace("controller teardown completed")
+        }
         let interaction = CodexRouteInteraction()
         model.interaction = interaction
         var selections = 0

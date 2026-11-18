@@ -127,9 +127,15 @@ def main():
     parser.add_argument('--selection-review', action='store_true', help='include reviewed version transitions, Core-bound declarations and live old-version references')
     parser.add_argument('--policy-review', action='store_true', help='include explicit policy review/disable data, UI, actual Core and live Runtime tests')
     parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
+    parser.add_argument('--diagnose-live-version', action='store_true',
+                        help='run only the live version XCTest for diagnosis; no acceptance receipt')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.diagnose_live_version:
+        if args.mutate or args.case or args.install or args.versions or args.remove or args.policy_review or args.selection_review:
+            parser.error('--diagnose-live-version is a standalone diagnostic')
+        args.versions = True
     if args.selection_review: args.policy_review = True
     if args.policy_review: args.remove = True
     if args.remove: args.versions = True
@@ -356,6 +362,10 @@ def main():
         if args.selection_review:
             baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
             baseline_count += 26
+        if args.diagnose_live_version:
+            run('live-version-diagnostic', live)
+            print('LIVE VERSION DIAGNOSTIC PASS (no acceptance receipt)', flush=True)
+            return
         run('baseline', baseline, count=baseline_count)
         if args.versions: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
