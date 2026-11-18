@@ -562,6 +562,18 @@ struct ExtensionsPane: View {
         } catch { issue = "插件启动参数无效：\(error)" }
     }
 
+    private func addToConnection(_ launch: ExtensionGroupInvocation, connection: ExtensionConnectionModel) {
+        guard !startingConnectionGroup, pendingConnections.contains(where: { $0.id == launch.id }) else { return }
+        startingConnectionGroup = true
+        Task { @MainActor in
+            defer { startingConnectionGroup = false }
+            if await connection.add(launch, app: model) {
+                pendingConnections.removeAll { $0.id == launch.id }
+                SettingsWindow.close()
+            }
+        }
+    }
+
     @ViewBuilder private var connectionGroups: some View {
         if !pendingConnections.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
@@ -576,9 +588,7 @@ struct ExtensionsPane: View {
                     }
                     ForEach(model.extensionConnections.filter { $0.canAdd }) { connection in
                         Button("添加到现有连接：" + connection.title + " · " + connection.targetDescription) {
-                            Task { @MainActor in
-                                if await connection.add(launch, app: model) { pendingConnections.removeAll { $0.id == launch.id }; SettingsWindow.close() }
-                            }
+                            addToConnection(launch, connection: connection)
                         }
                         .disabled(startingConnectionGroup)
                         .accessibilityIdentifier("plugin-add-" + connection.id.uuidString + "-" + launch.id.uuidString)
@@ -601,7 +611,8 @@ struct ExtensionsPane: View {
                         Text(verbatim: "选定环境名称：" + launch.request.processEnvironmentNames.joined(separator: ", "))
                     }.font(DS.Font.caption).textSelection(.enabled)
                 }
-                Button(startingConnectionGroup ? "正在启动整组…" : "连接并启动整组") {
+                Button("连接并启动整组") {
+                    guard !startingConnectionGroup else { return }
                     let snapshot = pendingConnections
                     startingConnectionGroup = true
                     Task {
@@ -615,6 +626,7 @@ struct ExtensionsPane: View {
                 }
                 .disabled(startingConnectionGroup)
                 .accessibilityIdentifier("plugin-launch-group")
+                if startingConnectionGroup { ProgressView("正在提交连接配置…").controlSize(.small) }
             }
         }
         if let issue = model.extensionConnectionIssue { Text(verbatim: issue).foregroundStyle(.red) }
