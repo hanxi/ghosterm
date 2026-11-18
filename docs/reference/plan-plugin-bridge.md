@@ -12990,3 +12990,8 @@ Task 和 Views。每个包使用仅授权该插件 ID 的测试策略签名并�
 日志为 `libc++abi: terminate_handler unexpectedly threw an exception`。此轮没有
 完整收据，未跑后续运行时用例，也未把崩溃计为预期断言失败。复验日志 SHA256
 `49dec8f19753876efbce1a8e61138c89f99bac8adcf16b1f4a25fb78224d77d3`。
+
+为单独执行的 macOS 版本生命周期 XCTest 打开 Objective-C 异常诊断，并在基线失败
+输出中保留异常和退出信号。生命周期收据的日志摘要现在覆盖实际判定所用的完整
+XCTest 日志，而非仅外层 gate 摘要。入口参数和 diff 检查通过，需复跑才能定位
+上一轮信号 6 的具体来源。

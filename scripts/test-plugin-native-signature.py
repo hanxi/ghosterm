@@ -311,6 +311,8 @@ def main():
                 child_env.update(GHOSTERM_TEST_GTERM=str(args.gterm), GHOSTERM_APP_TEST_PACKAGE=str(package), GHOSTERM_APP_TEST_FILTER=selected)
                 for key in list(child_env):
                     if key.startswith('GHOSTERM_SSH_'): del child_env[key]
+                # AppKit may abort an isolated XCTest before XCTest emits an assertion.
+                child_env['OBJC_PRINT_EXCEPTIONS'] = 'YES'
                 payload = ['bash', 'scripts/apple-app-gate.sh']
             else: payload = ['swift', 'test', '--package-path', str(package), '--filter', selected]
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require native-signature; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
@@ -325,9 +327,10 @@ def main():
                     except subprocess.TimeoutExpired: os.killpg(child.pid, signal.SIGKILL); child.communicate()
             log = output.decode(errors='replace')
             if lifetime: log += (ROOT / 'tmp/apple-app-test.log').read_text()
-            (work / (label + '.log')).write_bytes(output)
+            full_output = log.encode()
+            (work / (label + '.log')).write_bytes(full_output)
             if child.returncode != 0 and not red:
-                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:', line))[:12000], flush=True)
+                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:|exception|unexpected signal', line, re.I))[:12000], flush=True)
             if red:
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
                 assert re.search(r': error: .* : (?:XCTAssert\w+ failed|failed -)', log), (label, log[-9000:])
@@ -335,7 +338,7 @@ def main():
             else:
                 assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, log[-9000:])
                 assert 'skipped' not in log.lower(), label
-            commands.append(dict(label=label, selected=selected, status=child.returncode, logSHA256=hashlib.sha256(output).hexdigest()))
+            commands.append(dict(label=label, selected=selected, status=child.returncode, logSHA256=hashlib.sha256(full_output).hexdigest()))
             print('PASS ' + label, flush=True)
 
         baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests)' if args.install else '(PluginDirectorySignatureTests|PluginSignatureUITests)'
