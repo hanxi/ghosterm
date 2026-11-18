@@ -141,7 +141,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
     var busy by remember(controller) { mutableStateOf(false) }
     var status by remember(controller) { mutableStateOf<String?>(null) }
     var failed by remember(controller) { mutableStateOf(false) }
-    var affected by remember(controller) { mutableIntStateOf(0) }
+    var affected by remember(controller) { mutableStateOf<Int?>(null) }
     fun readPolicy(refresh: Boolean, automatic: Boolean = false) {
         if (busy) return
         busy = true
@@ -156,7 +156,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
                         else "本机已验证 ${current.channel} 渠道策略第 ${current.generation} 代。"
                 }
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                affected = 0
+                affected = null
                 if (!automatic) {
                     failed = true
                     status = "核对插件渠道策略超时。"
@@ -164,7 +164,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                affected = 0
+                affected = null
                 if (!automatic) {
                     failed = true
                     status = failure.message ?: "无法核对插件渠道。"
@@ -188,8 +188,9 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
     TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-cache"), onClick = { readPolicy(false) }) {
         Text("核对本机渠道缓存")
     }
-    if (affected > 0) Text("本应用仍持有 ${affected} 个受撤销影响的实例。", Modifier.testTag("plugin-channel-affected"))
-    if (affected > 0) TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-stop"), onClick = {
+    val affectedCount = affected
+    if (affectedCount != null && affectedCount > 0) Text("本应用仍持有 ${affectedCount} 个受撤销影响的实例。", Modifier.testTag("plugin-channel-affected"))
+    if (affectedCount != null && affectedCount > 0) TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-stop"), onClick = {
         busy = true
         scope.launch {
             try {

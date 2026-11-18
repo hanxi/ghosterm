@@ -12,7 +12,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     private func endActivity() { activities -= 1; busy = activities != 0 }
     @Published private(set) var issue: String?
     @Published private(set) var notice: String?
-    @Published private(set) var affectedChannelInstances = 0
+    @Published private(set) var affectedChannelInstances: Int?
     @Published private(set) var removal: ExtensionController.RemovalPreview?
     @Published private(set) var pendingRemoval: ExtensionController.RemovalPreview?
     @Published private(set) var residues: ExtensionController.InstallationResidues?
@@ -100,13 +100,13 @@ final class PluginInstalledVersionsDraft: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled else { return }
-            affectedChannelInstances = 0
+            affectedChannelInstances = nil
             if !automatic { issue = message(error) }
         }
     }
 
     func stopAffectedChannelInstances(_ controller: ExtensionController, stop: () async throws -> AppModel.ChannelStopResult) async {
-        guard canRefreshChannelPolicy, affectedChannelInstances > 0 else { return }
+        guard canRefreshChannelPolicy, let affectedChannelInstances, affectedChannelInstances > 0 else { return }
         beginActivity(); issue = nil; notice = nil
         do {
             let result = try await stop()
@@ -274,11 +274,11 @@ struct PluginInstalledVersionsView: View {
                         Task { await draft.readChannelPolicy(controller, refresh: false) }
                     }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-cache")
                 }
-                if draft.affectedChannelInstances > 0 {
-                    Text("本应用仍持有 \(draft.affectedChannelInstances) 个受撤销影响的实例。")
+                if let affected = draft.affectedChannelInstances, affected > 0 {
+                    Text("本应用仍持有 \(affected) 个受撤销影响的实例。")
                         .accessibilityIdentifier("plugin-installed-channel-affected")
                 }
-                if let controller, let stopRevoked, draft.affectedChannelInstances > 0 {
+                if let controller, let stopRevoked, let affected = draft.affectedChannelInstances, affected > 0 {
                     Button("停止受渠道撤销影响的实例") {
                         Task { await draft.stopAffectedChannelInstances(controller, stop: stopRevoked) }
                     }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-stop")
