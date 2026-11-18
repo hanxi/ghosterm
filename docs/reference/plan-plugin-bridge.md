@@ -14706,3 +14706,7 @@ Release 构建通过，VoiceOver 实际播报仍待执行。
 仍区分取消请求受理；Android 阶段节点为 polite live region。macOS 离屏
 任务组 27 项、Release 构建通过；Android 启用 JS 的 Debug APK 与测试
 代码后台编译通过。真实 VoiceOver / TalkBack 播报待验。
+
+macOS 通用视图模型增加实例隔离回归。两个不同实例使用相同的句柄文本，
+关闭第一实例的表格时仅释放第一项；第二项保留对象身份并可继续分页。
+离屏模型组 20 项通过，原生 SSH 与实例退出故障矩阵仍另验。

@@ -87,7 +87,7 @@ def main():
                 assert child.returncode == 0 and f'Executed {count} test' in text and 'with 0 failures' in text and 'skipped' not in text.lower(), (label, text[-16000:])
             commands.append(dict(label=label, status=child.returncode, sha256=hashlib.sha256(output + errors).hexdigest()))
             print('PASS ' + label, flush=True)
-        test('baseline', 'PluginViewsTests', 19)
+        test('baseline', 'PluginViewsTests', 20)
         test('bootstrap', 'ExtensionControllerTests.testRelayBootstrapAcceptsFourUniqueImplementedViewServices')
         test('host-profile', 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities')
         test('legacy-table', 'PluginTableTests', 15); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 27)
@@ -132,7 +132,7 @@ def main():
                             try: test('actual-' + route, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel')
                             finally: server.shutdown(); thread.join(5)
                         assert not thread.is_alive(); actual.append(dict(route=route, ipc=frontend.finish()) if frontend else route)
-        test('restored', 'PluginViewsTests', 19)
+        test('restored', 'PluginViewsTests', 20)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()
         args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=actual,

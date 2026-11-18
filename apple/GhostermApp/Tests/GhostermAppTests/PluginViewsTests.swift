@@ -6,14 +6,16 @@ import SwiftUI
 import XCTest
 
 @MainActor final class PluginViewsFixture {
-    let instance = String(repeating: "b", count: 32), nonce = String(repeating: "a", count: 32)
+    let instance: String
+    let nonce = String(repeating: "a", count: 32)
     let alpha = PluginTableFixture(), beta = PluginTableFixture(), diff = PluginDiffFixture(), task = PluginTaskFixture()
     var revision: UInt64 = 1
     var entries: [[String: Any]] = []
     var closes: [String] = []
     var closeFails = false
     var current = true
-    init() {
+    init(instance: String = String(repeating: "b", count: 32)) {
+        self.instance = instance
         beta.description["viewId"] = "table-b"
         entries = [entry(1, "table-a", "table", "alpha"), entry(2, "table-b", "table", "beta"),
                    entry(3, "diff-a", "diff", "changes"), entry(4, "task-a", "task", "work")]
@@ -151,6 +153,27 @@ import XCTest
         f.closeFails = false; await m.closeView(handle: item.id)
         XCTAssertEqual(m.items.count, 3); XCTAssertEqual(f.closes.count, 2)
     }
+    func testOverlappingHandlesBelongToTheirOwnInstances() async throws {
+        let first = PluginViewsFixture(), second = PluginViewsFixture(instance: String(repeating: "c", count: 32))
+        let firstModel = try first.populated(), secondModel = try second.populated()
+        let firstItem = firstModel.items[0], secondItem = secondModel.items[0]
+        XCTAssertEqual(firstItem.id, secondItem.id)
+        guard case .table(let firstTable) = firstItem.content, case .table(let secondTable) = secondItem.content else {
+            return XCTFail("both instances must expose a table")
+        }
+        await firstTable.load()
+        await secondTable.load()
+        await firstModel.closeView(handle: firstItem.id)
+        XCTAssertFalse(firstTable.valid)
+        XCTAssertTrue(secondTable.valid)
+        XCTAssertTrue(secondModel.items[0] === secondItem)
+        XCTAssertEqual(first.closes, [firstItem.id])
+        XCTAssertTrue(second.closes.isEmpty)
+        await secondTable.showPage(offset: 16)
+        XCTAssertEqual(secondTable.page?.rows.first?.id, "17")
+        XCTAssertNil(firstTable.page)
+    }
+
     func testRuntimeInvalidationStopsLatePage() async throws {
         let f = PluginViewsFixture(), m = try f.populated()
         guard case .table(let table) = m.items[0].content else { return XCTFail("table") }
