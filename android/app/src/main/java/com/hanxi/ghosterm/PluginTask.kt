@@ -122,8 +122,9 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
         val cancellation: Cancellation = Cancellation.IDLE, val cancelRequestID: String? = null)
     private val mutable = MutableStateFlow(State()); val state = mutable.asStateFlow()
     private var generation = Any()
+    private var readJob: Job? = null
     val available get() = state.value.valid && scope.isActive && isCurrent()
-    val canCancel get() = available && !state.value.busy && state.value.descriptor?.cancellable == true && state.value.cancelRequestID == null &&
+    val canCancel get() = available && state.value.descriptor?.cancellable == true && state.value.cancelRequestID == null &&
         state.value.snapshot?.phase in setOf(PluginTaskSnapshot.Phase.QUEUED, PluginTaskSnapshot.Phase.RUNNING)
     val canAutoRefresh get() = available && !state.value.busy && state.value.issue == null && state.value.cancellation != Cancellation.UNCONFIRMED &&
         state.value.snapshot?.let { !it.phase.terminal && it.phase != PluginTaskSnapshot.Phase.UNKNOWN } == true
@@ -131,7 +132,7 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
     fun load(): Job? {
         main(); if (!available || state.value.busy) return null
         val expected = Any(); generation = expected; mutable.value = state.value.copy(busy = true, issue = null)
-        return scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 var description = state.value.descriptor
                 if (description == null) {
@@ -150,11 +151,15 @@ internal class PluginTaskModel(private val scope: CoroutineScope, private val re
             catch (failure: Exception) { if (current(expected)) mutable.value = state.value.copy(issue = "读取结果不明，保留上次观察。可显式重新读取：${failure.message}") }
             finally { if (generation === expected) mutable.value = state.value.copy(busy = false) }
         }
+        readJob = job
+        return job
     }
     fun cancel(): Job? {
         main(); val description = state.value.descriptor ?: return null; if (!canCancel) return null
         val expected = Any(); generation = expected; val requestID = UUID.randomUUID().toString()
         mutable.value = state.value.copy(busy = true, issue = null, cancelRequestID = requestID, cancellation = Cancellation.PENDING)
+        readJob?.cancel()
+        readJob = null
         history?.action(description, requestID, state.value.cancellation)
         return scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {

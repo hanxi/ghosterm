@@ -146,7 +146,7 @@ def main():
                                 if not remote.startswith('package:/data/app/') or '\n' in remote: raise RuntimeError('Unexpected installed APK path')
                                 actual = run(label + '-sha-' + str(index), [*adb, 'shell', 'sha256sum', remote[len('package:'):]]).split()[0]
                                 if actual != sha(apks[index]): raise RuntimeError('Installed APK mismatch')
-                        def test(label, selected=TESTS, count=33, red=False, extra=()):
+                        def test(label, selected=TESTS, count=34, red=False, extra=()):
                             text = run(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                                               *extra, RUNNER])
                             if red:
@@ -165,7 +165,7 @@ def main():
                         test('api' + api + '-baseline')
                         test('api' + api + '-legacy-table', 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest', 23)
                         test('api' + api + '-legacy-diff', 'com.hanxi.ghosterm.PluginDiffTest,com.hanxi.ghosterm.PluginDiffUiTest', 27)
-                        print('PASS API' + api + ': 33 Native model/codec/UI tests', flush=True)
+                        print('PASS API' + api + ': 34 Native model/codec/UI tests', flush=True)
 
                         def actual(label, route, scenario, red=False):
                             limit = scenarios[scenario]

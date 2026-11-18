@@ -133,6 +133,25 @@ class PluginTaskTest {
         val action = m.cancel()!!; withTimeout(5000) { f.entered.await() }; action.cancel(); f.release.complete(Unit); action.join()
         assertTrue(m.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED && m.state.value.issue != null && !m.canCancel && !m.canAutoRefresh)
     }
+    @Test fun cancellationSupersedesInFlightStatusRead() = main {
+        val f = PluginTaskFixture(); val m = PluginTaskModel(this, f::request)
+        m.load()!!.join()
+        f.pause = "view.task.read"
+        val reading = checkNotNull(m.load())
+        try {
+            withTimeout(5000) { f.entered.await() }
+            assertTrue(m.canCancel)
+            f.finish()
+            checkNotNull(m.cancel()).join()
+            assertEquals(PluginTaskSnapshot.Phase.CANCELLED, m.state.value.snapshot?.phase)
+            assertEquals(1, f.calls.count { it.first == "view.task.cancel" })
+        } finally {
+            f.release.complete(Unit)
+            reading.join()
+        }
+        assertEquals(PluginTaskSnapshot.Phase.CANCELLED, m.state.value.snapshot?.phase)
+        assertFalse(m.state.value.busy)
+    }
     @Test fun busyAndReplacedInstanceCannotStartMoreRequests() = main {
         val f = PluginTaskFixture(); var current = true; val m = PluginTaskModel(this, f::request) { current }; f.pause = "view.task.describe"
         val read = m.load()!!; withTimeout(5000) { f.entered.await() }; assertNull(m.load()); assertNull(m.cancel()); current = false; f.release.complete(Unit); read.join()

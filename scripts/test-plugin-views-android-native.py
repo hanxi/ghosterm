@@ -189,7 +189,7 @@ def main():
                         test('api' + api + '-baseline')
                         test('api' + api + '-legacy-table', 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest', 23)
                         test('api' + api + '-legacy-diff', 'com.hanxi.ghosterm.PluginDiffTest,com.hanxi.ghosterm.PluginDiffUiTest', 27)
-                        test('api' + api + '-legacy-task', 'com.hanxi.ghosterm.PluginTaskTest,com.hanxi.ghosterm.PluginTaskUiTest', 33)
+                        test('api' + api + '-legacy-task', 'com.hanxi.ghosterm.PluginTaskTest,com.hanxi.ghosterm.PluginTaskUiTest', 34)
                         print(f'PASS API{api}: {BASELINE_COUNT} Native registry/model/UI tests', flush=True)
 
                         def actual(label, route, scenario, red=False):
