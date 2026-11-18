@@ -13499,3 +13499,12 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 工具组合收据 SHA256 `acd0f227b5ab72e637c62574ce91ccef8d34b502e9bd38d8e22d7787bcaadb73`，
 场景组合收据 SHA256 `bccb03891289fda76850c3cf132e0ff56ca6104f18f3d0ff48cbf354d06113f1`。
 本轮为本机 CLI，未执行变异或平台 UI，临时产物已清理。
+
+### P5 macOS 原生插件视图集中复验（2026-11-19）
+
+固定 `46c54d66`，在完整 Xcode 下以 `GHOSTERM_AUTOMATION_OFFSCREEN=1`
+运行 `swift test --package-path apple/GhostermApp --filter 'Plugin(Table|Diff|Task|Views|Workspace)Tests'`。
+86 项全部通过，覆盖表格、差异及任务视图的主题与大字号、原生无障碍属性、
+分页及取消操作，以及工作区焦点接管、关闭后归还终端焦点与清理等待。
+首轮使用命令行工具时缺少 XCTest，未进入测试。两轮的临时目录均已清理。
+本轮未执行读屏播报、真实后端或变异验证。
