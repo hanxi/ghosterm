@@ -170,6 +170,8 @@ final class PluginDirectorySignatureTests: XCTestCase {
         ChannelRefreshProtocol.set(try responses("1", body: policy))
         let first = try await PluginChannelRefresh.refresh(trust, session: session)
         XCTAssertEqual(first.generation, 1)
+        let cachedByOwner = try await configured.cachedChannelPolicy()
+        XCTAssertEqual(cachedByOwner.statementSHA256, first.statementSHA256)
         let affected = try await configured.runningInstancesWithRevokedPublisher(in: first)
         XCTAssertEqual(affected, 0)
         ChannelRefreshProtocol.set(try responses("2", body: policy + Data([10])))

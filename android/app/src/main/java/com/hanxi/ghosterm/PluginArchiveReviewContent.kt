@@ -133,22 +133,24 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
 
 @Composable
 internal fun PluginChannelRefreshContent(controller: ExtensionController?, requestStop: suspend () -> Int) {
-    if (controller?.canRefreshChannelPolicy != true) return
+    if (controller?.hasConfiguredChannel != true) return
     val scope = rememberCoroutineScope()
     var busy by remember(controller) { mutableStateOf(false) }
     var status by remember(controller) { mutableStateOf<String?>(null) }
     var failed by remember(controller) { mutableStateOf(false) }
     var affected by remember(controller) { mutableIntStateOf(0) }
-    TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-refresh"), onClick = {
+    fun readPolicy(refresh: Boolean) {
         busy = true
         status = null
         scope.launch {
             try {
-                val current = controller.refreshChannelPolicy()
+                val current = if (refresh) controller.refreshChannelPolicy() else controller.cachedChannelPolicy()
                 failed = false
                 val count = controller.runningInstancesWithRevokedPublisher(current)
                 affected = count
-                status = "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。" +
+                val generation = if (refresh) "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
+                    else "本机已验证 ${current.channel} 渠道策略第 ${current.generation} 代。"
+                status = generation +
                     if (count > 0) " 本应用仍持有 ${count} 个受撤销影响的实例，可在实例页停止。" else ""
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                 failed = true
@@ -160,7 +162,15 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
                 status = failure.message ?: "无法刷新插件渠道。"
             } finally { busy = false }
         }
-    }) { Text(if (busy) "正在刷新渠道策略…" else "刷新渠道策略") }
+    }
+    if (controller.canRefreshChannelPolicy) {
+        TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-refresh"), onClick = { readPolicy(true) }) {
+            Text("刷新渠道策略")
+        }
+    }
+    TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-cache"), onClick = { readPolicy(false) }) {
+        Text("核对本机渠道缓存")
+    }
     if (affected > 0) TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-stop"), onClick = {
         busy = true
         scope.launch {

@@ -59,6 +59,11 @@ class ExtensionController private constructor(private val shared: Shared, privat
     internal suspend fun refreshChannelPolicy() =
         checkNotNull(shared.channelRefresh) { "本构建未配置插件渠道。" }.refresh()
 
+    internal suspend fun cachedChannelPolicy(): PluginReleaseSignature.VerifiedChannelPolicy = onWorker {
+        checkOpen()
+        checkNotNull(shared.channelStore) { "本构建未配置插件渠道。" }.useCurrent(configuredChannelTime()) { it }
+    }
+
     internal suspend fun runningInstancesWithRevokedPublisher(policy: PluginReleaseSignature.VerifiedChannelPolicy): Int = onWorker {
         checkOpen()
         shared.controllers.count { controller ->

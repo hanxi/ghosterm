@@ -538,6 +538,10 @@ public actor ExtensionController {
         try await worker.runningInstancesWithRevokedPublisher(in: policy)
     }
 
+    public func cachedChannelPolicy() async throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        try await worker.loadConfiguredChannelPolicy().0
+    }
+
     func currentInstanceHasRevokedPublisher() async throws -> Bool {
         try await worker.currentInstanceHasRevokedPublisher()
     }
