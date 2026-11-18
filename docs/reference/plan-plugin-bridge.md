@@ -13438,3 +13438,11 @@ ProxyJump 用例。覆盖实际 SAF、会话授权、预览绘制、键盘打开
 使用一次性测试渠道签名。收据 SHA256
 `2c4034a08b76c8a6263129d2664a90aa2814e3050e026fbc4519bba8e7eb05e3`。
 本轮产物已清理，正式渠道和原生安装仍分别验收。
+
+### P6 macOS 原生安装复验（2026-11-19）
+
+固定 `48cf76e5` 的干净隔离检出，以锁定打包工具、JS-enabled Core 与本机
+GhosttyKit 运行 `test-plugin-native-signature.py --install`。离屏 XCTest 28 项通过，
+覆盖目录签名、签名 ZIP 安装事务及原生审查和确认控件。收据 SHA256
+`dfd59acd0b3ffd53d21c05adb595276740aa5c7301b3ee5d536a30a7e76c5ede`。
+本轮使用测试渠道安装夹具，未安装七个官方候选的全部组合，也未执行变异。隔离产物已清理。
