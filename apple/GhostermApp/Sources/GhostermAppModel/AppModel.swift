@@ -1431,6 +1431,9 @@ public final class AppModel: ObservableObject {
                                      localLaunch: ExtensionLocalLaunch? = nil,
                                      onValidated: (@MainActor () -> Void)? = nil) async {
         await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID, clientWorkspace: clientWorkspace, localLaunch: localLaunch) {
+            if localLaunch == nil, try self.configuredSSHRoute(for: [sshAlias]).isEmpty {
+                throw GhostermError.failed("SSH 配置没有生成连接路线")
+            }
             self.showExtensionWorkspace()
             onValidated?()
         }

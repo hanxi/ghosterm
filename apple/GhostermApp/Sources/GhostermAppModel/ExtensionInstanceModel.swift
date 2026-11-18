@@ -152,7 +152,7 @@ import GhostermCore
                                      executorVariantID: String? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
                                      localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil,
-                                     onValidated: (@MainActor () -> Void)? = nil) async {
+                                     onValidated: (@MainActor () throws -> Void)? = nil) async {
         guard launchTask == nil, !extensionRunBusy, extensionRun == nil, !cleanupPending else {
             extensionRunIssue = "已有插件运行或资源仍待释放"; return
         }
@@ -185,7 +185,7 @@ import GhostermCore
                              executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence?,
                              executorVariantID: String?,
                              clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?,
-                             onValidated: (@MainActor () -> Void)?) async {
+                             onValidated: (@MainActor () throws -> Void)?) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil; extensionLastLocalTemporary = nil
@@ -223,7 +223,7 @@ import GhostermCore
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
             try Task.checkCancellation()
             try localLaunch?.validateConfiguration(executable: executable)
-            onValidated?()
+            try onValidated?()
             if multiplexedConnectionCommand != nil {
                 // The connection owner admitted this exact logical channel.
             } else if let localLaunch, let argv {
