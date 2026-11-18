@@ -34,6 +34,16 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def verify_inputs(inputs):
+    changed = []
+    for name, digest in sorted(inputs.items()):
+        path = ROOT / name
+        if not path.is_file() or sha(path) != digest:
+            changed.append(name)
+    if changed:
+        raise RuntimeError('root inputs changed: ' + ', '.join(changed))
+
+
 def load(name, filename):
     spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / filename)
     module = importlib.util.module_from_spec(spec)
@@ -205,8 +215,7 @@ export function activate(ctx){
             backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
             report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
                 policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source)
-            if any(sha(ROOT / name) != digest for name, digest in inputs.items()):
-                raise RuntimeError('root input changed')
+            verify_inputs(inputs)
             for path in logs.iterdir():
                 if b'PRIVATE KEY-----' in path.read_bytes(): raise RuntimeError('fixture private material leaked to a log')
             receipt = dict(accepted=True, inputs=inputs, commands=commands, **report,
@@ -304,8 +313,7 @@ export function activate(ctx){
             if sha(target) != inputs[filename]: raise RuntimeError('worker restoration mismatch')
             mutations.append('parent-pump')
             print('PASS parent-pump: compiled ordinary assertion / independent config / restore / object / SHA256', flush=True)
-    if any(sha(ROOT / name) != digest for name, digest in inputs.items()):
-        raise RuntimeError('root input changed')
+    verify_inputs(inputs)
     for path in logs.iterdir():
         if b'PRIVATE KEY-----' in path.read_bytes():
             raise RuntimeError('fixture private material leaked to a log')
