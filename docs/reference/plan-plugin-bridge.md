@@ -14513,3 +14513,8 @@ Android 签名安装设置夹具增加本机缓存按钮的生产页面断言。
 保持安静，无活动实例时不出现停止入口。显式核对显示已写入的第一代，且仍无
 受影响实例或停止入口。启用 JS 的 instrumentation Kotlin 编译通过。ADB 未发现
 设备，页面断言待设备执行。
+
+`python3 -B scripts/test-plugin-channel-android-tls.py --settings-cache` 将第一代
+签名夹具、临时渠道根 APK 与设备设置测试串在同一入口，并检查回环服务未收到
+HTTP 请求。本机已成功生成签名夹具。API 36 无窗口模拟器在创建 userdata 时退出，
+报告需要 7372.80 MB、可用 4346.70 MB，未执行 APK 安装或 UI 断言。

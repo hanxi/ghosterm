@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the Android channel client against an owned loopback TLS server."""
+import argparse
 import base64
 from contextlib import contextmanager
 import http.server
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'android/app/src/androidTest/assets/plugin-release'
 
 
-def fixture(work, env, host):
+def fixture(work, env, host, settings=False):
     cert, key = work / 'fixture.crt', work / 'fixture.key'
     subprocess.run(['openssl', 'req', '-new', '-x509', '-newkey', 'rsa:2048', '-nodes',
                     '-subj', f'/CN={host}', '-addext', f'subjectAltName=IP:{host}',
@@ -30,7 +31,8 @@ def fixture(work, env, host):
     spec.loader.exec_module(helper)
     node = Path(shutil.which('node')).resolve(strict=True)
     policy = work / 'original-policy.json'
-    policy.write_bytes(json.loads((ASSETS / 'vector.json').read_bytes())['policy'].encode())
+    vector = 'archive-declarations.json' if settings else 'vector.json'
+    policy.write_bytes(json.loads((ASSETS / vector).read_bytes())['policy'].encode())
     revoked = json.loads(policy.read_bytes())
     revoked['revokedKeyIds'] = [key['id'] for key in revoked['keys']]
     revoked_policy = work / 'revoked-policy.json'
@@ -52,15 +54,15 @@ def fixture(work, env, host):
             report = json.loads(result.stdout)
             if result.returncode or report.get('kind') != 'signed-channel-policy':
                 raise RuntimeError(f'Channel producer failed: {report}')
-        sign(policy, 2, bundle)
+        sign(policy, 1 if settings else 2, bundle)
         revoked_bundle = work / 'revoked-channel'
         sign(revoked_policy, 3, revoked_bundle)
     return cert, key, root, bundle, revoked_bundle
 
 
 @contextmanager
-def tls_fixture(work, env, host):
-    cert, key, root, bundle, revoked_bundle = fixture(work, env, host)
+def tls_fixture(work, env, host, settings=False):
+    cert, key, root, bundle, revoked_bundle = fixture(work, env, host, settings)
     names = ('channel-policy.json', 'channel-policy.sig', 'policy.json')
     bodies = {name: (bundle / name).read_bytes() for name in names}
     revoked_bodies = {name: (revoked_bundle / name).read_bytes() for name in names}
@@ -100,6 +102,8 @@ def tls_fixture(work, env, host):
         thread.start()
         try:
             yield f'https://{host}:{server.server_port}', cert, root
+            if settings and received:
+                raise RuntimeError(f"Settings cache check used the network: {received}")
             if any(item.startswith('/redirect-target/') for item in received):
                 raise RuntimeError('Client followed a channel redirect')
         finally:
@@ -108,6 +112,10 @@ def tls_fixture(work, env, host):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--settings-cache', action='store_true',
+                        help='build with a disposable channel root and exercise the offline Settings flow')
+    args = parser.parse_args()
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('android_release_runner', ROOT / 'scripts/test-plugin-release-android.py')
     runner = importlib.util.module_from_spec(spec)
@@ -115,21 +123,33 @@ def main():
     with tempfile.TemporaryDirectory(dir=ROOT / 'tmp', prefix='android-channel-tls-') as path:
         work = Path(path)
         env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
-        with tls_fixture(work, env, '10.0.2.2') as (origin, cert, root):
+        with tls_fixture(work, env, '10.0.2.2', args.settings_cache) as (origin, cert, root):
             device = work / 'device'
             device.mkdir()
             with runner.headless(36, device, env) as (adb, device_env):
+                if args.settings_cache:
+                    bundle = work / 'signed-channel'
+                    print(runner.run(['bash', ROOT / 'scripts/build-android.sh',
+                        '-PghostermPluginJs=true', '-PghostermPluginChannel=fixture',
+                        f'-PghostermPluginChannelRoot={root}', f'-PghostermPluginChannelUrl={origin}/valid/',
+                        ':app:assembleDebug', ':app:assembleDebugAndroidTest'], env, 900)[-400:], flush=True)
+                    test = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
+                    extras = [
+                        '-e', 'settingsChannelStatement', base64.b64encode((bundle / 'channel-policy.json').read_bytes()).decode(),
+                        '-e', 'settingsChannelSignature', base64.b64encode((bundle / 'channel-policy.sig').read_bytes()).decode(),
+                    ]
+                else:
+                    test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'
+                    extras = ['-e', 'channelTlsOrigin', origin, '-e', 'channelTlsRoot', root,
+                              '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode()]
                 for apk in ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk'):
                     runner.run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / apk], device_env)
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
-                    'com.hanxi.ghosterm.PluginChannelRefreshTlsTest',
-                    '-e', 'channelTlsOrigin', origin,
-                    '-e', 'channelTlsRoot', root,
-                    '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode(),
+                    test, *extras,
                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], device_env)
                 print(output, flush=True)
                 if 'OK (1 test)' not in output or 'FAILURES' in output:
-                    raise RuntimeError('Android TLS test did not pass')
+                    raise RuntimeError(f'Android channel test did not pass: {test}')
 
 
 if __name__ == '__main__':
