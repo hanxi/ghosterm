@@ -13517,3 +13517,14 @@ JS 关闭）。运行 `ctest --test-dir core/build -j 6 --output-on-failure -R
 326 项全部通过。覆盖分帧、桥接传输 credit 和 epoch、会话停止、RPC 背压与
 取消后的晚到响应，以及 tmux 命令辅助模块。全程命令行，临时目录已清理。
 真实平台 SSH/tmux 路线、原始终端字节对照及变异仍以各自的专项闸门验收。
+
+### P1 macOS 多跳 SSH 通道与 RPC 复验（2026-11-19）
+
+固定 `a2d74008`，复用该工作树的默认 Core 构件，后台运行
+`test-plugin-channel.py --apple` 与 `test-plugin-channel.py --rpc --apple`。
+通道轮通过 10 项独立回环 SSH 场景与 9 项 Swift XCTest，覆盖两跳、三跳、
+主机信任、凭据重试、供应前过期和转发拒绝。RPC 轮通过 4 项回环场景与
+7 项 Swift XCTest，并逐份核对允许路线的执行端完成回执。通道与 RPC 收据
+SHA256 分别为 `517467ff5c5203c9fa5a296ae269e7b06acc990bef61a52407dfdbcdbb89e48d`
+与 `3364f2b1cadabf5f330707e88268c465c629439c0fb3957e16a9e8d2ca047b34`。
+测试服务与产物已清理。本轮未运行 Android、交互 tmux、原始终端字节对照或变异。
