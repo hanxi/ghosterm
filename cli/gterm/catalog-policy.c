@@ -295,7 +295,7 @@ int gterm_catalog_review_policy(const char *operation,
         code = "CATALOG_REVISION";
         goto done;
     }
-    status = snapshot(policy, policy_digest);
+    status = gterm_release_validate_policy(policy, policy_digest, cancelled);
     code = "POLICY_SNAPSHOT";
     if (status) {
         goto done;

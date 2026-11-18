@@ -81,10 +81,14 @@ def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_versi
     apply(changed)
     require(catalog_file.read_bytes() == original_catalog, 'valid policy change needs explicit reregistration')
     policy.write_text('{invalid')
-    invalid = review()
-    require(invalid['entries'][0]['state'] == 'invalid-evidence' and not invalid['deniedCount'], 'malformed policy is not a denial')
-    apply(invalid)
+    empty_catalog = work / 'empty-review-catalog'; empty_catalog.mkdir(mode=0o700)
+    for candidate in (catalog, empty_catalog):
+        invalid = run(['plugin', 'review-policy', '--catalog', candidate, '--policy', policy], 2)
+        require(invalid['code'] == 'POLICY_SNAPSHOT', 'reject malformed policy independently of catalog contents')
+    require(catalog_file.read_bytes() == original_catalog, 'malformed policy does not change the catalog')
     policy.write_bytes(original_policy)
+    empty = run(['plugin', 'review-policy', '--catalog', empty_catalog, '--policy', policy])
+    require(empty['entries'] == [] and empty['deniedCount'] == 0, 'valid policy permits a read-only empty review')
     installed_signature = installed_version / 'release.sig'
     original_signature = installed_signature.read_bytes()
     installed_version.chmod(0o700)

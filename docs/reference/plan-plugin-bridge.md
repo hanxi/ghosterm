@@ -13204,3 +13204,17 @@ Android 收据 SHA256 `30799e95f01a306d68d8c7a859af3cb4183ba555cb21cd56365f0de22
 六份通道收据均确认 `allow2` 和 Android Client Runtime，使用同一 Native Executor
 二进制 SHA256 `7a0d5c5ff5b9e78c77f2db5f50d5f7e382d1f1ff892bd19a524cc05a27261b06`。
 本轮未重复进程中断、变异或真机验收。
+
+### P6 执行端离线策略先验校验（2026-11-18）
+
+`gterm plugin review-policy` 与 `disable-denied` 先用同一有界 QuickJS 验证器
+校验实际读取的完整策略字节，再进入目录逐项复核。空目录也拒绝损坏策略。
+错误返回 `POLICY_SNAPSHOT`，既不生成可确认的复核，也不写目录。逐项签名和旧摘要
+绑定仍用原逻辑，输入是显式选定的离线策略快照。
+
+签名执行端 44 项通过。隔离副本恢复仅计算策略摘要的旧路径后，编译成功，
+策略目标正常断言红、同构件签名往返对照绿、恢复后复验绿及源码字节一致。
+默认无签名 CLI 构建通过，C 格式 297 文件通过；Core 离线闸门通过 612 项、205 个
+公共 ABI 符号及 API 冒烟。签名组合日志 SHA256
+`7997efdd5ce3bc3f373b7952f71c90af87211a48ddefb2656027093e99efb94f`，
+Core 闸门日志 SHA256 `7115c828ad9dd7ddcb9e39670303187d24a3e143e70a19a5bf704f223ae412d3`。

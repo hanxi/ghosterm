@@ -18,6 +18,7 @@ typedef struct {
 bool gterm_release_supported(void);
 unsigned char *gterm_release_file(const char *, size_t, size_t *);
 bool gterm_release_hash(const void *, size_t, char[65]);
+int gterm_release_validate_policy(const char *, char[65], volatile sig_atomic_t *);
 int gterm_release_authenticate(const char *,
                                const char *,
                                const char *,

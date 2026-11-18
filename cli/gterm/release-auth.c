@@ -171,6 +171,114 @@ field(JSContext *context, JSValueConst object, const char *name, char *out, size
     JS_FreeValue(context, value);
     return ok;
 }
+
+static int evaluate_policy(const unsigned char *policy,
+                           size_t size,
+                           gterm_release_t *out,
+                           size_t signature_size,
+                           volatile sig_atomic_t *cancelled) {
+    int result;
+    uint64_t now = clock_ms();
+    if (now == UINT64_MAX) {
+        return 5;
+    }
+    budget_t budget = {now + 250, cancelled};
+    JSRuntime *runtime = JS_NewRuntime();
+    if (!runtime) {
+        return 5;
+    }
+    JS_SetMemoryLimit(runtime, 8388608);
+    JS_SetMaxStackSize(runtime, 262144);
+    JS_SetInterruptHandler(runtime, interrupt, &budget);
+    JSContext *context = JS_NewContext(runtime);
+    if (!context) {
+        JS_FreeRuntime(runtime);
+        return 5;
+    }
+    JSValue global = JS_GetGlobalObject(context);
+    JS_SetPropertyStr(
+        context, global, "__release_sha256", JS_NewCFunction(context, key_hash, "sha256", 1));
+    JS_FreeValue(context, global);
+    JSValue function = JS_Eval(context,
+                               (const char *)policy_code,
+                               sizeof(policy_code) - 1,
+                               "gterm:release-policy",
+                               JS_EVAL_TYPE_GLOBAL);
+    JSValue args[] = {
+        (out ? JS_NewStringLen(context, (const char *)out->descriptor, out->descriptor_size)
+             : JS_NULL),
+        JS_NewStringLen(context, (const char *)policy, size)};
+    JSValue checked = JS_IsException(function) || JS_IsException(args[0]) || JS_IsException(args[1])
+                          ? JS_EXCEPTION
+                          : JS_Call(context, function, JS_UNDEFINED, 2, args);
+    unsigned char public_key[32];
+    char key[65];
+    if (JS_IsException(checked)) {
+        JSValue exception = JS_GetException(context);
+        JSValue detail = JS_GetPropertyStr(context, exception, "message");
+        const char *message = JS_IsString(detail) ? JS_ToCString(context, detail) : NULL;
+        result = 5;
+        static const char *invalid[] = {"RELEASE_JSON",
+                                        "RELEASE_UTF8",
+                                        "RELEASE_DUPLICATE",
+                                        "RELEASE_LIMIT",
+                                        "RELEASE_NUMBER",
+                                        "RELEASE_POLICY",
+                                        "RELEASE_DESCRIPTOR"};
+        for (size_t i = 0; message && i < sizeof(invalid) / sizeof(*invalid); i++) {
+            if (!strcmp(message, invalid[i])) {
+                result = 2;
+            }
+        }
+        if (message &&
+            (!strcmp(message, "RELEASE_SCOPE") || !strcmp(message, "RELEASE_UNKNOWN_KEY") ||
+             !strcmp(message, "RELEASE_REVOKED"))) {
+            result = 6;
+        }
+        JS_FreeCString(context, message);
+        JS_FreeValue(context, detail);
+        JS_FreeValue(context, exception);
+    } else if (!out) {
+        result = JS_IsBool(checked) && JS_ToBool(context, checked) == 1 ? 0 : 5;
+    } else {
+        JSValue count = JS_GetPropertyStr(context, checked, "artifact_bytes");
+        int64_t artifact_bytes = 0;
+        bool ok = !JS_ToInt64(context, &artifact_bytes, count) && artifact_bytes >= 22 &&
+                  artifact_bytes <= 75497472 &&
+                  field(context, checked, "id", out->id, sizeof(out->id)) &&
+                  field(context, checked, "version", out->version, sizeof(out->version)) &&
+                  field(context, checked, "publisher", out->publisher, sizeof(out->publisher)) &&
+                  field(context, checked, "digest", out->digest, sizeof(out->digest)) &&
+                  field(context, checked, "key", key, sizeof(key)) &&
+                  field(context,
+                        checked,
+                        "artifact_digest",
+                        out->artifact_digest,
+                        sizeof(out->artifact_digest)) &&
+                  unhex(key, public_key);
+        JS_FreeValue(context, count);
+        out->artifact_bytes = (uint64_t)artifact_bytes;
+        gt_status_t status = ok ? gt_ext_release_verify(public_key,
+                                                        32,
+                                                        out->signature,
+                                                        signature_size,
+                                                        out->descriptor,
+                                                        out->descriptor_size)
+                                : GT_ERR_INVALID_ARG;
+        result = status == GT_OK                ? 0
+                 : status == GT_ERR_AUTH        ? 6
+                 : status == GT_ERR_UNSUPPORTED ? 4
+                 : status == GT_ERR_INVALID_ARG ? 2
+                                                : 5;
+    }
+    JS_FreeValue(context, checked);
+    JS_FreeValue(context, args[0]);
+    JS_FreeValue(context, args[1]);
+    JS_FreeValue(context, function);
+    JS_FreeContext(context);
+    JS_FreeRuntime(runtime);
+    return *cancelled ? 130 : result;
+}
 #endif
 
 static int authenticate(const char *descriptor_path,
@@ -222,101 +330,7 @@ static int authenticate(const char *descriptor_path,
         result = 9;
         goto done;
     }
-    uint64_t now = clock_ms();
-    if (now == UINT64_MAX) {
-        goto done;
-    }
-    budget_t budget = {now + 250, cancelled};
-    JSRuntime *runtime = JS_NewRuntime();
-    if (!runtime) {
-        goto done;
-    }
-    JS_SetMemoryLimit(runtime, 8388608);
-    JS_SetMaxStackSize(runtime, 262144);
-    JS_SetInterruptHandler(runtime, interrupt, &budget);
-    JSContext *context = JS_NewContext(runtime);
-    if (!context) {
-        JS_FreeRuntime(runtime);
-        goto done;
-    }
-    JSValue global = JS_GetGlobalObject(context);
-    JS_SetPropertyStr(
-        context, global, "__release_sha256", JS_NewCFunction(context, key_hash, "sha256", 1));
-    JS_FreeValue(context, global);
-    JSValue function = JS_Eval(context,
-                               (const char *)policy_code,
-                               sizeof(policy_code) - 1,
-                               "gterm:release-policy",
-                               JS_EVAL_TYPE_GLOBAL);
-    JSValue args[] = {JS_NewStringLen(context, (const char *)out->descriptor, out->descriptor_size),
-                      JS_NewStringLen(context, (const char *)policy, size)};
-    JSValue checked = JS_IsException(function) || JS_IsException(args[0]) || JS_IsException(args[1])
-                          ? JS_EXCEPTION
-                          : JS_Call(context, function, JS_UNDEFINED, 2, args);
-    unsigned char public_key[32];
-    char key[65];
-    if (JS_IsException(checked)) {
-        JSValue exception = JS_GetException(context);
-        JSValue detail = JS_GetPropertyStr(context, exception, "message");
-        const char *message = JS_IsString(detail) ? JS_ToCString(context, detail) : NULL;
-        result = 5;
-        static const char *invalid[] = {"RELEASE_JSON",
-                                        "RELEASE_UTF8",
-                                        "RELEASE_DUPLICATE",
-                                        "RELEASE_LIMIT",
-                                        "RELEASE_NUMBER",
-                                        "RELEASE_POLICY",
-                                        "RELEASE_DESCRIPTOR"};
-        for (size_t i = 0; message && i < sizeof(invalid) / sizeof(*invalid); i++) {
-            if (!strcmp(message, invalid[i])) {
-                result = 2;
-            }
-        }
-        if (message &&
-            (!strcmp(message, "RELEASE_SCOPE") || !strcmp(message, "RELEASE_UNKNOWN_KEY") ||
-             !strcmp(message, "RELEASE_REVOKED"))) {
-            result = 6;
-        }
-        JS_FreeCString(context, message);
-        JS_FreeValue(context, detail);
-        JS_FreeValue(context, exception);
-    } else {
-        JSValue count = JS_GetPropertyStr(context, checked, "artifact_bytes");
-        int64_t artifact_bytes = 0;
-        bool ok = !JS_ToInt64(context, &artifact_bytes, count) && artifact_bytes >= 22 &&
-                  artifact_bytes <= 75497472 &&
-                  field(context, checked, "id", out->id, sizeof(out->id)) &&
-                  field(context, checked, "version", out->version, sizeof(out->version)) &&
-                  field(context, checked, "publisher", out->publisher, sizeof(out->publisher)) &&
-                  field(context, checked, "digest", out->digest, sizeof(out->digest)) &&
-                  field(context, checked, "key", key, sizeof(key)) &&
-                  field(context,
-                        checked,
-                        "artifact_digest",
-                        out->artifact_digest,
-                        sizeof(out->artifact_digest)) &&
-                  unhex(key, public_key);
-        JS_FreeValue(context, count);
-        out->artifact_bytes = (uint64_t)artifact_bytes;
-        gt_status_t status = ok ? gt_ext_release_verify(public_key,
-                                                        32,
-                                                        out->signature,
-                                                        signature_size,
-                                                        out->descriptor,
-                                                        out->descriptor_size)
-                                : GT_ERR_INVALID_ARG;
-        result = status == GT_OK                ? 0
-                 : status == GT_ERR_AUTH        ? 6
-                 : status == GT_ERR_UNSUPPORTED ? 4
-                 : status == GT_ERR_INVALID_ARG ? 2
-                                                : 5;
-    }
-    JS_FreeValue(context, checked);
-    JS_FreeValue(context, args[0]);
-    JS_FreeValue(context, args[1]);
-    JS_FreeValue(context, function);
-    JS_FreeContext(context);
-    JS_FreeRuntime(runtime);
+    result = evaluate_policy(policy, size, out, signature_size, cancelled);
 done:
     free(policy);
     if (*cancelled) {
@@ -326,6 +340,30 @@ done:
         gterm_release_clear(out);
     }
     return result;
+#endif
+}
+
+int gterm_release_validate_policy(const char *path,
+                                  char digest[65],
+                                  volatile sig_atomic_t *cancelled) {
+#ifndef GTERM_HAVE_RELEASE
+    (void)path;
+    (void)digest;
+    (void)cancelled;
+    return 4;
+#else
+    size_t size = 0;
+    unsigned char *bytes = gterm_release_file(path, 131072, &size);
+    int result = 5;
+    if (bytes) {
+        if (memchr(bytes, 0, size) || !gterm_catalog_utf8(bytes, size)) {
+            result = 2;
+        } else if (gterm_release_hash(bytes, size, digest)) {
+            result = evaluate_policy(bytes, size, NULL, 0, cancelled);
+        }
+    }
+    free(bytes);
+    return *cancelled ? 130 : result;
 #endif
 }
 

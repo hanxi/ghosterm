@@ -93,7 +93,7 @@
     if (hex.length !== 64 || (bits & 3)) fail('RELEASE_POLICY');
     return hex;
   }
-  const p = parse(policyBytes), d = parse(descriptorBytes), keys = new Map();
+  const p = parse(policyBytes), keys = new Map();
   if (!exact(p, ['schemaVersion','channel','keys','revokedKeyIds']) || p.schemaVersion !== 1 ||
       !channel(p.channel) || !Array.isArray(p.keys) || p.keys.length < 1 || p.keys.length > 64 ||
       !Array.isArray(p.revokedKeyIds) || p.revokedKeyIds.length > 256 ||
@@ -107,6 +107,8 @@
     if (__release_sha256(raw) !== k.id) fail('RELEASE_POLICY');
     keys.set(k.id, {raw, publisher:k.publisher, plugins:k.pluginIds});
   }
+  if (descriptorBytes === null) return true;
+  const d = parse(descriptorBytes);
   if (!exact(d, ['schemaVersion','channel','keyId','pluginId','pluginVersion','publisher','packageSHA256','artifact']) ||
       d.schemaVersion !== 1 || !channel(d.channel) || !digest(d.keyId) || !plugin(d.pluginId) ||
       !text(d.pluginVersion) || !text(d.publisher) || !digest(d.packageSHA256) ||
