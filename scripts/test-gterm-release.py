@@ -12,6 +12,7 @@ import json
 import os
 import platform
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -41,12 +42,73 @@ CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 
 CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review', 'version-maintenance', 'version-reference', 'version-active', 'node-version-active', 'exec-version-active']
 CASES += ['residue-maintenance', 'residue-reference', 'residue-damaged-intent']
 CASES += ['node-same-multi', 'exec-same-multi']
+CASES += ['policy-subset']
 FAULT_CASES = ['version-resume', 'residue-resume']
 
 
 def require(value, label):
     if not value:
         raise AssertionError(label)
+
+
+def policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
+                  install_options, profile, node, signer):
+    other_id = 'org.ghosterm.second'
+    second = work / 'second-package'
+    shutil.copytree(package, second)
+    manifest = json.loads((second / 'plugin.json').read_text())
+    manifest['id'] = other_id
+    (second / 'plugin.json').write_text(json.dumps(manifest))
+    integrity_path = second / 'integrity.json'
+    integrity = json.loads(integrity_path.read_text())
+    for item in integrity['members']:
+        data = (second / item['path']).read_bytes()
+        item.update(bytes=len(data), sha256=release.sha(data))
+    integrity_path.write_text(json.dumps(integrity))
+    artifact = work / 'second.zip'
+    with zipfile.ZipFile(artifact, 'w') as archive:
+        for member in sorted(second.rglob('*')):
+            if member.is_file():
+                archive.write(member, member.relative_to(second))
+    descriptor = work / 'second.json'
+    signature = work / 'second.sig'
+    raw = json.dumps(dict(description, pluginId=other_id, packageSHA256=release.sha(integrity_path.read_bytes()),
+                          artifact=dict(format='zip-v1', bytes=artifact.stat().st_size,
+                                        sha256=release.sha(artifact.read_bytes())))).encode()
+    descriptor.write_bytes(raw)
+    signature.write_bytes(subprocess.run(
+        [node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', signer],
+        input=release.DOMAIN + raw, capture_output=True, check=True, timeout=3).stdout)
+    options = list(install_options)
+    for flag, value in [('--expect-revision', '1'), ('--artifact', artifact),
+                        ('--descriptor', descriptor), ('--signature', signature)]:
+        options[options.index(flag) + 1] = value
+    run(['plugin', 'install', *options, '--', *profile])
+    review_command = ['plugin', 'review-policy', '--catalog', catalog, '--policy', policy]
+    allowed = run(review_command)
+    trusted['revokedKeyIds'] = [key_id]
+
+    def apply(review, ids, expected=0):
+        return run(['plugin', 'disable-denied', '--catalog', catalog, '--policy', policy,
+                    '--expect-revision', review['revision'], '--expect-policy-digest', review['policyDigest'],
+                    '--review-digest', review['reviewDigest'],
+                    *(option for selected in ids for option in ('--select', selected))], expected)
+
+    original = (catalog / 'executor-catalog-v1').read_bytes()
+    require(apply(allowed, [other_id], 2)['code'] == 'POLICY_SELECTION', 'cannot select an allowed record')
+    policy.write_text(json.dumps(trusted))
+    revoked = run(review_command)
+    require(revoked['deniedCount'] == 2, 'both real signed records revoked')
+    for ids in ([other_id, 'org.ghosterm.missing'], [other_id, other_id]):
+        require(apply(revoked, ids, 2)['code'] == 'POLICY_SELECTION', 'invalid selection fails as a unit')
+    require((catalog / 'executor-catalog-v1').read_bytes() == original, 'rejected selection leaves bytes intact')
+    applied = apply(revoked, [other_id])
+    require(applied['disabledCount'] == 1 and applied['revision'] == '3', 'only selected denial removed')
+    remaining = run(review_command)
+    require(remaining['deniedCount'] == 1 and remaining['entries'][0]['id'] == description['pluginId'],
+            'unselected denied record preserved')
+    apply(revoked, [description['pluginId']], 9)
+    require(apply(remaining, [description['pluginId']])['disabledCount'] == 1, 'fresh review permits second selection')
 
 
 
@@ -503,6 +565,8 @@ def exercise(build, node, sdk, case, work):
         policy = work / 'policy.json'
         trusted = dict(schemaVersion=1, channel='fixture', keys=[dict(id=key_id, algorithm='ed25519',
                        publicKey=public, publisher=manifest['publisher'], pluginIds=[manifest['id']])], revokedKeyIds=[])
+        if case == 'policy-subset':
+            trusted['keys'][0]['pluginIds'].append('org.ghosterm.second')
         descriptor = work / 'release.json'; signature = work / 'release.sig'
         description = dict(schemaVersion=1, channel='fixture', keyId=key_id, pluginId=manifest['id'],
                            pluginVersion=manifest['pluginVersion'], publisher=manifest['publisher'], packageSHA256=digest,
@@ -593,6 +657,10 @@ def exercise(build, node, sdk, case, work):
         if case == 'policy-review':
             policy_workflow(run, work, catalog, policy, trusted, key_id, installed_version, package, host, profile)
             return
+        if case == 'policy-subset':
+            policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
+                          options, profile, node, signer)
+            return
         if case == 'conflict':
             options[options.index('--expect-revision') + 1] = '1'
             run(['plugin', 'install', *options, '--', *profile], 8)
@@ -666,7 +734,6 @@ def main():
     parser.add_argument('--sdk', type=Path)
     parser.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
     args = parser.parse_args()
-    import shutil
     for case in args.case or CASES:
         directory = Path(tempfile.mkdtemp(prefix='grel-', dir=ROOT / 'tmp'))
         try:

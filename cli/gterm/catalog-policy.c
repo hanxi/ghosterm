@@ -252,10 +252,19 @@ int gterm_catalog_review_policy(const char *operation,
                                 volatile sig_atomic_t *cancelled) {
     const char *path = NULL, *policy = NULL, *revision = NULL, *expected_policy = NULL,
                *expected_review = NULL;
+    const char *selected[GTERM_CATALOG_ENTRIES];
+    unsigned selected_count = 0;
     bool apply = !strcmp(operation, "disable-denied");
     for (int i = 0; i < argc; i += 2) {
         if (i + 1 == argc) {
             return gterm_catalog_report(2, "POLICY_OPTIONS", NULL);
+        }
+        if (!strcmp(argv[i], "--select")) {
+            if (!apply || selected_count == GTERM_CATALOG_ENTRIES || !argv[i + 1][0]) {
+                return gterm_catalog_report(2, "POLICY_OPTIONS", NULL);
+            }
+            selected[selected_count++] = argv[i + 1];
+            continue;
         }
         const char **field = !strcmp(argv[i], "--catalog")                ? &path
                              : !strcmp(argv[i], "--policy")               ? &policy
@@ -322,12 +331,28 @@ int gterm_catalog_review_policy(const char *operation,
         print_review(&c, policy_digest, digest, items, denials);
         goto done;
     }
-    /* One catalog transaction, preserving every non-denied record verbatim.
+    bool disable[GTERM_CATALOG_ENTRIES] = {0};
+    unsigned disabled_count = selected_count ? selected_count : denials;
+    if (selected_count) {
+        for (unsigned i = 0; i < selected_count; i++) {
+            uint32_t index = 0;
+            while (index < c.count && strcmp(selected[i], c.entries[index].id)) {
+                index++;
+            }
+            if (index == c.count || !items[index].denied || disable[index]) {
+                status = 2;
+                code = "POLICY_SELECTION";
+                goto done;
+            }
+            disable[index] = true;
+        }
+    }
+    /* One catalog transaction, preserving every unselected record verbatim.
      * Existing foreground instances keep their copied invocation configuration. */
-    if (denials) {
+    if (disabled_count) {
         uint32_t kept = 0;
         for (uint32_t i = 0; i < c.count; i++) {
-            if (items[i].denied) {
+            if (selected_count ? disable[i] : items[i].denied) {
                 gterm_catalog_entry_clear(&c.entries[i]);
             } else {
                 if (kept != i) {
@@ -357,9 +382,9 @@ int gterm_catalog_review_policy(const char *operation,
     printf("{\"result\":\"%s\",\"revision\":\"%" PRIu64
            "\",\"disabledCount\":%u,\"committed\":%s,\"durabilityConfirmed\":%s,"
            "\"authorizationGranted\":false,\"publisherAuthenticated\":false}\n",
-           denials ? "disabled" : "unchanged",
+           disabled_count ? "disabled" : "unchanged",
            c.revision,
-           denials,
+           disabled_count,
            c.committed ? "true" : "false",
            c.committed ? "true" : "false");
 done:

@@ -547,7 +547,9 @@ gterm plugin disable-denied --catalog ABSOLUTE_CATALOG --policy ABSOLUTE_TRUSTED
 
 确认摘要绑定目录身份 / 修订、所有登记字段、当前策略以及实际解析的描述 / 签名。
 提交前在目录排他锁内重新复核，变化退出 9，不套用旧确认。仅将明确拒绝的登记从目录
-移除，一次原子事务；其它记录原样保留。没有拒绝时返回 `unchanged`，不递增修订，
+移除，一次原子事务；其它记录原样保留。可重复传入 `--select PLUGIN_ID`，仅禁用
+所选拒绝项。选择未知、重复或本次未明确拒绝的 ID 会拒绝整次更新。省略选择时禁用
+本次所有明确拒绝项。没有拒绝时返回 `unchanged`，不递增修订，
 `committed=false` / `durabilityConfirmed=false` 表示没有新提交。提交后同步失败会保留
 `committed=true` / `durabilityConfirmed=false` 并返回非零，不伪称回滚。
 
