@@ -185,6 +185,8 @@ GHOSTTY_LIB="$XCFW/macos-${ARCH}/libghostty-internal.a"
 note "GhosttyKit ${ARCH} 切片 $(du -h "$GHOSTTY_LIB" | awk '{print $1}')"
 
 # ------------------------------------------------------------------ 2. C 核心
+# 普通发行包固定关闭实验插件运行时及对应的 Swift 静态链接。
+export GHOSTERM_BUILD_PLUGIN_JS=0 GHOSTERM_CORE_TEST_PLUGIN_JS=0
 step "2/9 构建 C 核心"
 bash "$ROOT/scripts/build-core.sh" || fail "core 构建失败"
 note "core/build/libghosterm_core.a"
