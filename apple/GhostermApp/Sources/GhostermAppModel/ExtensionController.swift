@@ -470,15 +470,27 @@ public actor ExtensionController {
     }
     public func multiplexObservation() async throws -> MultiplexState? { try await worker.multiplexObservation() }
 
+    public struct ChannelTrust: Sendable {
+        public let channel: String
+        public let root: Data
+        public let stateDirectory: URL
+
+        public init(channel: String, root: Data, stateDirectory: URL) {
+            self.channel = channel
+            self.root = Data(Array(root))
+            self.stateDirectory = stateDirectory
+        }
+    }
+
     public init(profile: HostProfile, resourceDirectory: URL? = nil, localJournalDirectory: URL? = nil,
-                installationDirectory: URL? = nil) throws {
+                installationDirectory: URL? = nil, channelTrust: ChannelTrust? = nil) throws {
         guard !profile.capabilities.contains("resource.receive") ||
                 (resourceDirectory?.isFileURL == true && resourceDirectory?.path.isEmpty == false) else {
             throw ControllerError.invalidHostProfile
         }
         worker = Worker(hostJSON: try profile.json(), resourceDirectory: resourceDirectory,
                         localJournalDirectory: localJournalDirectory ?? resourceDirectory?.appendingPathComponent("NativeLocalRuns", isDirectory: true),
-                        installationDirectory: installationDirectory)
+                        installationDirectory: installationDirectory, channelTrust: channelTrust)
     }
 
     /// Reads a user-selected directory through a no-follow directory descriptor,
@@ -764,6 +776,7 @@ public actor ExtensionController {
             var prepared: [String: Prepared] = [:]
             var failedInstallDiscards: Set<String> = Set<String>()
             var retainedInstallStages: [PluginReleaseStage] = []
+            let channelTrust: ChannelTrust?
             let installationDirectory: URL?
             var managedPluginIDs: Set<String> = Set<String>()
             var registeredDigests: [String: String] = [:]
@@ -773,7 +786,9 @@ public actor ExtensionController {
             var policyReview: PluginPolicyReview?
             var selectionReview: PluginSelectionReview?
             let hostCapabilities: [String]
-            init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?) {
+            init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?,
+                 channelTrust: ChannelTrust?) {
+                self.channelTrust = channelTrust
                 self.hostJSON = hostJSON; self.resourceDirectory = resourceDirectory
                 self.localJournalDirectory = localJournalDirectory; self.installationDirectory = installationDirectory
                 if let data = hostJSON.data(using: .utf8),
@@ -873,9 +888,10 @@ public actor ExtensionController {
         private var resourceDirectoryInode: ino_t? { get { run.resourceDirectoryInode } set { run.resourceDirectoryInode = newValue } }
         private var hostCapabilities: [String] { get { state.hostCapabilities } }
 
-        init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?) {
+        init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?,
+                 channelTrust: ChannelTrust?) {
             state = State(hostJSON: hostJSON, resourceDirectory: resourceDirectory,
-                localJournalDirectory: localJournalDirectory, installationDirectory: installationDirectory)
+                localJournalDirectory: localJournalDirectory, installationDirectory: installationDirectory, channelTrust: channelTrust)
             run = Run(); ownsLibrary = true
             state.runs[run.id] = run
         }
@@ -1033,6 +1049,36 @@ public actor ExtensionController {
                   record.managedReleaseID == choice.releaseID else { return false }
             return !requireApproval || record.approvalGeneration == choice.generation
         }
+        private func currentChannelPolicy(for handle: PluginReleaseCatalog.VersionHandle)
+            throws -> (PluginDirectorySignatureVerifier.VerifiedChannelPolicy, PluginReleaseCatalog)? {
+            guard let root = try handle.requiredChannelRoot() else { return nil }
+            guard let trust = state.channelTrust else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
+            guard let catalog = try PluginReleaseCatalog(directory: trust.stateDirectory, exclusive: true) else {
+                throw PluginReleaseCatalog.Failure.root
+            }
+            let seconds = Date().timeIntervalSince1970
+            guard seconds >= 0, seconds < Double(UInt64.max) else {
+                throw PluginDirectorySignatureVerifier.Failure.channelFreshness
+            }
+            let policy = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
+                now: UInt64(seconds), catalog: catalog)
+            guard policy.rootSHA256 == root else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
+            return (policy, catalog)
+        }
+
+        private func authorizeChannelStart(_ record: Record, access: ManagedAccess) throws -> PluginReleaseCatalog? {
+            guard let id = record.managedReleaseID, let owner = access.owner else { return nil }
+            let handle = try owner.openVersion(id)
+            guard let (policy, catalog) = try currentChannelPolicy(for: handle) else { return nil }
+            let descriptor = try handle.read("release.json", limit: 65536)
+            guard PluginReleaseCatalog.sha(descriptor) == id else { throw PluginReleaseCatalog.Failure.changed }
+            let metadata = try record.package.metadata()
+            _ = try PluginDirectorySignatureVerifier.verify(descriptor: descriptor, signature: handle.read("release.sig", limit: 64),
+                trustedPolicy: policy.policyBytes, identity: .init(id: metadata.id, version: metadata.version,
+                    publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
+            return catalog
+        }
+
         private func versionLease(_ record: Record, access: ManagedAccess) throws -> PluginReleaseCatalog.VersionHandle? {
             guard let id = record.managedReleaseID else { return nil }
             guard let owner = access.owner else { throw PluginReleaseCatalog.Failure.inactive }
@@ -1089,7 +1135,9 @@ public actor ExtensionController {
             let handle = try owner.openVersion(releaseID)
             let descriptor = try handle.read("release.json", limit: 65536)
             guard PluginReleaseCatalog.sha(descriptor) == releaseID else { throw PluginReleaseCatalog.Failure.invalid }
-            let policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072)
+            let channel = try currentChannelPolicy(for: handle)
+            defer { withExtendedLifetime(channel?.1) {} }
+            let policy = try channel?.0.policyBytes ?? PluginSignatureFile.read(trustedPolicy, limit: 131072)
             guard expectedPolicySHA == nil || PluginReleaseCatalog.sha(policy) == expectedPolicySHA else { throw PluginReleaseCatalog.Failure.changed }
             let authenticated = try PluginDirectorySignatureVerifier.authenticate(descriptor: descriptor,
                 signature: handle.read("release.sig", limit: 64), trustedPolicy: policy)
@@ -1375,6 +1423,9 @@ public actor ExtensionController {
                     try stage.write(payload, path: "release.json")
                     try stage.write(signed, path: "release.sig")
                     try stage.write(policy, path: "policy.json")
+                    if case let .channel(channel, _) = policySource {
+                        try stage.write(Data(channel.rootSHA256.utf8), path: "channel-policy-required")
+                    }
                     let captured = try self.captureOnQueue(directory: stage.payloadURL)
                     record = captured
                     let metadata = try captured.package.metadata()
@@ -1705,6 +1756,8 @@ public actor ExtensionController {
                 let access = try self.managedAccess()
                 defer { withExtendedLifetime(access.owner) {} }
                 guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
+                let channelPolicyLease = try self.authorizeChannelStart(record, access: access)
+                defer { withExtendedLifetime(channelPolicyLease) {} }
                 guard executorDigest.utf8.count == 64,
                       executorDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                       !hostVersion.isEmpty, hostVersion.utf8.count <= 64,
@@ -1809,6 +1862,8 @@ public actor ExtensionController {
                 let access = try self.managedAccess()
                 defer { withExtendedLifetime(access.owner) {} }
                 guard self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
+                let channelPolicyLease = try self.authorizeChannelStart(record, access: access)
+                defer { withExtendedLifetime(channelPolicyLease) {} }
                 let selected = try self.registryOnQueue().resolve(command: command, executor: false,
                                                                    selectedID: pluginID,
                                                                    selectedDigest: packageDigest)

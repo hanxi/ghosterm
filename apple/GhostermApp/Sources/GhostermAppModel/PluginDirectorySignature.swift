@@ -119,6 +119,11 @@ public enum PluginDirectorySignatureVerifier {
         guard let catalog = try PluginReleaseCatalog(directory: stateDirectory, exclusive: true) else {
             throw PluginReleaseCatalog.Failure.root
         }
+        return try loadChannelPolicy(channel: channel, channelRoot: channelRoot, now: now, catalog: catalog)
+    }
+
+    static func loadChannelPolicy(channel: String, channelRoot: Data, now: UInt64,
+                                  catalog: PluginReleaseCatalog) throws -> VerifiedChannelPolicy {
         let cached = try catalog.readChannelEnvelope(channel)
         let envelope = cached.envelope
         let policy = try verifyChannelPolicy(statement: envelope.statement, signature: envelope.signature,

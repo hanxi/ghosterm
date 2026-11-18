@@ -45,6 +45,16 @@ final class PluginReleaseCatalog {
         init(_ fd: Int32, id: String) { self.fd = fd; self.id = id }
         deinit { Darwin.close(fd) }
         func read(_ name: String, limit: Int) throws -> Data { try PluginReleaseCatalog.read(fd, name: name, limit: limit) }
+        func requiredChannelRoot() throws -> String? {
+            var info = stat()
+            if fstatat(fd, "channel-policy-required", &info, AT_SYMLINK_NOFOLLOW) != 0 {
+                guard errno == ENOENT else { throw Failure.invalid }
+                return nil
+            }
+            let digest = String(decoding: try read("channel-policy-required", limit: 64), as: UTF8.self)
+            guard PluginReleaseCatalog.digest(digest) else { throw Failure.invalid }
+            return digest
+        }
         func pin() throws {
             guard flock(fd, LOCK_SH | LOCK_NB) == 0 else { throw Failure.busy }
         }

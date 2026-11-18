@@ -27,10 +27,10 @@ final class PluginReleaseInstallTests: XCTestCase {
         guard chmod(root.path, 0o700) == 0 else { throw PluginReleaseStage.Failure.io }
         for child in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) { try thaw(child) }
     }
-    private func controller(_ root: URL) throws -> ExtensionController {
+    private func controller(_ root: URL, channelTrust: ExtensionController.ChannelTrust? = nil) throws -> ExtensionController {
         try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
             runtimes: ["portable-js"], capabilities: ["resource.receive"]), resourceDirectory: root,
-            installationDirectory: root.appendingPathComponent("installed"))
+            installationDirectory: root.appendingPathComponent("installed"), channelTrust: channelTrust)
     }
     private func prepare(_ controller: ExtensionController, _ root: URL) async throws -> ExtensionController.PreparedRelease {
         try await controller.prepareSignedRelease(artifact: root.appendingPathComponent("r/plugin.zip"),
@@ -50,7 +50,7 @@ final class PluginReleaseInstallTests: XCTestCase {
     private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     func testChannelGenerationAdvancePreventsPreparedReleasePublication() async throws {
-        let input = try fixture(), root = try directory(), owner = try controller(root)
+        let input = try fixture(), root = try directory()
         let stateDirectory = root.appendingPathComponent("channel")
         try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
@@ -58,8 +58,10 @@ final class PluginReleaseInstallTests: XCTestCase {
         let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: policy) as? [String: Any])
         let channel = try XCTUnwrap(fields["channel"] as? String)
         let key = Curve25519.Signing.PrivateKey()
+        let owner = try controller(root, channelTrust: .init(channel: channel, root: key.publicKey.rawRepresentation,
+                                                              stateDirectory: stateDirectory))
         let now = UInt64(Date().timeIntervalSince1970)
-        func proof(_ generation: String) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        func proof(_ generation: String, policy: Data) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
             let statement = try JSONSerialization.data(withJSONObject: [
                 "schemaVersion": 1, "channel": channel, "generation": generation,
                 "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": hash(policy),
@@ -73,13 +75,13 @@ final class PluginReleaseInstallTests: XCTestCase {
         func prepare(_ generation: String) async throws -> ExtensionController.PreparedRelease {
             try await owner.prepareSignedRelease(artifact: input.appendingPathComponent("r/plugin.zip"),
                 descriptor: input.appendingPathComponent("r/release.json"), signature: input.appendingPathComponent("r/release.sig"),
-                channelPolicy: proof(generation), channelStateDirectory: stateDirectory)
+                channelPolicy: proof(generation, policy: policy), channelStateDirectory: stateDirectory)
         }
 
         let stale = try await prepare("1")
         do {
             let state = try XCTUnwrap(PluginReleaseCatalog(directory: stateDirectory, exclusive: true))
-            try state.recordChannelPolicy(proof("2"), now: UInt64(Date().timeIntervalSince1970))
+            try state.recordChannelPolicy(proof("2", policy: policy), now: UInt64(Date().timeIntervalSince1970))
         }
         do {
             _ = try await owner.installPreparedRelease(id: stale.id)
@@ -92,6 +94,27 @@ final class PluginReleaseInstallTests: XCTestCase {
         let current = try await prepare("2")
         let installed = try await owner.installPreparedRelease(id: current.id)
         XCTAssertEqual(installed.signature, current.signature)
+        let offline = input.appendingPathComponent("policy.json")
+        let releaseID = installed.signature.descriptorSHA256
+        let unconfigured = try controller(root)
+        do {
+            _ = try await unconfigured.selectInstalledVersion(releaseID: releaseID, expectedRevision: nil, trustedPolicy: offline)
+            XCTFail("a channel release must require host trust configuration")
+        } catch PluginDirectorySignatureVerifier.Failure.channelHistory {}
+        let selected = try await owner.selectInstalledVersion(releaseID: releaseID, expectedRevision: nil, trustedPolicy: offline)
+        var revoked = fields
+        revoked["revokedKeyIds"] = [installed.signature.keyID]
+        let revokedPolicy = try JSONSerialization.data(withJSONObject: revoked)
+        do {
+            let state = try XCTUnwrap(PluginReleaseCatalog(directory: stateDirectory, exclusive: true))
+            try state.recordChannelPolicy(proof("3", policy: revokedPolicy), now: UInt64(Date().timeIntervalSince1970))
+        }
+        do {
+            _ = try await owner.selectInstalledVersion(releaseID: releaseID, expectedRevision: selected.catalog.revision, trustedPolicy: offline)
+            XCTFail("an offline policy must not bypass a newer revocation")
+        } catch PluginDirectorySignatureVerifier.Failure.revokedKey {}
+        let unchanged = try await owner.installedVersions()
+        XCTAssertEqual(unchanged.revision, selected.catalog.revision)
     }
 
     func testPreparedReleaseIsPrivateAndCancelCleansIt() async throws {
