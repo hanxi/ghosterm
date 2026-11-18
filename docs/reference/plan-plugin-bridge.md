@@ -14655,3 +14655,14 @@ unexpected，该轮未计红。收紧为对读回摘要的正常断言后，变�
 复验各自三项 SHA256 和外部 App 签名。普通档首次卸载失败后由脚本强制
 卸载本次测试挂载，实验档正常卸载。两档均为本地可检验产物，未上传，
 未使用正式签名或公证，也未启用 GUI 冒烟。
+
+### P6 Android 默认与启用插件的 Release 构建（2026-11-19）
+
+固定 `c9941373`，离线构建 JS-on 与 JS-off 未签名 arm64 APK。两档
+`:app:assembleRelease` 均实际执行 R8 和 lintVital 并通过。两个包均有
+Ghosterm JNI 库，只有 JS-on 包含 QuickJS-NG 许可，字节与钉定 vendor
+许可一致。JS-off 8,956,641 字节，SHA256
+`25fc81fccf35f3de917f8ef3ef5a7acc0ebe7bad85ac851ced1c7999ffbddc62`；
+JS-on 10,297,276 字节，SHA256
+`f03dadeed705e437f81cf535ddd57a154efa85e97eba4422d4faf027d6f49c27`。
+本轮未安装、未签名、未上传，设备运行和正式发行兼容仍待验收。
