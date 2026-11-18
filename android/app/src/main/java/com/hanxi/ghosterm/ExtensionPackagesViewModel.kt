@@ -661,11 +661,25 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
-    internal suspend fun requestStopInstancesWithRevokedPublisher(): Int {
+    internal data class ChannelStopResult(val requested: Int, val failures: List<String>)
+
+    internal suspend fun requestStopInstancesWithRevokedPublisher(): ChannelStopResult {
         val models = listOf(this) + connectionGroups.flatMap { group ->
             group.instances.filterNot { it.closed }.map { it.model }
         }
-        return models.count { it.requestStopIfPublisherRevoked() }
+        var requested = 0
+        val failures = mutableListOf<String>()
+        for (model in models) {
+            currentCoroutineContext().ensureActive()
+            try {
+                if (model.requestStopIfPublisherRevoked()) requested++
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                failures += failure.message ?: failure.javaClass.simpleName
+            }
+        }
+        return ChannelStopResult(requested, failures)
     }
 
     private suspend fun requestStopIfPublisherRevoked(): Boolean {

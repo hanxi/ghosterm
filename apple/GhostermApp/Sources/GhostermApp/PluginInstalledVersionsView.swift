@@ -105,13 +105,16 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         }
     }
 
-    func stopAffectedChannelInstances(_ stop: () async throws -> Int) async {
+    func stopAffectedChannelInstances(_ stop: () async throws -> AppModel.ChannelStopResult) async {
         guard canRefreshChannelPolicy, affectedChannelInstances > 0 else { return }
         beginActivity(); issue = nil; defer { endActivity() }
         do {
-            let stopped = try await stop()
-            affectedChannelInstances = max(0, affectedChannelInstances - stopped)
-            notice = "已确认停止 \(stopped) 个实例。"
+            let result = try await stop()
+            affectedChannelInstances = max(0, affectedChannelInstances - result.stopped)
+            notice = "已确认停止 \(result.stopped) 个实例。"
+            if let firstFailure = result.failures.first {
+                issue = "\(result.failures.count) 个实例未能完成核对或停止：\(firstFailure)"
+            }
         } catch { issue = message(error) }
     }
 
@@ -248,7 +251,7 @@ final class PluginInstalledVersionsDraft: ObservableObject {
 struct PluginInstalledVersionsView: View {
     let controller: ExtensionController?
     var didRemove: (String) -> Void = { _ in }
-    var stopRevoked: (() async throws -> Int)? = nil
+    var stopRevoked: (() async throws -> AppModel.ChannelStopResult)? = nil
     let didChange: (String, ExtensionController.VersionSelectionResult) -> Void
     @StateObject private var draft = PluginInstalledVersionsDraft()
     @State private var expanded = false

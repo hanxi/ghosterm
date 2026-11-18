@@ -350,6 +350,7 @@ import GhostermCore
         guard try await extensionController.currentInstanceHasRevokedPublisher(),
               generation == extensionRunGeneration, extensionRun != nil, !extensionRunBusy else { return false }
         await stopExtensionRun()
+        if let extensionRunIssue { throw GhostermError.failed(extensionRunIssue) }
         return extensionRun == nil
     }
 

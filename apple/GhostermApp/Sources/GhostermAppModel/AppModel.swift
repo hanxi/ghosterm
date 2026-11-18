@@ -1449,13 +1449,25 @@ public final class AppModel: ObservableObject {
         return await extensionInstance.decideExtensionConsent(allow: allow)
     }
 
-    public func stopInstancesWithRevokedPublisher() async throws -> Int {
+    public struct ChannelStopResult {
+        public fileprivate(set) var stopped = 0
+        public fileprivate(set) var failures: [String] = []
+    }
+
+    public func stopInstancesWithRevokedPublisher() async throws -> ChannelStopResult {
         let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
-        var stopped = 0
+        var result = ChannelStopResult()
         for instance in instances {
-            if try await instance.stopIfPublisherRevoked() { stopped += 1 }
+            try Task.checkCancellation()
+            do {
+                if try await instance.stopIfPublisherRevoked() { result.stopped += 1 }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                result.failures.append((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            }
         }
-        return stopped
+        return result
     }
 
     public func stopExtensionRun() async {

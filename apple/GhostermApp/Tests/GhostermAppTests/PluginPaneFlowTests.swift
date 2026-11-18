@@ -448,7 +448,8 @@ final class PluginPaneFlowTests: XCTestCase {
             let retainedVersion = try XCTUnwrap(beforeStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(retainedVersion.inUse, true, "revocation observation retains the running version lease")
             let stopped = try await model.stopInstancesWithRevokedPublisher()
-            XCTAssertEqual(stopped, 1)
+            XCTAssertEqual(stopped.stopped, 1)
+            XCTAssertTrue(stopped.failures.isEmpty)
             guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
                 XCTFail("explicit stop did not release the instance"); return
             }
@@ -460,7 +461,8 @@ final class PluginPaneFlowTests: XCTestCase {
             let releasedVersion = try XCTUnwrap(afterStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(releasedVersion.inUse, false, "the stopped Runtime must release its version lease")
             let repeatedStop = try await model.stopInstancesWithRevokedPublisher()
-            XCTAssertEqual(repeatedStop, 0, "repeating the request must not report a second stop")
+            XCTAssertTrue(repeatedStop.failures.isEmpty)
+            XCTAssertEqual(repeatedStop.stopped, 0, "repeating the request must not report a second stop")
             return
         }
         if versionChanges || versionRemoval {

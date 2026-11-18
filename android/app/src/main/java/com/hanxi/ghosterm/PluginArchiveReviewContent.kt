@@ -135,7 +135,7 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
 }
 
 @Composable
-internal fun PluginChannelRefreshContent(controller: ExtensionController?, requestStop: suspend () -> Int) {
+internal fun PluginChannelRefreshContent(controller: ExtensionController?, requestStop: suspend () -> ExtensionPackagesViewModel.ChannelStopResult) {
     if (controller?.hasConfiguredChannel != true) return
     val scope = rememberCoroutineScope()
     var busy by remember(controller) { mutableStateOf(false) }
@@ -193,9 +193,10 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
         busy = true
         scope.launch {
             try {
-                val requested = requestStop()
-                failed = false
-                status = "已向 ${requested} 个实例发出停止请求。请在实例页核对停止与释放状态。"
+                val result = requestStop()
+                failed = result.failures.isNotEmpty()
+                status = "已向 ${result.requested} 个实例发出停止请求。请在实例页核对停止与释放状态。" +
+                    (result.failures.firstOrNull()?.let { " ${result.failures.size} 个实例未能完成核对或发出请求：$it" } ?: "")
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
