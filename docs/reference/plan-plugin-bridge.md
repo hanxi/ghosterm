@@ -13024,3 +13024,10 @@ SHA256 `5c5cede1da9a886abd9e510a5130d35a5ded484853a9877760e0177017ef73a6`。完�
 策略复核以及保持旧实例运行。收据 SHA256
 `f780046b2e3902f1fc6ee87caa1f276e9343e78adc76cda22a59f612c0be8368`。
 本轮未重新运行版本管理变异。
+
+固定 `4b4489e1` 的策略与版本选择九组变异计划在基线被中止。两次均为
+`PluginInstalledVersionsUITests.testCurrentPolicySelectDisableAndRollbackControls` 报
+`InvalidTransition`，补充多行失败上下文后确认其状态为 `idle → failed(deinit)`。
+两轮均未进入变异或生成通过收据。日志 SHA256
+`e52ab36623384df264533664481466705b15dce9cda63fdcb58d701ad50b2a72`。
+该问题与已修复的一次性 SSH 密钥清理崩溃分开。

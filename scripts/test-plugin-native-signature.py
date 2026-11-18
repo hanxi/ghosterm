@@ -337,7 +337,14 @@ def main():
             full_output = log.encode()
             (work / (label + '.log')).write_bytes(full_output)
             if child.returncode != 0 and not red:
-                print('\n'.join(line for line in log.splitlines() if re.search(r':(?:[0-9]+:[0-9]+:)? error:|plugin-ui-step:|exception|unexpected signal', line, re.I))[:12000], flush=True)
+                lines = log.splitlines()
+                interesting = set()
+                for index, line in enumerate(lines):
+                    if re.search(r':(?:[0-9]+:[0-9]+:)? error:', line):
+                        interesting.update(range(index, min(index + 8, len(lines))))
+                    elif re.search(r'plugin-ui-step:|exception|unexpected signal', line, re.I):
+                        interesting.add(index)
+                print('\n'.join(lines[index] for index in sorted(interesting))[:12000], flush=True)
             if red:
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
                 assert re.search(r': error: .* : (?:XCTAssert\w+ failed|failed -)', log), (label, log[-9000:])
