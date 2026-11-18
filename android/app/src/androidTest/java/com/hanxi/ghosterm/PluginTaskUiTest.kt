@@ -61,6 +61,8 @@ class PluginTaskUiTest {
         ui.runOnIdle { f.finish() }
         ui.onNodeWithTag("plugin-task-read").performScrollTo().performClick()
         awaitState { model.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.CANCELLED }
+        ui.onNodeWithTag("plugin-task-phase").assertTextEquals("已确认取消")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertTrue(model.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED && f.calls.count { it.first == "view.task.cancel" } == 1)
     }
     @Test fun knownZeroIsNotUnknown() = fixture(prepare = { f ->

@@ -262,6 +262,12 @@ import XCTest
             let cancel = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-task-cancel" })
             XCTAssertTrue(PluginTableRendering.press(cancel)); try await until { m.cancellation == .requested }
             XCTAssertEqual(f.calls.filter { $0.0 == "view.task.cancel" }.count, 1)
+            let view = PluginTaskView(model: m)
+            XCTAssertEqual(view.statusAnnouncement, "取消请求已受理，仍需任务确认停止")
+            f.finish()
+            await m.load()
+            let title = try XCTUnwrap(m.descriptor?.title)
+            XCTAssertEqual(view.statusAnnouncement, "\(title)，已确认取消")
         } }
     }
 }

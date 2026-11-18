@@ -14701,3 +14701,8 @@ Android 表格单元格的无障碍描述同时提供列名、全表行号和单
 macOS 表格保留列名、行号与选取原文，空单元格新增明确的 AX 值。两种外观
 与两档字号下实际检查空单元格仍存在、可读为“空白”。后台表格组 15 项和
 Release 构建通过，VoiceOver 实际播报仍待执行。
+
+两端任务视图接通状态变化的无障碍提示。macOS 使用任务标题与已确认终态，
+仍区分取消请求受理；Android 阶段节点为 polite live region。macOS 离屏
+任务组 27 项、Release 构建通过；Android 启用 JS 的 Debug APK 与测试
+代码后台编译通过。真实 VoiceOver / TalkBack 播报待验。

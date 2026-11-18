@@ -27,7 +27,7 @@ import kotlinx.coroutines.isActive
             .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
         state.snapshot?.let { snapshot ->
             if (state.issue != null) Text("以下为上次读取的任务状态", style = MaterialTheme.typography.bodySmall)
-            Text(snapshot.phase.label, Modifier.testTag("plugin-task-phase"))
+            Text(snapshot.phase.label, Modifier.testTag("plugin-task-phase").semantics { liveRegion = LiveRegionMode.Polite })
             SelectionContainer { Text(snapshot.message, Modifier.testTag("plugin-task-message")) }
             val total = snapshot.total
             val count = if (total == null) "${snapshot.completed} · 总量未知 · ${state.descriptor?.unit.orEmpty()}"
