@@ -13624,3 +13624,14 @@ SSH shell 二进制输出对拍。收据 SHA256
 `a0ea44ce7653ce341e5d64507118d50d5a912884412ea7fdf6b4084ad3c9f7dd`。
 临时夹具已清理。本轮验证 Core Transport 透传，Kitty 渲染与 OSC 平台行为
 仍按各端专项验收。
+
+### P1 终端 Kitty 与 OSC 专项复验（2026-11-19）
+
+固定 `6fa5cd19`。macOS 完整 Xcode 离屏执行 TerminalSurface 的语义提示、
+非零退出码与查询应答三项，全部通过。该轮未访问桌面剪贴板。
+
+Android API 36 无窗口模拟器集中运行 Kitty Canvas、Kitty 动画引擎、OSC 52
+协议与产品测试。初轮 32 项中 31 项通过，远端 Kitty 用例因缺少 SSH 夹具在
+设置阶段失败。随后用独立无窗口 AVD 和 `test-android-ssh.sh` 复验该项通过，
+实际验证远端 SSH 走同一 Canvas 与动画 owner。两轮证据分记，未执行设备矩阵
+或变异。临时 AVD、SSH 夹具和运行日志已清理。
