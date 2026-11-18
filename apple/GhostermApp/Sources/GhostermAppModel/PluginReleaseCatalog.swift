@@ -33,6 +33,7 @@ final class PluginReleaseCatalog {
     struct Version: Sendable, Equatable {
         let releaseID: String, pluginID: String, version: String, publisher: String, packageSHA256: String
         let inUse: Bool?
+        var requiresChannelPolicy = false
     }
     struct Inventory {
         let versions: [Version]
@@ -171,7 +172,7 @@ final class PluginReleaseCatalog {
                 guard Self.sha(descriptor) == name, try handle.read("release.sig", limit: 64).count == 64 else { throw Failure.invalid }
                 let identity = try PluginDirectorySignatureVerifier.declaration(descriptor)
                 versions.append(Version(releaseID: name, pluginID: identity.id, version: identity.version,
-                    publisher: identity.publisher, packageSHA256: identity.packageSHA256, inUse: handle.useObservation()))
+                    publisher: identity.publisher, packageSHA256: identity.packageSHA256, inUse: handle.useObservation(), requiresChannelPolicy: try handle.requiredChannelRoot() != nil))
             } catch { issues.append("\(name)：\(error)") }
         }
         try validate()

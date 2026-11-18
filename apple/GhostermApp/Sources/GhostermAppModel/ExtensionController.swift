@@ -121,6 +121,7 @@ public actor ExtensionController {
         public let releaseID: String, pluginID: String, version: String, publisher: String, packageSHA256: String
         public let selected: Bool, enabled: Bool
         public let inUse: Bool?
+        public internal(set) var requiresChannelPolicy = false
         public var id: String { releaseID }
     }
     public struct InstalledCatalog: Sendable, Equatable {
@@ -158,6 +159,7 @@ public actor ExtensionController {
         public let previous: VersionDeclarations?
         public let previousState: PreviousState
         public let previousIssue: String?
+        public internal(set) var channelGeneration: UInt64? = nil
         public var addedPermissions: [ReleasePermission]? {
             guard previousState != .unknown else { return nil }
             return candidate.permissions.filter { !(previous?.permissions ?? []).contains($0) }
@@ -538,7 +540,7 @@ public actor ExtensionController {
     public func selectInstalledVersion(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> VersionSelectionResult {
         try await worker.selectInstalledVersion(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
     }
-    public func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> SelectionReview {
+    public func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL? = nil) async throws -> SelectionReview {
         try await worker.previewInstalledSelection(releaseID: releaseID, expectedRevision: expectedRevision, trustedPolicy: trustedPolicy)
     }
     public func cancelInstalledSelection(id: String) async { await worker.cancelInstalledSelection(id: id) }
@@ -1097,7 +1099,7 @@ public actor ExtensionController {
                 let choice = current.choices[version.pluginID]
                 return InstalledVersion(releaseID: version.releaseID, pluginID: version.pluginID, version: version.version,
                     publisher: version.publisher, packageSHA256: version.packageSHA256,
-                    selected: choice?.releaseID == version.releaseID, enabled: choice?.enabled ?? false, inUse: version.inUse)
+                    selected: choice?.releaseID == version.releaseID, enabled: choice?.enabled ?? false, inUse: version.inUse, requiresChannelPolicy: version.requiresChannelPolicy)
             }, issues: inventory.issues, maintenanceCount: inventory.maintenanceCount,
                 selections: current.choices.keys.sorted().compactMap { id in
                     current.choices[id].map { InstalledSelection(pluginID: id, releaseID: $0.releaseID, enabled: $0.enabled) }
@@ -1127,7 +1129,8 @@ public actor ExtensionController {
             }
         }
         private func selectInstalledOnQueue(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?,
-                                            trustedPolicy: URL, expectedPolicySHA: String? = nil) throws -> VersionSelectionResult {
+                                            trustedPolicy: URL?, expectedPolicySHA: String? = nil,
+                                            expectedChannelStatementSHA: String? = nil) throws -> VersionSelectionResult {
             guard try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
             var selection = try owner.selection()
             let inventory = try owner.inventory()
@@ -1137,7 +1140,13 @@ public actor ExtensionController {
             guard PluginReleaseCatalog.sha(descriptor) == releaseID else { throw PluginReleaseCatalog.Failure.invalid }
             let channel = try currentChannelPolicy(for: handle)
             defer { withExtendedLifetime(channel?.1) {} }
-            let policy = try channel?.0.policyBytes ?? PluginSignatureFile.read(trustedPolicy, limit: 131072)
+            if expectedPolicySHA != nil, channel?.0.statementSHA256 != expectedChannelStatementSHA {
+                throw PluginReleaseCatalog.Failure.changed
+            }
+            let policy: Data
+            if let channel { policy = channel.0.policyBytes }
+            else if let trustedPolicy { policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072) }
+            else { throw PluginDirectorySignatureVerifier.Failure.file }
             guard expectedPolicySHA == nil || PluginReleaseCatalog.sha(policy) == expectedPolicySHA else { throw PluginReleaseCatalog.Failure.changed }
             let authenticated = try PluginDirectorySignatureVerifier.authenticate(descriptor: descriptor,
                 signature: handle.read("release.sig", limit: 64), trustedPolicy: policy)
@@ -1175,13 +1184,15 @@ public actor ExtensionController {
             return VersionDeclarations(review: captured.review, sdkVersion: metadata.sdkVersion, protocols: metadata.protocols,
                 permissions: permissions, executorDeclarations: executor)
         }
-        func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL) async throws -> SelectionReview {
+        func previewInstalledSelection(releaseID: String, expectedRevision: String?, trustedPolicy: URL?) async throws -> SelectionReview {
             try await perform {
                 try self.checkOpen(); self.selectionReview = nil
                 guard self.removalPreview == nil else { throw PluginReleaseRemoval.Failure.pending }
                 guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
+                let channel = try self.currentChannelPolicy(for: owner.openVersion(releaseID))
+                defer { withExtendedLifetime(channel?.1) {} }
                 let ticket = try PluginSelectionReview(owner: owner, releaseID: releaseID, expectedRevision: expectedRevision, policyURL: trustedPolicy,
-                    inspect: { try self.versionDeclarations($0) })
+                    channelPolicy: channel?.0, inspect: { try self.versionDeclarations($0) })
                 self.selectionReview = ticket
                 return ticket.value
             }
@@ -1199,7 +1210,8 @@ public actor ExtensionController {
                 guard let owner = try self.catalogOwner(exclusive: true) else { throw PluginReleaseCatalog.Failure.root }
                 try ticket.validate(owner: owner)
                 return try self.selectInstalledOnQueue(owner: owner, releaseID: ticket.value.candidateReleaseID, expectedRevision: ticket.value.revision,
-                    trustedPolicy: ticket.policyURL, expectedPolicySHA: ticket.value.signature.policySHA256)
+                    trustedPolicy: ticket.policyURL, expectedPolicySHA: ticket.value.signature.policySHA256,
+                    expectedChannelStatementSHA: ticket.channelStatementSHA)
             }
         }
         func previewInstalledPolicy(trustedPolicy: URL) async throws -> PolicyReview {

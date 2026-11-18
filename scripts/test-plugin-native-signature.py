@@ -184,6 +184,10 @@ def main():
         install = 'apple/GhostermApp/Sources/GhostermApp/PluginReleaseInstallView.swift'
         selected = 'PluginReleaseInstallTests.'
         recipes += [
+            ('install-channel-review-generation', CONTROLLER,
+             'if expectedPolicySHA != nil, channel?.0.statementSHA256 != expectedChannelStatementSHA {',
+             'if expectedPolicySHA == nil, expectedChannelStatementSHA != nil {',
+             selected + 'testChannelGenerationAdvancePreventsPreparedReleasePublication'),
             ('install-channel-generation', CONTROLLER, 'try pending.policySource.checkChannelState(channelState, requireHistory: true)',
              '_ = channelState', selected + 'testChannelGenerationAdvancePreventsPreparedReleasePublication'),
             ('install-artifact', archive, 'digest == proof.artifactSHA256 else', 'digest.count == proof.artifactSHA256.count else', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),

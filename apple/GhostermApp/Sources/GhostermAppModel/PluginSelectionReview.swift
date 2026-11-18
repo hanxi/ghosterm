@@ -10,18 +10,28 @@ final class PluginSelectionReview {
     }
     typealias View = ExtensionController.SelectionReview
     let value: View
-    let policyURL: URL
+    let policyURL: URL?
+    let channelStatementSHA: String?
     private let rootIdentity: PluginReleaseRemoval.Stamp
     private let candidate: PluginReleaseCatalog.VersionHandle
 
-    init(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?, policyURL: URL,
+    init(owner: PluginReleaseCatalog, releaseID: String, expectedRevision: String?, policyURL: URL?,
+         channelPolicy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy? = nil,
          inspect: (Int32) throws -> ExtensionController.VersionDeclarations) throws {
         guard try !owner.hasPendingRemoval() else { throw PluginReleaseRemoval.Failure.pending }
         let selection = try owner.selection()
         guard selection.revision == expectedRevision else { throw PluginReleaseCatalog.Failure.conflict }
-        let policy = try PluginSignatureFile.read(policyURL, limit: 131072)
+        let policy: Data
+        if let channelPolicy { policy = channelPolicy.policyBytes }
+        else if let policyURL { policy = try PluginSignatureFile.read(policyURL, limit: 131072) }
+        else { throw PluginDirectorySignatureVerifier.Failure.file }
+        channelStatementSHA = channelPolicy?.statementSHA256
         rootIdentity = try Self.rootStamp(owner); self.policyURL = policyURL
-        let opened = try owner.openVersion(releaseID); try opened.pin(); candidate = opened
+        let opened = try owner.openVersion(releaseID)
+        guard try opened.requiredChannelRoot() == channelPolicy?.rootSHA256 else {
+            throw PluginDirectorySignatureVerifier.Failure.channelHistory
+        }
+        try opened.pin(); candidate = opened
         let (next, proof) = try Self.read(owner, handle: opened, policy: policy, inspect: inspect)
         let choice = selection.choices[next.review.id]
         let previous: ExtensionController.VersionDeclarations?
@@ -31,6 +41,9 @@ final class PluginSelectionReview {
             else {
                 do {
                     let handle = try owner.openVersion(choice.releaseID)
+                    if let root = try handle.requiredChannelRoot(), root != channelPolicy?.rootSHA256 {
+                        throw PluginDirectorySignatureVerifier.Failure.channelHistory
+                    }
                     let (content, _) = try Self.read(owner, handle: handle, policy: policy, inspect: inspect)
                     guard content.review.id == next.review.id else { throw PluginReleaseCatalog.Failure.invalid }
                     previous = content; state = .verified; issue = nil
@@ -44,7 +57,7 @@ final class PluginSelectionReview {
         guard try owner.selection().revision == selection.revision else { throw PluginReleaseCatalog.Failure.conflict }
         value = View(id: UUID().uuidString, revision: selection.revision, candidateReleaseID: releaseID,
             candidate: next, signature: proof, previousReleaseID: choice?.releaseID, previousEnabled: choice?.enabled,
-            previous: previous, previousState: state, previousIssue: issue)
+            previous: previous, previousState: state, previousIssue: issue, channelGeneration: channelPolicy?.generation)
     }
     func validate(owner: PluginReleaseCatalog) throws {
         guard rootIdentity.sameObject(try Self.rootStamp(owner)) else { throw PluginReleaseCatalog.Failure.changed }

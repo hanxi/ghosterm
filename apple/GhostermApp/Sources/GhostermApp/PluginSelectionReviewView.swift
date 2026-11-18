@@ -11,6 +11,9 @@ struct PluginSelectionReviewView: View {
                 Text("活动选择切换预览").font(DS.Font.caption).accessibilityIdentifier("plugin-selection-review")
                 Text("候选：\(value.candidate.review.id) · \(value.candidate.review.version) · \(value.candidate.review.publisher)")
                 Text("发布 SHA-256：" + value.candidateReleaseID).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                if let generation = value.channelGeneration {
+                    Text("已验证渠道策略 · 第 \(generation) 代").font(DS.Font.caption)
+                }
                 Text("本次策略：" + value.signature.channel + " · " + value.signature.policySHA256).font(DS.Font.caption).textSelection(.enabled)
                 if let previous = value.previous {
                     Text("旧选择：\(previous.review.version) · \(value.previousEnabled == true ? "启用" : "禁用")")

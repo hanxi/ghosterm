@@ -101,13 +101,25 @@ final class PluginReleaseInstallTests: XCTestCase {
             _ = try await unconfigured.selectInstalledVersion(releaseID: releaseID, expectedRevision: nil, trustedPolicy: offline)
             XCTFail("a channel release must require host trust configuration")
         } catch PluginDirectorySignatureVerifier.Failure.channelHistory {}
-        let selected = try await owner.selectInstalledVersion(releaseID: releaseID, expectedRevision: nil, trustedPolicy: offline)
+        let review = try await owner.previewInstalledSelection(releaseID: releaseID, expectedRevision: nil)
+        XCTAssertEqual(review.channelGeneration, 2)
+        let selected = try await owner.confirmInstalledSelection(id: review.id, acknowledged: true)
+        let staleReview = try await owner.previewInstalledSelection(releaseID: releaseID, expectedRevision: selected.catalog.revision)
+        do {
+            let state = try XCTUnwrap(PluginReleaseCatalog(directory: stateDirectory, exclusive: true))
+            try state.recordChannelPolicy(proof("3", policy: policy), now: UInt64(Date().timeIntervalSince1970))
+        }
+        do {
+            _ = try await owner.confirmInstalledSelection(id: staleReview.id, acknowledged: true)
+            XCTFail("a newer statement must require a fresh review even with identical policy bytes")
+            return
+        } catch PluginReleaseCatalog.Failure.changed {}
         var revoked = fields
         revoked["revokedKeyIds"] = [installed.signature.keyID]
         let revokedPolicy = try JSONSerialization.data(withJSONObject: revoked)
         do {
             let state = try XCTUnwrap(PluginReleaseCatalog(directory: stateDirectory, exclusive: true))
-            try state.recordChannelPolicy(proof("3", policy: revokedPolicy), now: UInt64(Date().timeIntervalSince1970))
+            try state.recordChannelPolicy(proof("4", policy: revokedPolicy), now: UInt64(Date().timeIntervalSince1970))
         }
         do {
             _ = try await owner.selectInstalledVersion(releaseID: releaseID, expectedRevision: selected.catalog.revision, trustedPolicy: offline)

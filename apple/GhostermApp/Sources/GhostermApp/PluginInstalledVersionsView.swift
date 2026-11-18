@@ -42,7 +42,13 @@ final class PluginInstalledVersionsDraft: ObservableObject {
     private var policyGeneration = UUID()
     @Published var policyPath = "" { didSet { trustedPolicy = false; invalidatePolicy() } }
     @Published var trustedPolicy = false { didSet { invalidatePolicy() } }
-    var canSelect: Bool { !busy && removal == nil && pendingRemoval == nil && selectionReview == nil && catalog != nil && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
+    private var canReviewVersion: Bool {
+        !busy && removal == nil && pendingRemoval == nil && selectionReview == nil && catalog != nil
+    }
+    var canSelect: Bool { canReviewVersion && trustedPolicy && policyPath.hasPrefix("/") && !policyPath.utf8.contains(0) }
+    func canSelect(_ version: ExtensionController.InstalledVersion) -> Bool {
+        version.requiresChannelPolicy ? canReviewVersion : canSelect
+    }
     private func invalidatePolicy() {
         policyGeneration = UUID(); policyReview = nil; policyDisableIDs = []
         invalidateSelection()
@@ -88,18 +94,18 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         catch { catalog = nil; issue = message(error) }
     }
     func previewSelection(_ version: ExtensionController.InstalledVersion, controller: ExtensionController) async {
-        guard canSelect, let catalog else { return }
+        guard canSelect(version), let catalog else { return }
         invalidateSelection(); selectionOwner = controller; let request = selectionGeneration
         beginActivity(); issue = nil; notice = nil; defer { endActivity() }
         do {
             let value = try await controller.previewInstalledSelection(releaseID: version.releaseID,
-                expectedRevision: catalog.revision, trustedPolicy: URL(fileURLWithPath: policyPath))
+                expectedRevision: catalog.revision, trustedPolicy: version.requiresChannelPolicy ? nil : URL(fileURLWithPath: policyPath))
             guard selectionGeneration == request else { await controller.cancelInstalledSelection(id: value.id); return }
             selectionReview = value
         } catch { if selectionGeneration == request { issue = message(error) } }
     }
     var canConfirmSelection: Bool {
-        !busy && trustedPolicy && selectionReview != nil && acknowledgedSelection && removal == nil && pendingRemoval == nil
+        !busy && (trustedPolicy || selectionReview?.channelGeneration != nil) && selectionReview != nil && acknowledgedSelection && removal == nil && pendingRemoval == nil
     }
     func confirmSelection(_ controller: ExtensionController) async -> ExtensionController.VersionSelectionResult? {
         guard canConfirmSelection, let value = selectionReview else { return nil }
@@ -239,7 +245,7 @@ struct PluginInstalledVersionsView: View {
                             HStack {
                                 Button(version.selected && version.enabled ? "预览重新载入" : "预览切换到此版本") {
                                     if let controller { Task { await draft.previewSelection(version, controller: controller) } }
-                                }.disabled(!draft.canSelect).accessibilityIdentifier("plugin-installed-select-\(version.releaseID)")
+                                }.disabled(!draft.canSelect(version)).accessibilityIdentifier("plugin-installed-select-\(version.releaseID)")
                                 if version.selected && version.enabled {
                                     Button("禁用新建") {
                                         if let controller { Task { if let result = await draft.disable(version.pluginID, controller: controller) { didChange(version.pluginID, result) } } }
