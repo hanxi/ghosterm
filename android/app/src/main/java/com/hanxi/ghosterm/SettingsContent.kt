@@ -750,15 +750,20 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     OutlinedTextField(ipcInstance, { ipcInstance = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-ipc-instance"), label = { Text("前台显示的 32 位实例标识") })
                     TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases, modifier = Modifier.testTag("plugin-ipc-inspect"), onClick = {
+                        if (inspectionBusy || submissionBusy || selectedHost !in hostAliases || !attachExisting) return@TextButton
                         val capturedKey = inspectionKey
+                        val host = selectedHost
+                        val program = executable
+                        val directory = ipcDirectory
+                        val instance = ipcInstance
                         inspectionBusy = true; problem = null; declaration = null
                         inspectionJob = formScope.launch {
                             try {
-                                val value = onInspect(selectedHost, executable, ipcDirectory, ipcInstance)
-                                if (capturedKey == currentInspectionKey) declaration = value
+                                val value = onInspect(host, program, directory, instance)
+                                if (isActive && capturedKey == currentInspectionKey) declaration = value
                             } catch (cancelled: CancellationException) { throw cancelled }
                             catch (failure: Exception) {
-                                if (capturedKey == currentInspectionKey) problem = "前台检查失败：${failure.message ?: failure.javaClass.simpleName}"
+                                if (isActive && capturedKey == currentInspectionKey) problem = "前台检查失败：${failure.message ?: failure.javaClass.simpleName}"
                             } finally { inspectionBusy = false }
                         }
                     }) { Text(if (inspectionBusy) "正在检查前台实例…" else "检查此位置的前台实例") }
