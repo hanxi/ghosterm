@@ -266,6 +266,10 @@ def main():
     if args.policy_review:
         policy_review = 'apple/GhostermApp/Sources/GhostermAppModel/PluginPolicyReview.swift'
         recipes += [
+            ('channel-observation-read-only', VERIFIER,
+             'if recordObservation { try catalog.recordChannelPolicy(policy, now: now, requireHistory: true) }',
+             'try catalog.recordChannelPolicy(policy, now: now, requireHistory: true)',
+             'PluginDirectorySignatureTests.testChannelRootBindsPolicyBytesAndFreshnessAtReleaseVerification'),
             ('policy-core-capture', policy_review, 'let identity = try inspect(payload)', 'let identity = signed.identity',
              'PluginPolicyReviewSignedTests.testChangedPayloadCannotBeReportedAcceptedFromStoredSignature'),
             ('policy-disable', policy_review, 'enabled: false, generation: UUID().uuidString', 'enabled: true, generation: UUID().uuidString',

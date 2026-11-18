@@ -112,7 +112,7 @@ final class PluginDirectorySignatureTests: XCTestCase {
             try Verifier.loadChannelPolicy(channel: "test", channelRoot: root.key.publicKey.rawRepresentation,
                                            now: now, stateDirectory: directory, recordObservation: false)
         }
-        XCTAssertEqual(try observe(155).statementSHA256, proof.statementSHA256)
+        XCTAssertEqual((try? observe(155))?.statementSHA256, proof.statementSHA256)
         XCTAssertEqual(try load(151).statementSHA256, proof.statementSHA256)
         rejects(.channelHistory) { try observe(150) }
         rejects(.channelFreshness) { try load(200) }
