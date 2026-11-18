@@ -23,7 +23,7 @@ struct ExtensionsPane: View {
     @State private var startingClient = false
     @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
-    @State private var inspectionTask: Task<Void, Never>?
+    @State private var inspection: (entryID: String, task: Task<Void, Never>)?
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
@@ -380,21 +380,21 @@ struct ExtensionsPane: View {
         } message: {
             Text("将停止此连接的全部插件实例并释放资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。")
         }
-        .onDisappear { inspectionTask?.cancel() }
+        .onDisappear { inspection?.task.cancel() }
     }
 
     private func foregroundInspection(_ binding: Binding<Entry>) -> some View {
         let entry = binding.wrappedValue
         return VStack(alignment: .leading, spacing: DS.Padding.s) {
-            Button("检查此位置的前台实例") {
+            Button(inspection?.entryID == entry.id ? "正在检查前台实例…" : "检查此位置的前台实例") {
                 let key = entry.inspectionKey, id = entry.id
-                guard inspectionTask == nil, model.extensionInstance.canDiscard,
+                guard inspection == nil, model.extensionInstance.canDiscard,
                       !entry.localConnection || entry.localAllowed else { return }
                 binding.wrappedValue.foregroundDeclaration = nil
                 binding.wrappedValue.foregroundKey = nil
                 binding.wrappedValue.foregroundIssue = nil
-                inspectionTask = Task {
-                    defer { inspectionTask = nil }
+                inspection = (id, Task {
+                    defer { inspection = nil }
                     do {
                         let value = try await model.inspectForegroundPlugin(sshAlias: entry.sshAlias,
                             executable: entry.executable, directory: entry.ipcDirectory, instance: entry.ipcInstance,
@@ -408,9 +408,9 @@ struct ExtensionsPane: View {
                               entries[index].attachExisting, entries[index].inspectionKey == key else { return }
                         entries[index].foregroundIssue = String(describing: error)
                     }
-                }
+                })
             }
-            .disabled(inspectionTask != nil || !model.extensionInstance.canDiscard || (entry.localConnection && !entry.localAllowed))
+            .disabled(inspection != nil || !model.extensionInstance.canDiscard || (entry.localConnection && !entry.localAllowed))
             .accessibilityIdentifier("plugin-ipc-inspect")
             if let value = entry.foregroundDeclaration, entry.foregroundKey == entry.inspectionKey {
                 Text("当前声明：\(value.command) · \(value.runtime)\nExecutor：\(value.executorDigest)\nClient：\(value.clientDigest)")
