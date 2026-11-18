@@ -18,9 +18,9 @@ def main():
     spec.loader.exec_module(helper)
     with tempfile.TemporaryDirectory(dir=ROOT / 'tmp', prefix='macos-channel-tls-') as path:
         env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
-        with helper.tls_fixture(Path(path), env, '127.0.0.1') as (origin, certificate, vector):
+        with helper.tls_fixture(Path(path), env, '127.0.0.1') as (origin, certificate, root):
             der = subprocess.check_output(['openssl', 'x509', '-in', certificate, '-outform', 'DER'], env=env)
-            env.update(GHOSTERM_TEST_CHANNEL_ORIGIN=origin, GHOSTERM_TEST_CHANNEL_ROOT=vector['root'],
+            env.update(GHOSTERM_TEST_CHANNEL_ORIGIN=origin, GHOSTERM_TEST_CHANNEL_ROOT=root,
                        GHOSTERM_TEST_CHANNEL_CERT=base64.b64encode(der).decode())
             result = subprocess.run(['swift', 'test', '--package-path', 'apple/GhostermApp',
                                      '--filter', 'PluginChannelTLSLoopbackTests'], cwd=ROOT, env=env,

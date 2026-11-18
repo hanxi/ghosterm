@@ -7,11 +7,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import ssl
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'android/app/src/androidTest/assets/plugin-release'
@@ -23,27 +25,35 @@ def fixture(work, env, host):
                     '-subj', f'/CN={host}', '-addext', f'subjectAltName=IP:{host}',
                     '-addext', 'extendedKeyUsage=serverAuth', '-days', '1', '-out', cert, '-keyout', key],
                    cwd=work, env=env, capture_output=True, check=True)
-    raw = subprocess.run(['node', '--input-type=module', '-e', '''
-        import crypto from 'node:crypto';
-        import fs from 'node:fs';
-        const policy = JSON.parse(fs.readFileSync(process.argv[1])).policy;
-        const {publicKey, privateKey} = crypto.generateKeyPairSync('ed25519');
-        const root = publicKey.export({format: 'der', type: 'spki'}).subarray(-32).toString('base64');
-        const hash = crypto.createHash('sha256').update(policy).digest('hex');
-        const now = Math.floor(Date.now() / 1000);
-        const statement = JSON.stringify({schemaVersion: 1, channel: 'fixture', generation: '2',
-            issuedAt: String(now - 60), expiresAt: String(now + 3600), policySHA256: hash});
-        const signature = crypto.sign(null, Buffer.from('ghosterm.channel-policy.v1\\0' + statement), privateKey);
-        console.log(JSON.stringify({root, statement, policy, signature: signature.toString('base64')}));
-    ''', ASSETS / 'vector.json'], cwd=work, env=env, capture_output=True, check=True)
-    return cert, key, json.loads(raw.stdout)
+    spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    node = Path(shutil.which('node')).resolve(strict=True)
+    policy = work / 'original-policy.json'
+    policy.write_bytes(json.loads((ASSETS / 'vector.json').read_bytes())['policy'].encode())
+    signer_host = work / 'signer'
+    signer_host.mkdir()
+    configuration = work / 'signer.json'
+    bundle = work / 'signed-channel'
+    with helper.agent(node, signer_host) as (root, endpoint):
+        configuration.write_text(json.dumps(dict(executable=str(node), sha256=helper.sha(node.read_bytes()),
+            prefixArguments=[str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(endpoint)])))
+        now = int(time.time())
+        result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign-policy',
+                                 '--channel', 'fixture', '--channel-root', root, '--policy', policy,
+                                 '--generation', '2', '--issued-at', str(now - 60), '--expires-at', str(now + 3600),
+                                 '--signer-json', configuration, '--out', bundle],
+                                cwd=work, env=env, capture_output=True, timeout=45)
+        report = json.loads(result.stdout)
+        if result.returncode or report.get('kind') != 'signed-channel-policy':
+            raise RuntimeError(f'Channel producer failed: {report}')
+    return cert, key, root, bundle
 
 
 @contextmanager
 def tls_fixture(work, env, host):
-    cert, key, vector = fixture(work, env, host)
-    bodies = {'channel-policy.json': vector['statement'].encode(),
-              'channel-policy.sig': base64.b64decode(vector['signature']), 'policy.json': vector['policy'].encode()}
+    cert, key, root, bundle = fixture(work, env, host)
+    bodies = {name: (bundle / name).read_bytes() for name in ('channel-policy.json', 'channel-policy.sig', 'policy.json')}
     received = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -79,7 +89,7 @@ def tls_fixture(work, env, host):
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
         try:
-            yield f'https://{host}:{server.server_port}', cert, vector
+            yield f'https://{host}:{server.server_port}', cert, root
             if any(item.startswith('/redirect-target/') for item in received):
                 raise RuntimeError('Client followed a channel redirect')
         finally:
@@ -95,7 +105,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=ROOT / 'tmp', prefix='android-channel-tls-') as path:
         work = Path(path)
         env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
-        with tls_fixture(work, env, '10.0.2.2') as (origin, cert, vector):
+        with tls_fixture(work, env, '10.0.2.2') as (origin, cert, root):
             device = work / 'device'
             device.mkdir()
             with runner.headless(36, device, env) as (adb, device_env):
@@ -104,7 +114,7 @@ def main():
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
                     'com.hanxi.ghosterm.PluginChannelRefreshTlsTest',
                     '-e', 'channelTlsOrigin', origin,
-                    '-e', 'channelTlsRoot', vector['root'],
+                    '-e', 'channelTlsRoot', root,
                     '-e', 'channelTlsCertificate', base64.b64encode(cert.read_bytes()).decode(),
                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], device_env)
                 print(output, flush=True)
