@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = "81598385d608dda4946093d6d6a234d204a2f225"
@@ -50,6 +51,26 @@ def validate(sdk):
         raise RuntimeError("ordinary host callbacks missing from SDK header")
 
 
+def build(command, engine, environment, log_path):
+    dns_error = "error: unable to connect to server: UnknownHostName"
+    for attempt in range(1, 4):
+        try:
+            with log_path.open("w") as log:
+                run(command, cwd=engine, env=environment, stdout=log, stderr=subprocess.STDOUT)
+            return
+        except RuntimeError:
+            with log_path.open("rb") as log:
+                size = log.seek(0, os.SEEK_END)
+                log.seek(max(0, size - 65536))
+                diagnostic = log.read().decode("utf-8", errors="replace")
+            print(diagnostic, file=sys.stderr, end="" if diagnostic.endswith("\n") else "\n")
+            errors = [line for line in diagnostic.splitlines() if "error:" in line]
+            if attempt == 3 or not errors or any(dns_error not in line for line in errors):
+                raise
+            print(f"Zig dependency DNS lookup failed (attempt {attempt}/3); retrying", file=sys.stderr)
+            time.sleep(2 * attempt)
+
+
 def main():
     if sys.platform != "darwin" or os.uname().machine != "arm64":
         raise RuntimeError("Apple Silicon macOS builder required")
@@ -81,10 +102,9 @@ def main():
         run(["git", "-C", engine, "apply", patch])
     environment = dict(os.environ, ZIG_LOCAL_CACHE_DIR=str(ROOT / "tmp/zig-cache-terminal"),
                        ZIG_GLOBAL_CACHE_DIR=str(ROOT / "tmp/zig-global"))
-    with (work / "build.log").open("w") as log:
-        run([zig, "build", "-Demit-xcframework=true", "-Demit-macos-app=false",
-             "-Dxcframework-target=native", "-Dsentry=false", "-Doptimize=ReleaseFast",
-             "-p", work / "out"], cwd=engine, env=environment, stdout=log, stderr=subprocess.STDOUT)
+    build([zig, "build", "-Demit-xcframework=true", "-Demit-macos-app=false",
+           "-Dxcframework-target=native", "-Dsentry=false", "-Doptimize=ReleaseFast",
+           "-p", work / "out"], engine, environment, work / "build.log")
     sdk = engine / "macos/GhosttyKit.xcframework"
     validate(sdk)
     headers = sdk / "macos-arm64/Headers"
