@@ -8,5 +8,6 @@ const signature = Buffer.from(request.signature, 'base64');
 const payload = Buffer.from(request.payload, 'base64');
 if (raw.length !== 32 || signature.length !== 64 || payload.length > 65536) throw new Error('RELEASE_CRYPTO_INPUT');
 const key = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: raw.toString('base64url') }, format: 'jwk' });
-const message = Buffer.concat([Buffer.from('GHOSTERM-PLUGIN-RELEASE-V1\0', 'ascii'), payload]);
+const domain = request.kind === 'channel-policy' ? 'ghosterm.channel-policy.v1\0' : 'GHOSTERM-PLUGIN-RELEASE-V1\0';
+const message = Buffer.concat([Buffer.from(domain, 'ascii'), payload]);
 process.stdout.write(JSON.stringify({ valid: verify(null, message, key, signature) }));

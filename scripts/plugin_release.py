@@ -147,10 +147,10 @@ def authorize(api, trusted, keys, release):
     return key
 
 
-def verify_signature(api, work, key, payload, signature):
+def verify_signature(api, work, key, payload, signature, *, kind='release'):
     api.require(len(payload) <= 65536 and len(signature) == 64, 'RELEASE_SIGNATURE_SIZE')
     request = work / 'crypto-request.json'
-    request.write_bytes(api.encoded(dict(publicKey=key['publicKey'], payload=base64.b64encode(payload).decode(),
+    request.write_bytes(api.encoded(dict(kind=kind, publicKey=key['publicKey'], payload=base64.b64encode(payload).decode(),
                                         signature=base64.b64encode(signature).decode())))
     result = api.decode(api.run(['node', api.ROOT / 'scripts/plugin-release-crypto.mjs', request], 10))
     api.require(isinstance(result, dict) and set(result) == {'valid'} and result['valid'] is True, 'RELEASE_SIGNATURE', 6)
@@ -307,10 +307,43 @@ def signer(api, work, config, message):
 
 
 def execute(args, api):
+    if args.release_action == 'verify-policy':
+        return verify_channel_policy(args, api)
     try:
         return checked_release(args, api)
     except (zipfile.BadZipFile, struct.error, zlib.error):
         raise api.Failure('RELEASE_ZIP_CONTENT') from None
+
+
+def verify_channel_policy(args, api):
+    public_key(api, args.channel_root)
+    statement_bytes = stable_file(api, args.statement, 65536)
+    signature = stable_file(api, args.signature, 64)
+    policy_bytes = stable_file(api, args.policy, 131072)
+    statement = public_json(api, statement_bytes)
+    api.require(isinstance(statement, dict) and set(statement) == {
+        'schemaVersion', 'channel', 'generation', 'issuedAt', 'expiresAt', 'policySHA256'
+    } and type(statement['schemaVersion']) is int and statement['schemaVersion'] == 1, 'CHANNEL_POLICY_STATEMENT')
+
+    def positive_decimal(value):
+        api.require(isinstance(value, str) and re.fullmatch('[1-9][0-9]{0,19}', value) and
+                    int(value) <= (1 << 64) - 1, 'CHANNEL_POLICY_INTEGER')
+        return int(value)
+
+    positive_decimal(statement['generation'])
+    issued = positive_decimal(statement['issuedAt'])
+    expires = positive_decimal(statement['expiresAt'])
+    with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
+        verify_signature(api, Path(temporary), {'publicKey': args.channel_root}, statement_bytes, signature,
+                         kind='channel-policy')
+    trusted = public_json(api, policy_bytes)
+    policy(api, trusted)
+    api.require(statement['channel'] == trusted['channel'] == args.channel, 'RELEASE_CHANNEL_MISMATCH', 6)
+    api.require(digest_value(api, statement['policySHA256']) == api.sha(policy_bytes), 'CHANNEL_POLICY_DIGEST', 6)
+    api.require(issued <= int(time.time()) < expires, 'CHANNEL_POLICY_FRESHNESS', 6)
+    return dict(kind='verified-channel-policy', channel=args.channel, generation=statement['generation'],
+                expiresAt=statement['expiresAt'], policySHA256=statement['policySHA256'],
+                statementSHA256=api.sha(statement_bytes)), 0
 
 
 def checked_release(args, api):
