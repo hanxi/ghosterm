@@ -435,6 +435,10 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(revoked.generation, 2)
             let affected = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
             XCTAssertEqual(affected, 1)
+            let installedDraft = PluginInstalledVersionsDraft()
+            await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
+            XCTAssertEqual(installedDraft.affectedChannelInstances, 1)
+            XCTAssertNil(installedDraft.notice)
             let retained = try await controller.stepRuntime()
             XCTAssertEqual(retained.phase, ExtensionRuntime.Phase.active.rawValue)
             XCTAssertEqual(window.alphaValue, 0)
@@ -446,6 +450,8 @@ final class PluginPaneFlowTests: XCTestCase {
             }
             let after = try await controller.runningInstancesWithRevokedPublisher(in: revoked)
             XCTAssertEqual(after, 0)
+            await installedDraft.readChannelPolicy(controller, refresh: false, automatic: true)
+            XCTAssertEqual(installedDraft.affectedChannelInstances, 0)
             return
         }
         if versionChanges || versionRemoval {

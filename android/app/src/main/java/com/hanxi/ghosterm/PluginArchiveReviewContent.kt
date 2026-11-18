@@ -13,6 +13,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -139,29 +142,43 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
     var status by remember(controller) { mutableStateOf<String?>(null) }
     var failed by remember(controller) { mutableStateOf(false) }
     var affected by remember(controller) { mutableIntStateOf(0) }
-    fun readPolicy(refresh: Boolean) {
+    fun readPolicy(refresh: Boolean, automatic: Boolean = false) {
+        if (busy) return
         busy = true
-        status = null
+        if (!automatic) status = null
         scope.launch {
             try {
                 val current = if (refresh) controller.refreshChannelPolicy() else controller.cachedChannelPolicy()
-                failed = false
-                val count = controller.runningInstancesWithRevokedPublisher(current)
-                affected = count
-                val generation = if (refresh) "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
-                    else "本机已验证 ${current.channel} 渠道策略第 ${current.generation} 代。"
-                status = generation +
-                    if (count > 0) " 本应用仍持有 ${count} 个受撤销影响的实例，可在实例页停止。" else ""
+                affected = controller.runningInstancesWithRevokedPublisher(current)
+                if (!automatic) {
+                    failed = false
+                    status = if (refresh) "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
+                        else "本机已验证 ${current.channel} 渠道策略第 ${current.generation} 代。"
+                }""
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                failed = true
-                status = "刷新插件渠道策略超时。"
+                affected = 0
+                if (!automatic) {
+                    failed = true
+                    status = "核对插件渠道策略超时。"
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                failed = true
-                status = failure.message ?: "无法刷新插件渠道。"
+                affected = 0
+                if (!automatic) {
+                    failed = true
+                    status = failure.message ?: "无法核对插件渠道。"
+                }
             } finally { busy = false }
         }
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(controller, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) readPolicy(refresh = false, automatic = true)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
     if (controller.canRefreshChannelPolicy) {
         TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-refresh"), onClick = { readPolicy(true) }) {
@@ -171,6 +188,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?, reque
     TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-cache"), onClick = { readPolicy(false) }) {
         Text("核对本机渠道缓存")
     }
+    if (affected > 0) Text("本应用仍持有 ${affected} 个受撤销影响的实例。", Modifier.testTag("plugin-channel-affected"))
     if (affected > 0) TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-stop"), onClick = {
         busy = true
         scope.launch {

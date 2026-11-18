@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GhostermAppModel
 import SwiftUI
@@ -84,17 +85,24 @@ final class PluginInstalledVersionsDraft: ObservableObject {
         !busy && removal == nil && pendingRemoval == nil && selectionReview == nil && policyReview == nil
     }
 
-    func readChannelPolicy(_ controller: ExtensionController, refresh: Bool) async {
+    func readChannelPolicy(_ controller: ExtensionController, refresh: Bool, automatic: Bool = false) async {
         guard canRefreshChannelPolicy, refresh ? controller.canRefreshChannelPolicy : controller.hasConfiguredChannel else { return }
-        beginActivity(); issue = nil; notice = nil; defer { endActivity() }
+        beginActivity(); defer { endActivity() }
+        if !automatic { issue = nil; notice = nil }
         do {
             let policy = try await (refresh ? controller.refreshConfiguredChannelPolicy() : controller.cachedChannelPolicy())
-            notice = refresh ? "已更新 \(policy.channel) 渠道策略至第 \(policy.generation) 代。"
-                : "本机已验证 \(policy.channel) 渠道策略第 \(policy.generation) 代。"
             let count = try await controller.runningInstancesWithRevokedPublisher(in: policy)
+            guard !Task.isCancelled else { return }
             affectedChannelInstances = count
-            if count > 0 { notice = (notice ?? "") + " 本应用仍持有 \(count) 个受撤销影响的实例。" }
-        } catch { issue = message(error) }
+            if !automatic {
+                notice = refresh ? "已更新 \(policy.channel) 渠道策略至第 \(policy.generation) 代。"
+                    : "本机已验证 \(policy.channel) 渠道策略第 \(policy.generation) 代。"
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            affectedChannelInstances = 0
+            if !automatic { issue = message(error) }
+        }
     }
 
     func stopAffectedChannelInstances(_ stop: () async throws -> Int) async {
@@ -262,6 +270,10 @@ struct PluginInstalledVersionsView: View {
                         Task { await draft.readChannelPolicy(controller, refresh: false) }
                     }.disabled(!draft.canRefreshChannelPolicy).accessibilityIdentifier("plugin-installed-channel-cache")
                 }
+                if draft.affectedChannelInstances > 0 {
+                    Text("本应用仍持有 \(draft.affectedChannelInstances) 个受撤销影响的实例。")
+                        .accessibilityIdentifier("plugin-installed-channel-affected")
+                }
                 if let stopRevoked, draft.affectedChannelInstances > 0 {
                     Button("停止受渠道撤销影响的实例") {
                         Task { await draft.stopAffectedChannelInstances(stopRevoked) }
@@ -342,9 +354,15 @@ struct PluginInstalledVersionsView: View {
             }
         }.task(id: expanded) {
             if let controller {
-                if expanded { await draft.refresh(controller) }
-                else { await draft.cancel(controller) }
+                if expanded {
+                    await draft.refresh(controller)
+                    if !Task.isCancelled { await draft.readChannelPolicy(controller, refresh: false, automatic: true) }
+                } else {
+                    await draft.cancel(controller)
+                }
             }
+        }.onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if expanded, let controller { Task { await draft.readChannelPolicy(controller, refresh: false, automatic: true) } }
         }.onDisappear { if let controller { Task { await draft.cancel(controller) } } }
     }
     private func residueRow(_ entry: ExtensionController.InstallationResidue) -> some View {
