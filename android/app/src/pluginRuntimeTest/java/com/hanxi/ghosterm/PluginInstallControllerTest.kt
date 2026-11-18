@@ -56,6 +56,41 @@ class PluginInstallControllerTest {
             } finally { reopened.close() }
         } } finally { owner.close(); PluginInstallTestFiles.clean(root) }
     }
+    @Test fun channelAdvanceAtPublicationRequiresFreshArchiveReview() = runBlocking {
+        val root = PluginInstallTestFiles.root()
+        val cache = PluginInstallTestFiles.root()
+        val owner = controller()
+        val channel = JSONObject(instrumentation.context.assets.open("plugin-release/archive-channel.json").bufferedReader().use { it.readText() })
+        val store = PluginChannelPolicyStore(cache, channel.getString("channel"), Base64.getDecoder().decode(channel.getString("root")))
+        try { archive { fd, raw, sig, policy ->
+            fun refresh(name: String) {
+                val vector = channel.getJSONObject(name)
+                store.refresh(vector.getString("statement").toByteArray(), Base64.getDecoder().decode(vector.getString("signature")), policy, 150u)
+            }
+            refresh("first")
+            val preview = owner.inspectSignedArchive(fd, raw, sig, byteArrayOf(), store) { 150u }
+            assertNotNull(preview.channelStatementSHA256)
+            try {
+                owner.installSignedArchive(fd, raw, sig, policy, preview, root)
+                fail("offline trust substituted for channel review")
+            } catch (e: PluginReleaseSignature.Rejected) { assertEquals(PluginReleaseSignature.Failure.CHANNEL_HISTORY, e.reason) }
+            try {
+                owner.installSignedArchive(fd, raw, sig, byteArrayOf(), preview, root, checkpoint = {
+                    if (it == "before-rename") refresh("second")
+                }, channelStore = store, channelClock = { 150u })
+                fail("superseded channel review was published")
+            } catch (e: PluginReleaseSignature.Rejected) { assertEquals(PluginReleaseSignature.Failure.CHANNEL_HISTORY, e.reason) }
+            assertTrue(root.list()!!.isEmpty())
+            val current = owner.inspectSignedArchive(fd, raw, sig, byteArrayOf(), store) { 150u }
+            assertNotEquals(preview.channelStatementSHA256, current.channelStatementSHA256)
+            val installed = owner.installSignedArchive(fd, raw, sig, byteArrayOf(), current, root,
+                channelStore = store, channelClock = { 150u })
+            checkNotNull(PluginReleaseCatalog.open(root)).use { catalog ->
+                catalog.openVersion(installed.publication.releaseID).use { assertTrue(it.requiresChannelPolicy()) }
+            }
+        } } finally { owner.close(); PluginInstallTestFiles.clean(root); PluginInstallTestFiles.clean(cache) }
+    }
+
     @Test fun changedPreviewAndDeclaredPermissionsCannotBeInstalled() = runBlocking {
         val root = PluginInstallTestFiles.root(); val owner = controller()
         try { archive { fd, raw, sig, policy ->

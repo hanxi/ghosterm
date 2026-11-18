@@ -10,7 +10,8 @@ internal class PluginChannelPolicyStore(
     root: ByteArray,
 ) {
     private val root = root.copyOf()
-    private val rootDigest = PluginReleaseCatalog.sha(this.root).toByteArray(Charsets.US_ASCII)
+    val rootSHA256 = PluginReleaseCatalog.sha(this.root)
+    private val rootDigest = rootSHA256.toByteArray(Charsets.US_ASCII)
     private val name = "channel-policy-v1-" + PluginReleaseCatalog.sha(channel.toByteArray(Charsets.UTF_8))
     private data class Record(val observed: ULong, val statement: ByteArray, val signature: ByteArray, val policy: ByteArray)
 

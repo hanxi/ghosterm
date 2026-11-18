@@ -91,7 +91,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         val commands: List<Command>, val sourceApproved: Boolean = false,
     )
     internal data class SignedArchiveReview(val review: Review, val proof: PluginReleaseSignature.Proof,
-        val declarations: PluginReleaseDeclarations.Data)
+        val declarations: PluginReleaseDeclarations.Data, val channelStatementSHA256: String? = null)
     internal data class InstalledRelease(val snapshot: SignedArchiveReview, val publication: PluginReleaseStage.Publication)
     internal enum class PreviousVersionState { NONE, VERIFIED, UNKNOWN }
     internal data class VersionPreview(val id: String, val revision: String?, val releaseID: String,
@@ -793,7 +793,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
      * The caller supplies a seekable read-only capture, not a provider stream.
      * Own the duplicate across queueing/cancellation and keep all writes private. */
     internal suspend fun inspectSignedArchive(borrowed: ParcelFileDescriptor, descriptor: ByteArray,
-        signature: ByteArray, trustedPolicy: ByteArray): SignedArchiveReview {
+        signature: ByteArray, trustedPolicy: ByteArray, channelStore: PluginChannelPolicyStore? = null,
+        channelClock: () -> ULong = ::channelClockSeconds): SignedArchiveReview {
         require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
         val bytes = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
         val context = currentCoroutineContext()
@@ -801,7 +802,9 @@ class ExtensionController private constructor(private val shared: Shared, privat
         try {
             return onWorker {
                 checkOpen()
-                val authenticated = PluginReleaseSignature.authenticate(bytes, signed, policy)
+                val channel = channelStore?.useCurrent(channelClock()) { it }
+                val authenticated = channel?.authenticate(bytes, signed, channelClock())
+                    ?: PluginReleaseSignature.authenticate(bytes, signed, policy)
                 PluginReleaseArchive.open(owned, authenticated.proof, context::ensureActive).use { archive ->
                     val attributes = java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
                         java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
@@ -821,7 +824,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                                 }
                                 Os.fchmod(fd, if (member.executable) 320 else 256)
                             } finally { Os.close(fd) }
-                        }, { captureCheckedPackage(stage) })
+                        }, { captureCheckedPackage(stage) }).copy(channelStatementSHA256 = channel?.statementSHA256)
                     } finally {
                         // This is our just-created private preview tree. No
                         // package links are accepted and no install is published.
@@ -859,7 +862,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
      * its receipt run to completion; disposal never rolls back a published tree. */
     internal suspend fun installSignedArchive(borrowed: ParcelFileDescriptor, descriptor: ByteArray, signature: ByteArray,
         trustedPolicy: ByteArray, expected: SignedArchiveReview, installDirectory: File = versionDirectory,
-        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) }): InstalledRelease {
+        checkpoint: (String) -> Unit = {}, parentSync: (java.io.FileDescriptor) -> Unit = { Os.fsync(it) },
+        channelStore: PluginChannelPolicyStore? = null, channelClock: () -> ULong = ::channelClockSeconds): InstalledRelease {
         require(descriptor.size <= 65536 && signature.size == 64 && trustedPolicy.size <= 131072)
         val raw = descriptor.copyOf(); val signed = signature.copyOf(); val policy = trustedPolicy.copyOf()
         val caller = currentCoroutineContext()
@@ -867,20 +871,37 @@ class ExtensionController private constructor(private val shared: Shared, privat
         try {
             return withContext(NonCancellable) { onWorker {
                 caller.ensureActive()
-                val authenticated = PluginReleaseSignature.authenticate(raw, signed, policy)
+                val channel = channelStore?.useCurrent(channelClock()) { it }
+                requireChannelProof(channel, expected)
+                val authenticated = channel?.authenticate(raw, signed, channelClock())
+                    ?: PluginReleaseSignature.authenticate(raw, signed, policy)
                 check(authenticated.proof == expected.proof) { "安装材料与已确认的发布证明不一致" }
                 PluginReleaseArchive.open(owned, authenticated.proof, caller::ensureActive).use { archive ->
                     PluginReleaseStage.create(installDirectory, authenticated.proof.descriptorSHA256,
                         { phase -> caller.ensureActive(); checkpoint(phase) }, parentSync).use { stage ->
                         val fresh = inspectArchiveContents(archive, authenticated, caller::ensureActive,
                             { member, content -> stage.write("payload/${member.path}", content, member.executable) },
-                            { stage.payload().use { captureCheckedPackage(it.fd) } })
+                            { stage.payload().use { captureCheckedPackage(it.fd) } }).copy(channelStatementSHA256 = channel?.statementSHA256)
                         check(fresh == expected) { "安装包或声明与已确认的完整预检不一致" }
                         stage.write("release.json", raw)
                         stage.write("release.sig", signed)
-                        stage.write("policy.json", policy)
+                        stage.write("policy.json", channel?.policyBytes() ?: policy)
+                        if (channelStore != null) stage.write("channel-policy-required", channelStore.rootSHA256.toByteArray(Charsets.US_ASCII))
                         caller.ensureActive()
-                        val publication = stage.publish()
+                        val publication = stage.publish { rename ->
+                            if (channelStore == null) rename()
+                            else {
+                                val observed = channelClock()
+                                channelStore.useCurrent(observed) { current ->
+                                    requireChannelProof(current, expected)
+                                    val now = channelClock()
+                                    if (now < observed) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+                                    current.requireFresh(now)
+                                    caller.ensureActive()
+                                    rename()
+                                }
+                            }
+                        }
                         InstalledRelease(fresh, publication)
                     }
                 }
@@ -888,10 +909,22 @@ class ExtensionController private constructor(private val shared: Shared, privat
         } finally { owned.close() }
     }
 
+    private fun channelClockSeconds(): ULong {
+        val time = System.currentTimeMillis()
+        if (time < 0) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS)
+        return (time / 1000).toULong()
+    }
+
+    private fun requireChannelProof(channel: PluginReleaseSignature.VerifiedChannelPolicy?, expected: SignedArchiveReview) {
+        if (channel?.statementSHA256 != expected.channelStatementSHA256)
+            throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+    }
+
     private fun fsIdentity(fd: java.io.FileDescriptor): PluginReleaseCatalog.Identity = Os.fstat(fd).let {
         PluginReleaseCatalog.Identity(it.st_dev, it.st_ino, it.st_uid)
     }
     private fun checkedVersion(owner: PluginReleaseCatalog, version: PluginReleaseCatalog.Version, policy: ByteArray): CheckedVersion {
+        if (version.requiresChannelPolicy()) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
         val raw = version.read("release.json", 65536)
         check(PluginReleaseCatalog.sha(raw) == version.releaseID) { "版本发布描述已变化" }
         val authenticated = PluginReleaseSignature.authenticate(raw, version.read("release.sig", 64), policy)

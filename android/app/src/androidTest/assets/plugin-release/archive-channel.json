@@ -1,0 +1,12 @@
+{
+  "root": "gY7lglbjiiBh7zEMb7GomsQh8NnE+oQ7uY04FW/VTpU=",
+  "channel": "fixture",
+  "first": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"1\",\"issuedAt\":\"100\",\"expiresAt\":\"200\",\"policySHA256\":\"3b1719b558ff13d5c86b5f37e3e341aafecaa10def68fbce3c561cf4f001ac4b\"}",
+    "signature": "m6ybpa4K1shdjtoSbIseiQApRKJMswp2y990J7m32i1VRFdijBq/EEPTAhHFPDH/78KEyeuWSn7UjWrXAxRqCQ=="
+  },
+  "second": {
+    "statement": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"generation\":\"2\",\"issuedAt\":\"100\",\"expiresAt\":\"200\",\"policySHA256\":\"3b1719b558ff13d5c86b5f37e3e341aafecaa10def68fbce3c561cf4f001ac4b\"}",
+    "signature": "2tv7wcJ+O8919el7PXRWtt5RVemFrV/SRkVPf9AmIWXSYrN+HGn/Pv7muQXWhKdIrqWWf7DFwv2M8xw6f4pGCA=="
+  }
+}

@@ -243,11 +243,11 @@ internal class PluginReleaseStage private constructor(
         walk(rootFD, "", 0)
         demand(fileCount == files.size && seen == directories.keys)
     }
-    fun publish(): Publication {
+    fun publish(authorizePublication: (() -> Int) -> Int = { it() }): Publication {
         validate(); tree(freeze = true)
         checkpoint("before-rename")
         validate(); tree(freeze = false, frozen = true)
-        val error = PluginInstallFiles.publish(parentFD.fd, rootFD.fd, name, releaseID)
+        val error = authorizePublication { PluginInstallFiles.publish(parentFD.fd, rootFD.fd, name, releaseID) }
         if (error != 0) throw Rejected(when (error) {
             OsConstants.EEXIST, OsConstants.ENOTEMPTY -> Reason.CONFLICT
             OsConstants.ENOSYS, OsConstants.EOPNOTSUPP, OsConstants.EXDEV -> Reason.UNSUPPORTED

@@ -42,8 +42,14 @@ internal object PluginReleaseSignature {
         val statementSHA256: String,
         private val policy: ByteArray,
     ) {
-        fun authenticate(descriptor: ByteArray, signature: ByteArray, now: ULong): Authenticated {
+        fun policyBytes(): ByteArray = policy.copyOf()
+
+        fun requireFresh(now: ULong) {
             ensure(issuedAt <= now && now < expiresAt, Failure.CHANNEL_FRESHNESS)
+        }
+
+        fun authenticate(descriptor: ByteArray, signature: ByteArray, now: ULong): Authenticated {
+            requireFresh(now)
             return PluginReleaseSignature.authenticate(descriptor, signature, policy)
         }
     }
