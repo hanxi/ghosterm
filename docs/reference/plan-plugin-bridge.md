@@ -13767,3 +13767,16 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 `59c8fa9587cf3127b2d0545caaa02638aeddcd027caa793d5b31231eb083cb83`、
 `9c79328c0e98e0b04e981b1ebdcb498b6ec6c3aa7be311ed5a3e4ee3ec1b9665`。
 本轮未重新构建 APK，未运行真实 SSH / SAF 或键盘返回流程；专用 AVD 已清理。
+
+### P2 Android 真实预览、SAF 与键盘返回集中复验（2026-11-19）
+
+固定 `d17a3624`，新构建 JS-on Android 应用、测试 APK 和 macOS gterm。
+同一个 API 36 arm64 无窗口 AVD 依次运行五个真实两跳 SSH 专项。Markdown
+与 HTML 各通过键盘已打开及已隐藏时返回同一 PTY，另通过带 Unicode 路径的
+HTML 附件场景。覆盖系统文档选择、Session 授权、Settings 渲染、释放与远端
+临时资源清理。首轮复用默认 JS-off APK，脚本明确拒绝跳过结果。
+
+JS-on 应用、测试 APK SHA256 分别为
+`347cf44059b9d3b17538f7053aca240783fbe3cb2ea9fa5a40aaf8bbe10345d2`、
+`e69e3ceca4a2dd7bcdf768569642b7e51751fa0ef14acc8413fc873575c36741`。
+本轮 AVD 和临时构件已清理，未覆盖其它系统版本、输入法或物理设备。
