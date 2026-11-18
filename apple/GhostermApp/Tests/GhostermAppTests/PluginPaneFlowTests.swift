@@ -84,6 +84,11 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false, versionRemoval: true, channelRevocation: true)
     }
 
+    func testManagedPreviewReportsChannelRevocationUntilStoppedThroughProxyJump() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: true, versionRemoval: true, channelRevocation: true)
+    }
+
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
     private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false) async throws {
