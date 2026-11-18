@@ -111,7 +111,9 @@ internal class ExtensionConnectionModel(private val application: Application,
                 delay(25)
             }
             currentCoroutineContext().ensureActive()
-            check(instances.size == launches.size && !closing) { "共享连接启动未确认" }
+            check(instances.size == launches.size && instances.all { it.model.activeSession != null } && !closing) {
+                "共享连接未确认全部实例已接管会话"
+            }
             monitor = scope.launch {
                 try {
                     while (!closed) {

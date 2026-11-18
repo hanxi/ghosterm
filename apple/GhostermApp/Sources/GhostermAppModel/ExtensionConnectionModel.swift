@@ -125,13 +125,19 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
                 throw GhostermError.failed("执行端未确认在线管理能力")
             }
             nativeReady = true
+            guard children.count == launches.count else { throw GhostermError.failed("共享连接未返回完整实例集合") }
             instances = children.map { ExtensionInstanceModel(controller: $0) }
-            for (model, scope) in zip(instances, admitted) { scopes[model.id] = scope; app.showExtensionWorkspace(model) }
+            for (model, scope) in zip(instances, admitted) { scopes[model.id] = scope }
             observeModels()
             await withTaskGroup(of: Void.self) { group in
                 for (model, selection) in zip(instances, launches) { group.addTask { @MainActor in await self.launch(model, selection, command: command.command) } }
             }
             try Task.checkCancellation()
+            for (model, selection) in zip(instances, launches) where model.extensionRun == nil {
+                let reason = model.extensionRunIssue ?? "未进入待授权状态"
+                throw GhostermError.failed("\(selection.request.command)：\(reason)")
+            }
+            for model in instances { app.showExtensionWorkspace(model) }
             monitor = Task { await self.observeConnection() }
             return true
         } catch {
