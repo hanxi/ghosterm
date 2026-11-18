@@ -535,8 +535,10 @@ struct ExtensionsPane: View {
     }
     private func enqueue(_ entry: Entry) {
         do {
-            guard pendingConnections.count < 8, !entry.attachExisting else { throw GhostermError.failed("连接组最多八项，且不能包含已有前台附着") }
-            pendingConnections.append(try configuration(entry))
+            guard !startingConnectionGroup else { return }
+            let candidate = try configuration(entry)
+            _ = try ExtensionGroupInvocation.validateGroup(pendingConnections + [candidate])
+            pendingConnections.append(candidate)
         } catch { issue = "连接组配置无效：\(error)" }
     }
     private func launch(_ entry: Entry) {

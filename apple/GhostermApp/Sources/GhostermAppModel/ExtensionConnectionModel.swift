@@ -11,6 +11,21 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     public let localLaunch: ExtensionLocalLaunch?
     public let clientWorkspace: ExtensionController.ClientWorkspace?
     public let temporaryDirectory: String
+    public static func validateGroup(_ launches: [Self]) throws -> Self {
+        guard let first = launches.first, (1...8).contains(launches.count), launches.allSatisfy({
+            $0.sshAlias == first.sshAlias && $0.localLaunch == first.localLaunch &&
+            $0.temporaryDirectory == first.temporaryDirectory && $0.request.executable == first.request.executable &&
+            $0.request.attachment == nil &&
+            ($0.request.execution == nil || $0.request.execution?.temporaryDirectory == first.temporaryDirectory)
+        }) else {
+            throw GhostermError.failed("启动组须有一至八项，使用同一目标、gterm、临时目录和本机授权，且不能包含已有前台附着")
+        }
+        if let local = first.localLaunch, local.temporaryDirectory != first.temporaryDirectory {
+            throw GhostermError.failed("本机启动与连接临时目录不一致")
+        }
+        return first
+    }
+
     public init(packageID: String, request: ExtensionRelayBootstrap.Request, sshAlias: String,
                 localLaunch: ExtensionLocalLaunch?, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String) {
         self.packageID = packageID; self.request = request; self.sshAlias = sshAlias
@@ -89,10 +104,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
     }
     private func startOnMain(_ launches: [ExtensionGroupInvocation], app: AppModel) async -> Bool {
         do {
-            guard let first = launches.first, (1...8).contains(launches.count), launches.allSatisfy({
-                $0.sshAlias == first.sshAlias && $0.localLaunch == first.localLaunch &&
-                $0.temporaryDirectory == first.temporaryDirectory && $0.request.executable == first.request.executable
-            }) else { throw GhostermError.failed("启动组必须使用同一目标、gterm、临时目录和本机授权") }
+            let first = try ExtensionGroupInvocation.validateGroup(launches)
             origin = first; environmentNames = Set(launches.flatMap(\.request.processEnvironmentNames))
             var requests: [ExtensionRelayBootstrap.Request] = []
             for selection in launches { try Task.checkCancellation(); requests.append(try await prepare(selection)) }
@@ -101,7 +113,6 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             let command = try ExtensionRelayBootstrap.buildMultiplex(connection: hex(id), scopes: admitted, requests: requests,
                 local: first.localLaunch != nil, temporaryDirectory: first.temporaryDirectory, live: true)
             if let local = first.localLaunch {
-                guard local.temporaryDirectory == first.temporaryDirectory else { throw GhostermError.failed("本机启动与连接临时目录不一致") }
                 _ = try await controller.openLocalChannel(executable: first.request.executable, arguments: command.argv, launch: local, environmentNames: environmentNames.sorted())
                 targetDescription = "本机 · " + first.request.executable + " · " + local.workingDirectory
             } else {
