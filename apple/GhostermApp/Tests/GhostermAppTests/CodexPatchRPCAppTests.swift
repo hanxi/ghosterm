@@ -40,6 +40,10 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await run(useJump: false, closeExecutor: true)
     }
 
+    func testExecutorChannelClosesAfterSendOverProxyJump() async throws {
+        try await run(useJump: true, closeExecutor: true)
+    }
+
     private struct FixtureFailure: Error { let message: String }
 
     private func wait(_ label: String, seconds: Double = 30, until predicate: () -> Bool) async throws {
