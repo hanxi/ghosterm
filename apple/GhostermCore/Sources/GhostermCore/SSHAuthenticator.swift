@@ -25,20 +25,29 @@ public final class SSHAuthenticator {
         public let host: Host
         public let error: Int32
         public let deadline: Bool
+        public let tcpFailed: Bool
         public let methods: Int32
         public let keyType, fingerprint: String
+        public init(phase: Phase, host: Host, error: Int32, deadline: Bool,
+                    tcpFailed: Bool = false, methods: Int32, keyType: String, fingerprint: String) {
+            self.phase = phase; self.host = host; self.error = error; self.deadline = deadline
+            self.tcpFailed = tcpFailed; self.methods = methods
+            self.keyType = keyType; self.fingerprint = fingerprint
+        }
     }
     private let owner: DispatchQueue
     private var raw: OpaquePointer?
     private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
     public init(options: SSHOptions, address: SSHAddress, credential: SSHCredential? = nil,
-                timeoutMilliseconds: UInt32 = 60000, owner: DispatchQueue) throws {
+                timeoutMilliseconds: UInt32 = 60000, tcpTimeoutMilliseconds: UInt32 = 0,
+                owner: DispatchQueue) throws {
         self.owner = owner; checkOwner()
         guard address.bytes.count == 16 else { throw GhostermError.failed("解析地址长度无效") }
         var ssh: OpaquePointer? = try Self.unlockedSSH(options: options, credential: credential)
         defer { gt_ssh_close(ssh) }
         var config = gt_ssh_auth_options_t()
         config.family = address.family; config.scope = address.scope; config.timeout_ms = timeoutMilliseconds
+        config.tcp_timeout_ms = tcpTimeoutMilliseconds
         config.defer_credentials = credential == nil
         withUnsafeMutableBytes(of: &config.address) { $0.copyBytes(from: address.bytes) }
         let error = gt_ssh_authenticator_open(&ssh, &config, &raw)
@@ -77,7 +86,8 @@ public final class SSHAuthenticator {
         checkOwner(); var info = gt_ssh_auth_info_t()
         guard gt_ssh_authenticator_info(raw, &info) else { return nil }
         return Info(phase: Phase(rawValue: info.phase.rawValue) ?? .failed, host: Host(rawValue: info.host.rawValue) ?? .unchecked,
-                    error: Int32(info.error.rawValue), deadline: info.deadline, methods: info.auth_methods,
+                    error: Int32(info.error.rawValue), deadline: info.deadline, tcpFailed: info.tcp_failed,
+                    methods: info.auth_methods,
                     keyType: setupString(info.key_type), fingerprint: setupString(info.fingerprint))
     }
     public func supply(options: SSHOptions, credential: SSHCredential) throws {
@@ -111,9 +121,11 @@ public final class SSHRoute {
         public let address: SSHAddress?
         public let viaHost: String?
         public let credential: SSHCredential?
+        public let tcpTimeoutMilliseconds: UInt32
         public init(options: SSHOptions, address: SSHAddress? = nil, viaHost: String? = nil,
-                    credential: SSHCredential? = nil) {
+                    credential: SSHCredential? = nil, tcpTimeoutMilliseconds: UInt32 = 0) {
             self.options = options; self.address = address; self.viaHost = viaHost; self.credential = credential
+            self.tcpTimeoutMilliseconds = tcpTimeoutMilliseconds
         }
     }
     public enum Phase: UInt32 { case authenticating, forwarding, ready, failed, cancelled }
@@ -146,6 +158,7 @@ public final class SSHRoute {
             config.via_host = name.map { UnsafePointer($0) }
             config.authentication.defer_credentials = hop.credential == nil
             config.authentication.timeout_ms = timeoutMilliseconds
+            config.authentication.tcp_timeout_ms = hop.tcpTimeoutMilliseconds
             if let address = hop.address {
                 config.authentication.family = address.family; config.authentication.scope = address.scope
                 withUnsafeMutableBytes(of: &config.authentication.address) { $0.copyBytes(from: address.bytes) }
@@ -164,7 +177,8 @@ public final class SSHRoute {
                     hop: value.hop, count: value.count, deadline: value.deadline,
                     authentication: SSHAuthenticator.Info(phase: SSHAuthenticator.Phase(rawValue: a.phase.rawValue) ?? .failed,
                         host: SSHAuthenticator.Host(rawValue: a.host.rawValue) ?? .unchecked, error: Int32(a.error.rawValue),
-                        deadline: a.deadline, methods: a.auth_methods, keyType: setupString(a.key_type), fingerprint: setupString(a.fingerprint)))
+                        deadline: a.deadline, tcpFailed: a.tcp_failed, methods: a.auth_methods,
+                        keyType: setupString(a.key_type), fingerprint: setupString(a.fingerprint)))
     }
     public func decide(_ decision: HostKeyDecision) -> Int32 {
         checkOwner(); return Int32(gt_ssh_route_decide(raw, gt_hostkey_decision_t(rawValue: decision.rawValue)).rawValue)

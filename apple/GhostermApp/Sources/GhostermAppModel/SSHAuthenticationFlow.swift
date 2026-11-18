@@ -14,7 +14,9 @@ final class SSHAuthenticationFlow {
     private let opening: SSHConnectionOpening?
     private let preferIPv6: Bool
     typealias AddressLookup = (String, Bool, DispatchQueue, @escaping (Result<SSHAddress, SSHAddressResolver.Failure>) -> Void) -> SSHAddressResolver?
-    private let lookup: AddressLookup
+    typealias AddressCandidatesLookup = (String, Bool, DispatchQueue, @escaping (Result<[SSHAddress], SSHAddressResolver.Failure>) -> Void) -> SSHAddressResolver?
+    private let lookup: AddressLookup?
+    private let lookupCandidates: AddressCandidatesLookup
     private let configurationIssues: [SSHConnectionIssue]
     private let prompts: SSHAuthenticationPrompts
     private let nextID: () -> UInt64?
@@ -25,6 +27,8 @@ final class SSHAuthenticationFlow {
     private var scope: SSHCancellation?
     private var request: UInt64 = 0
     private var attempt: UInt32 = 0
+    private var addresses: [SSHAddress] = []
+    private var addressIndex = 0
     private var deadline: TimeInterval = 0
     private var prompting = false
     private var started = false
@@ -33,12 +37,15 @@ final class SSHAuthenticationFlow {
     init(owner: DispatchQueue, options: SSHOptions, preferIPv6: Bool = false,
          opening: SSHConnectionOpening? = nil,
          configurationIssues: [SSHConnectionIssue] = [],
-         lookup: @escaping AddressLookup = { host, ipv6, owner, completion in
-             SSHAddressResolver.resolve(host: host, preferIPv6: ipv6, owner: owner, completion: completion)
+         lookup: AddressLookup? = nil,
+         lookupCandidates: @escaping AddressCandidatesLookup = { host, ipv6, owner, completion in
+             SSHAddressResolver.resolveAll(host: host, preferIPv6: ipv6, timeoutMilliseconds: 5000,
+                                           owner: owner, completion: completion)
          }, prompts: SSHAuthenticationPrompts,
          nextID: @escaping () -> UInt64?, completion: @escaping (Result<Authenticated, Failure>) -> Void) {
         self.owner = owner; self.options = options; self.preferIPv6 = preferIPv6; self.prompts = prompts; self.nextID = nextID; self.completion = completion
-        self.configurationIssues = configurationIssues; self.lookup = lookup; self.opening = opening
+        self.configurationIssues = configurationIssues; self.lookup = lookup
+        self.lookupCandidates = lookupCandidates; self.opening = opening
     }
     private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
     func start() {
@@ -51,20 +58,51 @@ final class SSHAuthenticationFlow {
         let timer = DispatchSource.makeTimerSource(queue: owner)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.tick() }; self.timer = timer; timer.resume()
-        resolver = lookup(options.host, preferIPv6, owner) { [weak self] result in
-            guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
-            do {
-                let address = try result.get(), remaining = self.deadline - ProcessInfo.processInfo.systemUptime
-                guard remaining > 0 else { self.fail(3, "SSH 认证超时"); return }
-                self.authenticator = try SSHAuthenticator(options: self.options, address: address,
-                    timeoutMilliseconds: UInt32(min(60000, max(1, remaining * 1000))), owner: self.owner)
-            } catch let error as GhostermError {
-                switch error {
-                case .status(let code, _): self.fail(code, error.description)
-                case .failed(let message): self.fail(9, message)
-                }
-            } catch { self.fail(3, "无法解析 SSH 地址") }
+        if let lookup {
+            resolver = lookup(options.host, preferIPv6, owner) { [weak self] result in
+                guard let self, !self.finished, self.checkAdmission() else { return }
+                self.resolver = nil
+                do { self.addresses = [try result.get()]; self.addressIndex = 0; self.beginAuthentication() }
+                catch { self.fail(3, "无法解析 SSH 地址") }
+            }
+        } else {
+            resolver = lookupCandidates(options.host, preferIPv6, owner) { [weak self] result in
+                guard let self, !self.finished, self.checkAdmission() else { return }
+                self.resolver = nil
+                do {
+                    self.addresses = try result.get(); self.addressIndex = 0
+                    guard !self.addresses.isEmpty else { self.fail(3, "域名没有可连接地址"); return }
+                    self.beginAuthentication()
+                } catch { self.fail(3, "无法解析 SSH 地址") }
+            }
         }
+    }
+
+    private func beginAuthentication() {
+        guard addressIndex < addresses.count, checkAdmission() else { return }
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > 0 else { fail(3, "SSH 认证超时"); return }
+        let remainingAddresses = max(1, addresses.count - addressIndex)
+        let addressBudget = max(1, remaining / Double(remainingAddresses))
+        do {
+            authenticator?.close()
+            authenticator = try SSHAuthenticator(options: options, address: addresses[addressIndex],
+                timeoutMilliseconds: UInt32(min(60000, max(1, remaining * 1000))),
+                tcpTimeoutMilliseconds: UInt32(min(60000, max(1, addressBudget * 1000))), owner: owner)
+        } catch let error as GhostermError {
+            switch error {
+            case .status(let code, _): fail(code, error.description)
+            case .failed(let message): fail(9, message)
+            }
+        } catch { fail(3, "无法启动 SSH 认证") }
+    }
+
+    private func retryNextTCPAddress() -> Bool {
+        guard addressIndex + 1 < addresses.count else { return false }
+        authenticator?.close(); authenticator = nil
+        addressIndex += 1
+        beginAuthentication()
+        return !finished
     }
     private func revokePrompt() {
         scope?.cancel(); scope = nil; prompting = false
@@ -130,7 +168,9 @@ final class SSHAuthenticationFlow {
             let id = request, accepted = attempt
             DispatchQueue.main.async { [prompts] in prompts.accepted(id, accepted) }
             finish(.success(.init(connection: connection, attempt: accepted)))
-        case .failed: fail(info.error, info.host == .revoked ? "SSH 主机密钥已撤销，连接已拒绝" : info.host == .unchecked && info.error == 7 ? "SSH 主机验证能力尚不支持，连接已停止" : info.host == .mismatch ? "SSH 主机密钥已改变，连接已拒绝" : "SSH 连接或认证失败（\(info.error)）")
+        case .failed:
+            if info.tcpFailed && retryNextTCPAddress() { return }
+            fail(info.error, info.host == .revoked ? "SSH 主机密钥已撤销，连接已拒绝" : info.host == .unchecked && info.error == 7 ? "SSH 主机验证能力尚不支持，连接已停止" : info.host == .mismatch ? "SSH 主机密钥已改变，连接已拒绝" : "SSH 连接或认证失败（\(info.error)）")
         case .cancelled: fail(8, "SSH 认证已取消")
         default: break
         }

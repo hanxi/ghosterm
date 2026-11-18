@@ -68,6 +68,10 @@ struct TransferQueueView: View {
                 }
                 .font(DS.Font.captionSmall).foregroundStyle(.secondary)
             }
+            if let controlError = job.controlError {
+                Text(controlError).font(DS.Font.captionSmall).foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
             // 行内控制
             HStack(spacing: DS.Padding.xs) {
                 if job.status == .running {
@@ -78,8 +82,7 @@ struct TransferQueueView: View {
                 } else if job.status == .paused {
                     Button("继续") { manager.resume(job) }.buttonStyle(.link)
                     Button("取消") { manager.cancel(job) }.buttonStyle(.link)
-                } else if job.status.isTerminal &&
-                            job.status != .done && job.status != .skipped {
+                } else if job.canRetry {
                     Button("重试") { manager.retry(job) }.buttonStyle(.link)
                 }
             }
@@ -93,12 +96,17 @@ struct TransferQueueView: View {
         case .queued: Text("排队中").font(DS.Font.caption).foregroundStyle(.secondary)
         case .running: Text("传输中").font(DS.Font.caption).foregroundStyle(.secondary)
         case .paused: Text("已暂停").font(DS.Font.caption).foregroundStyle(.orange)
+        case .cancelling: Text("等待取消确认").font(DS.Font.caption).foregroundStyle(.orange)
         case .done: Label("完成", systemImage: "checkmark.circle")
             .font(DS.Font.caption).foregroundStyle(.green)
+        case .partial(let m): Label("部分完成", systemImage: "circle.lefthalf.filled")
+            .font(DS.Font.caption).foregroundStyle(.orange).help(m)
         case .skipped: Text("已跳过").font(DS.Font.caption).foregroundStyle(.secondary)
         case .cancelled: Text("已取消").font(DS.Font.caption).foregroundStyle(.orange)
         case .failed(let m): Label("失败", systemImage: "exclamationmark.triangle")
             .font(DS.Font.caption).foregroundStyle(.red).help(m)
+        case .unknown(let m): Label("结果未知", systemImage: "questionmark.circle")
+            .font(DS.Font.caption).foregroundStyle(.orange).help(m)
         }
     }
 

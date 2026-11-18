@@ -15,7 +15,7 @@ final class FilesPanelTests: XCTestCase {
     }
 
     private func tmpDir() throws -> String {
-        let d = NSTemporaryDirectory() + "filespanel-\(UUID().uuidString)"
+        let d = workspaceTestTmp + "filespanel-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(atPath: d) }
         return d
@@ -41,6 +41,14 @@ final class FilesPanelTests: XCTestCase {
         XCTAssertEqual(byName["dir"]?.kind, .directory)
         XCTAssertEqual(byName["dir"]?.isDirectory, true)
         XCTAssertEqual(byName["link"]?.kind, .symlink, "符号链接报 symlink，不折叠成 file")
+    }
+
+    func testUnknownSizeIsNotPresentedAsZeroBytes() {
+        let entry = FileEntry(path: "/remote/unknown", name: "unknown", kind: .file, sizeKnown: false)
+        XCTAssertEqual(entry.sizeText, "—")
+        XCTAssertEqual(FileEntry(path: "/remote/huge", name: "huge", size: .max, kind: .file).sizeText,
+                       "超出显示范围")
+        XCTAssertEqual(FileEntry(path: "/remote/fifo", name: "fifo", kind: .other).kind, .other)
     }
 
     func testLocalMkdirRenameChmodRemove() throws {
@@ -69,6 +77,29 @@ final class FilesPanelTests: XCTestCase {
                             "非递归删非空目录必须失败（不折叠成成功）")
         try b.remove(root + "/tree", recursive: true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root + "/tree"))
+    }
+
+    func testLocalChmodNeverFollowsSymlink() throws {
+        let root = try tmpDir(), target = root + "/outside.txt", link = root + "/link"
+        try touch(target, 1)
+        XCTAssertEqual(chmod(target, 0o644), 0)
+        XCTAssertEqual(symlink(target, link), 0)
+        let backend = LocalFileBackend(initialPath: root)
+        XCTAssertThrowsError(try backend.chmod(link, mode: 0o600))
+        var targetStat = stat(), linkStat = stat()
+        XCTAssertEqual(lstat(target, &targetStat), 0)
+        XCTAssertEqual(lstat(link, &linkStat), 0)
+        XCTAssertEqual(targetStat.st_mode & 0o777, 0o644, "符号链接权限操作不能改变目标")
+        XCTAssertEqual(linkStat.st_mode & S_IFMT, S_IFLNK)
+    }
+
+    func testLocalChmodSpecialFileDoesNotBlockOpeningFIFO() throws {
+        let root = try tmpDir(), pipe = root + "/pipe"
+        XCTAssertEqual(mkfifo(pipe, 0o600), 0)
+        try LocalFileBackend(initialPath: root).chmod(pipe, mode: 0o640)
+        var st = stat()
+        XCTAssertEqual(lstat(pipe, &st), 0)
+        XCTAssertEqual(st.st_mode & 0o777, 0o640)
     }
 
     func testLocalWalkRespectsDepth() throws {
@@ -211,6 +242,22 @@ final class FilesPanelTests: XCTestCase {
         XCTAssertTrue(wait {
             var st = stat(); lstat(root + "/d/sub/f", &st); return (st.st_mode & 0o777) == 0o700
         }, "递归 chmod 应改到子项")
+    }
+
+    @MainActor
+    func testRecursiveChmodSkipsLinkAndReportsIt() throws {
+        let root = try tmpDir(), tree = root + "/tree", outside = root + "/outside.txt"
+        try FileManager.default.createDirectory(atPath: tree, withIntermediateDirectories: false)
+        try touch(tree + "/inside.txt", 1); try touch(outside, 1)
+        XCTAssertEqual(chmod(outside, 0o644), 0)
+        XCTAssertEqual(symlink(outside, tree + "/outside-link"), 0)
+        let model = FilesPanelModel(backend: LocalFileBackend(initialPath: root))
+        model.setPermissions(FileEntry(path: tree, name: "tree", kind: .directory), mode: 0o700, recursive: true)
+        XCTAssertTrue(wait { model.errorText?.contains("跳过符号链接 1") == true })
+        var target = stat(), inside = stat()
+        XCTAssertEqual(lstat(outside, &target), 0); XCTAssertEqual(lstat(tree + "/inside.txt", &inside), 0)
+        XCTAssertEqual(target.st_mode & 0o777, 0o644, "链接目标权限保持不变")
+        XCTAssertEqual(inside.st_mode & 0o777, 0o700, "普通子文件仍被修改")
     }
 
     @MainActor

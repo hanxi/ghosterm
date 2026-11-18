@@ -8,6 +8,7 @@
 // **页签条的位置在每一页都一样**：窗口高度 = 页签条 + 那一页的高度，
 // 两者都从顶部开始排（见 SettingsWindow）。所以切页时页签图标不会动。
 import GhostermAppModel
+import GhostermCore
 import SwiftUI
 
 /// 当前选中的页。**放在窗口层**（而不是视图的 `@State`）：
@@ -629,12 +630,47 @@ private struct ConfigurationPane: View {
     @State private var loadedConfiguration: Data?
     @State private var statusText: String?
     @State private var errorText: String?
+    @State private var knownHostText = ""
+    @State private var knownHostRecords: [KnownHostRecord] = []
+    @State private var knownHostError: String?
+    @State private var removalIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Padding.m) {
             pathRow("ssh_config", model.configPath)
             pathRow("known_hosts", model.knownHostsPath)
             pathRow("终端配置", model.settings.terminalConfigPath)
+
+            Divider()
+            Text("已保存的主机信任").font(DS.Font.labelEmphasis)
+            SettingsNote("移除记录后，下次连接会重新核对主机密钥；未知或哈希条目仍按原文保留。")
+            HStack {
+                Button("重新读取信任记录") { reloadKnownHosts() }
+                    .accessibilityIdentifier("known-hosts-reload")
+                Spacer()
+                if let knownHostError {
+                    Text(knownHostError).font(DS.Font.detail).foregroundStyle(.red)
+                        .textSelection(.enabled).accessibilityIdentifier("known-hosts-error")
+                }
+            }
+            if knownHostRecords.isEmpty && knownHostError == nil {
+                SettingsNote("没有可显示的主机信任记录。")
+            }
+            ForEach(Array(knownHostRecords.enumerated()), id: \.offset) { index, record in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                        Text(record.hosts).font(DS.Font.code).textSelection(.enabled)
+                        Text([record.marker, record.keyType, record.hashed ? "哈希主机名" : nil,
+                              record.recognized ? nil : "无法识别的记录"].compactMap { $0 }.joined(separator: " · "))
+                            .font(DS.Font.detail).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("移除") { removalIndex = index }
+                        .disabled(!record.recognized)
+                        .accessibilityIdentifier("known-hosts-remove-\(index)")
+                }
+                .padding(.vertical, DS.Padding.xs)
+            }
 
             Divider()
 
@@ -673,7 +709,14 @@ private struct ConfigurationPane: View {
             SettingsNote("保存成功后应用；重新读取只更新文件快照。")
             ConfigurationFileView(contents: model.terminalConfigText)
         }
-        .onAppear(perform: load)
+        .onAppear { load(); reloadKnownHosts() }
+        .confirmationDialog("移除主机信任记录？", isPresented: Binding(
+            get: { removalIndex != nil }, set: { if !$0 { removalIndex = nil } }), titleVisibility: .visible) {
+                Button("移除", role: .destructive) { removeKnownHost() }
+                Button("取消", role: .cancel) { removalIndex = nil }
+            } message: {
+                Text("下次连接该主机时需要重新核对密钥。")
+            }
     }
 
     private func pathRow(_ label: String, _ path: String) -> some View {
@@ -696,6 +739,31 @@ private struct ConfigurationPane: View {
             .buttonStyle(.borderless)
             .help("在访达中显示")
             .accessibilityLabel("在访达中显示 \(label)")
+        }
+    }
+
+    private func reloadKnownHosts() {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: model.knownHostsPath))
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw GhostermError.failed("known_hosts 不是有效 UTF-8")
+            }
+            let records = try KnownHosts.records(text)
+            knownHostText = text; knownHostRecords = records; knownHostError = nil
+        } catch {
+            knownHostText = ""; knownHostRecords = []; knownHostError = "读取失败：\(error)"
+        }
+    }
+
+    private func removeKnownHost() {
+        guard let removalIndex else { return }
+        let result = KnownHosts.remove(path: model.knownHostsPath, expected: knownHostText, index: removalIndex)
+        self.removalIndex = nil
+        if result.succeeded {
+            reloadKnownHosts()
+        } else {
+            knownHostError = result.conflict ? "文件已被其他进程修改，请重新读取后重试。" : result.message
+            if result.committed { reloadKnownHosts() }
         }
     }
 

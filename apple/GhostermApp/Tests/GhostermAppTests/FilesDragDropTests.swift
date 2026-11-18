@@ -45,11 +45,22 @@ final class FilesDragDropTests: XCTestCase {
         let b = FakeTransferBackend2()
         let m = TransferManager(pump: CoreEventPump())
         var fired: TransferManager.Status?
-        m.enqueueDownload(b, remote: "/r/a", local: NSTemporaryDirectory() + "gt-finish", name: "a",
+        m.enqueueDownload(b, remote: "/r/a", local: workspaceTestTmp + "gt-finish", name: "a",
                           isDirectory: false, onFinish: { fired = $0 })
+        XCTAssertTrue(waitForTransferJob(m) { $0.coreJob != 0 })
         let core = m.jobs[0].coreJob
         m.handle(CoreEvent(kind: .jobDone, sessionID: 0, jobID: core, code: 0, message: ""))
         XCTAssertEqual(fired, .done, "完成回调应在 jobDone 时触发")
+    }
+
+    @MainActor private func waitForTransferJob(_ manager: TransferManager,
+                                                _ predicate: (TransferManager.Job) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let job = manager.jobs.first, predicate(job) { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return manager.jobs.first.map(predicate) ?? false
     }
 }
 

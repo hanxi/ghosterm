@@ -121,7 +121,6 @@ final class SFTPBrowserTests: XCTestCase {
         localPanel.navigate(to: input); remotePanel.navigate(to: output)
         XCTAssertTrue(waitUntil(timeout: 15) { !localPanel.isLoading && !remotePanel.isLoading })
         let manager = TransferManager(pump: .shared)
-        manager.applyToAll = .overwrite
         let upload = WorkspaceFileDrag(paneID: local.id, endpointID: local.endpointID, entries: [
             .init(path: input + "/tree", name: "tree", isDirectory: true),
             .init(path: input + "/empty-root", name: "empty-root", isDirectory: true),

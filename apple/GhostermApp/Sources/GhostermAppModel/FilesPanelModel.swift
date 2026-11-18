@@ -272,17 +272,26 @@ public final class FilesPanelModel: ObservableObject {
     public func setPermissions(_ entry: FileEntry, mode: UInt32,
                                recursive: Bool = false) {
         run("改权限") { b in
+            guard !entry.isSymlink else {
+                throw GhostermError.failed("符号链接不支持改权限")
+            }
             try b.chmod(entry.path, mode: mode)
             guard recursive, entry.isDirectory else { return }
-            // 递归应用到子项：walk 只报条目，逐个 chmod；单个失败不中断
-            // （已改的成功，失败的在 errorText 里如实反映）。
-            var firstError: Error?
-            try? b.walk(root: entry.path, maxDepth: -1) { child in
-                do { try b.chmod(child.path, mode: mode) }
-                catch { if firstError == nil { firstError = error } }
-                return true
+            // 保留逐项结果：扫描失败不能伪装成部分成功，链接明确跳过。
+            var failures: [String] = []
+            var skippedLinks = 0
+            do {
+                try b.walk(root: entry.path, maxDepth: -1) { child in
+                    if child.isSymlink { skippedLinks += 1; return true }
+                    do { try b.chmod(child.path, mode: mode) }
+                    catch { failures.append("\(child.path): \(error)") }
+                    return true
+                }
+            } catch { failures.append("目录扫描: \(error)") }
+            guard failures.isEmpty, skippedLinks == 0 else {
+                let details = failures.sorted().prefix(5).joined(separator: "；")
+                throw GhostermError.failed("递归改权限未完全完成：失败 \(failures.count)，跳过符号链接 \(skippedLinks)\(details.isEmpty ? "" : "；\(details)")")
             }
-            if let e = firstError { throw e }
         }
     }
 

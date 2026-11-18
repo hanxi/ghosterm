@@ -206,7 +206,6 @@ func installTransferConflictPrompt() {
         case .alertSecondButtonReturn: choice = .skip
         default: choice = .rename
         }
-        if applyBox.state == .on { TransferManager.shared.applyToAll = choice }
-        return choice
+        return TransferManager.ConflictDecision(choice, applyToBatch: applyBox.state == .on)
     }
 }

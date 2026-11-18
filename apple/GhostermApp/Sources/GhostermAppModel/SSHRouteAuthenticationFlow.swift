@@ -13,7 +13,8 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
     private let opening: SSHConnectionOpening?
     private let options: [SSHOptions]
     private let prompts: [SSHAuthenticationPrompts]
-    private let lookup: SSHAuthenticationFlow.AddressLookup
+    private let lookup: SSHAuthenticationFlow.AddressLookup?
+    private let lookupCandidates: SSHAuthenticationFlow.AddressCandidatesLookup
     private let now: () -> TimeInterval
     private let makeRoute: ([SSHRoute.Hop], UInt32, DispatchQueue) throws -> SSHRoute
     private let nextID: () -> UInt64?
@@ -24,17 +25,22 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
     private var attempts: [UInt32], requests: [UInt64]
     private var scope: SSHCancellation?
     private var hop = 0
+    private var addresses: [SSHAddress] = []
+    private var addressIndex = 0
     private var prompting = false, started = false, finished = false
     private var deadline: TimeInterval = 0
     init(owner: DispatchQueue, options: [SSHOptions], prompts: [SSHAuthenticationPrompts],
          opening: SSHConnectionOpening? = nil,
-         lookup: @escaping SSHAuthenticationFlow.AddressLookup = { host, ipv6, owner, completion in
-             SSHAddressResolver.resolve(host: host, preferIPv6: ipv6, owner: owner, completion: completion)
+         lookup: SSHAuthenticationFlow.AddressLookup? = nil,
+         lookupCandidates: @escaping SSHAuthenticationFlow.AddressCandidatesLookup = { host, ipv6, owner, completion in
+             SSHAddressResolver.resolveAll(host: host, preferIPv6: ipv6, timeoutMilliseconds: 5000,
+                                           owner: owner, completion: completion)
          }, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          makeRoute: @escaping ([SSHRoute.Hop], UInt32, DispatchQueue) throws -> SSHRoute = {
              try SSHRoute(hops: $0, timeoutMilliseconds: $1, owner: $2)
          }, nextID: @escaping () -> UInt64?, completion: @escaping (Result<Authenticated, Failure>) -> Void) {
         self.owner = owner; self.options = options; self.prompts = prompts; self.lookup = lookup
+        self.lookupCandidates = lookupCandidates
         self.nextID = nextID; self.completion = completion; self.now = now; self.makeRoute = makeRoute; self.opening = opening
         attempts = Array(repeating: 0, count: options.count); requests = Array(repeating: 0, count: options.count)
     }
@@ -47,17 +53,42 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
         let timer = DispatchSource.makeTimerSource(queue: owner)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.tick() }; self.timer = timer; timer.resume()
-        resolver = lookup(options[0].host, false, owner) { [weak self] result in
-            guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
-            do {
-                let address = try result.get(), remaining = self.deadline - self.now()
-                guard remaining > 0 else { self.fail(3, "SSH 跳板认证超时"); return }
-                let hops = self.options.enumerated().map { index, option in
-                    SSHRoute.Hop(options: option, address: index == 0 ? address : nil, viaHost: index == 0 ? nil : option.host)
-                }
-                self.route = try self.makeRoute(hops, UInt32(min(60000, max(1, remaining * 1000))), self.owner)
-            } catch { self.fail(error) }
+        if let lookup {
+            resolver = lookup(options[0].host, false, owner) { [weak self] result in
+                guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
+                do { self.addresses = [try result.get()]; self.beginRoute() }
+                catch { self.fail(error) }
+            }
+        } else {
+            resolver = lookupCandidates(options[0].host, false, owner) { [weak self] result in
+                guard let self, !self.finished, self.checkAdmission() else { return }; self.resolver = nil
+                do {
+                    self.addresses = try result.get()
+                    guard !self.addresses.isEmpty else { self.fail(3, "跳板首跳没有可连接地址"); return }
+                    self.beginRoute()
+                } catch { self.fail(error) }
+            }
         }
+    }
+
+    private func beginRoute() {
+        let remaining = deadline - now()
+        guard checkAdmission(), remaining > 0, addressIndex < addresses.count else { return }
+        let perAddress = max(1, remaining / Double(max(1, addresses.count - addressIndex)))
+        let hops = options.enumerated().map { index, option in
+            SSHRoute.Hop(options: option, address: index == 0 ? addresses[addressIndex] : nil,
+                         viaHost: index == 0 ? nil : option.host,
+                         tcpTimeoutMilliseconds: index == 0 ? UInt32(min(60000, max(1, perAddress * 1000))) : 0)
+        }
+        do { route = try makeRoute(hops, UInt32(min(60000, max(1, remaining * 1000))), owner) }
+        catch { fail(error) }
+    }
+
+    private func retryNextFirstHopAddress() -> Bool {
+        guard addressIndex + 1 < addresses.count else { return false }
+        route?.close(); route = nil; addressIndex += 1; hop = 0
+        beginRoute()
+        return !finished
     }
     private func newPrompt() -> (UInt64, SSHCancellation)? {
         scope?.cancel()
@@ -83,6 +114,7 @@ final class SSHRouteAuthenticationFlow: SSHAuthenticationOperation {
         if hop != Int(info.hop) { scope?.cancel(); scope = nil; prompting = false; hop = Int(info.hop) }
         switch info.phase {
         case .failed:
+            if info.authentication.tcpFailed && retryNextFirstHopAddress() { return }
             let host = info.authentication.host
             fail(info.error, "第\(hop + 1)跳 " + (host == .revoked ? "SSH 主机密钥已撤销" : host == .mismatch ? "SSH 主机密钥已改变" : "SSH 连接或认证失败（\(info.error)）")); return
         case .cancelled: fail(8, "SSH 跳板认证已取消"); return

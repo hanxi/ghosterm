@@ -2,9 +2,9 @@
 //
 // 与 LocalFileBackend 共用同一套 FileBackend 接缝；面板 UI 零分叉。
 //
-// 线程：本类**自持有串行队列**并把每个公开方法跑在上面（queue.sync）——
-// 于是任何线程（面板的队列、全局传输队列）都能安全调用，底层 SFTPSession
-// 始终只在**这一条**队列上被碰（libssh2「一会话一线程」）。SSHSession 由本
+// 线程：本类**自持有串行队列**并把 SFTP 请求放在上面（queue.sync）——
+// 浏览/搜索/旧 job 操作由调用方后台 owner 调用；libssh2 始终只在这一条队列上
+// 执行。pause/cancel 只更新 Core 的 job 标志，可从控制路径直接调用。SSHSession 由本
 // 对象持有（谁建会话谁撑住；释放顺序：先 sftp.close 再 session.close）。
 import Foundation
 import GhostermCore
@@ -16,7 +16,7 @@ public final class SFTPFileBackend: TransferBackend {
     public let initialPath: String
     public let displayName: String
 
-    /// 本后端的唯一串行队列（见文件头）。
+    /// 本后端的唯一 libssh2 调用队列（见文件头）。
     private let queue = DispatchQueue(label: "dev.ghosterm.sftp-backend")
 
     public init(session: SSHSession, sftp: SFTPSession, user: String, host: String,
@@ -80,6 +80,14 @@ public final class SFTPFileBackend: TransferBackend {
         (try? queue.sync { try lstatLocked(path) }) != nil
     }
 
+    public func checkedExists(_ path: String) throws -> Bool {
+        do { _ = try queue.sync { try lstatLocked(path) }; return true }
+        catch let error as GhostermError {
+            if case .status(let code, _) = error, code == 2 { return false }
+            throw error
+        }
+    }
+
     /// 已在队列上时的 lstat（**不可**再 queue.sync——同队列重入会死锁）。
     private func lstatLocked(_ path: String) throws -> SFTPStat {
         try sftp.lstat(path: path)
@@ -94,10 +102,12 @@ public final class SFTPFileBackend: TransferBackend {
         try queue.sync { try sftp.upload(local: local, remote: remote) }
     }
     public func pause(jobID: UInt64, _ paused: Bool) throws {
-        try queue.sync { try sftp.pause(jobID: jobID, paused) }
+        // Core serializes these request flags with its job table; they do not
+        // touch libssh2 and must remain callable while the IO owner is busy.
+        try sftp.pause(jobID: jobID, paused)
     }
     public func cancel(jobID: UInt64) throws {
-        try queue.sync { try sftp.cancel(jobID: jobID) }
+        try sftp.cancel(jobID: jobID)
     }
 
     // MARK: - 远端搜索（exec 优先，walk 回退）
@@ -159,25 +169,25 @@ public final class SFTPFileBackend: TransferBackend {
 
     private static func entry(from e: SFTPEntry) -> FileEntry {
         FileEntry(path: e.fullPath, name: e.name, size: e.size, mtime: e.mtime,
-                  mode: e.mode, kind: kind(dir: e.isDirectory, link: e.isSymlink),
-                  uid: e.uid, gid: e.gid, hasOwner: e.hasOwner)
+                  mode: e.mode, kind: kind(dir: e.isDirectory, link: e.isSymlink, regular: e.isRegularFile),
+                  uid: e.uid, gid: e.gid, hasOwner: e.hasOwner, sizeKnown: e.hasSize)
     }
     private static func entry(from e: SFTPWalkEntry) -> FileEntry {
         FileEntry(path: e.path, name: e.name, size: e.stat.size, mtime: e.stat.mtime,
                   mode: e.stat.mode,
-                  kind: kind(dir: e.stat.isDirectory, link: e.stat.isSymlink),
-                  uid: e.stat.uid, gid: e.stat.gid, hasOwner: e.stat.hasOwner)
+                  kind: kind(dir: e.stat.isDirectory, link: e.stat.isSymlink, regular: e.stat.isRegularFile),
+                  uid: e.stat.uid, gid: e.stat.gid, hasOwner: e.stat.hasOwner, sizeKnown: e.stat.hasSize)
     }
     private static func entry(path: String, stat: SFTPStat) -> FileEntry {
         FileEntry(path: path, name: (path as NSString).lastPathComponent,
                   size: stat.size, mtime: stat.mtime, mode: stat.mode,
-                  kind: kind(dir: stat.isDirectory, link: stat.isSymlink),
-                  uid: stat.uid, gid: stat.gid, hasOwner: stat.hasOwner)
+                  kind: kind(dir: stat.isDirectory, link: stat.isSymlink, regular: stat.isRegularFile),
+                  uid: stat.uid, gid: stat.gid, hasOwner: stat.hasOwner, sizeKnown: stat.hasSize)
     }
-    private static func kind(dir: Bool, link: Bool) -> FileEntry.Kind {
+    private static func kind(dir: Bool, link: Bool, regular: Bool) -> FileEntry.Kind {
         if link { return .symlink }
         if dir { return .directory }
-        return .file
+        return regular ? .file : .other
     }
 
     // MARK: - 小工具

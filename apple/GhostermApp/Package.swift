@@ -50,7 +50,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "GhostermApp",
-            dependencies: ["GhostermAppModel", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["GhostermAppModel", .product(name: "GhostermCore", package: "GhostermCore"),
+                           .product(name: "Sparkle", package: "Sparkle")],
             path: "Sources/GhostermApp",
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),

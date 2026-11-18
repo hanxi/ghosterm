@@ -8,37 +8,87 @@ import GhostermAppModel
 import UniformTypeIdentifiers
 
 enum QuickLook {
+    private static let maximumRemotePreviewBytes: UInt64 = 32 * 1024 * 1024
+    @MainActor private static var remoteGeneration: UInt64 = 0
     /// 远端预览的临时副本路径（纯函数，可断言）。
     static func tempPreviewPath(for name: String, token: String = UUID().uuidString) -> String {
         QuickLookPaths.tempPreviewPath(for: name, token: token)
     }
 
+    static func discardRemotePreview(at path: URL) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ghosterm-preview", isDirectory: true)
+        let relative = path.path.dropFirst(min(path.path.count, root.path.count + 1))
+        guard path.path.hasPrefix(root.path + "/"), let token = relative.split(separator: "/").first,
+              UUID(uuidString: String(token)) != nil else { return }
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(String(token), isDirectory: true))
+    }
+
     /// 远端条目：下临时副本（经队列）→ 完成后预览。
     @MainActor
     static func previewRemote(entry: FileEntry, backend: TransferBackend) {
+        guard entry.kind == .file else {
+            reportPreviewError("只支持预览普通文件")
+            return
+        }
+        guard entry.sizeKnown, entry.size <= maximumRemotePreviewBytes else {
+            reportPreviewError(entry.sizeKnown ? "文件超过远端预览上限（32 MiB）" : "文件大小未知，无法安全预览")
+            return
+        }
+        remoteGeneration &+= 1
+        let generation = remoteGeneration
         let name = entry.name.isEmpty ? (entry.path as NSString).lastPathComponent : entry.name
         let dst = tempPreviewPath(for: name)
-        try? FileManager.default.createDirectory(
-            atPath: (dst as NSString).deletingLastPathComponent,
-            withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(
+                atPath: (dst as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+        } catch {
+            reportPreviewError("无法准备预览缓存：\(error)")
+            return
+        }
         TransferManager.shared.enqueueDownload(
             backend, remote: entry.path, local: dst, name: name, isDirectory: false,
             onFinish: { status in
-                if case .done = status { QuickLook.show(localPath: dst) }
+                guard generation == remoteGeneration else {
+                    QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                    return
+                }
+                guard case .done = status else {
+                    QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                    return
+                }
+                let attributes = try? FileManager.default.attributesOfItem(atPath: dst)
+                let size = (attributes?[.size] as? NSNumber)?.uint64Value
+                guard let size, size <= maximumRemotePreviewBytes else {
+                    QuickLook.discardRemotePreview(at: URL(fileURLWithPath: dst))
+                    reportPreviewError("下载后的预览副本超过 32 MiB 或无法读取大小")
+                    return
+                }
+                QuickLookPanel.shared.show([URL(fileURLWithPath: dst)], deleteWhenClosed: true)
             })
+    }
+
+    @MainActor private static func reportPreviewError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "无法预览远端文件"
+        alert.informativeText = message
+        alert.addButton(withTitle: "好")
+        alert.runModal()
     }
 
     /// 本地路径预览。
     @MainActor
     static func show(localPath: String) {
+        remoteGeneration &+= 1
         QuickLookPanel.shared.show([URL(fileURLWithPath: localPath)])
     }
 
     /// 空格键触发（面板用）。
     @MainActor
     static func toggle(localPath: String) {
+        remoteGeneration &+= 1
         if let panel = QLPreviewPanel.shared(), panel.isVisible {
-            panel.orderOut(nil)
+            QuickLookPanel.shared.dismiss(panel)
         } else {
             show(localPath: localPath)
         }
@@ -49,15 +99,37 @@ enum QuickLook {
 import QuickLookUI
 
 /// QLPreviewPanel 的数据源 / 响应者（进程内单例）。
-final class QuickLookPanel: NSObject, QLPreviewPanelDataSource {
+final class QuickLookPanel: NSObject, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     static let shared = QuickLookPanel()
     private var urls: [URL] = []
+    private var deletesCurrentPreview = false
 
-    func show(_ urls: [URL]) {
+    func show(_ urls: [URL], deleteWhenClosed: Bool = false) {
+        let previous = deletesCurrentPreview ? self.urls : []
         self.urls = urls
-        guard let panel = QLPreviewPanel.shared() else { return }
+        deletesCurrentPreview = deleteWhenClosed
+        guard let panel = QLPreviewPanel.shared() else {
+            previous.forEach(QuickLook.discardRemotePreview(at:))
+            discardCurrentPreview(); return
+        }
         panel.dataSource = self
+        panel.delegate = self
         panel.makeKeyAndOrderFront(nil)
+        previous.forEach(QuickLook.discardRemotePreview(at:))
+    }
+
+    func previewPanelWillClose(_ notification: Notification) {
+        discardCurrentPreview()
+    }
+
+    func dismiss(_ panel: QLPreviewPanel) {
+        panel.orderOut(nil)
+        discardCurrentPreview()
+    }
+
+    private func discardCurrentPreview() {
+        if deletesCurrentPreview { urls.forEach(QuickLook.discardRemotePreview(at:)) }
+        urls = []; deletesCurrentPreview = false
     }
 
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { urls.count }

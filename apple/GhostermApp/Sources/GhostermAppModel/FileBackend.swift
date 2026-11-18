@@ -17,6 +17,7 @@ public struct FileEntry: Identifiable, Equatable {
     public let path: String
     public let name: String
     public let size: UInt64
+    public let sizeKnown: Bool
     public let mtime: Date?
     public let mode: UInt32
     public let kind: Kind
@@ -26,10 +27,11 @@ public struct FileEntry: Identifiable, Equatable {
 
     public init(path: String, name: String, size: UInt64 = 0, mtime: Date? = nil,
                 mode: UInt32 = 0, kind: Kind, uid: UInt32 = 0, gid: UInt32 = 0,
-                hasOwner: Bool = false) {
+                hasOwner: Bool = false, sizeKnown: Bool = true) {
         self.path = path
         self.name = name
         self.size = size
+        self.sizeKnown = sizeKnown
         self.mtime = mtime
         self.mode = mode
         self.kind = kind
@@ -44,8 +46,9 @@ public struct FileEntry: Identifiable, Equatable {
     public var isHidden: Bool { name.hasPrefix(".") }
 
     public var sizeText: String {
-        isDirectory ? "—"
-            : ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+        if isDirectory || !sizeKnown { return "—" }
+        guard size <= UInt64(Int64.max) else { return "超出显示范围" }
+        return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }
 
     /// 权限位字符串（八进制 3 位）。
@@ -73,6 +76,9 @@ public protocol TransferBackend: FileBackend {
     func upload(local: String, remote: String) throws -> UInt64
     /// 远端路径是否存在（冲突检测用；符号链接按链接自身判）。
     func exists(_ path: String) -> Bool
+    /// Errors are distinct from confirmed absence; callers must not use a
+    /// failed stat as authorization to create or overwrite a destination.
+    func checkedExists(_ path: String) throws -> Bool
     func pause(jobID: UInt64, _ paused: Bool) throws
     func cancel(jobID: UInt64) throws
     /// 递归搜索：优先走远端 exec（find/grep，一次往返）；服务器禁 exec 时
@@ -81,6 +87,10 @@ public protocol TransferBackend: FileBackend {
                 isCancelled: @escaping () -> Bool,
                 onHit: @escaping (FileEntry) -> Bool,
                 onScanned: @escaping (Int) -> Void) throws -> Bool
+}
+
+public extension TransferBackend {
+    func checkedExists(_ path: String) throws -> Bool { exists(path) }
 }
 
 // MARK: - 本地后端（Foundation / POSIX）
@@ -159,9 +169,16 @@ public final class LocalFileBackend: FileBackend {
     // MARK: helpers
 
     private func chmod_(_ path: String, _ mode: UInt32) -> Int32 {
-        var st = Darwin.stat()
-        guard Darwin.lstat(path, &st) == 0 else { return -1 }
-        return Darwin.chmod(path, mode_t(mode & 0o7777))
+        var before = Darwin.stat()
+        guard Darwin.lstat(path, &before) == 0 else { return -1 }
+        guard before.st_mode & mode_t(S_IFMT) != mode_t(S_IFLNK) else { errno = ELOOP; return -1 }
+        let fd = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return -1 }
+        defer { Darwin.close(fd) }
+        var opened = Darwin.stat()
+        guard Darwin.fstat(fd, &opened) == 0 else { return -1 }
+        guard before.st_dev == opened.st_dev && before.st_ino == opened.st_ino else { errno = EAGAIN; return -1 }
+        return Darwin.fchmod(fd, mode_t(mode & 0o7777))
     }
 
     private func join(_ dir: String, _ name: String) -> String {

@@ -40,6 +40,20 @@ final class SSHAddressResolverTests: XCTestCase {
             XCTAssertEqual(a.family, 4); XCTAssertEqual(Array(a.bytes.prefix(4)), [127,0,0,1])
         }
     }
+    func testResolveAllCollectsBothFamiliesWithoutDuplicates() {
+        let done = expectation(description: "all DNS candidates")
+        let owner = DispatchQueue(label: "dev.ghosterm.test.resolver.all")
+        owner.async {
+            _ = SSHAddressResolver.resolveAll(host: "localhost", timeoutMilliseconds: 3000, owner: owner) { result in
+                guard case .success(let addresses) = result else { XCTFail("\(result)"); done.fulfill(); return }
+                XCTAssertFalse(addresses.isEmpty)
+                XCTAssertTrue(addresses.allSatisfy { $0.bytes.count == 16 })
+                XCTAssertEqual(Set(addresses.map { "\($0.family):\($0.bytes):\($0.scope)" }).count, addresses.count)
+                done.fulfill()
+            }
+        }
+        wait(for: [done], timeout: 5)
+    }
     func testInvalidHostAndDeadlineParameters() {
         resolve("host\0suffix") { result in XCTAssertEqual(result.failure, .invalidHost) }
         resolve("::bad::address") { result in XCTAssertEqual(result.failure, .invalidHost) }
