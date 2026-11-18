@@ -30,6 +30,7 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         }
         let pane = NSHostingView(rootView: ScrollView { ExtensionsPane(model: model) })
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = pane; TestWindows.presentOffscreen(window)
         defer { window.orderOut(nil); window.contentView = nil }
         func node(_ id: String) -> NSObject? {
@@ -42,7 +43,7 @@ final class PluginInstalledVersionsUITests: XCTestCase {
             while !check(), ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(25)) }
             return check()
         }
-        func waitAndPress(_ id: String) async throws {
+        func waitAndPress(_ id: String) async throws -> Bool {
             let selector = NSSelectorFromString("isAccessibilityEnabled")
             let ready = try await until {
                 guard let value = node(id), value.responds(to: selector),
@@ -50,8 +51,12 @@ final class PluginInstalledVersionsUITests: XCTestCase {
                 typealias ReadEnabled = @convention(c) (AnyObject, Selector) -> Bool
                 return unsafeBitCast(implementation, to: ReadEnabled.self)(value, selector)
             }
-            guard ready else { throw NSError(domain: "PluginInstalledVersionsUITests: control did not become enabled: " + id, code: 1) }
+            guard ready else {
+                XCTFail("version control did not become enabled: \(id)")
+                return false
+            }
             try press(id)
+            return true
         }
         func waitNotice(_ expected: String) async throws {
             guard try await until({
@@ -59,29 +64,32 @@ final class PluginInstalledVersionsUITests: XCTestCase {
                 return ["accessibilityValue", "accessibilityLabel"].contains { PluginTableRendering.attribute(control, $0)?.contains(expected) == true }
             }) else { XCTFail("version operation did not report \(expected)"); return }
         }
-        func confirmSelection() async throws {
-            guard try await until({ node("plugin-selection-confirm") != nil }) else { XCTFail("selection must show its complete review before changing versions"); return }
+        func confirmSelection() async throws -> Bool {
+            guard try await until({ node("plugin-selection-confirm") != nil }) else { XCTFail("selection must show its complete review before changing versions"); return false }
             try press("plugin-selection-acknowledge")
-            try await waitAndPress("plugin-selection-confirm")
+            return try await waitAndPress("plugin-selection-confirm")
         }
         try press("plugin-installed-expand")
         guard try await until({ versions.allSatisfy { node("plugin-installed-row-" + $0.signature.descriptorSHA256) != nil } }) else { XCTFail("restart inventory controls missing"); return }
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"))
         let field = try XCTUnwrap(node("plugin-installed-policy"))
-        field.perform(NSSelectorFromString("setAccessibilityValue:"), with: input.appendingPathComponent("policy.json").path)
         let native = try XCTUnwrap((field as? NSTextField) ?? (field as? NSCell)?.controlView as? NSTextField)
+        let policyPath = input.appendingPathComponent("policy.json").path
+        // Update the native editor before the delegate notification. An AX
+        // wrapper can acknowledge the setter without updating this editor.
+        native.stringValue = policyPath
         NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: native)
         try await Task.sleep(for: .milliseconds(25))
-        try await waitAndPress("plugin-installed-trust")
-        try await waitAndPress("plugin-installed-select-" + versions[1].signature.descriptorSHA256)
-        try await confirmSelection()
+        guard try await waitAndPress("plugin-installed-trust") else { return }
+        guard try await waitAndPress("plugin-installed-select-" + versions[1].signature.descriptorSHA256) else { return }
+        guard try await confirmSelection() else { return }
         try await waitNotice("活动版本已更新")
         guard try await until({ node("plugin-approve-org.ghosterm.preview") != nil }) else { XCTFail("selected version must enter source review"); return }
         XCTAssertNil(node("plugin-launch-org.ghosterm.preview"), "selection must not approve source")
         try press("plugin-installed-disable-" + versions[1].signature.descriptorSHA256)
         try await waitNotice("已禁用新建")
-        try await waitAndPress("plugin-installed-select-" + versions[0].signature.descriptorSHA256)
-        try await confirmSelection()
+        guard try await waitAndPress("plugin-installed-select-" + versions[0].signature.descriptorSHA256) else { return }
+        guard try await confirmSelection() else { return }
         try await waitNotice("活动版本已更新")
         let catalog = try await controller.installedVersions()
         XCTAssertEqual(catalog.versions.first(where: { $0.selected })?.releaseID, versions[0].signature.descriptorSHA256)
