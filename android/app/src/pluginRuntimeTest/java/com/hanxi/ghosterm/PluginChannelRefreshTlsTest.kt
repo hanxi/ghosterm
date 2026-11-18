@@ -49,7 +49,9 @@ class PluginChannelRefreshTlsTest {
             fun now() = (System.currentTimeMillis() / 1000).toULong()
             val valid = refresh("valid").refresh()
             assertEquals(2uL, valid.generation)
-            assertEquals("org.ghosterm.signature", valid.authenticate(descriptor, signature, now()).proof.pluginID)
+            val proof = valid.authenticate(descriptor, signature, now()).proof
+            assertEquals("org.ghosterm.signature", proof.pluginID)
+            assertTrue(!valid.revokesPublisher(store.rootSHA256, proof))
             val redirect = runCatching { refresh("redirect").refresh() }.exceptionOrNull()
             assertTrue(redirect.toString(), redirect is IllegalStateException && redirect.message!!.contains("签名材料"))
             val oversized = runCatching { refresh("oversized").refresh() }.exceptionOrNull()
@@ -62,6 +64,8 @@ class PluginChannelRefreshTlsTest {
             assertEquals(PluginReleaseSignature.Failure.CHANNEL_HISTORY, (rollback as? PluginReleaseSignature.Rejected)?.reason)
             store.useCurrent(now()) { revoked ->
                 assertEquals(3uL, revoked.generation)
+                assertTrue(revoked.revokesPublisher(store.rootSHA256, proof))
+                assertTrue(!revoked.revokesPublisher("0".repeat(64), proof))
                 val denied = runCatching { revoked.authenticate(descriptor, signature, now()) }.exceptionOrNull()
                 assertEquals(PluginReleaseSignature.Failure.REVOKED_KEY, (denied as? PluginReleaseSignature.Rejected)?.reason)
             }

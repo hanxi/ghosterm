@@ -145,7 +145,9 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?) {
             try {
                 val current = controller.refreshChannelPolicy()
                 failed = false
-                status = "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。"
+                val count = controller.runningInstancesWithRevokedPublisher(current)
+                status = "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。" +
+                    if (count > 0) " 本应用仍持有 ${count} 个受撤销影响的实例，可在实例页停止。" else ""
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
                 failed = true
                 status = "刷新插件渠道策略超时。"

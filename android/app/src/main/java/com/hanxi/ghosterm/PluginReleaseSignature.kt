@@ -42,7 +42,12 @@ internal object PluginReleaseSignature {
         val expiresAt: ULong,
         val statementSHA256: String,
         private val policy: ByteArray,
+        val rootSHA256: String,
+        private val revokedPublishers: Set<String>,
     ) {
+        fun revokesPublisher(root: String, proof: Proof): Boolean =
+            root == rootSHA256 && proof.channel == channel && proof.keyID in revokedPublishers
+
         fun policyBytes(): ByteArray = policy.copyOf()
 
         fun requireFresh(now: ULong) {
@@ -83,9 +88,10 @@ internal object PluginReleaseSignature {
             7 -> reject(Failure.UNSUPPORTED)
             else -> reject(Failure.CRYPTO_UNKNOWN)
         }
-        ensure(hash(root) !in trusted.keys, Failure.CHANNEL_ROOT_IS_PUBLISHER)
+        val rootSHA256 = hash(root)
+        ensure(rootSHA256 !in trusted.keys, Failure.CHANNEL_ROOT_IS_PUBLISHER)
         ensure(issuedAt <= now && now < expiresAt, Failure.CHANNEL_FRESHNESS)
-        return VerifiedChannelPolicy(channel, generation, issuedAt, expiresAt, hash(payload), policyBytes)
+        return VerifiedChannelPolicy(channel, generation, issuedAt, expiresAt, hash(payload), policyBytes, rootSHA256, trusted.revoked.toSet())
     }
 
     /** Bounded strict JSON for display of a raw manifest already attested by Core. */

@@ -59,6 +59,15 @@ class ExtensionController private constructor(private val shared: Shared, privat
     internal suspend fun refreshChannelPolicy() =
         checkNotNull(shared.channelRefresh) { "本构建未配置插件渠道。" }.refresh()
 
+    internal suspend fun runningInstancesWithRevokedPublisher(policy: PluginReleaseSignature.VerifiedChannelPolicy): Int = onWorker {
+        checkOpen()
+        shared.controllers.count { controller ->
+            val admission = controller.channelAdmission
+            admission != null && (controller.runtime != null || controller.session != null) &&
+                policy.revokesPublisher(admission.root, admission.proof)
+        }
+    }
+
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(
@@ -151,6 +160,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
 
     internal data class PolicyDisableResult(val pluginIDs: List<String>, val observation: PluginReleaseCatalog.Observation,
         val durabilityConfirmed: Boolean)
+    private data class ChannelAdmission(val root: String, val proof: PluginReleaseSignature.Proof)
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source,
         var managedReleaseID: String? = null, var selectionGeneration: String? = null, var approvalGeneration: String? = null,
@@ -241,6 +251,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
     @Volatile private var session: ExtensionSession? = null
     private var sessionPackageKey: Key? = null
     private var sessionApprovedSnapshot = false
+    private var channelAdmission: ChannelAdmission? = null
     private var sessionVersionLease: ParcelFileDescriptor? = null
     @Volatile private var runtime: ExtensionRuntime? = null
     private var runtimePackageKey: Key? = null
@@ -488,7 +499,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         }
         val version = if (record.review.id in managedIDs) checkNotNull(owner).openVersion(checkNotNull(record.managedReleaseID)) else null
         version.use {
-        withChannelAdmission(version, record) {
+        withChannelAdmission(version, record) { admission ->
         var reference = version?.let { it.pin(); it.borrow() }
         try {
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
@@ -499,6 +510,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
             resourceScopeBytes = RESOURCE_SESSION_BYTES)
         channel = null; session = owned; sessionPackageKey = key
         sessionApprovedSnapshot = true; sessionVersionLease = reference; reference = null
+        channelAdmission = admission
         SessionState(pluginID, packageDigest, owned.info())
         } finally { reference?.close() }
         }
@@ -540,7 +552,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
             PluginReleaseCatalog.Version(ParcelFileDescriptor.dup(lease.fileDescriptor), checkNotNull(record.managedReleaseID))
         }
         version.use {
-        withChannelAdmission(version, record) {
+        withChannelAdmission(version, record) { admission ->
         val registryViews = "ui.views" in record.review.requiredCapabilities
         var viewKinds = 0
         val sameRegistration = registeredDigests[pluginID] == packageDigest
@@ -576,6 +588,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         } finally { rootFD?.let(Os::close) }
         session = null; sessionPackageKey = null; runtime = active
         runtimeVersionLease = sessionVersionLease; sessionVersionLease = null; sessionApprovedSnapshot = false
+        channelAdmission = admission
         runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command; runtimeInstanceID = UUID.randomUUID().toString()
         runtimeViewScope = if (registryViews) sessionInfo.instance to sessionInfo.epoch.toULong().toString() else null
         runtimeViewIssue = null
@@ -691,7 +704,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
             if (current.closeStep()) { released = true; break }
         }
         if (!released || clientSource != null) throw CleanupPending("运行时与发布资源仍在释放，保留 owner")
-        runtimeVersionLease?.close(); runtimeVersionLease = null
+        runtimeVersionLease?.close(); runtimeVersionLease = null; channelAdmission = null
         clientPublication = null
         runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null; runtimeViewScope = null; runtimeViewIssue = null
         clientRootFD?.let { fd -> clientRootFD = null; Os.close(fd) }
@@ -761,7 +774,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
             }
             current.close()
             session = null; sessionPackageKey = null
-            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
+            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false; channelAdmission = null
         }
     }
 
@@ -968,10 +981,10 @@ class ExtensionController private constructor(private val shared: Shared, privat
         return store.useCurrent(configuredChannelTime(), action)
     }
 
-    private fun <T> withChannelAdmission(version: PluginReleaseCatalog.Version?, record: Record, action: () -> T): T {
-        if (version == null) return action()
+    private fun <T> withChannelAdmission(version: PluginReleaseCatalog.Version?, record: Record, action: (ChannelAdmission?) -> T): T {
+        if (version == null) return action(null)
         return withVersionChannel(version) { policy ->
-            if (policy != null) {
+            val admission = if (policy != null) {
                 val descriptor = version.read("release.json", 65536)
                 val authenticated = policy.authenticate(descriptor, version.read("release.sig", 64), configuredChannelTime())
                 val metadata = record.packageBytes.metadata()
@@ -979,8 +992,9 @@ class ExtensionController private constructor(private val shared: Shared, privat
                     authenticated.identity == PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest)) {
                     "已安装版本的签名身份已变化"
                 }
-            }
-            action()
+                ChannelAdmission(policy.rootSHA256, authenticated.proof)
+            } else null
+            action(admission)
         }
     }
 
@@ -1488,7 +1502,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         runtime?.let { current -> closeClientRuntime(current) }
         session?.let { current ->
             current.close(); session = null; sessionPackageKey = null
-            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false
+            sessionVersionLease?.close(); sessionVersionLease = null; sessionApprovedSnapshot = false; channelAdmission = null
         }
         channel?.let { current -> current.close(); channel = null }
         multiplexer?.let { mux ->
