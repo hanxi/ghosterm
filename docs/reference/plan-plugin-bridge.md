@@ -12980,3 +12980,13 @@ Task 和 Views。每个包使用仅授权该插件 ID 的测试策略签名并�
 安装快照和成员集合。收据 SHA256
 `00d58f6f854f8a45f9dc4ceae200c588999a514b413b3e887b993e4281114a7e`。
 本轮范围为测试渠道签名和安装，版本管理与 Android 仍需分别验证。
+
+### P6 macOS 版本管理基线复验（2026-11-18）
+
+固定 `f0f9a345` 的隔离副本运行 `--selection-review`。首轮版本管理 UI 用例在
+选择按钮产生失败，随后出现三个级联断言。测试改为等待信任、选择和确认按钮的实际
+无障碍可用状态，替代固定延时。重跑 114 项基线全部通过。随后独立环回 SSH 的
+`testRunningPreviewSurvivesVersionSelectionAndDisable` 在 XCTest 中以信号 6 退出，
+日志为 `libc++abi: terminate_handler unexpectedly threw an exception`。此轮没有
+完整收据，未跑后续运行时用例，也未把崩溃计为预期断言失败。复验日志 SHA256
+`49dec8f19753876efbce1a8e61138c89f99bac8adcf16b1f4a25fb78224d77d3`。
