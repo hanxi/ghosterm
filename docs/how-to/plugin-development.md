@@ -961,6 +961,59 @@ CLI 验证先固定 regular-file 快照，再检查完整 ZIP32 布局：stored 
 要求行为断言失败、独立 Core 配置绿、恢复绿及摘要。拒绝类型改变和错误接受分别记账，
 不把编译 / 崩溃 / 超时当目标红。测试后清理本轮 tmp，不增加 CI 二十份。
 
+## 准备在线渠道策略
+
+渠道名、HTTPS 目录和独立 Ed25519 根公钥由宿主发行配置提供。先确定渠道根的
+管理者和发布授权，再使用受控外部签名器。渠道根与包发布者密钥分别保管。
+根公钥以 32 字节原始公钥的规范 Base64 提供。
+
+### 生成和复验
+
+为本次变更分配高于已发布记录的代次。签发时间与到期时间使用 UTC Unix 秒；
+使用已经生效且仍有足够分发时间的一段有效期。以下变量分别指向渠道名、公钥、
+已审阅的策略、代次、签发与到期参数、外部签名器配置，以及工程 `tmp/` 内本次
+尚不存在的输出目录。
+
+```bash
+python3 -B scripts/gterm-plugin release sign-policy \
+  --channel "$plugin_channel" --channel-root "$plugin_root" \
+  --policy "$plugin_policy" --generation "$plugin_generation" \
+  --issued-at "$plugin_issued_at" --expires-at "$plugin_expires_at" \
+  --signer-json "$plugin_channel_signer" --out "$plugin_output"
+python3 -B scripts/gterm-plugin release verify-policy \
+  --channel "$plugin_channel" --channel-root "$plugin_root" \
+  --statement "$plugin_output/channel-policy.json" \
+  --signature "$plugin_output/channel-policy.sig" --policy "$plugin_output/policy.json" \
+  --record-state "$plugin_verification_database"
+```
+
+验证数据库使用该渠道独立的本地路径。它记录已验证的代次、声明摘要和观测时间，
+只代表这台验证机器的历史。签名工具保留原始策略字节，输出包括声明、64 字节
+签名和策略三个文件。发布服务以同一 HTTPS 目录提供原始文件，用目录切换或
+部署服务的批次发布避免混代。若服务短暂返回混代文件，客户端拒绝更新并保留
+此前通过验证的缓存。以最终服务 URL 下载并复验三份材料，再检查两端手动刷新
+的代次和启用结果。
+
+### 宿主配置和撤销
+
+- macOS 随包配置使用 `GHOSTERM_PLUGIN_CHANNEL`、`GHOSTERM_PLUGIN_CHANNEL_ROOT`
+  与 `GHOSTERM_PLUGIN_CHANNEL_URL`。复用工作流读取同名后缀的 `MACOS_PLUGIN_*`
+  变量。要在本地启用 JS 实验包，使用 `package-mac.sh --experimental-plugin-js`
+  并提供独立的 `--out` 路径。
+- Android 在启用插件 JS 的构建中提供 Gradle 属性 `ghostermPluginChannel`、
+  `ghostermPluginChannelRoot`、`ghostermPluginChannelUrl`。两端默认发行档仍关闭
+  实验插件 JS。
+- 撤销时在 `revokedKeyIds` 列出被撤销的发布键摘要，以新代次签署并发布。
+  若需恢复策略内容，用更高代次重新签署已经审阅的内容。旧代和同代不同声明
+  会被已记录该渠道的客户端拒绝。
+- 渠道刷新影响安装、启用和新启动。运行中实例仍需通过对应实例的停止入口处理，
+  以其停止回执为准。生产根轮换、失陷恢复和跨进程撤销仍待独立发布决策。
+
+本地可运行 `python3 -B scripts/test-plugin-channel-sign.py` 与
+`python3 -B scripts/test-plugin-channel-macos-tls.py`。Android 回环方案先构建
+启用 JS 的 Debug 和测试 APK，再运行 `python3 -B scripts/test-plugin-channel-android-tls.py`。
+这些夹具使用一次性测试根及本地服务。
+
 ## Android 发布签名核对后端
 
 P6 第十一批提供 `PluginReleaseSignature` 和
