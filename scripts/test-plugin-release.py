@@ -120,6 +120,26 @@ def exercise(root, work, tools, node, public, endpoint, selected=None):
         assert checked['artifactSHA256']==sha(artifact.read_bytes()) and checked['pluginId']=='org.ghosterm.preview'
         assert signed['kind']=='release-signed' and checked['kind']=='release-verified'
     case('success',success)
+    def official_preview():
+        original = ROOT / 'plugins/official/preview'
+        archive = work / 'official-preview.zip'
+        release = work / 'official-preview-release'
+        cli('pack', '--package', original, '--tools', tools, '--out', archive)
+        args = list(sign_args)
+        args[args.index('--artifact')+1] = archive
+        cli(*args, '--out', release)
+        checked = cli('release', 'verify', '--artifact', release/'plugin.zip',
+                      '--descriptor', release/'release.json', '--signature', release/'release.sig',
+                      '--policy', policy, '--tools', tools)
+        assert checked['publisherAuthenticated'] is True and checked['authorization']=='not-granted'
+        assert checked['installation'] is False and checked['pluginId']=='org.ghosterm.preview'
+        assert checked['artifactSHA256']==sha(archive.read_bytes())
+        with zipfile.ZipFile(release/'plugin.zip') as signed_zip:
+            expected = {p.relative_to(original).as_posix(): p.read_bytes()
+                        for p in original.rglob('*') if p.is_file()}
+            assert set(signed_zip.namelist()) == set(expected)
+            assert all(signed_zip.read(name) == data for name, data in expected.items())
+    case('official-preview', official_preview)
     def deterministic():
         other=work/'r2';cli(*sign_args,'--out',other)
         assert {p.name:p.read_bytes() for p in bundle.iterdir()}=={p.name:p.read_bytes() for p in other.iterdir()}
