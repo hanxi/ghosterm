@@ -55,6 +55,7 @@ import XCTest
         let ports = try XCTUnwrap(f["ports"] as? [Int]), user = try string("user"), keys = try XCTUnwrap(f["hostKeys"] as? [String])
         var source = "Host view-target\n HostName 127.0.0.1\n Port \(ports[1])\n User \(user)\n IdentityFile /owned-in-memory\n"
         if route == "jump" { source += " ProxyJump view-jump\nHost view-jump\n HostName 127.0.0.1\n Port \(ports[0])\n User \(user)\n IdentityFile /owned-in-memory\n" }
+        source += "Host view-invalid\n HostName 127.0.0.1\n ProxyJump view-invalid\n"
         try Data(source.utf8).write(to: config)
         try Data(zip(ports, keys).map { "[127.0.0.1]:\($0) \($1)" }.joined().utf8).write(to: known)
         let app = isolatedAppModel(configPath: config.path, knownHostsPath: known.path, pluginResourceDirectory: root.appendingPathComponent("resources"))
@@ -74,6 +75,19 @@ import XCTest
         var attachment: ExtensionRelayBootstrap.Attachment?
         if let directory = f["ipcDirectory"] as? String {
             attachment = .init(directory: directory, instance: try string("ipcInstance"), authorized: true)
+        }
+        if route != "local" {
+            var validated = false
+            await app.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "views demo",
+                arguments: [], sshAlias: "view-invalid", executable: gterm,
+                executorDirectory: attachment == nil ? package.path : "", executorDigest: review.digest,
+                methods: methods, hostMethods: ["views.client.open"], executorAttachment: attachment) {
+                validated = true
+            }
+            XCTAssertFalse(validated)
+            XCTAssertNotNil(app.extensionRunIssue)
+            XCTAssertNil(app.extensionRun)
+            XCTAssertFalse(app.tabs.tabs.flatMap(\.workspacePanes).contains { $0.extensionInstance != nil })
         }
         await app.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "views demo", arguments: [], sshAlias: "view-target",
             executable: gterm, executorDirectory: attachment == nil ? package.path : "", executorDigest: review.digest, methods: methods, hostMethods: ["views.client.open"], executorAttachment: attachment, localLaunch: launch)
