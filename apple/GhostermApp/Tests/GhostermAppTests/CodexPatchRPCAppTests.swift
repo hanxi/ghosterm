@@ -30,6 +30,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
     func testPatchAndApprovalOverProxyJump() async throws { try await run(useJump: true) }
 
     func testLostTurnReplyOverDirectSSH() async throws { try await run(useJump: false, dropTurnReply: true) }
+    func testLostTurnReplyOverProxyJump() async throws { try await run(useJump: true, dropTurnReply: true) }
 
     private struct FixtureFailure: Error { let message: String }
 

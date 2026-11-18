@@ -14773,3 +14773,8 @@ Codex 重新发送时清除上一次请求的错误提示。macOS 真实直连�
 同轮丢失回执不能重发，共两项离屏通过。首轮测试误读异步按钮执行前的旧提示，
 调整等待新结果后复验通过。macOS Release 与 Android JS-enabled Debug
 APK 构建通过，Android 设备与真实模型另验。
+
+macOS 将 Codex 回执丢失夹具扩到真实回环 ProxyJump。收到 turn/start 后
+关闭 app-server 管道，应用保留草稿、显示未知并拦截重发。ProxyJump 丢回执
+和补丁审批同轮两项离屏通过。此前直连已单轮验收，真实模型和 SSH 链路
+中断仍属不同证据。
