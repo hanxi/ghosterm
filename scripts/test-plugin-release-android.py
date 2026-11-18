@@ -33,11 +33,21 @@ def run(command, environment, seconds=180):
     return result.stdout + result.stderr
 
 
+def headless_dependencies(api, environment):
+    sdk = Path(environment.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk')).resolve()
+    image = sdk / f'system-images/android-{api}/google_apis/arm64-v8a'
+    missing = [str(p) for p in (sdk / 'platform-tools/adb', sdk / 'emulator/emulator')
+               if not p.is_file() or not os.access(p, os.X_OK)]
+    if not image.is_dir():
+        missing.append(str(image))
+    if missing:
+        raise RuntimeError('Missing local headless Android dependencies: ' + ', '.join(missing))
+    return sdk, image
+
+
 @contextmanager
 def headless(api, work, environment):
-    sdk = Path(environment.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk'))
-    image = sdk / f'system-images/android-{api}/google_apis/arm64-v8a'
-    if not image.is_dir(): raise RuntimeError('Required locally installed image missing: ' + str(image))
+    sdk, image = headless_dependencies(api, environment)
     for name in ['avds', 'user', 'emulator', 'discovery', 'crash']:
         (work / name).mkdir()
     avd = work / 'avds/release.avd'; avd.mkdir()
@@ -289,6 +299,8 @@ def main():
     if args.archive_ui: args.archive = True; args.signature_ui = True
     (ROOT / 'tmp').mkdir(exist_ok=True)
     environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
+    if args.headless_api is not None:
+        headless_dependencies(args.headless_api, environment)
     # Explicit enabled build also includes the real Controller/Core snapshot test.
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
