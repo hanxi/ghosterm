@@ -13082,3 +13082,10 @@ Android SDK 仍缺失，设备验收保留为待完成。
 由一次性夹具在实际删除后中断测试进程。默认 44 项之外的 `version-resume` 和
 `residue-resume` 均通过，覆盖已安装版本与暂存残留的显式续删。故障开关仅用于
 独立测试构建。日志 SHA256 `a72eb12c3b423ad4b3ffd7f48892c3345ad7dc9d3bde5e26ba34bed51547f947`。
+
+### P6 执行端目录写入故障复验（2026-11-18）
+
+固定 `2e7b27e5` 的隔离构建显式启用 `GHOSTERM_GTERM_CATALOG_FAULTS`。
+`test-gterm-catalog.py --faults` 共 56 项通过，含文件同步、目录同步和目录关闭
+三种故障，验证提交与持久性结果的区分。故障开关仅用于测试构建。
+日志 SHA256 `760de37aa23d54fe266142b1f3e506abaf4c1aa332d4498e3a46eacb4db6cf5f`。
