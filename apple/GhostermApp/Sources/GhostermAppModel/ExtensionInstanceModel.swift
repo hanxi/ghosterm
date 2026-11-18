@@ -64,6 +64,7 @@ import GhostermCore
     @Published public var codexMessageDraft = ""
     @Published public private(set) var codexCallBusy = false
     @Published public private(set) var codexTurnActive = false
+    @Published public private(set) var codexSendUnconfirmed = false
     @Published public private(set) var codexPendingApprovals: [CodexPendingApproval] = []
     @Published public private(set) var codexTimeline: [CodexTimelineEntry] = []
     @Published public private(set) var codexChangeReview: CodexChangeReviewState?
@@ -262,6 +263,7 @@ import GhostermCore
             codexThreadID = nil
             codexMessageDraft = ""
             codexTurnActive = false
+            codexSendUnconfirmed = false
             codexPendingApprovals = []
             codexTimeline = []
             cancelCodexChangeReview()
@@ -406,6 +408,7 @@ import GhostermCore
             extensionTable = nil; extensionDiff = nil; extensionTask = nil; extensionViews = []; extensionRegisteredViews = nil
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
+            codexSendUnconfirmed = false
             codexPendingApprovals = []
             codexTimeline = []
             pendingExtensionRPCHandles.removeAll()
@@ -447,19 +450,30 @@ import GhostermCore
 
     public func sendCodexMessage() async {
         guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", codexThreadID != nil,
-              !codexTurnActive,
+              !codexTurnActive, !codexSendUnconfirmed,
               !codexCallBusy, run.methods.contains("codex.turn.send") else { return }
         let text = codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
-        codexTurnActive = true
+        codexSendUnconfirmed = true
         defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Sent: Decodable { let turnID: String }
-            let _: Sent = try await callCodexExecutor("codex.turn.send", input: ["text": text])
+            let sent: Sent = try await callCodexExecutor("codex.turn.send", input: ["text": text], distinguishNoEffect: true)
+            guard !sent.turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GhostermError.failed("Codex 回合 ID 缺失")
+            }
             codexMessageDraft = ""
-        } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 消息发送失败：\(error)" } }
+            codexSendUnconfirmed = false
+        } catch let failure as CodexNoEffect {
+            if generation == extensionRunGeneration {
+                codexSendUnconfirmed = false
+                extensionRunIssue = "Codex 未发送消息：\(failure.message)"
+            }
+        } catch {
+            if generation == extensionRunGeneration { extensionRunIssue = "无法确认 Codex 消息发送：\(error)" }
+        }
     }
 
     public func interruptCodexTurn() async {
@@ -514,15 +528,27 @@ import GhostermCore
         }
     }
 
+    private struct CodexNoEffect: Error { let message: String }
+
     private struct CodexRPCEnvelope<Value: Decodable>: Decodable {
+        struct Failure: Decodable {
+            let effect: String
+            let message: String
+        }
         let kind: String
         let value: Value?
+        let error: Failure?
     }
 
-    private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: Any]) async throws -> Value {
+    private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: Any],
+                                                       distinguishNoEffect: Bool = false) async throws -> Value {
         let bytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
-        let outcome = try await callExtensionExecutor(method, inputBytes: bytes, command: "ai codex")
+        let outcome = try await callExtensionExecutor(method, inputBytes: bytes, command: "ai codex",
+                                                      returnTerminalOutcome: distinguishNoEffect)
         let envelope = try JSONDecoder().decode(CodexRPCEnvelope<Value>.self, from: outcome)
+        if distinguishNoEffect, envelope.kind == "failed", let failure = envelope.error, failure.effect == "none" {
+            throw CodexNoEffect(message: failure.message)
+        }
         guard envelope.kind == "success", let value = envelope.value else {
             throw GhostermError.failed("Codex RPC 返回了无效结果 envelope")
         }

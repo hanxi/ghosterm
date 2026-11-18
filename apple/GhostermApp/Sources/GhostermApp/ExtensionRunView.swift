@@ -231,10 +231,15 @@ struct ExtensionRunView: View {
             if let threadID = model.codexThreadID {
                 Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
                 ConversationComposer(placeholder: "发送给 Codex", draft: $model.codexMessageDraft,
-                    busy: model.codexCallBusy, canSend: model.canInteractWithRuntime && !model.codexTurnActive, prefix: "plugin-codex") {
+                    busy: model.codexCallBusy, canSend: model.canInteractWithRuntime && !model.codexTurnActive && !model.codexSendUnconfirmed,
+                    prefix: "plugin-codex") {
                     Task { await model.sendCodexMessage() }
                 }
                 .disabled(!model.canInteractWithRuntime)
+                if model.codexSendUnconfirmed && !model.codexCallBusy {
+                    Text("上一条消息的发送结果未知，当前会话无法再次发送。")
+                        .font(DS.Font.caption).accessibilityIdentifier("plugin-codex-send-unconfirmed")
+                }
                 if model.codexTurnActive {
                     Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {
                         Task { await model.interruptCodexTurn() }
