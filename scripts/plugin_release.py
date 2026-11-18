@@ -351,7 +351,7 @@ def check_channel_statement(api, channel, channel_root, statement_path, signatur
     else:
         record_channel_policy(api, state, channel, api.sha(root), generation, digest, issued, expires)
     return dict(kind='verified-channel-policy', channel=channel, generation=statement['generation'],
-                expiresAt=statement['expiresAt'], policySHA256=statement['policySHA256'],
+                issuedAt=statement['issuedAt'], expiresAt=statement['expiresAt'], policySHA256=statement['policySHA256'],
                 statementSHA256=digest)
 
 
@@ -449,5 +449,11 @@ def checked_release(args, api):
                     policySHA256=api.sha(policy_bytes), trustSource='explicit-policy-snapshot',
                     authorization='not-granted', installation=False, compatibility=report['compatibility'])
         if channel_receipt is not None:
+            # Archive validation can take long enough to cross the expiry or
+            # for another process to commit a newer signed statement.
+            record_channel_policy(api, args.record_state, channel_receipt['channel'],
+                                  api.sha(public_key(api, args.channel_root)), int(channel_receipt['generation']),
+                                  channel_receipt['statementSHA256'], int(channel_receipt['issuedAt']),
+                                  int(channel_receipt['expiresAt']))
             result.update(trustSource='verified-channel-policy', channelPolicy=channel_receipt)
         return result, 0
