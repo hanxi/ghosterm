@@ -112,7 +112,8 @@ static bool check_clock(package_check_owner_t *s, uint64_t *out) {
         return s->config->clock(s->config->clock_context, out);
     }
     struct timespec t;
-    if (clock_gettime(CLOCK_MONOTONIC, &t)) {
+    /* Scheduler delays do not consume the metadata evaluator’s CPU budget. */
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)) {
         return false;
     }
     *out = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;

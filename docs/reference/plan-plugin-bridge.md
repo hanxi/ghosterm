@@ -13237,3 +13237,20 @@ Android 同 APK 的 24 项对照为 23 通过、1 失败，失败项为
 `ExtensionControllerTest.reviewApprovalConflictDenialAndCloseAreExplicit`。
 八实例用例单独通过，对照整轮仍为红。隔离目录清理后保留了失败用例名，具体异常
 需在复跑时留取。本轮不据此记录整轮 Android 验收通过。
+
+### 包元数据校验按线程 CPU 时间计费（2026-11-18）
+
+无窗口 API 36 复跑旧 APK，来源审批用例单独通过，24 项组合再次在
+`captureCheckedPackage` 报 `CPU_BUDGET`。元数据校验的默认时钟原为单调墙钟，
+宿主调度等待也会消耗 CPU 配额。默认改用 `CLOCK_THREAD_CPUTIME_ID`，
+测试注入时钟与原 CPU、内存和取消限制保留。
+
+JS-enabled Core 的 24 项包校验专项通过，覆盖默认时钟、注入超时、取消和内存边界。
+初次 Core 配置缺少 SDK 路径，未运行测试。Android 原工作区构建遇到并行 SFTP
+源码改动，随后以提交源码和本批补丁的隔离副本构建 JS-enabled 应用及测试 APK。
+
+首版只更改内部校验器默认时钟，Android 组合仍失败。原因是公开包接口主动传入
+单调墙钟，覆盖校验器默认值。最终移除该覆盖，公共入口与内部调用统一使用线程
+CPU 时间。最终 Core 包校验及公共包接口共 34 项通过，两个改动文件通过 C 格式检查。
+最终 Android API 36 arm64 独立无窗口 AVD 对照 24 项全部通过（24.139 秒）。
+本次只重跑对照组合，未用修订 APK 重跑八实例 SSH 专项。

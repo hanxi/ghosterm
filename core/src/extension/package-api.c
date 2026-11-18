@@ -3,17 +3,6 @@
 #include "extension/memory.h"
 #include "base/secure-random.h"
 #include <string.h>
-#include <time.h>
-
-static bool package_clock(void *context, uint64_t *out) {
-    (void)context;
-    struct timespec t;
-    if (clock_gettime(CLOCK_MONOTONIC, &t)) {
-        return false;
-    }
-    *out = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
-    return true;
-}
 
 static gt_ext_package_phase_t package_fail(gt_ext_package_t *p, gt_ext_package_error_t error) {
     p->info.error = error;
@@ -128,8 +117,7 @@ gt_ext_package_phase_t gt_ext_package_check(gt_ext_package_t *p,
                                         .memory_bytes = (size_t)c->memory_bytes,
                                         .stack_bytes = (size_t)c->stack_bytes,
                                         .cpu_ms = c->cpu_ms,
-                                        .stop = &p->stopped,
-                                        .clock = package_clock};
+                                        .stop = &p->stopped};
     gt_package_check_report_t report;
     gt_package_check_status_t s =
         gt__package_check(&p->snapshot, &config, NULL, &p->checked, &report);
