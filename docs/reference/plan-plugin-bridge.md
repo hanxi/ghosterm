@@ -13313,3 +13313,9 @@ C 格式检查 297 文件通过，Apple 203 引用 / 3 登记未用、JNI 167 �
 
 前一轮深路径隔离检出出现专属 SSH agent 启动失败，未计通过。缩短路径后的整轮复验
 通过。两轮隔离目录均已清理。本批闸门不覆盖 JS-enabled 设备交互或变异矩阵。
+
+固定 `8568b976`，另以短路径干净检出与已编译 Portable SDK 运行 JS-on /
+SSH-on / signature-off 的 Core 闸门。874 项 CTest、206 个公共 ABI 符号对拍及
+未实现入口检查全部通过。CTest 日志 SHA256
+`ced9c5d27cddc7b5f3736ea49bdcc9dcaf7e2839a4555f29cf9be8e4bfcc8540`。
+此轮包含真实 QuickJS 和启用包校验的边界测试，隔离构建已清理。
