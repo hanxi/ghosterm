@@ -13446,3 +13446,13 @@ GhosttyKit 运行 `test-plugin-native-signature.py --install`。离屏 XCTest 28
 覆盖目录签名、签名 ZIP 安装事务及原生审查和确认控件。收据 SHA256
 `dfd59acd0b3ffd53d21c05adb595276740aa5c7301b3ee5d536a30a7e76c5ede`。
 本轮使用测试渠道安装夹具，未安装七个官方候选的全部组合，也未执行变异。隔离产物已清理。
+
+### P6 macOS 七个官方候选原生安装（2026-11-19）
+
+固定 `d78b4abf` 加本批测试。新增 `test-plugin-native-signature.py --install
+--official-packages SDK_TOOLS CODEX CLAUDE`，由一次性渠道逐包生成签名归档，
+以 macOS 产品能力配置逐包通过 Core 准备并完成 Native 安装。七包均确认持久提交、
+安装后完整性摘要一致及来源未经批准，未经批准的命令仍不能解析为可运行。
+28 项安装基线和一条包含七包的安装测试均离屏通过。
+收据 SHA256 `1b113333c50696aacbfdc985fea85e275cc7971bf7d522f2739ebb946f958d28`。
+本轮没有发布候选包，未执行 Android 七包矩阵或安装变异，隔离产物已清理。

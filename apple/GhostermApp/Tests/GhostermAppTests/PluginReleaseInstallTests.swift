@@ -266,3 +266,39 @@ final class PluginReleaseInstallTests: XCTestCase {
         XCTAssertFalse(PluginReleaseArchive.validPath(Array(repeating: "x", count: 33).joined(separator: "/")))
     }
 }
+
+@MainActor
+final class PluginOfficialReleaseInstallTests: XCTestCase {
+    func testSevenOfficialCandidatesInstallWithoutApprovingTheirSources() async throws {
+        guard let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_OFFICIAL_RELEASES"] else {
+            throw XCTSkip("requires explicit signed official candidate fixtures")
+        }
+        let fixture = URL(fileURLWithPath: path)
+        let root = sessionTestDirectory().appendingPathComponent("official-install-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        addTeardownBlock {
+            try PluginReleaseInstallTests.thaw(root)
+            try FileManager.default.removeItem(at: root)
+        }
+        let owner = try ExtensionController(
+            profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
+                runtimes: ["portable-js"], capabilities: AppModel.extensionHostCapabilities),
+            resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
+        addTeardownBlock { let closed = await owner.close(); XCTAssertTrue(closed) }
+        for name in ["preview", "table", "diff", "task", "views", "ai-codex", "ai-claude"] {
+            let release = fixture.appendingPathComponent("official-\(name)-release")
+            let prepared = try await owner.prepareSignedRelease(artifact: release.appendingPathComponent("plugin.zip"),
+                descriptor: release.appendingPathComponent("release.json"), signature: release.appendingPathComponent("release.sig"),
+                trustedPolicy: fixture.appendingPathComponent("official-\(name)-policy.json"))
+            XCTAssertEqual(prepared.review.id, "org.ghosterm." + name)
+            let installed = try await owner.installPreparedRelease(id: prepared.id)
+            XCTAssertTrue(installed.durabilityConfirmed)
+            XCTAssertFalse(installed.review.authorizationGranted)
+            let manifest = try Data(contentsOf: installed.directory.appendingPathComponent("integrity.json"))
+            XCTAssertEqual(SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined(), prepared.review.digest)
+            let command = try XCTUnwrap(prepared.review.commands.first?.path)
+            let resolution = try await owner.resolve(command: command, selectedID: prepared.review.id, selectedDigest: prepared.review.digest)
+            XCTAssertNotEqual(resolution.status, 0, name)
+        }
+    }
+}

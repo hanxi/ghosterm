@@ -122,6 +122,8 @@ def main():
     parser.add_argument('--tools', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
+    parser.add_argument('--official-packages', nargs=3, type=Path, metavar=('SDK_TOOLS', 'CODEX', 'CLAUDE'),
+                        help='also install seven official candidates signed by the disposable fixture')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
     parser.add_argument('--selection-review', action='store_true', help='include reviewed version transitions, Core-bound declarations and live old-version references')
@@ -142,6 +144,7 @@ def main():
     if args.versions:
         args.install = True
         if not args.gterm: parser.error('--versions requires --gterm')
+    if args.official_packages and not args.install: parser.error('--official-packages requires --install')
     out, tools = args.out.resolve(), args.tools.resolve(strict=True)
     assert ROOT / 'tmp' in out.parents
     spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
@@ -297,6 +300,14 @@ def main():
         with helper.agent(node, work) as (public, endpoint):
             assert helper.exercise(ROOT, fixture, tools, node, public, endpoint, selected='success') == ['success']
             if args.install: installation_fixtures(helper, node, fixture, tools, endpoint)
+            if args.official_packages:
+                sdk_tools, codex, claude = (path.resolve(strict=True) for path in args.official_packages)
+                official = fixture / 'official'
+                official.mkdir()
+                cases = helper.exercise(ROOT, official, tools, node, public, endpoint,
+                                        sdk_tools=sdk_tools, ai_packages=(codex, claude))
+                assert sum(name.startswith('official-') for name in cases) == 7
+                env['GHOSTERM_TEST_OFFICIAL_RELEASES'] = str(official)
         source = work / 'source'
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
             shutil.copytree(ROOT / directory, source / directory, symlinks=True,
@@ -374,6 +385,8 @@ def main():
             print('LIVE VERSION DIAGNOSTIC PASS (no acceptance receipt)', flush=True)
             return
         run('baseline', baseline, count=baseline_count)
+        if args.official_packages:
+            run('official-install', 'PluginOfficialReleaseInstallTests')
         if args.versions: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
         if args.policy_review: run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
