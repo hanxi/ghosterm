@@ -96,6 +96,7 @@ public actor ExtensionController {
         public let protocols: [UInt16]
         public let permissions: [ReleasePermission]
         public let executorDeclarations: String?
+        public internal(set) var channelGeneration: UInt64? = nil
     }
     public struct ReleasePermission: Sendable, Equatable {
         public let side: String, capability: String, purpose: String, scope: String
@@ -514,6 +515,14 @@ public actor ExtensionController {
         try await worker.prepareSignedRelease(artifact: artifact, descriptor: descriptor,
             signature: signature, policySource: .channel(channelPolicy, channelStateDirectory))
     }
+    public nonisolated var hasConfiguredChannel: Bool { worker.hasConfiguredChannel }
+
+    public func prepareReleaseUsingConfiguredChannel(artifact: URL, descriptor: URL, signature: URL) async throws -> PreparedRelease {
+        let (policy, directory) = try await worker.loadConfiguredChannelPolicy()
+        return try await worker.prepareSignedRelease(artifact: artifact, descriptor: descriptor,
+            signature: signature, policySource: .channel(policy, directory), requireChannelHistory: true)
+    }
+
     public func installPreparedRelease(id: String) async throws -> InstalledRelease {
         try await worker.installPreparedRelease(id: id)
     }
@@ -748,12 +757,17 @@ public actor ExtensionController {
             try state.recordChannelPolicy(policy, now: UInt64(seconds), requireHistory: requireHistory)
         }
 
-        func read() throws -> Data {
+        var channelGeneration: UInt64? {
+            guard case let .channel(policy, _) = self else { return nil }
+            return policy.generation
+        }
+
+        func read(requireChannelHistory: Bool) throws -> Data {
             switch self {
             case let .offline(url):
                 return try PluginSignatureFile.read(url, limit: 131072)
             case let .channel(policy, _):
-                try checkChannelState(openChannelState())
+                try checkChannelState(openChannelState(), requireHistory: requireChannelHistory)
                 return policy.policyBytes
             }
         }
@@ -1059,6 +1073,14 @@ public actor ExtensionController {
                   record.managedReleaseID == choice.releaseID else { return false }
             return !requireApproval || record.approvalGeneration == choice.generation
         }
+        private static func channelClock() throws -> UInt64 {
+            let seconds = Date().timeIntervalSince1970
+            guard seconds >= 0, seconds < Double(UInt64.max) else {
+                throw PluginDirectorySignatureVerifier.Failure.channelFreshness
+            }
+            return UInt64(seconds)
+        }
+
         private func currentChannelPolicy(for handle: PluginReleaseCatalog.VersionHandle)
             throws -> (PluginDirectorySignatureVerifier.VerifiedChannelPolicy, PluginReleaseCatalog)? {
             guard let root = try handle.requiredChannelRoot() else { return nil }
@@ -1066,12 +1088,8 @@ public actor ExtensionController {
             guard let catalog = try PluginReleaseCatalog(directory: trust.stateDirectory, exclusive: true) else {
                 throw PluginReleaseCatalog.Failure.root
             }
-            let seconds = Date().timeIntervalSince1970
-            guard seconds >= 0, seconds < Double(UInt64.max) else {
-                throw PluginDirectorySignatureVerifier.Failure.channelFreshness
-            }
             let policy = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
-                now: UInt64(seconds), catalog: catalog)
+                now: try Self.channelClock(), catalog: catalog)
             guard policy.rootSHA256 == root else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
             return (policy, catalog)
         }
@@ -1113,6 +1131,20 @@ public actor ExtensionController {
                     current.choices[id].map { InstalledSelection(pluginID: id, releaseID: $0.releaseID, enabled: $0.enabled) }
                 })
         }
+        var hasConfiguredChannel: Bool { state.channelTrust != nil }
+
+        func loadConfiguredChannelPolicy() async throws -> (PluginDirectorySignatureVerifier.VerifiedChannelPolicy, URL) {
+            try await perform {
+                try self.checkOpen()
+                guard let trust = self.state.channelTrust else {
+                    throw PluginDirectorySignatureVerifier.Failure.channelHistory
+                }
+                let policy = try PluginDirectorySignatureVerifier.loadChannelPolicy(channel: trust.channel, channelRoot: trust.root,
+                    now: try Self.channelClock(), stateDirectory: trust.stateDirectory)
+                return (policy, trust.stateDirectory)
+            }
+        }
+
         var canRefreshChannelPolicy: Bool { state.channelTrust?.refreshDirectory != nil }
 
         func channelTrustForRefresh() async throws -> ChannelTrust {
@@ -1430,7 +1462,7 @@ public actor ExtensionController {
         }
 
         func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
-                                  policySource: ReleasePolicySource) async throws -> PreparedRelease {
+                                  policySource: ReleasePolicySource, requireChannelHistory: Bool = false) async throws -> PreparedRelease {
             try await perform {
                 try self.checkOpen()
                 if let failed = self.retainedInstallStages.last ?? self.failedInstallDiscards.first.flatMap({ self.prepared[$0]?.stage }) {
@@ -1440,7 +1472,7 @@ public actor ExtensionController {
                 guard let directory = self.installationDirectory else { throw ControllerError.runtimeUnavailable }
                 let payload = try PluginSignatureFile.read(descriptor, limit: 65536)
                 let signed = try PluginSignatureFile.read(signature, limit: 64)
-                let policy = try policySource.read()
+                let policy = try policySource.read(requireChannelHistory: requireChannelHistory)
                 let authentication = try PluginDirectorySignatureVerifier.authenticate(descriptor: payload,
                     signature: signed, trustedPolicy: policy)
                 let archive = try PluginSignatureFile.read(artifact, limit: PluginReleaseArchive.limit)
@@ -1481,7 +1513,8 @@ public actor ExtensionController {
                         String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)
                     }
                     let value = PreparedRelease(id: UUID().uuidString, review: captured.review, signature: proof,
-                        sdkVersion: metadata.sdkVersion, protocols: metadata.protocols, permissions: permissions, executorDeclarations: executor)
+                        sdkVersion: metadata.sdkVersion, protocols: metadata.protocols, permissions: permissions, executorDeclarations: executor,
+                        channelGeneration: policySource.channelGeneration)
                     self.prepared[value.id] = Prepared(value: value, record: captured, stage: stage, policySource: policySource)
                     return value
                 } catch {

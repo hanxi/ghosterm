@@ -91,8 +91,17 @@ final class PluginReleaseInstallTests: XCTestCase {
         let store = root.appendingPathComponent("installed")
         XCTAssertFalse(try names(store).contains(stale.signature.descriptorSHA256))
         try await owner.discardPreparedRelease(id: stale.id)
-        let current = try await prepare("2")
-        let installed = try await owner.installPreparedRelease(id: current.id)
+        let draft = PluginReleaseInstallDraft()
+        draft.useConfiguredChannel = true
+        draft.artifactPath = input.appendingPathComponent("r/plugin.zip").path
+        draft.descriptorPath = input.appendingPathComponent("r/release.json").path
+        draft.signaturePath = input.appendingPathComponent("r/release.sig").path
+        XCTAssertTrue(draft.canInspect)
+        await draft.inspect(using: owner)
+        let current = try XCTUnwrap(draft.prepared, draft.issue ?? "configured channel preparation failed")
+        XCTAssertEqual(current.channelGeneration, 2)
+        let result = await draft.install(using: owner)
+        let installed = try XCTUnwrap(result, draft.issue ?? "configured channel installation failed")
         XCTAssertEqual(installed.signature, current.signature)
         let offline = input.appendingPathComponent("policy.json")
         let releaseID = installed.signature.descriptorSHA256

@@ -9,6 +9,7 @@ final class PluginReleaseInstallDraft: ObservableObject {
     @Published var signaturePath = "" { didSet { clear() } }
     @Published var policyPath = "" { didSet { trustedPolicy = false; clear() } }
     @Published var trustedPolicy = false { didSet { clear() } }
+    @Published var useConfiguredChannel = false { didSet { clear() } }
     @Published private(set) var prepared: ExtensionController.PreparedRelease?
     @Published private(set) var busy = false
     @Published private(set) var issue: String?
@@ -20,7 +21,8 @@ final class PluginReleaseInstallDraft: ObservableObject {
     private func beginActivity() { activities += 1; busy = true }
     private func endActivity() { activities -= 1; busy = activities != 0 }
     var canInspect: Bool {
-        trustedPolicy && !busy && !cleanupFailed && prepared == nil && [artifactPath, descriptorPath, signaturePath, policyPath].allSatisfy {
+        let paths = useConfiguredChannel ? [artifactPath, descriptorPath, signaturePath] : [artifactPath, descriptorPath, signaturePath, policyPath]
+        return (useConfiguredChannel || trustedPolicy) && !busy && !cleanupFailed && prepared == nil && paths.allSatisfy {
             $0.hasPrefix("/") && !$0.utf8.contains(0)
         }
     }
@@ -41,10 +43,15 @@ final class PluginReleaseInstallDraft: ObservableObject {
         clear(); owner = controller; beginActivity()
         defer { endActivity() }
         let token = generation
-        let paths = [artifactPath, descriptorPath, signaturePath, policyPath].map { URL(fileURLWithPath: $0) }
+        let paths = [artifactPath, descriptorPath, signaturePath].map { URL(fileURLWithPath: $0) }
         do {
-            let result = try await controller.prepareSignedRelease(artifact: paths[0], descriptor: paths[1],
-                signature: paths[2], trustedPolicy: paths[3])
+            let result: ExtensionController.PreparedRelease
+            if useConfiguredChannel {
+                result = try await controller.prepareReleaseUsingConfiguredChannel(artifact: paths[0], descriptor: paths[1], signature: paths[2])
+            } else {
+                result = try await controller.prepareSignedRelease(artifact: paths[0], descriptor: paths[1],
+                    signature: paths[2], trustedPolicy: URL(fileURLWithPath: policyPath))
+            }
             guard token == generation else {
                 try await controller.discardPreparedRelease(id: result.id); return
             }
@@ -54,7 +61,7 @@ final class PluginReleaseInstallDraft: ObservableObject {
         }
     }
     func install(using controller: ExtensionController) async -> ExtensionController.InstalledRelease? {
-        guard !busy, trustedPolicy, let prepared else { return nil }
+        guard !busy, (useConfiguredChannel || trustedPolicy), let prepared else { return nil }
         beginActivity(); issue = nil
         defer { endActivity() }
         do {
@@ -90,14 +97,23 @@ struct PluginReleaseInstallView: View {
                     TextField("ZIP 发布包绝对路径", text: $draft.artifactPath).accessibilityIdentifier("plugin-release-artifact")
                     TextField("发布描述 release.json", text: $draft.descriptorPath).accessibilityIdentifier("plugin-release-descriptor")
                     TextField("签名 release.sig", text: $draft.signaturePath).accessibilityIdentifier("plugin-release-signature")
-                    TextField("独立可信渠道公钥策略", text: $draft.policyPath).accessibilityIdentifier("plugin-release-policy")
-                    Toggle("我已独立核对并信任此渠道公钥策略", isOn: $draft.trustedPolicy)
-                        .accessibilityIdentifier("plugin-release-trust")
+                    if controller?.hasConfiguredChannel == true {
+                        Toggle("使用已验证的渠道缓存", isOn: $draft.useConfiguredChannel)
+                            .accessibilityIdentifier("plugin-release-channel")
+                    }
+                    if !draft.useConfiguredChannel {
+                        TextField("独立可信渠道公钥策略", text: $draft.policyPath).accessibilityIdentifier("plugin-release-policy")
+                        Toggle("我已独立核对并信任此渠道公钥策略", isOn: $draft.trustedPolicy)
+                            .accessibilityIdentifier("plugin-release-trust")
+                    }
                 }.disabled(draft.busy)
                 Button(draft.busy ? "正在处理…" : "检查发布包") {
                     if let controller { Task { await draft.inspect(using: controller) } }
                 }.disabled(controller == nil || !draft.canInspect).accessibilityIdentifier("plugin-release-inspect")
                 if let prepared = draft.prepared {
+                    if let generation = prepared.channelGeneration {
+                        Text("已验证渠道策略 · 第 \(generation) 代").font(DS.Font.caption)
+                    }
                     Text("\(prepared.review.id) · \(prepared.review.version) · \(prepared.review.publisher) · \(prepared.review.license)")
                     Text("渠道：\(prepared.signature.channel)\n策略 SHA-256：\(prepared.signature.policySHA256)\n包 SHA-256：\(prepared.review.digest)")
                         .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
