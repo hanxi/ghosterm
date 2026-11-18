@@ -162,6 +162,19 @@ class PluginInstallUITest {
             ui.onNodeWithTag("plugin-zip-disclosure").performScrollTo().performClick()
             if (channelSignature != null) {
                 ui.onNodeWithTag("plugin-channel-refresh").assertExists()
+                ui.waitUntil(10000) {
+                    ui.onAllNodes(hasTestTag("plugin-channel-cache") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+                }
+                ui.onNodeWithTag("plugin-channel-cache").performScrollTo()
+                ui.onNodeWithTag("plugin-channel-refresh-status").assertDoesNotExist()
+                ui.onNodeWithTag("plugin-channel-stop").assertDoesNotExist()
+                ui.onNodeWithTag("plugin-channel-cache").performClick()
+                ui.waitUntil(10000) {
+                    ui.onAllNodesWithTag("plugin-channel-refresh-status").fetchSemanticsNodes().isNotEmpty()
+                }
+                ui.onNodeWithTag("plugin-channel-refresh-status").assertTextContains("第 1 代", substring = true)
+                ui.onNodeWithTag("plugin-channel-affected").assertDoesNotExist()
+                ui.onNodeWithTag("plugin-channel-stop").assertDoesNotExist()
                 ui.onNodeWithTag("plugin-zip-channel").performScrollTo().performClick()
                 ui.onNodeWithTag("plugin-zip-pick-POLICY").assertDoesNotExist()
             }
