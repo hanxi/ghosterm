@@ -13688,3 +13688,13 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 视图测试、四项时钟测试、六项进程场景、四项配置守卫和 206 个 ABI 符号通过。
 收据 SHA256 `66ebf38f232fdc5eb4c8615537992a21e5b239a0912f8e379858bda26fdef950`。
 本轮未运行变异或平台 UI，临时目录已清理。
+
+### P2 原生包检查集中复验（2026-11-19）
+
+固定 `ad33c4b7`，用编译后的 Portable SDK 构建 JS-on Core
+`test_package_check`，执行 `test-plugin-package-native.py`。
+78 份实际目录夹具及七个选定分配失败点通过，覆盖目录捕获、包身份及兼容性、
+能力声明与内容校验。首轮离线安装缺锁定的 semver 归档，随后用一次性缓存从
+锁文件安装精确版本。收据 SHA256
+`911ed229546ed49f17ce26c2f82bd795f9e92a2044fff2003ec2c7c2b73ebfcf`。
+本轮未执行完整 OOM 扫描、平台包审批 UI 或插件启动，临时目录已清理。
