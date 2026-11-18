@@ -13478,3 +13478,13 @@ API 36 arm64 / 4 KiB 页无窗口。42 项对照收据 SHA256
 全程命令行，无 GUI smoke。打包日志 SHA256
 `a8f812d7e2f5ef85151067bbdcd48cf65bb6130500b362eadc12796e8bfe60b9`。
 本轮为本机 ad-hoc，未做 Developer ID 签名、公证、发布或打包变异。产物已清理。
+
+### P6 Android 默认 Release 干净构建（2026-11-19）
+
+固定 `29a6065a` 的干净检出，复用锁定 Android native 依赖，未签名 Release APK
+构建通过。实际执行应用 R8 与资源压缩，app / bridge / terminal / data 四模块
+lintRelease 通过。生成的 `BuildConfig.PLUGIN_JS_ENABLED=false`，APK 通过
+`zipalign -c -P 16 4`。APK SHA256
+`5a209db2e13eacd74e0c3c292c9d5b57847eab241e48d05721b70ce5c88decf3`，
+构建日志 SHA256 `d67aa0b6daf6a3661c50483654ed57929c9453efa2eae7934268ae66548b32cc`。
+本轮未进行设备安装、正式签名或发布，构建副本已清理。
