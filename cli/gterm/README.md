@@ -534,9 +534,10 @@ gterm plugin review-policy --catalog ABSOLUTE_CATALOG --policy ABSOLUTE_TRUSTED_
 检查通过，不授予运行权限；`policyBindingCurrent=false` 的允许项仍须显式重新登记，
 不会自动采用新策略。
 
-`denied` 才是当前策略明确拒绝，包含撤销、范围或签名验证失败。材料打不开、无效
-策略 / 描述、包检查失败和记录不匹配独立显示，不当作明确拒绝。查看完整结果后，
-带上这三项精确确认值执行：
+复核先校验完整策略，即使登记目录为空。策略损坏会返回 `POLICY_SNAPSHOT`，
+此时没有可用于确认禁用的复核摘要。策略有效时，`denied` 表示明确拒绝，包含撤销、
+范围或签名验证失败。单项材料打不开、描述无效、包检查失败和记录不匹配有各自状态。
+查看完整结果后，带上这三项精确确认值执行：
 
 ```text
 gterm plugin disable-denied --catalog ABSOLUTE_CATALOG --policy ABSOLUTE_TRUSTED_POLICY \

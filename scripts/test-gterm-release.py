@@ -85,6 +85,9 @@ def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_versi
     for candidate in (catalog, empty_catalog):
         invalid = run(['plugin', 'review-policy', '--catalog', candidate, '--policy', policy], 2)
         require(invalid['code'] == 'POLICY_SNAPSHOT', 'reject malformed policy independently of catalog contents')
+    invalid_apply = apply(dict(healthy, policyDigest=release.sha(policy.read_bytes())), 2)
+    require(invalid_apply['code'] == 'POLICY_SNAPSHOT' and not invalid_apply['committed'],
+            'confirming with the digest of malformed bytes cannot authorize a catalog change')
     require(catalog_file.read_bytes() == original_catalog, 'malformed policy does not change the catalog')
     policy.write_bytes(original_policy)
     empty = run(['plugin', 'review-policy', '--catalog', empty_catalog, '--policy', policy])
