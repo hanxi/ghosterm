@@ -271,6 +271,16 @@ static int clear(int fd) {
 
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "invalid";
+#ifdef GT_PACKAGE_CHECK_BOUNDARY
+    if (!strcmp(mode, "default-cpu-clock")) {
+        const gt_package_check_config_t config = {0};
+        package_check_owner_t owner = {.config = &config};
+        uint64_t now;
+        CHECK(check_clock(&owner, &now));
+        CHECK(observed_clock_id == CLOCK_THREAD_CPUTIME_ID);
+        return 0;
+    }
+#endif
     gt_package_checked_t *checked = NULL;
     gt_package_check_report_t report;
     if (!strcmp(mode, "disabled")) {
