@@ -49,7 +49,7 @@ def agent(node, work):
         child.stdout.close(); child.stderr.close()
 
 
-def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools=None):
+def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools=None, ai_packages=()):
     def cli(*args, status=0, code=None):
         child = subprocess.Popen([sys.executable, '-B', root / 'scripts/gterm-plugin', *map(str, args)],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')))
@@ -152,6 +152,8 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
             official_package(name, package)
         for name in ('table', 'diff', 'task', 'views'):
             case(f'official-{name}', lambda name=name: sample(name))
+    for name, built_package in zip(('ai-codex', 'ai-claude'), ai_packages, strict=bool(ai_packages)):
+        case(f'official-{name}', lambda name=name, built_package=built_package: official_package(name, built_package))
     def deterministic():
         other=work/'r2';cli(*sign_args,'--out',other)
         assert {p.name:p.read_bytes() for p in bundle.iterdir()}=={p.name:p.read_bytes() for p in other.iterdir()}
@@ -350,6 +352,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools',type=Path,required=True)
     parser.add_argument('--sdk-tools', type=Path, help='also build and verify the official Portable samples')
+    parser.add_argument('--ai-packages', nargs=2, type=Path, metavar=('CODEX', 'CLAUDE'),
+                        help='verify signed archives of the two built official AI packages')
     parser.add_argument('--mutate',action='store_true')
     parser.add_argument('--receipt',type=Path,default=ROOT/'tmp/plugin-release-receipt.json')
     args=parser.parse_args()
@@ -360,6 +364,11 @@ def main():
     binary_inputs={str(p):sha(p.read_bytes()) for p in args.tools.resolve().rglob('*') if p.is_file()}
     if args.sdk_tools:
         binary_inputs.update({str(p):sha(p.read_bytes()) for p in args.sdk_tools.resolve().rglob('*') if p.is_file()})
+    ai_packages = tuple(p.resolve(strict=True) for p in (args.ai_packages or ()))
+    for name, package in zip(('ai-codex', 'ai-claude'), ai_packages, strict=bool(ai_packages)):
+        if json.loads((package/'plugin.json').read_text())['id'] != f'org.ghosterm.{name}':
+            parser.error(f'expected the built {name} package at {package}')
+        binary_inputs.update({str(p):sha(p.read_bytes()) for p in package.rglob('*') if p.is_file()})
     binary_inputs[str(ROOT/'core/build/test_config')]=sha((ROOT/'core/build/test_config').read_bytes())
     with tempfile.TemporaryDirectory(prefix='pr-',dir=ROOT/'tmp') as temporary:
         work=Path(temporary)
@@ -369,7 +378,8 @@ def main():
         (source/'tmp').mkdir()
         with agent(node,work) as (public,endpoint):
             case_root=work/'cases';case_root.mkdir()
-            cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint,sdk_tools=args.sdk_tools.resolve() if args.sdk_tools else None)
+            cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint,sdk_tools=args.sdk_tools.resolve() if args.sdk_tools else None,
+                           ai_packages=ai_packages)
             print('RELEASE PASS: '+str(len(cases))+' cases: '+', '.join(cases),flush=True)
             recipes=[
                 ('number-precision','precise-policy','json.loads(raw, parse_float=number)','json.loads(raw, parse_float=float)'),
