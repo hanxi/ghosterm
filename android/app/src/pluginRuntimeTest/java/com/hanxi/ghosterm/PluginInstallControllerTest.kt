@@ -59,9 +59,10 @@ class PluginInstallControllerTest {
     @Test fun channelAdvanceAtPublicationRequiresFreshArchiveReview() = runBlocking {
         val root = PluginInstallTestFiles.root()
         val cache = PluginInstallTestFiles.root()
-        val owner = controller()
         val channel = JSONObject(instrumentation.context.assets.open("plugin-release/archive-channel.json").bufferedReader().use { it.readText() })
         val store = PluginChannelPolicyStore(cache, channel.getString("channel"), Base64.getDecoder().decode(channel.getString("root")))
+        val owner = ExtensionController(ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
+            context, root, store, channelClock = { 150u })
         try { archive { fd, raw, sig, policy ->
             fun refresh(name: String) {
                 val vector = channel.getJSONObject(name)
@@ -85,9 +86,20 @@ class PluginInstallControllerTest {
             assertNotEquals(preview.channelStatementSHA256, current.channelStatementSHA256)
             val installed = owner.installSignedArchive(fd, raw, sig, byteArrayOf(), current, root,
                 channelStore = store, channelClock = { 150u })
+            val releaseID = installed.publication.releaseID
             checkNotNull(PluginReleaseCatalog.open(root)).use { catalog ->
-                catalog.openVersion(installed.publication.releaseID).use { assertTrue(it.requiresChannelPolicy()) }
+                catalog.openVersion(releaseID).use { assertTrue(it.requiresChannelPolicy()) }
             }
+            val staleSelection = owner.previewInstalledVersion(UUID.randomUUID().toString(), releaseID, null, byteArrayOf())
+            refresh("third")
+            try {
+                owner.confirmInstalledVersion(staleSelection.id, true)
+                fail("superseded channel selection was confirmed")
+            } catch (e: PluginReleaseSignature.Rejected) { assertEquals(PluginReleaseSignature.Failure.CHANNEL_HISTORY, e.reason) }
+            val currentSelection = owner.previewInstalledVersion(UUID.randomUUID().toString(), releaseID, null, byteArrayOf())
+            assertNotEquals(staleSelection.candidate.channelStatementSHA256, currentSelection.candidate.channelStatementSHA256)
+            val selected = owner.confirmInstalledVersion(currentSelection.id, true)
+            assertTrue(selected.observation.selection!!.choices.getValue(current.review.id).enabled)
         } } finally { owner.close(); PluginInstallTestFiles.clean(root); PluginInstallTestFiles.clean(cache) }
     }
 

@@ -46,6 +46,10 @@ class ExtensionController private constructor(private val shared: Shared, privat
     private val parent: ExtensionController? = null) {
     constructor(profile: HostProfile, context: Context,
         versionDirectory: File = File(context.applicationContext.filesDir, "plugin-releases")) : this(Shared(profile, context, versionDirectory), true)
+    internal constructor(profile: HostProfile, context: Context, versionDirectory: File,
+        channelStore: PluginChannelPolicyStore, channelClock: (() -> ULong)? = null) :
+        this(Shared(profile, context, versionDirectory, channelStore, channelClock), true)
+
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(
@@ -148,7 +152,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
     }
     private data class CheckedVersion(val packageBytes: ExtensionPackage, val value: SignedArchiveReview, val payload: PluginReleaseCatalog.Identity)
 
-    private class Shared(profile: HostProfile, context: Context, val versionDirectory: File) {
+    private class Shared(profile: HostProfile, context: Context, val versionDirectory: File,
+        val channelStore: PluginChannelPolicyStore? = null, val channelClock: (() -> ULong)? = null) {
         val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
         val handler = Handler(thread.looper)
         val dispatcher: CoroutineDispatcher = handler.asCoroutineDispatcher("ghosterm-extension-controller")
@@ -468,9 +473,10 @@ class ExtensionController private constructor(private val shared: Shared, privat
         val sessionAvailable = hostCapabilities + remoteProcessCapabilities.filter {
             requestedRemoteProcess && it !in hostCapabilities
         }
-        var reference = if (record.review.id in managedIDs) checkNotNull(owner).openVersion(checkNotNull(record.managedReleaseID)).use {
-            it.pin(); it.borrow()
-        } else null
+        val version = if (record.review.id in managedIDs) checkNotNull(owner).openVersion(checkNotNull(record.managedReleaseID)) else null
+        version.use {
+        withChannelAdmission(version, record) {
+        var reference = version?.let { it.pin(); it.borrow() }
         try {
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
             ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
@@ -482,6 +488,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
         sessionApprovedSnapshot = true; sessionVersionLease = reference; reference = null
         SessionState(pluginID, packageDigest, owned.info())
         } finally { reference?.close() }
+        }
+        }
         }
     }
 
@@ -515,6 +523,11 @@ class ExtensionController private constructor(private val shared: Shared, privat
         check(sessionApprovedSnapshot && record.review.commands.any { it.path == command }) {
             "命令不属于已批准的固定插件包"
         }
+        val version = sessionVersionLease?.let { lease ->
+            PluginReleaseCatalog.Version(ParcelFileDescriptor.dup(lease.fileDescriptor), checkNotNull(record.managedReleaseID))
+        }
+        version.use {
+        withChannelAdmission(version, record) {
         val registryViews = "ui.views" in record.review.requiredCapabilities
         var viewKinds = 0
         val sameRegistration = registeredDigests[pluginID] == packageDigest
@@ -561,6 +574,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
             }
         }
         runtimeState(active)
+        }
+        }
     }
 
     suspend fun takeRuntimeResource(): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> = onWorker {
@@ -923,11 +938,41 @@ class ExtensionController private constructor(private val shared: Shared, privat
     private fun fsIdentity(fd: java.io.FileDescriptor): PluginReleaseCatalog.Identity = Os.fstat(fd).let {
         PluginReleaseCatalog.Identity(it.st_dev, it.st_ino, it.st_uid)
     }
-    private fun checkedVersion(owner: PluginReleaseCatalog, version: PluginReleaseCatalog.Version, policy: ByteArray): CheckedVersion {
-        if (version.requiresChannelPolicy()) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+    private fun configuredChannelTime() = shared.channelClock?.invoke() ?: channelClockSeconds()
+
+    private fun <T> withVersionChannel(version: PluginReleaseCatalog.Version,
+        action: (PluginReleaseSignature.VerifiedChannelPolicy?) -> T): T {
+        val root = version.channelRoot() ?: return action(null)
+        val store = shared.channelStore
+        if (store == null || store.rootSHA256 != root) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+        return store.useCurrent(configuredChannelTime(), action)
+    }
+
+    private fun <T> withChannelAdmission(version: PluginReleaseCatalog.Version?, record: Record, action: () -> T): T {
+        if (version == null) return action()
+        return withVersionChannel(version) { policy ->
+            if (policy != null) {
+                val descriptor = version.read("release.json", 65536)
+                val authenticated = policy.authenticate(descriptor, version.read("release.sig", 64), configuredChannelTime())
+                val metadata = record.packageBytes.metadata()
+                check(authenticated.proof.descriptorSHA256 == version.releaseID &&
+                    authenticated.identity == PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest)) {
+                    "已安装版本的签名身份已变化"
+                }
+            }
+            action()
+        }
+    }
+
+    private fun checkedVersion(owner: PluginReleaseCatalog, version: PluginReleaseCatalog.Version, policy: ByteArray,
+        channel: PluginReleaseSignature.VerifiedChannelPolicy? = null): CheckedVersion {
+        if (version.requiresChannelPolicy() && channel == null)
+            throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
         val raw = version.read("release.json", 65536)
         check(PluginReleaseCatalog.sha(raw) == version.releaseID) { "版本发布描述已变化" }
-        val authenticated = PluginReleaseSignature.authenticate(raw, version.read("release.sig", 64), policy)
+        val signature = version.read("release.sig", 64)
+        val authenticated = channel?.authenticate(raw, signature, configuredChannelTime())
+            ?: PluginReleaseSignature.authenticate(raw, signature, policy)
         version.payload().use { payload ->
             val bytes = captureCheckedPackage(payload.fd)
             try {
@@ -936,7 +981,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                 if (identity != authenticated.identity) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
                 val declarations = PluginReleaseDeclarations.decode(version.readPayload("plugin.json", 65536), metadata)
                 owner.validateVersion(version, payload)
-                return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations), fsIdentity(payload.fileDescriptor))
+                return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations, channel?.statementSHA256), fsIdentity(payload.fileDescriptor))
             } catch (failure: Throwable) { bytes.close(); throw failure }
         }
     }
@@ -954,28 +999,33 @@ class ExtensionController private constructor(private val shared: Shared, privat
                 val candidate = owner.openVersion(releaseID)
                 try {
                     candidate.pin()
-                    val checked = checkedVersion(owner, candidate, trusted)
-                    val value = try { checked.value } finally { checked.packageBytes.close() }
-                    val choice = selection.choices[value.review.id]
-                    var previous: SignedArchiveReview? = null
-                    var state = if (choice == null) PreviousVersionState.NONE else PreviousVersionState.UNKNOWN
-                    if (choice != null) {
-                        if (choice.releaseID == releaseID) { previous = value; state = PreviousVersionState.VERIFIED }
-                        else try {
-                            owner.openVersion(choice.releaseID).use { old ->
-                                val earlier = checkedVersion(owner, old, trusted)
-                                try {
-                                    check(earlier.value.review.id == value.review.id)
-                                    previous = earlier.value; state = PreviousVersionState.VERIFIED
-                                } finally { earlier.packageBytes.close() }
-                            }
-                        } catch (_: Exception) { previous = null; state = PreviousVersionState.UNKNOWN }
+                    withVersionChannel(candidate) { policy ->
+                        val checked = checkedVersion(owner, candidate, trusted, policy)
+                        val value = try { checked.value } finally { checked.packageBytes.close() }
+                        val choice = selection.choices[value.review.id]
+                        var previous: SignedArchiveReview? = null
+                        var state = if (choice == null) PreviousVersionState.NONE else PreviousVersionState.UNKNOWN
+                        if (choice != null) {
+                            if (choice.releaseID == releaseID) { previous = value; state = PreviousVersionState.VERIFIED }
+                            else try {
+                                owner.openVersion(choice.releaseID).use { old ->
+                                    val oldRoot = old.channelRoot()
+                                    if (oldRoot != null && oldRoot != candidate.channelRoot())
+                                        throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+                                    val earlier = checkedVersion(owner, old, trusted, policy)
+                                    try {
+                                        check(earlier.value.review.id == value.review.id)
+                                        previous = earlier.value; state = PreviousVersionState.VERIFIED
+                                    } finally { earlier.packageBytes.close() }
+                                }
+                            } catch (_: Exception) { previous = null; state = PreviousVersionState.UNKNOWN }
+                        }
+                        caller.ensureActive(); checkOpen()
+                        if (owner.selection().revision != expectedRevision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
+                        val view = VersionPreview(id, selection.revision, releaseID, value, previous, state, choice?.releaseID, choice?.enabled)
+                        pendingVersion = PendingVersion(view, trusted, owner.rootIdentity, candidate, checked.payload)
+                        view
                     }
-                    caller.ensureActive(); checkOpen()
-                    if (owner.selection().revision != expectedRevision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
-                    val view = VersionPreview(id, selection.revision, releaseID, value, previous, state, choice?.releaseID, choice?.enabled)
-                    pendingVersion = PendingVersion(view, trusted, owner.rootIdentity, candidate, checked.payload)
-                    view
                 } catch (failure: Throwable) { candidate.close(); throw failure }
             }
         } }
@@ -999,31 +1049,37 @@ class ExtensionController private constructor(private val shared: Shared, privat
                     check(owner.rootIdentity == pending.root) { "安装根目录已被替换" }
                     if (owner.selection().revision != pending.value.revision) throw PluginReleaseCatalog.Rejected(PluginReleaseCatalog.Reason.CONFLICT)
                     owner.openVersion(pending.value.releaseID).use { named -> check(named.identity == pending.version.identity) { "候选版本已被替换" } }
-                    val fresh = checkedVersion(owner, pending.version, pending.policy)
-                    val sessionReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
-                    val runtimeReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
-                    try {
-                        check(fresh.value == pending.value.candidate && fresh.payload == pending.payload) { "候选包或完整声明已变化" }
-                        val key = Key(fresh.value.review.id, fresh.value.review.digest)
-                        shared.controllers.forEach { run ->
-                            if (run.sessionPackageKey == key && run.sessionVersionLease == null) sessionReferences[run] = pending.version.borrow()
-                            if (run.runtimePackageKey == key && run.runtimeVersionLease == null) runtimeReferences[run] = pending.version.borrow()
+                    withVersionChannel(pending.version) { policy ->
+                        requireChannelProof(policy, pending.value.candidate)
+                        val fresh = checkedVersion(owner, pending.version, pending.policy, policy)
+                        val sessionReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
+                        val runtimeReferences = linkedMapOf<ExtensionController, ParcelFileDescriptor>()
+                        try {
+                            check(fresh.value == pending.value.candidate && fresh.payload == pending.payload) { "候选包或完整声明已变化" }
+                            val key = Key(fresh.value.review.id, fresh.value.review.digest)
+                            shared.controllers.forEach { run ->
+                                if (run.sessionPackageKey == key && run.sessionVersionLease == null) sessionReferences[run] = pending.version.borrow()
+                                if (run.runtimePackageKey == key && run.runtimeVersionLease == null) runtimeReferences[run] = pending.version.borrow()
+                            }
+                            val before = owner.observe()
+                            val result = owner.change(fresh.value.review.id, pending.value.releaseID, true, pending.value.revision,
+                                checkpoint = { phase ->
+                                    caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen()
+                                    if (phase == "before-rename") policy?.requireFresh(configuredChannelTime())
+                                }, parentSync = parentSync)
+                            invalidateVersionSources(fresh.value.review.id)
+                            sessionReferences.forEach { (run, reference) -> run.sessionVersionLease = reference }; sessionReferences.clear()
+                            runtimeReferences.forEach { (run, reference) -> run.runtimeVersionLease = reference }; runtimeReferences.clear()
+                            val record = records[key] ?: Record(fresh.packageBytes, fresh.value.review, Source.UNKNOWN).also { records[key] = it }
+                            record.managedReleaseID = pending.value.releaseID
+                            record.selectionGeneration = result.selection.choices.getValue(fresh.value.review.id).generation
+                            record.rootIdentity = pending.root; record.versionIdentity = pending.version.identity; record.payloadIdentity = fresh.payload
+                            VersionSelectionResult(fresh.value.review.id, fresh.value.review,
+                                before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
+                        } finally {
+                            sessionReferences.values.forEach { it.close() }; runtimeReferences.values.forEach { it.close() }
+                            if (records[Key(fresh.value.review.id, fresh.value.review.digest)]?.packageBytes !== fresh.packageBytes) fresh.packageBytes.close()
                         }
-                        val before = owner.observe()
-                        val result = owner.change(fresh.value.review.id, pending.value.releaseID, true, pending.value.revision,
-                            checkpoint = { phase -> caller.ensureActive(); checkOpen(); checkpoint(phase); caller.ensureActive(); checkOpen() }, parentSync = parentSync)
-                        invalidateVersionSources(fresh.value.review.id)
-                        sessionReferences.forEach { (run, reference) -> run.sessionVersionLease = reference }; sessionReferences.clear()
-                        runtimeReferences.forEach { (run, reference) -> run.runtimeVersionLease = reference }; runtimeReferences.clear()
-                        val record = records[key] ?: Record(fresh.packageBytes, fresh.value.review, Source.UNKNOWN).also { records[key] = it }
-                        record.managedReleaseID = pending.value.releaseID
-                        record.selectionGeneration = result.selection.choices.getValue(fresh.value.review.id).generation
-                        record.rootIdentity = pending.root; record.versionIdentity = pending.version.identity; record.payloadIdentity = fresh.payload
-                        VersionSelectionResult(fresh.value.review.id, fresh.value.review,
-                            before.copy(selection = result.selection, selectionIssue = null), result.durabilityConfirmed)
-                    } finally {
-                        sessionReferences.values.forEach { it.close() }; runtimeReferences.values.forEach { it.close() }
-                        if (records[Key(fresh.value.review.id, fresh.value.review.digest)]?.packageBytes !== fresh.packageBytes) fresh.packageBytes.close()
                     }
                 }
             }

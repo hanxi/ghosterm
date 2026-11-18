@@ -76,15 +76,14 @@ internal class PluginReleaseCatalog private constructor(
     class Version internal constructor(val descriptor: ParcelFileDescriptor, val releaseID: String) : AutoCloseable {
         val identity = objectIdentity(Os.fstat(descriptor.fileDescriptor))
         fun read(name: String, limit: Int): ByteArray = readFile(descriptor.fd, name, limit)
-        fun requiresChannelPolicy(): Boolean {
+        fun channelRoot(): String? {
             try { Os.lstat("/proc/self/fd/${descriptor.fd}/channel-policy-required") }
-            catch (error: ErrnoException) { if (error.errno == OsConstants.ENOENT) return false else throw error }
-            demandChannelMarker()
-            return true
+            catch (error: ErrnoException) { if (error.errno == OsConstants.ENOENT) return null else throw error }
+            val root = String(read("channel-policy-required", 64), Charsets.US_ASCII)
+            if (!digest(root)) throw Rejected(Reason.INVALID)
+            return root
         }
-        private fun demandChannelMarker() {
-            if (!digest(String(read("channel-policy-required", 64), Charsets.US_ASCII))) throw Rejected(Reason.INVALID)
-        }
+        fun requiresChannelPolicy(): Boolean = channelRoot() != null
         fun readPayload(name: String, limit: Int): ByteArray = payload().use { readFile(it.fd, name, limit) }
         fun payload(): ParcelFileDescriptor = LocalPublicationFile.childDirectory(descriptor.fd, "payload").also {
             if (!frozenDirectory(Os.fstat(it.fileDescriptor))) { it.close(); throw Rejected(Reason.INVALID) }
