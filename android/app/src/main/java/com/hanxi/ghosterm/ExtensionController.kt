@@ -68,6 +68,14 @@ class ExtensionController private constructor(private val shared: Shared, privat
         }
     }
 
+    internal suspend fun currentInstanceHasRevokedPublisher(): Boolean = onWorker {
+        checkOpen()
+        val admission = channelAdmission ?: return@onWorker false
+        val store = shared.channelStore ?: return@onWorker false
+        if (session == null && runtime == null) return@onWorker false
+        store.useCurrent(configuredChannelTime()) { it.revokesPublisher(admission.root, admission.proof) }
+    }
+
     enum class Source { UNKNOWN, DENIED, ALLOWED }
 
     data class HostProfile(

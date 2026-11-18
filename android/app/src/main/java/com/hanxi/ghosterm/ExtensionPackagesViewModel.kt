@@ -661,6 +661,31 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
     }
 
+    internal suspend fun requestStopInstancesWithRevokedPublisher(): Int {
+        val models = listOf(this) + connectionGroups.flatMap { group ->
+            group.instances.filterNot { it.closed }.map { it.model }
+        }
+        return models.count { it.requestStopIfPublisherRevoked() }
+    }
+
+    private suspend fun requestStopIfPublisherRevoked(): Boolean {
+        val owner = controller ?: return false
+        if (launchBusy || (activeSession == null && activeRuntime == null)) return false
+        val generation = sessionGeneration
+        if (!owner.currentInstanceHasRevokedPublisher() || generation !== sessionGeneration || launchBusy) return false
+        return when {
+            activeRuntime?.info?.phase in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.ACTIVE) -> {
+                stopRuntime()
+                true
+            }
+            activeRuntime == null && activeSession?.info?.phase == ExtensionSession.Phase.ACTIVE -> {
+                stopSession()
+                true
+            }
+            else -> false
+        }
+    }
+
     fun stopRuntime() {
         val owner = controller ?: return
         if (launchBusy || activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.CREATED,

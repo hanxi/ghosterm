@@ -132,12 +132,13 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
 }
 
 @Composable
-internal fun PluginChannelRefreshContent(controller: ExtensionController?) {
+internal fun PluginChannelRefreshContent(controller: ExtensionController?, requestStop: suspend () -> Int) {
     if (controller?.canRefreshChannelPolicy != true) return
     val scope = rememberCoroutineScope()
     var busy by remember(controller) { mutableStateOf(false) }
     var status by remember(controller) { mutableStateOf<String?>(null) }
     var failed by remember(controller) { mutableStateOf(false) }
+    var affected by remember(controller) { mutableIntStateOf(0) }
     TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-refresh"), onClick = {
         busy = true
         status = null
@@ -146,6 +147,7 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?) {
                 val current = controller.refreshChannelPolicy()
                 failed = false
                 val count = controller.runningInstancesWithRevokedPublisher(current)
+                affected = count
                 status = "已更新 ${current.channel} 渠道策略至第 ${current.generation} 代。" +
                     if (count > 0) " 本应用仍持有 ${count} 个受撤销影响的实例，可在实例页停止。" else ""
             } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
@@ -159,6 +161,21 @@ internal fun PluginChannelRefreshContent(controller: ExtensionController?) {
             } finally { busy = false }
         }
     }) { Text(if (busy) "正在刷新渠道策略…" else "刷新渠道策略") }
+    if (affected > 0) TextButton(enabled = !busy, modifier = Modifier.testTag("plugin-channel-stop"), onClick = {
+        busy = true
+        scope.launch {
+            try {
+                val requested = requestStop()
+                failed = false
+                status = "已向 ${requested} 个实例发出停止请求。请在实例页核对停止与释放状态。"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                failed = true
+                status = failure.message ?: "无法核对撤销状态。"
+            } finally { busy = false }
+        }
+    }) { Text("请求停止受渠道撤销影响的实例") }
     status?.let {
         Text(it, Modifier.testTag("plugin-channel-refresh-status"),
             color = if (failed) MaterialTheme.colorScheme.error else LocalContentColor.current)
