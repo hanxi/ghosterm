@@ -4,7 +4,7 @@ Only disposable in-memory keys; no external gateway or automatic tool install.
 """
 from pathlib import Path
 from contextlib import ExitStack
-import argparse,hashlib,importlib.util,json,os,pwd,re,secrets,shlex,signal,socketserver,struct,subprocess,sys,tempfile,threading
+import argparse,hashlib,importlib.util,json,os,pwd,re,secrets,shlex,shutil,signal,socketserver,struct,subprocess,sys,tempfile,threading
 ROOT=Path(__file__).resolve().parents[1];sys.dont_write_bytecode=True
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
@@ -45,7 +45,15 @@ def main():
         if args.apple:inputs += [source_root/p for p in ['apple/GhostermCore/Sources/GhostermCore/ExtensionSource.swift','apple/GhostermCore/Tests/GhostermCoreTests/ExtensionSourceTests.swift']]
         if args.android:inputs += [source_root/p for p in ['android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionSource.kt','android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionSourceTest.kt']]
     hashes={str(p.relative_to(source_root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
-    work=Path(tempfile.mkdtemp(prefix='plugin-public-channel-',dir=ROOT/'tmp'));results=[];env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
+    work=Path(tempfile.mkdtemp(prefix='plugin-public-channel-',dir=ROOT/'tmp'))
+    try:
+        execute(args, binary, source_root, hashes, work)
+    except BaseException:
+        shutil.rmtree(work)
+        raise
+
+def execute(args, binary, source_root, hashes, work):
+    results=[];env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
     proofs=work/'proofs';proofs.mkdir()
     helpers=load('channel_keys',ROOT/'scripts/test-plugin-ssh.py');streams=load('channel_memory',ROOT/'scripts/test-plugin-ssh-stream.py');route=load('channel_routes',ROOT/'scripts/test-plugin-route.py');private,public=streams.memory_identity();wrong_private,_=streams.memory_identity()
     def run(label,cmd,*,input=None,budget=120,environment=env,red=None):
