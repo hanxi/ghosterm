@@ -65,10 +65,6 @@ public final class PreviewPackageDocumentsProvider extends DocumentsProvider {
         return root.isDirectory() || root.mkdirs();
     }
 
-    @Override public Bundle call(String method, String arg, Bundle extras) {
-        return fixtureCommand(getContext(), method, extras);
-    }
-
     static Bundle fixtureCommand(Context context, String method, Bundle extras) {
         Bundle result = new Bundle();
         try {
