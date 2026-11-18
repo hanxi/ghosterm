@@ -14666,3 +14666,11 @@ Ghosterm JNI 库，只有 JS-on 包含 QuickJS-NG 许可，字节与钉定 vendo
 JS-on 10,297,276 字节，SHA256
 `f03dadeed705e437f81cf535ddd57a154efa85e97eba4422d4faf027d6f49c27`。
 本轮未安装、未签名、未上传，设备运行和正式发行兼容仍待验收。
+
+### P5 Portable SDK 当前版本回归（2026-11-19）
+
+固定 `058dec6e`，`test-plugin-sdk.py --fetch --mutate` 后台通过。锁定依赖
+与 QuickJS-NG 构建后，17 项 TS/C 场景、36 项 schema 对拍和 15 组变异均通过。
+每组验证正常断言红、独立对照、重建复原及 SHA256，启用 AddressSanitizer 与
+UndefinedBehaviorSanitizer。范围为 Portable SDK 与 C/QuickJS，对照不代表
+原生视图、真机或发行包行为。
