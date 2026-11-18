@@ -1456,11 +1456,16 @@ public final class AppModel: ObservableObject {
 
     public func stopInstancesWithRevokedPublisher() async throws -> ChannelStopResult {
         let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
+        return try await Self.stopRevokedInstances(instances) { try await $0.stopIfPublisherRevoked() }
+    }
+
+    static func stopRevokedInstances<Instance>(_ instances: [Instance],
+                                               stop: (Instance) async throws -> Bool) async throws -> ChannelStopResult {
         var result = ChannelStopResult()
         for instance in instances {
             try Task.checkCancellation()
             do {
-                if try await instance.stopIfPublisherRevoked() { result.stopped += 1 }
+                if try await stop(instance) { result.stopped += 1 }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

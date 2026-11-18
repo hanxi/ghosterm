@@ -7,6 +7,22 @@ import XCTest
 
 @MainActor
 final class PluginPolicyReviewUITests: XCTestCase {
+    func testRevocationBatchContinuesAfterOwnerFailure() async throws {
+        enum FixtureError: LocalizedError {
+            case cacheUnavailable
+            var errorDescription: String? { "fixture cache unavailable" }
+        }
+        var attempted: [Int] = []
+        let result = try await AppModel.stopRevokedInstances([1, 2, 3, 4]) { instance in
+            attempted.append(instance)
+            if instance == 2 { throw FixtureError.cacheUnavailable }
+            return instance != 3
+        }
+        XCTAssertEqual(attempted, [1, 2, 3, 4])
+        XCTAssertEqual(result.stopped, 2)
+        XCTAssertEqual(result.failures, ["fixture cache unavailable"])
+    }
+
     func testReviewCancelAndExplicitSubsetDisableControls() async throws {
         TestWindows.enterAutomationMode()
         let f = try PluginPolicyFixture(); addTeardownBlock { try PluginReleaseInstallTests.thaw(f.directory) }

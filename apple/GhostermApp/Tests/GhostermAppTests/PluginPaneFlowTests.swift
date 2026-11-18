@@ -447,9 +447,12 @@ final class PluginPaneFlowTests: XCTestCase {
             let beforeStop = try await controller.installedVersions()
             let retainedVersion = try XCTUnwrap(beforeStop.versions.first { $0.releaseID == releaseID })
             XCTAssertEqual(retainedVersion.inUse, true, "revocation observation retains the running version lease")
-            let stopped = try await model.stopInstancesWithRevokedPublisher()
-            XCTAssertEqual(stopped.stopped, 1)
-            XCTAssertTrue(stopped.failures.isEmpty)
+            await installedDraft.stopAffectedChannelInstances {
+                try await model.stopInstancesWithRevokedPublisher()
+            }
+            XCTAssertEqual(installedDraft.notice, "已确认停止 1 个实例。")
+            XCTAssertNil(installedDraft.issue)
+            XCTAssertEqual(installedDraft.affectedChannelInstances, 0)
             guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else {
                 XCTFail("explicit stop did not release the instance"); return
             }
