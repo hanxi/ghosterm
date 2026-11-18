@@ -196,10 +196,15 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         run([*selected, 'shell', 'run-as', 'com.hanxi.ghosterm', 'chmod', '700', directory], environment)
         classes += ',com.hanxi.ghosterm.PluginRemovalHardlinkTest'; count += 1
         fixture_arguments = ['-e', 'removalHardlinkRoot', directory]
-    output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes, *fixture_arguments,
-        'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
     receipt = ROOT / 'tmp/android-release-conformance' / (str(time.time_ns()) + '.log')
-    receipt.parent.mkdir(parents=True, exist_ok=True); receipt.write_text(output)
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes, *fixture_arguments,
+            'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment, 600)
+    except subprocess.TimeoutExpired as failure:
+        receipt.write_bytes((failure.stdout or b'') + (failure.stderr or b''))
+        raise RuntimeError(f'Release conformance timed out; partial receipt: {receipt}') from failure
+    receipt.write_text(output)
     print('INSTRUMENTATION RECEIPT ' + str(receipt) + ' SHA256 ' + hashlib.sha256(receipt.read_bytes()).hexdigest(), flush=True)
     completed = len(re.findall(r'^INSTRUMENTATION_STATUS_CODE: 0\s*$', output, re.MULTILINE))
     if (('OK (' + str(count) + ' tests)') not in output or completed != count or
