@@ -13139,3 +13139,22 @@ Android 收据 SHA256 `2e67c23dc64cffccb5530af7c8aa8989d8e1739a834eaf091a34dbaf8
 收据 SHA256 分别为 macOS 本机 `a64445b63f52e8f39619d27bde25eceb1b6d1d76e6668bdd5908a991b6b810bf`、
 macOS SSH `705ab7fdafd636c7fa58d030c7a19cdae0e29e5b89a021bf5953a33293e85e04`、
 Android `ff748c2296f250ba88a39cf4c3f91acaacc351e552f884b40b834df7a5fcc093`。
+
+### Android 多视图停止与真实附着断线（2026-11-18）
+
+Android 跨线程停止请求可能在取得 ACTIVE 快照后、读取注册视图前撤销权限。
+视图读取原先抛出 Core AUTH，导致观察循环退出，界面仍停留在 ACTIVE。
+本批按同一 Runtime 的明确停止请求暂停视图与业务读取，并继续推进清理阶段。
+在正常运行时遇到未预期的视图读取错误仍按观察失败处理。
+
+`scripts/test-plugin-views-android-native.py --api 36 --attach --attach-loss`
+在 JS-enabled API 36 arm64 / 4 KiB 页无窗口模拟器上通过：28 项多视图、23 项表格、
+27 项 diff、33 项任务对照及最终 28 项复验。直连和 ProxyJump 分别通过真实前台附着的
+正常取消 / 停止，以及任务仍运行时结束一次性专属 Executor 后自动停用视图、显式释放
+和禁止重放。安装 APK 摘要与本机一致。JNI ABI 对拍 167 引用 / 38 登记未用。
+未覆盖其它设备或完整网络故障矩阵。
+
+首轮 ProxyJump 正常停止触发上述竞态。修复后第二轮正常停止通过，但 ProxyJump 断线场景
+在注入断线前等待任务取消确认超时，未计通过。最终正常场景保留取消确认，断线场景核对
+任务仍在运行后注入故障。最终收据 SHA256
+`deab764111cd991c3782b86751ad769fe4bf088491346ea2045f974df48ea811`。

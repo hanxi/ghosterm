@@ -124,7 +124,15 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED
         return ExtensionSession.RPCStatus.entries[NativeExtensionRuntime.executorRequestAction(handle, lease.bytes, action, request)]
     }
-    fun stop() { val id = handle; if (id != 0L) NativeExtensionRuntime.stop(id) }
+    @Volatile var stopRequested = false
+        private set
+    fun stop() {
+        val id = handle
+        if (id != 0L) {
+            stopRequested = true
+            NativeExtensionRuntime.stop(id)
+        }
+    }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
         owner(); val observation = arrayOfNulls<Any>(1)

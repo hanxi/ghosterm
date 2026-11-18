@@ -35,6 +35,7 @@ CONTROL = 'com.hanxi.ghosterm.ConfigIdentityTest#identitySourcesUseCoreOrderingA
 RUNNER = 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'
 TESTS = 'com.hanxi.ghosterm.PluginViewsTest,com.hanxi.ghosterm.PluginViewsUiTest'
 ACTUAL = 'com.hanxi.ghosterm.PluginViewsSSHAppTest#registeredViewsThroughViewModelAndNativeControls'
+BASELINE_COUNT = 28
 
 
 CASES = [
@@ -71,7 +72,10 @@ def main():
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
     parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
+    parser.add_argument('--attach-loss', action='store_true', help='also terminate the owned foreground after Native view interactions')
     args = parser.parse_args()
+    if args.attach_loss and not args.attach:
+        parser.error('--attach-loss requires --attach')
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
     for path in (build, package, receipt):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('build, package and receipt must use project tmp/')
@@ -148,6 +152,8 @@ def main():
         baseline = compile_apks('build-baseline')
 
         scenarios = {'views': 1000000}
+        if args.attach_loss:
+            scenarios['views-loss'] = scenarios['views']
         private, public = streams.memory_identity()
         with keys.owned_agent(work, 'agent') as agent:
             host_keys = [keys.add_memory_key(agent, 'android-views-' + str(i)) for i in range(2)]
@@ -164,7 +170,7 @@ def main():
                                 if not remote.startswith('package:/data/app/') or '\n' in remote: raise RuntimeError('Unexpected installed APK path')
                                 actual = run(label + '-sha-' + str(index), [*adb, 'shell', 'sha256sum', remote[len('package:'):]]).split()[0]
                                 if actual != sha(apks[index]): raise RuntimeError('Installed APK mismatch')
-                        def test(label, selected=TESTS, count=27, red=False, extra=()):
+                        def test(label, selected=TESTS, count=BASELINE_COUNT, red=False, extra=()):
                             text = run(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                                               *extra, RUNNER])
                             if red:
@@ -184,7 +190,7 @@ def main():
                         test('api' + api + '-legacy-table', 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest', 23)
                         test('api' + api + '-legacy-diff', 'com.hanxi.ghosterm.PluginDiffTest,com.hanxi.ghosterm.PluginDiffUiTest', 27)
                         test('api' + api + '-legacy-task', 'com.hanxi.ghosterm.PluginTaskTest,com.hanxi.ghosterm.PluginTaskUiTest', 33)
-                        print('PASS API' + api + ': 27 Native registry/model/UI tests', flush=True)
+                        print(f'PASS API{api}: {BASELINE_COUNT} Native registry/model/UI tests', flush=True)
 
                         def actual(label, route, scenario, red=False):
                             limit = scenarios[scenario]
@@ -222,8 +228,9 @@ def main():
                                         request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
                                         if request[0] != token.encode() or len(request) > 2: return
                                         if len(request) == 2:
-                                            if frontend is None: return
-                                            frontend.control(request[1].decode('ascii'))
+                                            if frontend is None or scenario != 'views-loss' or request[1] != b'lose-foreground': return
+                                            frontend.control('pause')
+                                            frontend.control('kill')
                                         data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload, separators=(',', ':')).encode()
                                         self.wfile.write(struct.pack('>I', len(data)) + data)
                                 try:

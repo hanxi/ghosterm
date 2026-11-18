@@ -727,6 +727,11 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 val state = owner.stepRuntime()
                 if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration) return
                 activeRuntime = state
+                if (state.stopRequested && state.info.phase in setOf(ExtensionRuntime.Phase.ACTIVE,
+                        ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.CREATED)) {
+                    delay(50)
+                    continue
+                }
                 updateRegisteredViews(owner, state)
                 if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&
                     "ui.views" !in activeSession?.requiredCapabilities.orEmpty() &&

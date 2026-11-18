@@ -25,11 +25,12 @@ class PluginViewsSSHAppTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var diagnostic: () -> String = { "" }
-    private fun fixture(): JSONObject {
+    private fun fixture(action: String? = null): JSONObject {
         val args = InstrumentationRegistry.getArguments()
         Socket("127.0.0.1", checkNotNull(args.getString("fixturePort")).toInt()).use { socket ->
-            socket.soTimeout = 5000
-            socket.getOutputStream().write((checkNotNull(args.getString("fixtureToken")) + "\n").toByteArray())
+            socket.soTimeout = if (action == null) 5000 else 12000
+            val token = checkNotNull(args.getString("fixtureToken"))
+            socket.getOutputStream().write((token + (action?.let { " $it" } ?: "") + "\n").toByteArray())
             val input = DataInputStream(socket.getInputStream()); val size = input.readInt()
             require(size in 1..1048576)
             return JSONObject(ByteArray(size).also(input::readFully).toString(Charsets.UTF_8))
@@ -151,15 +152,29 @@ class PluginViewsSSHAppTest {
             val reopened = (item("progress").content as PluginViewItem.Content.Task).model
             ui.onNodeWithTag("plugin-task").assertExists(); await("Reopened task accepts explicit cancel") { main { reopened.canCancel } }
             ui.waitForIdle()
-            ui.onNodeWithTag("plugin-task-cancel").performScrollTo().performClick()
-            await("Actual cancel confirmation") { ui.mainClock.advanceTimeBy(600); main { reopened.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.CANCELLED } }
-            assertEquals(PluginTaskSnapshot.Result.Cancelled("none"), main { reopened.state.value.snapshot?.result })
+            val lostForeground = payload.optString("scenario") == "views-loss"
+            if (lostForeground) {
+                assertEquals(PluginTaskSnapshot.Phase.RUNNING, main { reopened.state.value.snapshot?.phase })
+                assertNotNull(attachment)
+                val observed = fixture("lose-foreground").getJSONObject("ipcObservation")
+                assertFalse(observed.getBoolean("frontendAlive"))
+                assertEquals("injected-ipc-loss", observed.getString("fault"))
+                await("Transport loss invalidates registered views") {
+                    main { !views.state.value.valid && views.state.value.items.isEmpty() }
+                }
+                ui.onAllNodesWithTag("plugin-view-close").assertCountEquals(0)
+            } else {
+                ui.onNodeWithTag("plugin-task-cancel").performScrollTo().performClick()
+                await("Actual cancel confirmation") { ui.mainClock.advanceTimeBy(600); main { reopened.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.CANCELLED } }
+                assertEquals(PluginTaskSnapshot.Result.Cancelled("none"), main { reopened.state.value.snapshot?.result })
+            }
             main { extensions.stopRuntime() }
             await("Views Runtime stop") { main { !extensions.launchBusy && extensions.activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.ACTIVE,
                 ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.CREATED) } }
             assertTrue(main { !views.state.value.valid && views.state.value.items.isEmpty() })
             ui.onNodeWithText("释放插件资源").performScrollTo().assertIsEnabled().performClick()
-            await("Views owner release") { main { extensions.activeSession == null && !extensions.launchBusy } }; assertNull(main { extensions.error })
+            await("Views owner release") { main { extensions.activeSession == null && !extensions.launchBusy } }
+            if (!lostForeground) assertNull(main { extensions.error })
         } finally {
             main { captured?.invalidate(); if (!extensions.launchBusy) extensions.stopRuntime() }
             runBlocking { owner.requestStopRuntime(); owner.close() }

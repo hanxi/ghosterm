@@ -15,6 +15,7 @@ import android.database.Cursor
 import com.hanxi.ghosterm.bridge.ExtensionPackage
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
+import com.hanxi.ghosterm.bridge.ExtensionChannelException
 import com.hanxi.ghosterm.bridge.ExtensionMultiplexer
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.ExtensionFileSource
@@ -131,7 +132,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
     }
     data class RuntimeState(val packageID: String, val packageDigest: String, val command: String, val info: ExtensionRuntime.Info,
         val publication: ResourcePublication? = null, val instanceID: String = "",
-        val views: ByteArray? = null, val viewSessionInstance: String? = null, val viewSessionEpoch: String? = null, val viewIssue: String? = null)
+        val views: ByteArray? = null, val viewSessionInstance: String? = null, val viewSessionEpoch: String? = null,
+        val viewIssue: String? = null, val stopRequested: Boolean = false)
 
     internal data class PolicyDisableResult(val pluginIDs: List<String>, val observation: PluginReleaseCatalog.Observation,
         val durabilityConfirmed: Boolean)
@@ -691,9 +693,18 @@ class ExtensionController private constructor(private val shared: Shared, privat
     private fun runtimeState(current: ExtensionRuntime): RuntimeState {
         val key = checkNotNull(runtimePackageKey)
         val info = current.info()
-        val views = if (runtimeViewScope != null && info.phase == ExtensionRuntime.Phase.ACTIVE && runtimeViewIssue == null) current.viewsSnapshot() else null
+        val views = if (runtimeViewScope != null && info.phase == ExtensionRuntime.Phase.ACTIVE &&
+            runtimeViewIssue == null && !current.stopRequested) {
+            try {
+                current.viewsSnapshot()
+            } catch (failure: ExtensionChannelException) {
+                // An off-worker stop can revoke the grant after the ACTIVE observation.
+                if (!current.stopRequested) throw failure
+                null
+            }
+        } else null
         return RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), info, clientPublication, checkNotNull(runtimeInstanceID),
-            views, runtimeViewScope?.first, runtimeViewScope?.second, runtimeViewIssue)
+            views, runtimeViewScope?.first, runtimeViewScope?.second, runtimeViewIssue, current.stopRequested)
     }
 
     suspend fun closeRuntimeView(instanceID: String, viewHandle: String): RuntimeState = onWorker {
