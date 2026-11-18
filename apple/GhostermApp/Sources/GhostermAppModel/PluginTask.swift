@@ -170,6 +170,7 @@ enum PluginTaskCodec {
     @Published public private(set) var cancellation = Cancellation.idle
     @Published public private(set) var cancelRequestID: String?
     private var generation = UUID()
+    private var readTask: Task<Void, Never>?
     private let rpc: RPC
     private let isCurrent: @MainActor () -> Bool
     private let expectedViewID: String?
@@ -178,14 +179,20 @@ enum PluginTaskCodec {
         self.rpc = rpc; self.isCurrent = isCurrent; self.expectedViewID = expectedViewID; self.history = history
     }
     public var available: Bool { valid && isCurrent() }
-    public var canCancel: Bool { available && !busy && descriptor?.cancellable == true && cancelRequestID == nil &&
+    public var canCancel: Bool { available && descriptor?.cancellable == true && cancelRequestID == nil &&
         (snapshot?.phase == .queued || snapshot?.phase == .running) }
     public var canAutoRefresh: Bool { available && !busy && issue == nil && cancellation != .unconfirmed &&
         snapshot.map { !$0.phase.terminal && $0.phase != .unknown } == true }
     public func load() async {
         guard available, !busy else { return }
         let token = UUID(); generation = token; busy = true; issue = nil
-        defer { if generation == token { busy = false } }
+        let task = Task { await load(token: token) }
+        readTask = task
+        defer { if generation == token { busy = false; readTask = nil } }
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+    private func load(token: UUID) async {
+        guard current(token) else { return }
         do {
             if descriptor == nil {
                 let data = try await rpc("view.task.describe", Data("{}".utf8))
@@ -209,6 +216,8 @@ enum PluginTaskCodec {
         guard canCancel, let descriptor else { return }
         let token = UUID(); generation = token; busy = true; issue = nil
         let requestID = UUID().uuidString; cancelRequestID = requestID; cancellation = .pending
+        readTask?.cancel()
+        readTask = nil
         history?.action(descriptor, requestID: requestID, state: cancellation)
         defer {
             if generation == token {

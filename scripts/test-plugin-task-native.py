@@ -106,7 +106,7 @@ def main():
             return text
 
         app = source / 'apple/GhostermApp'
-        def test(label, selected='PluginTaskTests', count=26, red=False):
+        def test(label, selected='PluginTaskTests', count=27, red=False):
             text = run(label, ['swift', 'test', '--package-path', app, '--filter', selected], red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text.lower()):
                 raise RuntimeError(label + ': discovery/no-skip mismatch\n' + text)
@@ -212,7 +212,7 @@ def main():
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
-        print('NATIVE TASK PASS: 26 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual routes / ' + str(len(groups)) + ' mutations', flush=True)
+        print('NATIVE TASK PASS: 27 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual routes / ' + str(len(groups)) + ' mutations', flush=True)
 
 
 if __name__ == '__main__':

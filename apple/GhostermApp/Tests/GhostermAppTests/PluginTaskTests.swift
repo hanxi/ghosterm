@@ -188,6 +188,23 @@ import XCTest
         let action = Task { await m.cancel() }; try await until { f.barrier != nil }; action.cancel(); f.release(); await action.value
         XCTAssertTrue(m.cancellation == .unconfirmed && m.issue != nil && !m.canCancel && !m.canAutoRefresh)
     }
+    func testCancellationSupersedesInFlightStatusRead() async throws {
+        let f = PluginTaskFixture(), m = f.model()
+        await m.load()
+        f.pauseMethod = "view.task.read"
+        let read = Task { await m.load() }
+        defer { f.release() }
+        try await until { f.barrier != nil }
+        XCTAssertTrue(m.canCancel)
+        f.finish()
+        await m.cancel()
+        XCTAssertEqual(m.snapshot?.phase, .cancelled)
+        XCTAssertEqual(f.calls.filter { $0.0 == "view.task.cancel" }.count, 1)
+        f.release()
+        await read.value
+        XCTAssertEqual(m.snapshot?.phase, .cancelled)
+        XCTAssertFalse(m.busy)
+    }
     func testCurrentInstanceAndBusyPreventNewWork() async throws {
         let f = PluginTaskFixture(); var current = true; let m = f.model { current }; f.pauseMethod = "view.task.describe"
         let read = Task { await m.load() }; try await until { f.barrier != nil }; await m.load(); await m.cancel(); current = false; f.release(); await read.value
