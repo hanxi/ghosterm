@@ -12905,3 +12905,13 @@ Swift QuickJS 链接开关，避免从专项测试环境继承 opt-in。独立�
 目录时继承实验签名配置并给 Swift App 引入 libcrypto 链接依赖。签名专项继续使用
 单独的 CMake 构建目录。以替身工具记录实际配置命令，确认普通与 JS 实验两档均
 显式关闭签名后端。Shell 语法与 diff 检查通过，完整发布打包仍待验收。
+
+### P6 普通 macOS App 打包验证（2026-11-18）
+
+从固定提交 `68621f8c` 建立隔离检出，复用本机 GhosttyKit 与锁定的 libssh2 构件，
+以两个实验 JS 开关都为 1 启动普通打包。生成的 CMake 缓存中 JS 与发布签名后端均为
+OFF，Swift Release 构建和 ad-hoc App 打包通过。自包含检查、libssh2 校验、终端网格、
+随包主题和 zsh 鼠标恢复冒烟通过。额外执行严格签名校验，检查 Sparkle 许可文件和
+主程序依赖，确认主程序无直接 libcrypto 链接，包内无 QuickJS 文件或 .gtp 包。
+主程序 SHA256 为 `c49df87894c7840e8b761e096169ef24ec83bf17ab0fd9018210494aba40249e`。
+本轮仅验证 arm64 App 产物及后台冒烟，DMG / ZIP、公证、插件分发包和完整发布验收待完成。
