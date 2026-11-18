@@ -13365,3 +13365,15 @@ wire 测试覆盖深度与节点配额、精确整数、schema 校验和失败�
 流收据 SHA256 `2f4dcaed92c57289fb6f495d65038baf32c03ea9845fab64c90f733afc4032ec`，
 wire 收据 SHA256 `b588d5e6ec060041fd5fef942fab1ffcb040be746b55adb68fbe69ef44be1fb4`。
 本轮不覆盖真实 tmux pane、平台 UI 或全部 P1 变异。一次性源码、构件与日志已清理。
+
+### macOS 插件与嵌套 tmux 共存复验（2026-11-19）
+
+固定 `efd0b0b5`，以 JS / SSH 开启的 CLI 和编译后的候选 Node SDK 在屏幕外运行
+`test-plugin-execution-ssh-app.py --macos --tmux nested`。Node 和 Exec 各通过
+两跳 ProxyJump 的双向资源与业务进程两项，共四项。普通 SSH PTY 经真实 tmux 两层
+切 pane、切窗口和重附着时，插件的独立无 PTY 通道继续工作。资源与进程回执包含
+完整 256 KiB 摘要，两个业务进程均已回收。
+
+首次构建遗漏 `GHOSTERM_GTERM_TESTS`，缺探针二进制，未运行用例。补齐后通过。
+收据 SHA256 `b57ee1b9ad50ce2bf4903c0e033739b4e986c086923b55cccf2838e02b495aca`。
+本轮为自有回环与普通 PTY 夹具，未覆盖 App TerminalSurface、Android 或所有 tmux 故障。
