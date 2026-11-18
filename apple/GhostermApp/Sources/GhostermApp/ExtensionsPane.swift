@@ -16,6 +16,7 @@ struct ExtensionsPane: View {
     @State private var importing = false
     @State private var entries: [Entry] = []
     @State private var issue: String?
+    @State private var launchIssues: [String: String] = [:]
     @State private var pendingConnections: [ExtensionGroupInvocation] = []
     @State private var startingConnectionGroup = false
     @State private var startingClient = false
@@ -312,6 +313,9 @@ struct ExtensionsPane: View {
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(startingClient || !model.extensionInstance.canDiscard || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
+                            if let launchIssue = launchIssues[entry.id] {
+                                Text(verbatim: launchIssue).foregroundStyle(.red).textSelection(.enabled)
+                            }
                         }
                     } else {
                         HStack {
@@ -536,6 +540,7 @@ struct ExtensionsPane: View {
     private func enqueue(_ entry: Entry) {
         do {
             guard !startingConnectionGroup else { return }
+            launchIssues[entry.id] = nil
             let candidate = try configuration(entry)
             let queued = pendingConnections + [candidate]
             startingConnectionGroup = true
@@ -544,16 +549,16 @@ struct ExtensionsPane: View {
                 do {
                     try await model.validateQueuedExtensionGroup(queued)
                     pendingConnections.append(candidate)
-                    issue = nil
-                } catch { issue = "连接组配置无效：\(error)" }
+                } catch { launchIssues[entry.id] = "连接组配置无效：\(error)" }
             }
-        } catch { issue = "连接组配置无效：\(error)" }
+        } catch { launchIssues[entry.id] = "连接组配置无效：\(error)" }
     }
     private func launch(_ entry: Entry) {
+        guard !startingClient else { return }
+        launchIssues[entry.id] = nil
         do {
             let launch = try configuration(entry), request = launch.request
             startingClient = true
-            issue = nil
             Task { @MainActor in
                 defer { startingClient = false }
                 var validated = false
@@ -567,9 +572,9 @@ struct ExtensionsPane: View {
                     validated = true
                     SettingsWindow.close()
                 }
-                if !validated { issue = model.extensionRunIssue }
+                if !validated { launchIssues[entry.id] = model.extensionRunIssue }
             }
-        } catch { issue = "插件启动参数无效：\(error)" }
+        } catch { launchIssues[entry.id] = "插件启动参数无效：\(error)" }
     }
 
     private func addToConnection(_ launch: ExtensionGroupInvocation, connection: ExtensionConnectionModel) {
