@@ -137,19 +137,43 @@ class PluginInstallUITest {
         val signature = Base64.getDecoder().decode(vector.getString("signature"))
         val policy = fixture.getString("policy").toByteArray()
         val releaseID = MessageDigest.getInstance("SHA-256").digest(descriptor).joinToString("") { "%02x".format(it.toInt() and 255) }
+        val arguments = InstrumentationRegistry.getArguments()
+        val channelSignature = arguments.getString("settingsChannelSignature")
+        val cache = java.io.File(context.filesDir, "plugin-channel-policy")
+        var ownsCache = false
         val root = java.io.File(context.filesDir, "plugin-releases")
         val before = root.list()?.toSet() ?: emptySet()
         val destination = java.io.File(root, releaseID)
         assertFalse("use an owned fresh test device; fixture slot already exists", destination.exists())
         val extensions = ViewModelProvider(ui.activity)[ExtensionPackagesViewModel::class.java]
         try {
+            if (channelSignature != null) {
+                assertFalse("use an owned fresh cache fixture", cache.exists())
+                android.system.Os.mkdir(cache.path, 448)
+                ownsCache = true
+                val statement = Base64.getDecoder().decode(checkNotNull(arguments.getString("settingsChannelStatement")))
+                val refresh = checkNotNull(PluginChannelRefresh.configured(context))
+                refresh.store.refresh(statement, Base64.getDecoder().decode(channelSignature), policy,
+                    (System.currentTimeMillis() / 1000).toULong())
+            }
             install(mapOf("plugin.zip" to Base64.getDecoder().decode(vector.getString("archive")), "release.json" to descriptor, "release.sig" to signature, "channel.json" to policy))
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             ui.onNodeWithTag("plugin-zip-disclosure").performScrollTo().performClick()
+            if (channelSignature != null) {
+                ui.onNodeWithTag("plugin-channel-refresh").assertExists()
+                ui.onNodeWithTag("plugin-zip-channel").performScrollTo().performClick()
+                ui.onNodeWithTag("plugin-zip-pick-POLICY").assertDoesNotExist()
+            }
             choose(PluginArchiveMaterial.ARCHIVE, "plugin.zip"); choose(PluginArchiveMaterial.DESCRIPTOR, "release.json")
-            choose(PluginArchiveMaterial.SIGNATURE, "release.sig"); choose(PluginArchiveMaterial.POLICY, "channel.json")
-            ui.onNodeWithTag("plugin-zip-trust").performScrollTo().performClick(); verify()
+            choose(PluginArchiveMaterial.SIGNATURE, "release.sig")
+            if (channelSignature == null) {
+                choose(PluginArchiveMaterial.POLICY, "channel.json")
+                ui.onNodeWithTag("plugin-zip-trust").performScrollTo().performClick()
+            }
+            verify()
+            if (channelSignature != null)
+                ui.onNodeWithText("已验证渠道策略 · 第 1 代").assertExists()
             ui.onNodeWithTag("plugin-zip-install").assertIsNotEnabled()
             ui.onNodeWithTag("plugin-zip-install-confirmation").assertIsOff().performScrollTo().performClick()
             ui.onNodeWithTag("plugin-zip-install").assertIsEnabled().performScrollTo().performClick()
@@ -165,6 +189,21 @@ class PluginInstallUITest {
             assertEquals(320, android.system.Os.lstat(destination.path).st_mode and 511)
             assertTrue(main { extensions.entries.isEmpty() }); assertNull(main { extensions.activeSession }); assertNull(main { extensions.activeRuntime })
             assertEquals(ExtensionRegistry.Status.NOT_FOUND, runBlocking { extensions.controller!!.resolve("fixture").status })
+            if (channelSignature != null) {
+                assertTrue(java.io.File(destination, "channel-policy-required").isFile)
+                ui.onNodeWithTag("plugin-zip-disclosure").performScrollTo().performClick()
+                ui.onNodeWithTag("plugin-versions-disclosure").performScrollTo().performClick()
+                ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-select-$releaseID").fetchSemanticsNodes().isNotEmpty() }
+                ui.onNodeWithTag("plugin-version-select-$releaseID").assertIsEnabled().performScrollTo().performClick()
+                ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-preview").fetchSemanticsNodes().isNotEmpty() }
+                ui.onNodeWithText("已验证渠道策略 · 第 1 代").assertExists()
+                ui.onNodeWithTag("plugin-version-confirm").assertIsNotEnabled()
+                ui.onNodeWithTag("plugin-version-acknowledge").performScrollTo().performClick()
+                ui.onNodeWithTag("plugin-version-confirm").assertIsEnabled().performScrollTo().performClick()
+                ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-selection-result").fetchSemanticsNodes().isNotEmpty() }
+                assertTrue(runBlocking { extensions.controller!!.installedVersions().selection!!.choices.values.single().enabled })
+                return
+            }
             verify()
             ui.onNodeWithTag("plugin-zip-install-confirmation").performScrollTo().performClick()
             ui.onNodeWithTag("plugin-zip-install").performScrollTo().performClick()
@@ -180,6 +219,7 @@ class PluginInstallUITest {
                 assertEquals(0, com.hanxi.ghosterm.bridge.PluginInstallFiles.lock(fd.fd))
                 for (name in (root.list()?.toSet() ?: emptySet()) - before) PluginInstallTestFiles.clean(java.io.File(root, name))
             }
+            if (ownsCache) PluginInstallTestFiles.clean(cache)
             val tree = android.provider.DocumentsContract.buildTreeDocumentUri(PreviewPackageDocumentsProvider.AUTHORITY, "preview-root")
             context.contentResolver.call(control, "cleanup", null, Bundle().apply { putString("uri", tree.toString()); putInt("flags", android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION) })
         }
