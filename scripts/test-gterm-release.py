@@ -43,7 +43,8 @@ CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-varia
 CASES += ['residue-maintenance', 'residue-reference', 'residue-damaged-intent']
 CASES += ['node-same-multi', 'exec-same-multi']
 CASES += ['policy-subset']
-FAULT_CASES = ['version-resume', 'residue-resume']
+POLICY_SYNC_CASES = {'policy-file-sync': 'file-sync', 'policy-directory-sync': 'directory-sync'}
+FAULT_CASES = ['version-resume', 'residue-resume', *POLICY_SYNC_CASES]
 
 
 def require(value, label):
@@ -52,7 +53,7 @@ def require(value, label):
 
 
 def policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
-                  install_options, profile, node, signer):
+                  install_options, profile, node, signer, fault):
     other_id = 'org.ghosterm.second'
     second = work / 'second-package'
     shutil.copytree(package, second)
@@ -88,11 +89,11 @@ def policy_subset(run, work, package, catalog, policy, trusted, key_id, descript
     allowed = run(review_command)
     trusted['revokedKeyIds'] = [key_id]
 
-    def apply(review, ids, expected=0):
+    def apply(review, ids, expected=0, catalog_io=None):
         return run(['plugin', 'disable-denied', '--catalog', catalog, '--policy', policy,
                     '--expect-revision', review['revision'], '--expect-policy-digest', review['policyDigest'],
                     '--review-digest', review['reviewDigest'],
-                    *(option for selected in ids for option in ('--select', selected))], expected)
+                    *(option for selected in ids for option in ('--select', selected))], expected, catalog_io)
 
     original = (catalog / 'executor-catalog-v1').read_bytes()
     require(apply(allowed, [other_id], 2)['code'] == 'POLICY_SELECTION', 'cannot select an allowed record')
@@ -102,10 +103,21 @@ def policy_subset(run, work, package, catalog, policy, trusted, key_id, descript
     for ids in ([other_id, 'org.ghosterm.missing'], [other_id, other_id]):
         require(apply(revoked, ids, 2)['code'] == 'POLICY_SELECTION', 'invalid selection fails as a unit')
     require((catalog / 'executor-catalog-v1').read_bytes() == original, 'rejected selection leaves bytes intact')
-    applied = apply(revoked, [other_id])
-    require(applied['disabledCount'] == 1 and applied['revision'] == '3', 'only selected denial removed')
+    if fault:
+        failed = apply(revoked, [other_id], 5, fault)
+        require(failed['code'] == 'POLICY_COMMIT' and not failed['durabilityConfirmed'] and
+                failed['committed'] == (fault == 'directory-sync'), 'commit visibility and durability are distinct')
+        require(not any(p.name.startswith('.executor-catalog-') for p in catalog.iterdir()),
+                'failed publication must clean the transaction file')
+        if fault == 'file-sync':
+            require((catalog / 'executor-catalog-v1').read_bytes() == original, 'pre-publication failure preserves bytes')
+            require(run(review_command)['reviewDigest'] == revoked['reviewDigest'], 'fresh observation matches old state')
+    if fault != 'directory-sync':
+        applied = apply(revoked, [other_id])
+        require(applied['disabledCount'] == 1 and applied['revision'] == '3', 'only selected denial removed')
     remaining = run(review_command)
-    require(remaining['deniedCount'] == 1 and remaining['entries'][0]['id'] == description['pluginId'],
+    require(remaining['revision'] == '3' and remaining['deniedCount'] == 1 and
+            remaining['entries'][0]['id'] == description['pluginId'],
             'unselected denied record preserved')
     apply(revoked, [description['pluginId']], 9)
     require(apply(remaining, [description['pluginId']])['disabledCount'] == 1, 'fresh review permits second selection')
@@ -553,8 +565,9 @@ def exercise(build, node, sdk, case, work):
                GHOSTERM_AUTOMATION_OFFSCREEN='1')
     binary = build / 'gterm'
 
-    def run(arguments, expected=0):
-        process = subprocess.run([str(binary), *map(str, arguments)], capture_output=True, env=env,
+    def run(arguments, expected=0, catalog_io=None):
+        child_env = dict(env, GTERM_TEST_CATALOG_IO=catalog_io) if catalog_io else env
+        process = subprocess.run([str(binary), *map(str, arguments)], capture_output=True, env=child_env,
                                  timeout=15, preexec_fn=(lambda: os.umask(0o777)) if case == 'umask' else None)
         require(process.returncode == expected, f'{case}: expected {expected}, got {process.returncode}: {process.stdout!r} {process.stderr!r}')
         require(not any(token in process.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']), 'normal native result')
@@ -565,7 +578,7 @@ def exercise(build, node, sdk, case, work):
         policy = work / 'policy.json'
         trusted = dict(schemaVersion=1, channel='fixture', keys=[dict(id=key_id, algorithm='ed25519',
                        publicKey=public, publisher=manifest['publisher'], pluginIds=[manifest['id']])], revokedKeyIds=[])
-        if case == 'policy-subset':
+        if case == 'policy-subset' or case in POLICY_SYNC_CASES:
             trusted['keys'][0]['pluginIds'].append('org.ghosterm.second')
         descriptor = work / 'release.json'; signature = work / 'release.sig'
         description = dict(schemaVersion=1, channel='fixture', keyId=key_id, pluginId=manifest['id'],
@@ -657,9 +670,9 @@ def exercise(build, node, sdk, case, work):
         if case == 'policy-review':
             policy_workflow(run, work, catalog, policy, trusted, key_id, installed_version, package, host, profile)
             return
-        if case == 'policy-subset':
+        if case == 'policy-subset' or case in POLICY_SYNC_CASES:
             policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
-                          options, profile, node, signer)
+                          options, profile, node, signer, POLICY_SYNC_CASES.get(case))
             return
         if case == 'conflict':
             options[options.index('--expect-revision') + 1] = '1'
