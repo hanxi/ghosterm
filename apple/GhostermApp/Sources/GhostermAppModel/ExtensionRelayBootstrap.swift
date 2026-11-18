@@ -201,6 +201,13 @@ public enum ExtensionRelayBootstrap {
         return argv
     }
 
+    static func validateMultiplexTemporaryDirectory(_ directory: String) throws {
+        guard directory.hasPrefix("/"), directory.utf8.count <= 4096,
+              !directory.utf8.contains(0), !directory.contains("\n") else {
+            throw invalid("连接临时目录须为不含换行或 NUL 的绝对路径，最多 4096 UTF-8 字节")
+        }
+    }
+
     public static func buildMultiplex(connection: String, scopes: [ExtensionController.MultiplexScope],
                                       requests: [Request], local: Bool, temporaryDirectory: String, live: Bool = false) throws -> (argv: [String], command: String) {
         func identity(_ id: String) -> Bool {
@@ -210,11 +217,10 @@ public enum ExtensionRelayBootstrap {
               Set(scopes.map(\.instance)).count == scopes.count, Set(scopes.map(\.epoch)).count == scopes.count,
               scopes.allSatisfy({ identity($0.instance) && $0.epoch != 0 }),
               let first = requests.first, requests.allSatisfy({ $0.executable == first.executable && $0.attachment == nil }),
-              temporaryDirectory.hasPrefix("/"), temporaryDirectory.utf8.count <= 4096,
-              !temporaryDirectory.utf8.contains(0), !temporaryDirectory.contains("\n"),
               requests.allSatisfy({ $0.execution == nil || $0.execution?.temporaryDirectory == temporaryDirectory }) else {
             throw invalid("启动组需要同一 gterm、明确临时目录与一至八个独立实例，不能包含已有前台附着")
         }
+        try validateMultiplexTemporaryDirectory(temporaryDirectory)
         var argv = [first.executable, "relay", "--multiplex"]
         if live { argv.append("--live") }
         argv += ["--connection", connection]

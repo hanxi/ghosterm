@@ -20,6 +20,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         }) else {
             throw GhostermError.failed("启动组须有一至八项，使用同一目标、gterm、临时目录和本机授权，且不能包含已有前台附着")
         }
+        try ExtensionRelayBootstrap.validateMultiplexTemporaryDirectory(first.temporaryDirectory)
         if let local = first.localLaunch, local.temporaryDirectory != first.temporaryDirectory {
             throw GhostermError.failed("本机启动与连接临时目录不一致")
         }
