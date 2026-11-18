@@ -63,6 +63,31 @@ final class PluginDirectorySignatureTests: XCTestCase {
         rejects(.unknownKey) { try f.verify(payload: Self.json(descriptor)) }
     }
 
+    func testChannelRootBindsPolicyBytesAndFreshnessAtReleaseVerification() throws {
+        let f = Fixture(), root = Fixture()
+        let policy = try Self.json(f.policy)
+        let statement = try Self.json(["schemaVersion": 1, "channel": "test", "generation": "2",
+                                       "issuedAt": "100", "expiresAt": "200", "policySHA256": Self.hash(policy)])
+        let signature = try root.sign(statement, domain: "ghosterm.channel-policy.v1\0")
+        func verified(_ policy: Data, _ signature: Data, now: UInt64 = 150) throws -> Verifier.VerifiedChannelPolicy {
+            try Verifier.verifyChannelPolicy(statement: statement, signature: signature, policy: policy,
+                                             channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: now)
+        }
+        let proof = try verified(policy, signature)
+        XCTAssertEqual(proof.generation, 2)
+        let descriptor = try Self.json(f.descriptor), releaseSignature = try f.sign(descriptor)
+        func verifyRelease(now: UInt64) throws -> PluginDirectorySignature {
+            try Verifier.verify(descriptor: descriptor, signature: releaseSignature, channelPolicy: proof,
+                                identity: f.identity, now: now)
+        }
+        XCTAssertEqual(try verifyRelease(now: 199).policySHA256, Self.hash(policy))
+        rejects(.channelFreshness) { try verifyRelease(now: 200) }
+        rejects(.channelFreshness) { try verified(policy, signature, now: 99) }
+        rejects(.channelStatement) { try verified(policy + Data([10]), signature) }
+        rejects(.channelStatement) { try verified(policy, f.sign(statement, domain: "ghosterm.channel-policy.v1\0")) }
+        rejects(.channelStatement) { try verified(policy, root.sign(statement)) }
+    }
+
     func testIdentityCannotBeReplacedByCaller() throws {
         let f = Fixture()
         for identity in [

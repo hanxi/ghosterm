@@ -26,6 +26,7 @@ public enum PluginDirectorySignatureVerifier {
 
     public enum Failure: String, Error, Sendable, LocalizedError {
         case json, duplicateKey, limit, file, changed, policy, descriptor, unknownKey, revokedKey, scope, signature, identity
+        case channelStatement, channelFreshness
         public var errorDescription: String? {
             switch self {
             case .json, .duplicateKey: return "签名描述或渠道策略不是有效且无重复字段的 JSON。"
@@ -39,8 +40,52 @@ public enum PluginDirectorySignatureVerifier {
             case .scope: return "渠道、发布者或插件不在所选密钥的授权范围内。"
             case .signature: return "发布签名不匹配。"
             case .identity: return "发布描述与当前已审查的目录包摘要或身份不一致。"
+            case .channelStatement: return "渠道策略声明格式、签名或摘要无效。"
+            case .channelFreshness: return "渠道策略尚未生效或已过期。"
             }
         }
+    }
+
+    public struct VerifiedChannelPolicy: Sendable {
+        public let channel: String
+        public let generation: UInt64
+        public let issuedAt: UInt64
+        public let expiresAt: UInt64
+        public let statementSHA256: String
+        fileprivate let policyBytes: Data
+    }
+
+    public static func verifyChannelPolicy(statement: Data, signature: Data, policy policyBytes: Data,
+                                           channel: String, channelRoot: Data, now: UInt64) throws -> VerifiedChannelPolicy {
+        guard statement.count <= 65_536, policyBytes.count <= 131_072 else { throw Failure.limit }
+        guard channelRoot.count == 32, signature.count == 64 else { throw Failure.channelStatement }
+        let fields = try ReleaseJSON.parse(statement).object()
+        guard exact(fields, ["schemaVersion", "channel", "generation", "issuedAt", "expiresAt", "policySHA256"]),
+              try fields["schemaVersion"]?.integer(maximum: 1) == 1,
+              try fields["channel"]?.string() == channel,
+              try fields["policySHA256"]?.string() == hash(policyBytes),
+              let generation = try positiveDecimal(fields["generation"]),
+              let issuedAt = try positiveDecimal(fields["issuedAt"]),
+              let expiresAt = try positiveDecimal(fields["expiresAt"]) else { throw Failure.channelStatement }
+        guard try policy(policyBytes).channel == channel else { throw Failure.scope }
+        var message = Data("ghosterm.channel-policy.v1\0".utf8)
+        message.append(statement)
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: channelRoot)
+        guard key.isValidSignature(signature, for: message) else { throw Failure.channelStatement }
+        guard issuedAt <= now, now < expiresAt else { throw Failure.channelFreshness }
+        return VerifiedChannelPolicy(channel: channel, generation: generation, issuedAt: issuedAt,
+                                     expiresAt: expiresAt, statementSHA256: hash(statement), policyBytes: policyBytes)
+    }
+
+    public static func verify(descriptor: Data, signature: Data, channelPolicy: VerifiedChannelPolicy,
+                              identity: Identity, now: UInt64) throws -> PluginDirectorySignature {
+        guard channelPolicy.issuedAt <= now, now < channelPolicy.expiresAt else { throw Failure.channelFreshness }
+        return try verify(descriptor: descriptor, signature: signature, trustedPolicy: channelPolicy.policyBytes, identity: identity)
+    }
+
+    private static func positiveDecimal(_ field: ReleaseJSON.Value?) throws -> UInt64? {
+        guard let value = try field?.string(), matches(value, "^[1-9][0-9]{0,19}$") else { return nil }
+        return UInt64(value)
     }
 
     public static func verify(descriptor: Data, signature: Data, trustedPolicy: Data,
