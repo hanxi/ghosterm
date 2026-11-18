@@ -595,7 +595,7 @@ python3 scripts/gterm-plugin release verify --artifact tmp/preview-release/plugi
 export TMPDIR="$PWD/tmp"
 mkdir -p tmp/official-release
 python3 scripts/build-plugin-codex.py --tools build/plugin-sdk-tools --out tmp/official-release/ai-codex
-python3 scripts/build-plugin-claude.py --fetch --out tmp/official-release/ai-claude
+python3 scripts/build-plugin-claude.py --tools build/plugin-sdk-tools --out tmp/official-release/ai-claude
 python3 -B scripts/test-plugin-release.py \
   --tools tmp/plugin-dev/tools --sdk-tools build/plugin-sdk-tools \
   --ai-packages tmp/official-release/ai-codex tmp/official-release/ai-claude \
