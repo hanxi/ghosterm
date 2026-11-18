@@ -142,8 +142,17 @@ class ExtensionConnectionTest {
             assertNull(main { extensions.activeSession }) // Default singleton never owns a group scope.
             val replacementRequest = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), review.digest, review.digest,
                 emptyList(), command = "table", arguments = listOf("--count", "33"))
-            main { extensions.enqueueGroup(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(),
-                target.alias, replacementRequest, null, payload.getString("temporary")) }
+            runBlocking {
+                withContext(Dispatchers.Main) {
+                    val entry = ExtensionPackagesViewModel.Entry(review, "已批准（本进程）")
+                    val command = review.commands.single()
+                    val temporary = payload.getString("temporary")
+                    val invalid = replacementRequest.copy(arguments = listOf("--count", "invalid"))
+                    assertTrue(extensions.validateAndEnqueueGroup(entry, command, target.alias, invalid, null, temporary).isFailure)
+                    assertTrue(extensions.pendingGroup.isEmpty())
+                    extensions.validateAndEnqueueGroup(entry, command, target.alias, replacementRequest, null, temporary).getOrThrow()
+                }
+            }
             val candidate = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${candidate.id}").performScrollTo().performClick()
             await("online consent") { main { !extensions.groupSubmissionBusy && current.instances.lastOrNull()?.id == candidate.id && current.instances.last().model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }

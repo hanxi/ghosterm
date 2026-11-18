@@ -104,6 +104,19 @@ import XCTest
                 executorDigest: review.digest, clientDigest: review.digest, methods: [], command: "table", arguments: ["--count", String(i)]),
                 sshAlias: "mux-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
         }
+        let invalidArguments = ExtensionGroupInvocation(packageID: review.id, request: .init(
+            executable: binary, executorDirectory: directory, executorDigest: review.digest,
+            clientDigest: review.digest, methods: [], command: "table", arguments: ["--count", "invalid"]),
+            sshAlias: "mux-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
+        do {
+            try await app.validateQueuedExtensionGroup([invocations[0], invalidArguments])
+            XCTFail("启动组预检接受了不符合命令声明的参数")
+        } catch {
+            XCTAssertTrue(app.extensionConnections.isEmpty)
+        }
+        try await app.validateQueuedExtensionGroup(invocations)
+        XCTAssertTrue(app.extensionConnections.isEmpty)
+
         let mismatched = ExtensionGroupInvocation(packageID: review.id, request: invocations[0].request,
             sshAlias: "different-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
         let rejected = await app.startExtensionGroup([invocations[0], mismatched])
