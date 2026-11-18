@@ -13319,3 +13319,12 @@ SSH-on / signature-off 的 Core 闸门。874 项 CTest、206 个公共 ABI 符�
 未实现入口检查全部通过。CTest 日志 SHA256
 `ced9c5d27cddc7b5f3736ea49bdcc9dcaf7e2839a4555f29cf9be8e4bfcc8540`。
 此轮包含真实 QuickJS 和启用包校验的边界测试，隔离构建已清理。
+
+### Android 单实例提交预检与表格 SSH 复验（2026-11-19）
+
+固定 `e742abf1`，以固定官方 table 候选包在 API 36 arm64 无窗口 AVD 运行
+`test-plugin-table-android-native.py`。23 项模型、编解码和界面对照通过。直连和两跳
+ProxyJump 各通过百万行分页及空结果两项真实 SSH 用例。每项先走生产单实例提交入口，
+验证无效参数不创建 SSH 请求或 Session，并释放忙状态，随后以合法参数完成授权与 RPC。
+收据 SHA256 `bf1125cdd52bfd78750c85d933a4c27802a277306e80a6275a7d94fcdec0eb9e`。
+本轮使用独立 ADB 和已授权本机回环夹具，隔离产物已清理。未运行变异及其它设备矩阵。
