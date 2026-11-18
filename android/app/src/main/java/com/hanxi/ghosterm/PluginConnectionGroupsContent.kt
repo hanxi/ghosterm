@@ -96,6 +96,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
             group.instances.forEachIndexed { index, instance ->
                 Row {
                     TextButton(onClick = { model.selectGroupInstance(instance.model) },
+                        enabled = !group.busy || model.selectedGroupInstance === instance.model,
                         modifier = Modifier.weight(1f).testTag("plugin-instance-${instance.id}")) {
                         val phase = instance.model.activeRuntime?.info?.phase?.toString()
                             ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"

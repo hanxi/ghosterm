@@ -179,7 +179,7 @@ class ExtensionMixedConnectionTest {
             main { extensions.enqueueGroup(entry, review.commands.single(), target.alias, request(3, "node", true), null, payload.getString("temporary")) }
             val pending = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${pending.id}").performScrollTo().performClick()
-            await("online Node consent") { main { current.instances.lastOrNull()?.id == pending.id } }
+            await("online Node consent") { main { !extensions.groupSubmissionBusy && current.instances.lastOrNull()?.id == pending.id } }
             val replacement = main { current.instances.last() }; approve(replacement); resource(replacement.model, 3)
             main { current.instances.toList().forEach(current::requestCloseInstance) }
             await("all closed") { main { current.instances.all { it.closed } } }

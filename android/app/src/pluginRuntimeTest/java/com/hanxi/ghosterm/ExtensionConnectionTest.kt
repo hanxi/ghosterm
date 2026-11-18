@@ -146,7 +146,7 @@ class ExtensionConnectionTest {
                 target.alias, replacementRequest, null, payload.getString("temporary")) }
             val candidate = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${candidate.id}").performScrollTo().performClick()
-            await("online consent") { main { current.instances.lastOrNull()?.id == candidate.id && current.instances.last().model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
+            await("online consent") { main { !extensions.groupSubmissionBusy && current.instances.lastOrNull()?.id == candidate.id && current.instances.last().model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             val replacement = main { current.instances.last() }
             assertEquals(9L, main { replacement.model.activeSession!!.info.epoch })
             ui.onNodeWithText("允许并启动").performClick()

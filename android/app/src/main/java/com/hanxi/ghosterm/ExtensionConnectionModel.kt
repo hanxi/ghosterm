@@ -5,9 +5,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -17,9 +19,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import org.json.JSONObject
 import android.os.SystemClock
@@ -71,6 +75,24 @@ internal class ExtensionConnectionModel(private val application: Application,
     private var sessions: SessionsViewModel? = null
     private val cleanup = Mutex()
 
+    private suspend fun awaitConsent(starting: List<Instance>) {
+        val ready = withTimeoutOrNull(60_000) {
+            snapshotFlow {
+                starting.map { instance ->
+                    val phase = instance.model.activeSession?.info?.phase
+                    val error = instance.model.error
+                    check(!instance.closed && !instance.closeRequested && error == null &&
+                        phase != null && phase != ExtensionSession.Phase.ENDED &&
+                        phase != ExtensionSession.Phase.CLOSED) {
+                        "${instance.title}：${error ?: "会话在待授权前结束"}"
+                    }
+                    phase == ExtensionSession.Phase.CONSENT
+                }
+            }.first { states -> states.all { it } }
+        }
+        check(ready != null) { "插件 Session 握手超过 60 秒" }
+    }
+
     suspend fun start(launches: List<ExtensionGroupInvocation>, target: PreparedSSH, sessions: SessionsViewModel): Boolean {
         check(launchJob == null && !closed && !closing)
         launchJob = currentCoroutineContext()[Job]; busy = true; this.sessions = sessions
@@ -111,9 +133,8 @@ internal class ExtensionConnectionModel(private val application: Application,
                 delay(25)
             }
             currentCoroutineContext().ensureActive()
-            check(instances.size == launches.size && instances.all { it.model.activeSession != null } && !closing) {
-                "共享连接未确认全部实例已接管会话"
-            }
+            check(instances.size == launches.size && !closing) { "共享连接未返回完整实例集合" }
+            awaitConsent(instances.toList())
             monitor = scope.launch {
                 try {
                     while (!closed) {
@@ -188,6 +209,7 @@ internal class ExtensionConnectionModel(private val application: Application,
             val instance = instances.last()
             added = instance
             model.startMultiplexInstance(invocation.launch, first.alias, "此连接的在线实例 · " + targetDescription)
+            awaitConsent(listOf(instance))
             currentCoroutineContext().ensureActive()
             return instance
         } catch (failure: Exception) {
