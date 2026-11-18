@@ -47,13 +47,20 @@ import XCTest
         let admission = try await owner.requestExecutorRPC(method: "fixture.echo",
             input: JSONSerialization.data(withJSONObject: ["text": text, "count": count]), timeoutMilliseconds: 10000)
         let handle = try XCTUnwrap(admission.handle)
-        try await until("RPC \(count): \(model.extensionRunIssue ?? "")") {
-            let (_, value) = try await owner.executorRPCResult(handle: handle); return value?.confirmed == true
+        var terminal: ExtensionSession.RPCResult?
+        try await until("fixture.echo \(text)/\(count) did not reach a terminal state") {
+            let (status, result) = try await owner.executorRPCResult(handle: handle)
+            guard status == .ok else { throw GhostermError.failed("fixture.echo \(text)/\(count): result status \(status)") }
+            guard let result, result.state != .queued, result.state != .pending else { return false }
+            terminal = result
+            return true
         }
-        let (_, result) = try await owner.executorRPCResult(handle: handle)
-        XCTAssertEqual(result?.state, .succeeded, "fixture.echo \(text)/\(count): " + String(decoding: result?.outcome ?? Data(), as: UTF8.self))
-        guard result?.state == .succeeded else { return false }
-        let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(result).outcome) as? [String: Any])
+        let result = try XCTUnwrap(terminal)
+        let detail = String(decoding: result.outcome, as: UTF8.self)
+        XCTAssertTrue(result.state == .succeeded && result.confirmed,
+                      "fixture.echo \(text)/\(count): \(result.state), confirmed=\(result.confirmed), \(detail)")
+        guard result.state == .succeeded, result.confirmed else { return false }
+        let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: result.outcome) as? [String: Any])
         let value = try XCTUnwrap(outcome["value"] as? [String: Any])
         XCTAssertEqual(value["text"] as? String, text); XCTAssertEqual(value["count"] as? Int, count)
         let forgotten = try await owner.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
