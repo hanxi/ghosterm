@@ -13698,3 +13698,13 @@ SSH-on / JS-on 的六路 CTest 运行 874 项，其中 872 项通过，`tmux_dis
 锁文件安装精确版本。收据 SHA256
 `911ed229546ed49f17ce26c2f82bd795f9e92a2044fff2003ec2c7c2b73ebfcf`。
 本轮未执行完整 OOM 扫描、平台包审批 UI 或插件启动，临时目录已清理。
+
+### P2 Runtime 故障变异集中复验（2026-11-19）
+
+固定 `503a3c5c`，离线运行 `test-plugin-runtime.py --tools build/plugin-sdk-tools --mutate`。
+22 组隔离 ASan / UBSan 变异覆盖模块与角色、CPU / 内存 / job 预算、停止与释放、
+子进程预算及退出回收、执行文件核验和接管失败撤销。每组真实编译后触发普通断言，
+同库配置对照、目标复原及 SHA256 核对通过。最终重新运行 55 项运行时与视图、
+四项时钟和相关进程与配置守卫，全部通过。收据 SHA256
+`0d5fecb7f71967d920769d570c0f1ebeddaa81ce445674a37451c8ea8f262e1c`。
+本轮为 Core，未运行平台 UI 或设备矩阵。一次性副本、构件及日志已清理。
