@@ -156,7 +156,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     init {
         if (BuildConfig.PLUGIN_JS_ENABLED && monitorSessions) viewModelScope.launch {
             while (true) {
-                val live = sessions.toList().filterNot { it.state.terminal }
+                val live = sessions.toList().filter { it.state.connected && !it.state.terminal }
                 val found = frontendCandidates.filter { !it.expired && live.any { s -> s.id == it.sourceID } }.toMutableList()
                 var issue: String? = null
                 for (source in live) {
@@ -207,7 +207,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if (processTerminals) (application as GhostermApplication).terminalBackground
         if(monitorSessions && !processTerminals) viewModelScope.launch {
             while (true) {
-                sessions.forEach { it.state = it.connection.state() }
+                sessions.forEach {
+                    it.state = it.connection.state()
+                    if (!it.state.connected || it.state.terminal) {
+                        removeFrontendCandidates(it.id)
+                    }
+                }
                 delay(250)
             }
         }
@@ -253,11 +258,16 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     fun close(id: UUID) {
         val session = sessions.firstOrNull { it.id == id } ?: return
         session.connection.close(); sessions.remove(session)
-        frontendCandidates = frontendCandidates.filterNot { it.sourceID == id }
+        removeFrontendCandidates(id)
         surfaceTargets.value = sessions.toList()
         if (terminalStore.previous == id) terminalStore.previous = null
         if (selected == id) selected = (sessions.lastOrNull { !it.state.terminal } ?: sessions.lastOrNull())?.id
         if (sessions.isEmpty()) visible = false
+    }
+    private fun removeFrontendCandidates(sourceID: UUID) {
+        if (frontendCandidates.any { it.sourceID == sourceID }) {
+            frontendCandidates = frontendCandidates.filterNot { it.sourceID == sourceID }
+        }
     }
     fun selectNewRemote() { selectingNewRemote = true; home() }
     fun clearStopped(ids: List<UUID>) {

@@ -153,6 +153,17 @@ class TerminalScreenTest {
         }
     }
 
+    @Test fun shellExitClearsPassiveCandidateWhenTheTerminalStops() {
+        val candidate = emitPassiveDiscoveryOffer() ?: return
+        ui.runOnIdle { terminal().commitText("exit\r") }
+        ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.terminal == true } }
+        ui.runOnIdle {
+            assertEquals(candidate.sourceID, sessions.active?.id)
+            assertTrue("stopped terminal must not keep presenting a candidate",
+                sessions.frontendCandidates.isEmpty())
+        }
+    }
+
     @Test fun closingATerminalImmediatelyClearsItsPassiveCandidate() {
         val candidate = emitPassiveDiscoveryOffer() ?: return
         ui.runOnIdle {
