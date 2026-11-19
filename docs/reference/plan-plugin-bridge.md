@@ -15252,3 +15252,10 @@ Portable / Node / Exec、签名及开发来源、逐实例准入、RPC、资源�
 在注入故障前已是 FAILED，两个路径均不记通过。增量让同一主线程回调检查
 注入前后的各槽位并输出状态；runner 保留每条路线独立失败，整组仍非零。
 两路构建与测试均在无窗口 AVD 执行，临时材料已清理，根因尚未确定。
+
+固定 `4cc0f194` 加诊断重跑 API 36。直连在 slot 7 资源 RPC 约 10.4 秒时
+返回 UNKNOWN/HANDLER_INTERRUPTED，缓存和立即再查均为 ACTIVE/NONE。
+两跳 ProxyJump 的 slot 1 在注入观察故障前已记录 FAILED/PROTOCOL，
+Session end=PEER、sessionError=0。两路均为红；目前没有证据证明两个失败
+来自同一原因。测试输出新增耗时和原生快照，未改运行时预算。变异判据随断言
+文案更新，变异本轮未执行。无窗口设备及构件已清理。

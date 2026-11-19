@@ -40,6 +40,7 @@ class ExtensionMixedConnectionTest {
     }
     private fun echo(model: ExtensionPackagesViewModel, text: String, slot: Int) {
         val owner = checkNotNull(model.controller)
+        val started = SystemClock.elapsedRealtime()
         val admission = try { runBlocking { owner.requestRuntimeExecutor("fixture.echo",
             JSONObject().put("text", text).put("count", slot).toString().toByteArray(), 10000) } }
         catch (failure: IllegalArgumentException) {
@@ -51,7 +52,13 @@ class ExtensionMixedConnectionTest {
             runBlocking { owner.runtimeExecutorRequestResult(handle).second?.confirmed == true }
         }
         val result = checkNotNull(runBlocking { owner.runtimeExecutorRequestResult(handle).second })
-        assertEquals("RPC $text/$slot: ${result.outcome.toString(Charsets.UTF_8)}", ExtensionSession.RPCState.SUCCEEDED, result.state)
+        if (result.state != ExtensionSession.RPCState.SUCCEEDED) {
+            val elapsed = SystemClock.elapsedRealtime() - started
+            val cached = main { model.activeRuntime?.info }
+            val observed = runCatching { runBlocking { owner.stepRuntime().info } }
+            fail("RPC $text/$slot: ${result.outcome.toString(Charsets.UTF_8)} " +
+                "state=${result.state} elapsedMs=$elapsed cached=$cached observed=$observed")
+        }
         val value = JSONObject(result.outcome.toString(Charsets.UTF_8)).getJSONObject("value")
         assertEquals(text, value.getString("text")); assertEquals(slot, value.getInt("count"))
         assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { owner.forgetRuntimeExecutorRequest(handle) })
@@ -154,7 +161,7 @@ class ExtensionMixedConnectionTest {
                 fun checkPeers(stage: String) {
                     peers.forEach { (slot, instance) ->
                         val model = instance.model
-                        assertTrue("$stage slot=$slot phase=${model.activeRuntime?.info?.phase} " +
+                        assertTrue("$stage slot=$slot runtime=${model.activeRuntime?.info} " +
                             "busy=${model.launchBusy} observation=${model.runtimeObservationIssue} issue=${model.error}",
                             model.canInteractWithRuntime)
                     }

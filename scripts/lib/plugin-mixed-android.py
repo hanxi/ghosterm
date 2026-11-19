@@ -77,7 +77,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 if not junit.normal_junit_assertion(text) or text.count('INSTRUMENTATION_STATUS_CODE: -2\n') != 1 or any(
                     mark in text for mark in ('Process crashed', 'AppNotIdleException', 'TimeoutException', 'INSTRUMENTATION_FAILED', 'AddressSanitizer', 'runtime error:')):
                     raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-10000:])
-                if 'RPC resource/0:' not in text or 'CANCELLED' not in text or 'but was:<UNKNOWN>' not in text:
+                if 'RPC resource/0:' not in text or 'CANCELLED' not in text or 'state=UNKNOWN' not in text:
                     raise RuntimeError(label + ': assertion did not identify the resource-progress regression\n' + text[-10000:])
             elif 'OK (1 test)' not in text or 'INSTRUMENTATION_STATUS: numtests=1\n' not in text or any(
                 mark in text for mark in ('INSTRUMENTATION_FAILED', 'assumption failed:', 'INSTRUMENTATION_STATUS_CODE: -4')):
