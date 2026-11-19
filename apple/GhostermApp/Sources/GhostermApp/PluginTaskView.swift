@@ -40,12 +40,12 @@ struct PluginTaskView: View {
             }
     }
     var statusAnnouncement: String? {
-        if let issue = model.issue { return issue }
+        let title = model.descriptor?.title ?? "任务"
+        if let issue = model.issue { return "\(title)，\(issue)" }
         if let phase = model.snapshot?.phase, phase.terminal {
-            let title = model.descriptor?.title ?? "任务"
             return "\(title)，\(phase.label)"
         }
-        return cancellationMessage
+        return cancellationMessage.map { "\(title)，\($0)" }
     }
 
     private var cancellationMessage: String? {
