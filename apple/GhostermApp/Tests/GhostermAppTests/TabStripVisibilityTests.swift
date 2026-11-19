@@ -111,7 +111,7 @@ import XCTest
                 var count = 0
                 for y in 0..<image.pixelsHigh {
                     for x in stride(from: 0, to: image.pixelsWide, by: 2) {
-                        var pixel = [UInt](repeating: 0, count: image.samplesPerPixel)
+                        var pixel = [Int](repeating: 0, count: image.samplesPerPixel)
                         image.getPixel(&pixel, atX: x, y: y)
                         if Int(pixel[0]) - Int(pixel[1]) > 5 && Int(pixel[1]) - Int(pixel[2]) > 5 { count += 1 }
                     }

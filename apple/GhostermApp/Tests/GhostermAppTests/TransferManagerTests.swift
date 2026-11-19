@@ -135,7 +135,7 @@ final class TransferManagerTests: XCTestCase {
                                 name: "preview", isDirectory: false, maxBytes: 32 * 1024 * 1024)
         let id = manager.jobs[0].id
         XCTAssertTrue(waitForJob(manager, id: id) { $0.coreJob == 1 })
-        XCTAssertEqual(backend.boundedDownloadLimits, [32 * 1024 * 1024])
+        XCTAssertEqual(backend.boundedDownloadLimits, [UInt64(32 * 1024 * 1024)])
         XCTAssertEqual(backend.overwriteDecisions, [false])
         XCTAssertTrue(backend.submittedDownloads.contains(where: { $0.0 == "/r/preview" }))
     }

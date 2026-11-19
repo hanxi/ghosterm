@@ -17,7 +17,7 @@ import XCTest
                              x: CGFloat, y: CGFloat, rgb: [CGFloat], _ message: String,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         let scale = CGFloat(image.pixelsWide) / f.root.bounds.width
-        var pixel = [UInt](repeating: 0, count: image.samplesPerPixel)
+        var pixel = [Int](repeating: 0, count: image.samplesPerPixel)
         image.getPixel(&pixel, atX: Int(x * scale), y: Int(y * scale))
         // cacheDisplay 使用显示器 ICC；先把固定 sRGB 期望值转到位图色域再比较原始分量。
         let expected = try XCTUnwrap(NSColor(srgbRed: rgb[0] / 255, green: rgb[1] / 255,
@@ -91,7 +91,7 @@ import XCTest
                 try assertColor(shot, f, x: 500, y: 200, rgb: [48, 48, 48], "留白时分隔区域必须透明")
             } else {
                 let scale = CGFloat(shot.pixelsWide) / f.root.bounds.width
-                var center = [UInt](repeating: 0, count: shot.samplesPerPixel)
+                var center = [Int](repeating: 0, count: shot.samplesPerPixel)
                 var beside = center
                 shot.getPixel(&center, atX: Int(500 * scale), y: Int(200 * scale))
                 shot.getPixel(&beside, atX: Int(498 * scale), y: Int(200 * scale))
@@ -130,7 +130,7 @@ import XCTest
                     let workspace = try XCTUnwrap(f.views(WorkspaceHostView.self).first)
                     let scale = CGFloat(shot.pixelsWide) / f.root.bounds.width
                     func pixel(_ x: CGFloat, _ y: CGFloat) -> [Int] {
-                        var p = [UInt](repeating: 0, count: shot.samplesPerPixel)
+                        var p = [Int](repeating: 0, count: shot.samplesPerPixel)
                         shot.getPixel(&p, atX: Int(x * scale), y: Int(y * scale))
                         return [Int(p[0]), Int(p[1]), Int(p[2])]
                     }
@@ -185,7 +185,7 @@ import XCTest
             var ink = 0
             for y in Int(top * scale)..<Int((top + rect.height) * scale) {
                 for x in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
-                    var pixel = [UInt](repeating: 0, count: shot.samplesPerPixel)
+                    var pixel = [Int](repeating: 0, count: shot.samplesPerPixel)
                     shot.getPixel(&pixel, atX: x, y: y)
                     let luma = (Int(pixel[0]) * 299 + Int(pixel[1]) * 587 + Int(pixel[2]) * 114) / 1000
                     if dark ? luma > 140 : luma < 140 { ink += 1 }

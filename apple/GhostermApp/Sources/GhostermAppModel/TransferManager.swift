@@ -415,9 +415,13 @@ public final class TransferManager: ObservableObject {
                     guard let self, let i = self.jobs.firstIndex(where: { $0.id == parentID }) else { return }
                     let retained = createdDirectories.isEmpty ? "" : "；已创建并保留目录 \(createdDirectories.count) 项"
                     let uncertain = uncertainDirectories.isEmpty ? "" : "；目录创建结果未知 \(uncertainDirectories.count) 项，请检查目标"
+                    // 下载失败时，创建本地根目录本身没有传输任何内容，不能把它
+                    // 误报成部分成功。只有根目录之外确实创建了远端目录才保留 partial。
+                    let retainedTransferDirectories = direction == .download
+                        ? max(0, createdDirectories.count - 1) : createdDirectories.count
                     let status: Status = !uncertainDirectories.isEmpty
                         ? .unknown("目录传输结果未知：\(error)\(retained)\(uncertain)")
-                        : !createdDirectories.isEmpty
+                        : retainedTransferDirectories > 0
                             ? .partial("目录传输未完成：\(error)\(retained)")
                             : cancellation.cancelled ? .cancelled : .failed("目录传输失败：\(error)")
                     self.finish(i, status: status)
