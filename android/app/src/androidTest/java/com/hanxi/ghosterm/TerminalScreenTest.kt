@@ -51,13 +51,17 @@ class TerminalScreenTest {
         sessions = SessionsViewModel(app, settings = preferences)
         ui.setContent { GhostermApp(hosts, runtime, sessions) }
         ui.onNodeWithText("本地终端").performClick()
+        initializeActiveShell()
+    }
+
+    private fun initializeActiveShell() {
         ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
         awaitReadyViewport()
         ui.runOnIdle { terminal().commitText(NativePtyFixture.initialize()+"stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "UI_SHELL_READY" }
-
     }
+
     @After fun cleanup() {
         ui.runOnIdle { sessions.sessions.map { it.id }.forEach(sessions::close) }
         preferences.close()
@@ -126,6 +130,7 @@ class TerminalScreenTest {
             .perform(GeneralClickAction(if (long) Tap.LONG else Tap.SINGLE, coordinates, Press.FINGER, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0))
     }
     private fun emitPassiveDiscoveryOffer(): FrontendCandidate? {
+        val source = ui.runOnIdle { checkNotNull(sessions.active).id }
         val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
         ui.runOnIdle {
             terminal().commitText("printf '%b' '\\033]777;ghosterm-discovery;1;$payload\\007\\033[2J\\033[HPTY_CANDIDATE_READY'\r")
@@ -135,8 +140,8 @@ class TerminalScreenTest {
             ui.runOnIdle { assertTrue(sessions.frontendCandidates.isEmpty()) }
             return null
         }
-        ui.waitUntil(5_000) { ui.runOnIdle { sessions.frontendCandidates.size == 1 } }
-        return ui.runOnIdle { sessions.frontendCandidates.single() }
+        ui.waitUntil(5_000) { ui.runOnIdle { sessions.frontendCandidates.any { it.sourceID == source } } }
+        return ui.runOnIdle { sessions.frontendCandidates.single { it.sourceID == source } }
     }
 
     @Test fun passiveCandidateExpiresWithoutNewOutput() {
@@ -161,6 +166,27 @@ class TerminalScreenTest {
             assertEquals(candidate.sourceID, sessions.active?.id)
             assertTrue("stopped terminal must not keep presenting a candidate",
                 sessions.frontendCandidates.isEmpty())
+        }
+    }
+
+    @Test fun restartingTerminalCreatesAnIndependentPassiveCandidateOwner() {
+        val original = emitPassiveDiscoveryOffer() ?: return
+        ui.runOnIdle { terminal().commitText("exit\r") }
+        ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.terminal == true } }
+        ui.runOnIdle { sessions.restartLocal(original.sourceID) }
+        ui.waitUntil(10_000) {
+            ui.runOnIdle { sessions.active?.let { it.id != original.sourceID && it.state.connected } == true }
+        }
+        initializeActiveShell()
+        val replacement = checkNotNull(emitPassiveDiscoveryOffer())
+        ui.runOnIdle {
+            assertNotEquals(original.sourceID, replacement.sourceID)
+            assertEquals(original.offer.instance, replacement.offer.instance)
+            assertFalse(sessions.frontendCandidateIsCurrent(original))
+            assertTrue(sessions.frontendCandidateIsCurrent(replacement))
+            assertEquals(listOf(replacement), sessions.frontendCandidates)
+            sessions.close(original.sourceID)
+            assertEquals(listOf(replacement), sessions.frontendCandidates)
         }
     }
 
