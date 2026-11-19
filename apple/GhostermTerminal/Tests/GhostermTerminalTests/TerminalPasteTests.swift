@@ -22,18 +22,14 @@ private final class PasteBytes: @unchecked Sendable {
         let app = try TerminalApp.shared()
         if let error = app.reloadConfig(path: path) { throw NSError(domain: error, code: 1) }
         addTeardownBlock { _ = app.reloadConfig(path: nil) }
-        let surface = try TerminalSurface(app: app), bytes = PasteBytes()
+        let clipboard = NSPasteboard.withUniqueName()
+        addTeardownBlock { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard), bytes = PasteBytes()
         surface.onInput = { bytes.append($0) }
-        let items: [NSPasteboardItem] = NSPasteboard.general.pasteboardItems?.map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types { if let bytes = item.data(forType: type) { copy.setData(bytes, forType: type) } }
-            return copy
-        } ?? []
-        addTeardownBlock { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(items) }
         return (app, surface, TerminalHostView(surface: surface), bytes)
     }
-    private func setClipboard(_ text: String) {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+    private func setClipboard(_ surface: TerminalSurface, _ text: String) {
+        surface.clipboard.clearContents(); surface.clipboard.setString(text, forType: .string)
     }
     @discardableResult private func pump(_ app: TerminalApp, seconds: Double = 2, until done: () -> Bool) -> Bool {
         let end = Date().addingTimeInterval(seconds)
@@ -46,20 +42,20 @@ private final class PasteBytes: @unchecked Sendable {
     func testUnsafeMenuPasteWaitsForApprovalAndUsesReviewedSnapshot() throws {
         let (app, surface, host, bytes) = try fixture()
         let text = "first line\nreviewed second line"
-        setClipboard(text)
+        setClipboard(surface, text)
         var decision: ((Bool) -> Void)?, reviewed: String?, kind: TerminalSurface.ClipboardOperation?
         surface.clipboardConfirmation = { operation, snapshot, done in kind = operation; reviewed = snapshot; decision = done }
         host.paste(nil)
         _ = pump(app) { decision != nil || !bytes.snapshot.isEmpty }
         let pending = bytes.snapshot.isEmpty && decision != nil && reviewed == text && kind == .paste
-        setClipboard("changed while permission was open\nnever reviewed")
+        setClipboard(surface, "changed while permission was open\nnever reviewed")
         decision?(true)
         _ = pump(app) { !bytes.snapshot.isEmpty }
         XCTAssertTrue(pending && bytes.snapshot == expected(text), "menu paste must review before writing and approve exactly the captured text")
     }
     func testDeniedUnsafePasteProducesNoInput() throws {
         let (app, surface, host, bytes) = try fixture()
-        setClipboard("never execute\nthis line")
+        setClipboard(surface, "never execute\nthis line")
         var asked = false
         surface.clipboardConfirmation = { _, _, done in asked = true; done(false) }
         host.paste(nil); settle(app)
@@ -70,8 +66,8 @@ private final class PasteBytes: @unchecked Sendable {
         let first = "first reviewed\nonly this"
         var decisions: [(Bool) -> Void] = []
         surface.clipboardConfirmation = { _, _, done in decisions.append(done) }
-        setClipboard(first); host.paste(nil); _ = pump(app) { !decisions.isEmpty || !bytes.snapshot.isEmpty }
-        setClipboard("second request\nnot reviewed"); host.paste(nil); settle(app)
+        setClipboard(surface, first); host.paste(nil); _ = pump(app) { !decisions.isEmpty || !bytes.snapshot.isEmpty }
+        setClipboard(surface, "second request\nnot reviewed"); host.paste(nil); settle(app)
         let single = decisions.count == 1 && bytes.snapshot.isEmpty
         decisions.first?(true); _ = pump(app) { !bytes.snapshot.isEmpty }
         XCTAssertTrue(single && bytes.snapshot == expected(first), "an outstanding review cannot silently switch to a newer clipboard request")
@@ -80,10 +76,10 @@ private final class PasteBytes: @unchecked Sendable {
         let (app, surface, host, bytes) = try fixture()
         var decisions: [(Bool) -> Void] = []
         surface.clipboardConfirmation = { _, _, done in decisions.append(done) }
-        setClipboard("old\ncancelled"); host.paste(nil); _ = pump(app) { decisions.count == 1 || !bytes.snapshot.isEmpty }
+        setClipboard(surface, "old\ncancelled"); host.paste(nil); _ = pump(app) { decisions.count == 1 || !bytes.snapshot.isEmpty }
         decisions.first?(false)
         let next = "new\nreviewed separately"
-        setClipboard(next); host.paste(nil); _ = pump(app) { decisions.count == 2 || !bytes.snapshot.isEmpty }
+        setClipboard(surface, next); host.paste(nil); _ = pump(app) { decisions.count == 2 || !bytes.snapshot.isEmpty }
         decisions.first?(true); settle(app)
         let pending = decisions.count == 2 && bytes.snapshot.isEmpty
         if decisions.count > 1 { decisions[1](true) }
@@ -95,7 +91,7 @@ private final class PasteBytes: @unchecked Sendable {
         host.paneFocused = true
         var decision: ((Bool) -> Void)?
         surface.clipboardConfirmation = { _, _, done in decision = done }
-        setClipboard("old pane\nmust not run"); host.paste(nil)
+        setClipboard(surface, "old pane\nmust not run"); host.paste(nil)
         _ = pump(app) { decision != nil || !bytes.snapshot.isEmpty }
         let asked = decision != nil
         host.paneFocused = false
@@ -106,7 +102,7 @@ private final class PasteBytes: @unchecked Sendable {
         let (app, surface, host, bytes) = try fixture()
         var decision: ((Bool) -> Void)?
         surface.clipboardConfirmation = { _, _, done in decision = done }
-        setClipboard("hidden pane\nmust not run"); host.paste(nil)
+        setClipboard(surface, "hidden pane\nmust not run"); host.paste(nil)
         _ = pump(app) { decision != nil || !bytes.snapshot.isEmpty }
         let asked = decision != nil
         surface.setVisible(false)
@@ -117,11 +113,11 @@ private final class PasteBytes: @unchecked Sendable {
         let (app, surface, host, bytes) = try fixture()
         var prompts = 0
         surface.clipboardConfirmation = { _, _, done in prompts += 1; done(false) }
-        setClipboard("plain café"); host.paste(nil); _ = pump(app) { !bytes.snapshot.isEmpty }
+        setClipboard(surface, "plain café"); host.paste(nil); _ = pump(app) { !bytes.snapshot.isEmpty }
         let first = bytes.snapshot
         surface.feed(Data("\u{1b}[?2004h".utf8))
         let text = "bracketed\n中文"
-        setClipboard(text); host.paste(nil)
+        setClipboard(surface, text); host.paste(nil)
         let expected = Data(("plain café\u{1b}[200~" + text + "\u{1b}[201~").utf8)
         _ = pump(app) { bytes.snapshot.count >= expected.count }
         XCTAssertTrue(first == Data("plain café".utf8) && bytes.snapshot == expected && prompts == 0,
@@ -132,27 +128,27 @@ private final class PasteBytes: @unchecked Sendable {
         var prompts = 0
         surface.clipboardConfirmation = { _, _, done in prompts += 1; done(false) }
         let text = "explicit preference\nsecond line"
-        setClipboard(text); host.paste(nil); _ = pump(app) { !bytes.snapshot.isEmpty }
+        setClipboard(surface, text); host.paste(nil); _ = pump(app) { !bytes.snapshot.isEmpty }
         XCTAssertTrue(prompts == 0 && bytes.snapshot == expected(text), "the wrapper must use the configured engine policy")
     }
     func testCopyOnSelectWritesOnlyTheActualSelection() throws {
         let (app, surface, _, _) = try fixture("copy-on-select = true\n")
-        setClipboard("before selection")
+        setClipboard(surface, "before selection")
         surface.feed(Data("SELECTED_ROW\r\nNOT_SELECTED".utf8))
         surface.sendMousePos(x: 1, y: 5); surface.sendMouseButton(.press, button: .left)
         surface.sendMousePos(x: 300, y: 5); surface.sendMouseButton(.release, button: .left)
-        _ = pump(app) { NSPasteboard.general.string(forType: .string) != "before selection" }
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), "SELECTED_ROW")
+        _ = pump(app) { surface.clipboard.string(forType: .string) != "before selection" }
+        XCTAssertEqual(surface.clipboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), "SELECTED_ROW")
     }
     func testClipboardWriteAskKeepsWriteIntentAndDenialPreservesClipboard() throws {
         let (app, surface, _, _) = try fixture("clipboard-write = ask\n")
-        setClipboard("preserved before program write")
+        setClipboard(surface, "preserved before program write")
         var kind: TerminalSurface.ClipboardOperation?, reviewed: String?
         surface.clipboardConfirmation = { operation, text, done in kind = operation; reviewed = text; done(false) }
         let text = "program clipboard write"
         surface.feed(Data(("\u{1b}]52;c;" + Data(text.utf8).base64EncodedString() + "\u{7}").utf8))
         _ = pump(app) { kind != nil }
-        XCTAssertTrue(kind == .write && reviewed == text && NSPasteboard.general.string(forType: .string) == "preserved before program write",
+        XCTAssertTrue(kind == .write && reviewed == text && surface.clipboard.string(forType: .string) == "preserved before program write",
             "a program write must remain distinct from a user paste and preserve the clipboard when denied")
     }
     func testNativePastePreviewUsesAByteBudgetForCombiningText() throws {
@@ -162,7 +158,7 @@ private final class PasteBytes: @unchecked Sendable {
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)); window.order(.below, relativeTo: 0)
         defer { window.close() }
         let text = "a" + String(repeating: "\u{301}", count: 10_000) + "\nsecond line"
-        setClipboard(text); surface.pasteFromClipboard()
+        setClipboard(surface, text); surface.pasteFromClipboard()
         _ = pump(app) { window.attachedSheet != nil || !bytes.snapshot.isEmpty }
         var informative: String?, deny: NSButton?
         func visit(_ view: NSView) {
@@ -183,7 +179,7 @@ private final class PasteBytes: @unchecked Sendable {
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)); window.order(.below, relativeTo: 0)
         defer { window.close() }
         let text = "native review\nsecond line"
-        setClipboard(text); surface.pasteFromClipboard()
+        setClipboard(surface, text); surface.pasteFromClipboard()
         _ = pump(app) { window.attachedSheet != nil || !bytes.snapshot.isEmpty }
         var labels: [String] = [], allow: NSButton?
         func visit(_ view: NSView) {
@@ -193,7 +189,7 @@ private final class PasteBytes: @unchecked Sendable {
         }
         if let content = window.attachedSheet?.contentView { visit(content) }
         let reviewed = labels.contains("确认粘贴到当前终端？") && labels.contains(where: { $0.contains(text) }) && bytes.snapshot.isEmpty
-        setClipboard("changed\nnot approved")
+        setClipboard(surface, "changed\nnot approved")
         allow?.performClick(nil); _ = pump(app) { !bytes.snapshot.isEmpty }
         XCTAssertTrue(reviewed && bytes.snapshot == expected(text), "a native paste confirmation must describe paste and keep its original bytes")
     }

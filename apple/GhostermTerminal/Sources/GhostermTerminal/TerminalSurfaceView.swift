@@ -224,8 +224,8 @@ public final class TerminalHostView: NSView, NSTextInputClient {
     // 标准编辑菜单经 firstResponder 路由到当前终端，不向 shell 发送 ⌘C/⌘V。
     @objc public func copy(_ sender: Any?) {
         guard let text = surface.selectedText(), !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        surface.clipboard.clearContents()
+        surface.clipboard.setString(text, forType: .string)
     }
 
     @objc public func paste(_ sender: Any?) {

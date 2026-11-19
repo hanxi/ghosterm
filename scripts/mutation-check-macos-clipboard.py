@@ -23,10 +23,10 @@ SHIM = TERMINAL + 'Sources/CGhostty/shim.c'
 MENU = APP + 'Sources/GhostermApp/AppMenu.swift'
 CASES = [
     ('shim-action', SHIM, 'static const char action[] = "paste_from_clipboard";', 'static const char action[] = "ignore";', 'testSafeAndBracketedPastesUseEngineEncodingWithoutPrompt'),
-    ('paste-entry', VIEW, '        surface.pasteFromClipboard()', '        if let text = NSPasteboard.general.string(forType: .string) { surface.sendText(text) }', 'testUnsafeMenuPasteWaitsForApprovalAndUsesReviewedSnapshot'),
+    ('paste-entry', VIEW, '        surface.pasteFromClipboard()', '        if let text = surface.clipboard.string(forType: .string) { surface.sendText(text) }', 'testUnsafeMenuPasteWaitsForApprovalAndUsesReviewedSnapshot'),
     ('pane-cancel', VIEW, 'if !paneFocused { surface.cancelClipboardRequests() }', '// mutation: keep the old pane permission', 'testChangingActivePaneRevokesItsPendingPaste'),
     ('approve-result', SURFACE, 'if allowed {', 'if true {', 'testDeniedUnsafePasteProducesNoInput'),
-    ('reviewed-bytes', SURFACE, 'text.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, text.utf8.count, true) }', 'let value = NSPasteboard.general.string(forType: .string) ?? ""\n                    value.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, value.utf8.count, true) }', 'testUnsafeMenuPasteWaitsForApprovalAndUsesReviewedSnapshot'),
+    ('reviewed-bytes', SURFACE, 'text.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, text.utf8.count, true) }', 'let value = clipboard.string(forType: .string) ?? ""\n                    value.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, value.utf8.count, true) }', 'testUnsafeMenuPasteWaitsForApprovalAndUsesReviewedSnapshot'),
     ('pending-once', SURFACE, 'guard clipboardDecision == nil else { completion(false); return }', '// mutation: replace an outstanding permission', 'testSecondPendingRequestCannotReplaceReviewedPaste'),
     ('generation', SURFACE, 'self.clipboardGeneration == generation, ', '', 'testOldApprovalCannotApproveANewerRequest'),
     ('hidden-cancel', SURFACE, 'if !visible { cancelClipboard() }', 'if false { cancelClipboard() }', 'testHiddenSurfaceRevokesItsPendingPaste'),

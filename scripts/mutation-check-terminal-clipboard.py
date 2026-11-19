@@ -39,8 +39,8 @@ try:
     for old, new in [
         ('@objc public func copy(_ sender: Any?)', '@objc public func disconnectedCopy(_ sender: Any?)'),
         ('@objc public func paste(_ sender: Any?)', '@objc public func disconnectedPaste(_ sender: Any?)'),
-        ('NSPasteboard.general.setString(text, forType: .string)', '_ = text'),
-        ('surface.sendText(text)', '_ = text'),
+        ('surface.clipboard.setString(text, forType: .string)', '_ = text'),
+        ('surface.pasteFromClipboard()', '_ = surface'),
     ]:
         source = original.decode()
         assert source.count(old) == 1

@@ -1,6 +1,6 @@
 import AppKit
 import GhostermAppModel
-import GhostermTerminal
+@testable import GhostermTerminal
 import XCTest
 import ObjectiveC.runtime
 @testable import GhostermApp
@@ -31,6 +31,15 @@ private final class MenuClipboardBytes: @unchecked Sendable {
     var snapshot: Data { lock.lock(); defer { lock.unlock() }; return bytes }
 }
 
+// Preserve NSTextView selection insertion while supplying the fixture pasteboard.
+private final class MenuClipboardTextView: NSTextView {
+    var clipboard: NSPasteboard?
+    override func paste(_ sender: Any?) {
+        guard let clipboard else { return }
+        _ = readSelection(from: clipboard)
+    }
+}
+
 @MainActor final class ClipboardMenuRoutingTests: XCTestCase {
     override class func setUp() { super.setUp(); _ = NSApplication.shared; TestWindows.enterAutomationMode() }
     private func installMenu() throws -> AppModel {
@@ -41,12 +50,7 @@ private final class MenuClipboardBytes: @unchecked Sendable {
             knownHostsPath: directory.appendingPathComponent("known_hosts").path,
             settings: SettingsStore(terminalConfigPath: directory.appendingPathComponent("ghostty").path))
         AppMenu.install(model: model)
-        let items: [NSPasteboardItem] = NSPasteboard.general.pasteboardItems?.map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
-            return copy
-        } ?? []
-        addTeardownBlock { Task { @MainActor in NSApp.mainMenu = nil; NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(items) } }
+        addTeardownBlock { Task { @MainActor in NSApp.mainMenu = nil } }
         return model
     }
     private func item(_ title: String, in menu: NSMenu?) -> NSMenuItem? {
@@ -63,8 +67,8 @@ private final class MenuClipboardBytes: @unchecked Sendable {
         ClipboardMenuWindowContext.window = window
         return window
     }
-    private func paste(_ text: String, window: NSWindow) -> Bool {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+    private func paste(_ text: String, window: NSWindow, clipboard: NSPasteboard) -> Bool {
+        clipboard.clearContents(); clipboard.setString(text, forType: .string)
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
             characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9)!
@@ -83,7 +87,9 @@ private final class MenuClipboardBytes: @unchecked Sendable {
     func testProcessMenuUsesInjectedWindowResponderWithoutRetargetingItems() throws {
         let restoreWindowContext = ClipboardMenuWindowContext.install(); defer { restoreWindowContext() }
         let model = try installMenu(); defer { model.disconnectForTesting() }
-        let app = try TerminalApp.shared(), a = try TerminalSurface(app: app), b = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let app = try TerminalApp.shared(), a = try TerminalSurface(app: app, clipboard: clipboard), b = try TerminalSurface(app: app, clipboard: clipboard)
         let hostA = TerminalHostView(surface: a), hostB = TerminalHostView(surface: b)
         let bytesA = MenuClipboardBytes(), bytesB = MenuClipboardBytes()
         a.onInput = { bytesA.append($0) }; b.onInput = { bytesB.append($0) }
@@ -92,12 +98,12 @@ private final class MenuClipboardBytes: @unchecked Sendable {
         ClipboardMenuWindowContext.window = windowA; hostA.paneFocused = true
         let pasteItem = item("粘贴", in: NSApp.mainMenu)
         let routedA = pasteItem?.action.map { NSApp.target(forAction: $0, to: pasteItem?.target, from: pasteItem) as AnyObject? === hostA } ?? false
-        let first = paste("WINDOW_A_ONLY", window: windowA)
+        let first = paste("WINDOW_A_ONLY", window: windowA, clipboard: clipboard)
         _ = pump([app]) { !bytesA.snapshot.isEmpty }
         let isolatedA = bytesA.snapshot == Data("WINDOW_A_ONLY".utf8) && bytesB.snapshot.isEmpty
         ClipboardMenuWindowContext.window = windowB; hostB.paneFocused = true
         let routedB = pasteItem?.action.map { NSApp.target(forAction: $0, to: pasteItem?.target, from: pasteItem) as AnyObject? === hostB } ?? false
-        let second = paste("WINDOW_B_ONLY", window: windowB)
+        let second = paste("WINDOW_B_ONLY", window: windowB, clipboard: clipboard)
         _ = pump([app]) { !bytesB.snapshot.isEmpty }
         XCTAssertTrue(pasteItem != nil && pasteItem?.target == nil && routedA && routedB && first && second && isolatedA
             && bytesA.snapshot == Data("WINDOW_A_ONLY".utf8) && bytesB.snapshot == Data("WINDOW_B_ONLY".utf8),
@@ -106,7 +112,9 @@ private final class MenuClipboardBytes: @unchecked Sendable {
     func testProcessMenuFollowsPaneFocusAndTextEditor() throws {
         let restoreWindowContext = ClipboardMenuWindowContext.install(); defer { restoreWindowContext() }
         let model = try installMenu(); defer { model.disconnectForTesting() }
-        let app = try TerminalApp.shared(), a = try TerminalSurface(app: app), b = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let app = try TerminalApp.shared(), a = try TerminalSurface(app: app, clipboard: clipboard), b = try TerminalSurface(app: app, clipboard: clipboard)
         let hostA = TerminalHostView(surface: a), hostB = TerminalHostView(surface: b)
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         container.addSubview(hostA); container.addSubview(hostB)
@@ -114,12 +122,13 @@ private final class MenuClipboardBytes: @unchecked Sendable {
         let bytesA = MenuClipboardBytes(), bytesB = MenuClipboardBytes()
         a.onInput = { bytesA.append($0) }; b.onInput = { bytesB.append($0) }
         hostA.paneFocused = true
-        let first = paste("PANE_A", window: window); _ = pump([app]) { !bytesA.snapshot.isEmpty }
+        let first = paste("PANE_A", window: window, clipboard: clipboard); _ = pump([app]) { !bytesA.snapshot.isEmpty }
         hostA.paneFocused = false; hostB.paneFocused = true
-        let second = paste("PANE_B", window: window); _ = pump([app]) { !bytesB.snapshot.isEmpty }
-        let editor = NSTextView(frame: container.bounds)
+        let second = paste("PANE_B", window: window, clipboard: clipboard); _ = pump([app]) { !bytesB.snapshot.isEmpty }
+        let editor = MenuClipboardTextView(frame: container.bounds)
+        editor.clipboard = clipboard
         container.addSubview(editor); window.makeFirstResponder(editor)
-        let third = paste("EDITOR_ONLY", window: window)
+        let third = paste("EDITOR_ONLY", window: window, clipboard: clipboard)
         _ = pump([app]) { editor.string == "EDITOR_ONLY" }
         XCTAssertTrue(first && second && third && window.firstResponder === editor && editor.string == "EDITOR_ONLY"
             && bytesA.snapshot == Data("PANE_A".utf8) && bytesB.snapshot == Data("PANE_B".utf8),
@@ -128,7 +137,9 @@ private final class MenuClipboardBytes: @unchecked Sendable {
     func testProcessMenuPasteReachesTheRealLocalPTY() throws {
         let restoreWindowContext = ClipboardMenuWindowContext.install(); defer { restoreWindowContext() }
         let model = try installMenu(); defer { model.disconnectForTesting() }
-        let app = try TerminalApp.shared(), surface = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let app = try TerminalApp.shared(), surface = try TerminalSurface(app: app, clipboard: clipboard)
         let host = TerminalHostView(surface: surface), window = window(NSView())
         window.contentView = host; host.paneFocused = true
         defer { window.close() }
@@ -137,7 +148,7 @@ private final class MenuClipboardBytes: @unchecked Sendable {
         defer { session.stop() }
         session.start()
         let text = "clip_中文_café"
-        let invoked = paste(text, window: window)
+        let invoked = paste(text, window: window, clipboard: clipboard)
         surface.sendKey(.return)
         let arrived = pump([app]) { surface.readText()?.contains("MENU_LOCAL_<" + text + ">") == true }
         XCTAssertTrue(invoked && arrived, "process menu clipboard bytes must reach the actual local PTY and return through the grid")
@@ -145,19 +156,21 @@ private final class MenuClipboardBytes: @unchecked Sendable {
     func testProcessCopyUsesSelectionFromInjectedWindow() throws {
         let restoreWindowContext = ClipboardMenuWindowContext.install(); defer { restoreWindowContext() }
         let model = try installMenu(); defer { model.disconnectForTesting() }
-        let app = try TerminalApp.shared(), surface = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let app = try TerminalApp.shared(), surface = try TerminalSurface(app: app, clipboard: clipboard)
         let host = TerminalHostView(surface: surface)
         let window = window(host); defer { window.close() }
         host.paneFocused = true
         surface.feed(Data("COPY_SELECTED\r\nDO_NOT_COPY".utf8))
         surface.sendMousePos(x: 1, y: 5); surface.sendMouseButton(.press, button: .left)
         surface.sendMousePos(x: 300, y: 5); surface.sendMouseButton(.release, button: .left)
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString("before copy", forType: .string)
+        clipboard.clearContents(); clipboard.setString("before copy", forType: .string)
         let copy = item("拷贝", in: NSApp.mainMenu)
         let action = copy?.action
         let invoked = action.map { NSApp.sendAction($0, to: copy?.target, from: copy) } ?? false
         XCTAssertTrue(copy != nil && copy?.target == nil && invoked
-            && NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) == "COPY_SELECTED",
+            && clipboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) == "COPY_SELECTED",
             "the real menu copy action must resolve the current terminal selection")
     }
 }

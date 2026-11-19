@@ -1,5 +1,5 @@
 import AppKit
-import GhostermTerminal
+@testable import GhostermTerminal
 import XCTest
 
 @MainActor final class TerminalClipboardTests: XCTestCase {
@@ -7,7 +7,9 @@ import XCTest
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
         let host = TerminalHostView(surface: surface)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -16,12 +18,7 @@ import XCTest
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
         window.order(.below, relativeTo: 0)
         window.makeFirstResponder(host)
-        let previous = NSPasteboard.general.string(forType: .string)
-        defer {
-            window.close()
-            NSPasteboard.general.clearContents()
-            if let previous { NSPasteboard.general.setString(previous, forType: .string) }
-        }
+        defer { window.close() }
         let menu = NSMenu()
         menu.addItem(withTitle: "拷贝", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         menu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
@@ -36,10 +33,10 @@ import XCTest
             return menu.performKeyEquivalent(with: event)
         }
         XCTAssertTrue(window.firstResponder === host)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("unchanged", forType: .string)
+        clipboard.clearContents()
+        clipboard.setString("unchanged", forType: .string)
         XCTAssertTrue(shortcut("c", 8))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "unchanged")
+        XCTAssertEqual(clipboard.string(forType: .string), "unchanged")
         surface.feed(Data("CLIPBOARD_SELECTED\r\nNOT_SELECTED".utf8))
         // 拖过首行；下一行必须不在复制结果里。
         surface.sendMousePos(x: 1, y: 5)
@@ -47,10 +44,10 @@ import XCTest
         surface.sendMousePos(x: 300, y: 5)
         surface.sendMouseButton(.release, button: .left)
         XCTAssertTrue(shortcut("c", 8))
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), "CLIPBOARD_SELECTED")
+        XCTAssertEqual(clipboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), "CLIPBOARD_SELECTED")
         let text = "粘贴 café\nsecond line"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        clipboard.clearContents()
+        clipboard.setString(text, forType: .string)
         surface.feed(Data("\u{1b}[?2004h".utf8))
         let received = expectation(description: "bracketed paste reaches transport")
         let lock = NSLock()

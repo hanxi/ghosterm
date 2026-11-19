@@ -330,6 +330,7 @@ public final class TerminalSurface {
         var clipboardWrite: ((String, Bool) -> Void)?
     }
     private let box = CallbackBox()
+    let clipboard: NSPasteboard
 
     public convenience init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
         try self.init(app: app, frame: frame, clipboard: .general)
@@ -337,6 +338,7 @@ public final class TerminalSurface {
 
     init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600),
          clipboard: NSPasteboard) throws {
+        self.clipboard = clipboard
         self.view = SurfaceAnchorView(frame: frame)
         // 不要在这里设 wantsLayer：libghostty 的 Metal 渲染器要把 view 做成
         // "layer-hosting"——必须先给它自己的 layer，再置 wantsLayer（见
