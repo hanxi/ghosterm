@@ -164,6 +164,23 @@ class ClaudeConversationTest {
         }
     }
 
+    @Test fun confirmedSendKeepsTheDraftEditedWhileWaiting() = main { fixture { model, fake ->
+        val submitted = "submitted Claude input"
+        fake.sendEntered = CompletableDeferred()
+        fake.sendRelease = CompletableDeferred()
+        model.editDraft(submitted)
+        model.send()
+        withTimeout(5000) { fake.sendEntered!!.await() }
+        model.editDraft("draft for the next Claude turn")
+        fake.release()
+        until { !model.state.value.busy }
+
+        assertEquals(submitted, fake.calls.last { it.method == "send" }.input.getString("text"))
+        assertEquals(fake.inputID, model.state.value.activeMessageID)
+        assertEquals(ClaudeConversation.Phase.RUNNING, model.state.value.phase)
+        assertEquals("draft for the next Claude turn", model.state.value.draft)
+    } }
+
     @Test fun ownerChangeRejectsLateSendAndKeepsTheDraft() = main {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate); val fake = ClaudeChatFixture(); var active = true
         val model = ClaudeConversation(scope, fake::request, { active })

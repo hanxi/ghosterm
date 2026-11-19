@@ -188,6 +188,24 @@ final class ClaudeConversationTests: XCTestCase {
         }
     }
 
+    func testConfirmedSendKeepsTheDraftEditedWhileWaiting() async throws {
+        let (model, fixture) = try await ready()
+        defer { model.invalidate(); fixture.release() }
+        let submitted = "submitted Claude input"
+        model.draft = submitted
+        fixture.pauseSend = true
+        let send = Task { await model.send() }
+        try await until { fixture.sendBarrier != nil }
+        model.draft = "draft for the next Claude turn"
+        fixture.release()
+        await send.value
+
+        XCTAssertEqual(fixture.calls.last(where: { $0.method == "send" })?.input["text"]?.text, submitted)
+        XCTAssertEqual(model.activeMessageID, fixture.inputID)
+        XCTAssertEqual(model.phase, .running)
+        XCTAssertEqual(model.draft, "draft for the next Claude turn")
+    }
+
     func testInvalidationAndUnknownSendDoNotClearDraftOrReplay() async throws {
         for loss in [false, true] {
             let (model, fixture) = try await ready(); defer { model.invalidate(); fixture.release() }

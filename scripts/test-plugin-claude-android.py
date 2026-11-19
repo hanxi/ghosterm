@@ -150,7 +150,7 @@ def execute(args, serial):
             output = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
             (work / (label + '-test.log')).write_text(output)
-            count = 1 if target else (48 if args.observation else 32 if args.conversation else 13)
+            count = 1 if target else (49 if args.observation else 33 if args.conversation else 13)
             valid = (re.search(r'Tests run: 1,\s+Failures: 1', output) and
                 any(mark in output for mark in ['java.lang.AssertionError', 'org.junit.ComparisonFailure'])) if red else f'OK ({count} test' in output
             if red and any(mark in output for mark in ['TimeoutException', 'AppNotIdleException', 'Process crashed', 'timed out']):
@@ -160,7 +160,7 @@ def execute(args, serial):
                 expected = 'ordinary single assertion red' if red else 'executed green suite'
                 raise RuntimeError(label + ': expected ' + expected + '\n' + output)
             return output
-        build('baseline'); test('baseline'); print(f'BASELINE PASS: {48 if args.observation else 32 if args.conversation else 13} device RPC/launch/conversation checks', flush=True)
+        build('baseline'); test('baseline'); print(f'BASELINE PASS: {49 if args.observation else 33 if args.conversation else 13} device RPC/launch/conversation checks', flush=True)
         for name, file, old, new, target in (CASES + (CONVERSATION_CASES if args.conversation else []) + (OBSERVATION_CASES if args.observation else [])) if args.mutate else []:
             if args.case and name not in args.case: continue
             path = source / SOURCE / file; original = path.read_bytes()
