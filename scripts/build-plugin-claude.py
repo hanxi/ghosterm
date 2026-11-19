@@ -43,7 +43,7 @@ def main():
     (ROOT / 'tmp').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='claude-package-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
+        env = dict(os.environ, TMPDIR=str(work))
         tools = args.tools.resolve(strict=True) if args.tools else work / 'tools'
         if args.tools:
             for name in ('package.json', 'package-lock.json'):

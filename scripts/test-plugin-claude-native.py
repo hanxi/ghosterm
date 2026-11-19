@@ -33,7 +33,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='claude-native-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); node = work / 'node'
         shutil.copytree(ROOT / 'plugins/official/ai-claude/node', node)
-        environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
+        environment = dict(os.environ, TMPDIR=str(work))
         install = ['npm', 'ci', '--prefix', node, '--ignore-scripts', '--no-audit', '--no-fund', '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
         if not args.fetch: install.append('--offline')
         if args.node_tools:
@@ -51,7 +51,7 @@ def main():
         for mode in ['sdk-control-fixture', 'real-cli-no-model']:
             scope = work / mode; scope.mkdir()
             for name in ['home', 'config', 'workspace']: (scope / name).mkdir()
-            env = dict(HOME=str(scope / 'home'), CLAUDE_CONFIG_DIR=str(scope / 'config'), PATH=os.environ['PATH'], TMPDIR=str(ROOT / 'tmp'),
+            env = dict(HOME=str(scope / 'home'), CLAUDE_CONFIG_DIR=str(scope / 'config'), PATH=os.environ['PATH'], TMPDIR=str(scope),
                        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1')
             version = subprocess.check_output([node_binary, '--version'], env=env, text=True).strip()
             profile = scope / 'profile.json'
