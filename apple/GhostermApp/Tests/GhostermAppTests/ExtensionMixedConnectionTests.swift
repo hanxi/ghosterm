@@ -131,6 +131,16 @@ import XCTest
         if disconnect {
             let model = try XCTUnwrap(group.instances.first)
             guard try await resource(model, slot: 0) else { return }
+            app.showExtensionWorkspace()
+            XCTAssertEqual(app.channelStopTargets.filter { $0 === app.extensionInstance }.count, 1,
+                           "the primary instance and its pane must be visited only once")
+            XCTAssertEqual(app.channelStopTargets.filter { $0 === model }.count, 1)
+            for tab in app.tabs.tabs {
+                tab.workspacePanes.removeAll { $0.extensionInstance === model }
+            }
+            XCTAssertTrue(model.canInteractWithRuntime)
+            XCTAssertEqual(app.channelStopTargets.filter { $0 === model }.count, 1,
+                           "a live group owner remains a channel stop target without its workspace pane")
             XCTAssertEqual(try fixtureExchange("blackhole"), Data("OK\n".utf8))
             let owner = try XCTUnwrap(model.extensionController)
             try await owner.stopRuntime()

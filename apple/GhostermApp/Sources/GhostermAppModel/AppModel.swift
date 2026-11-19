@@ -1464,8 +1464,16 @@ public final class AppModel: ObservableObject {
     }
 
     public func stopInstancesWithRevokedPublisher() async throws -> ChannelStopResult {
-        let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
-        return try await Self.stopRevokedInstances(instances) { try await $0.stopIfPublisherRevoked() }
+        try await Self.stopRevokedInstances(channelStopTargets) { try await $0.stopIfPublisherRevoked() }
+    }
+
+    var channelStopTargets: [ExtensionInstanceModel] {
+        let workspace = tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
+        let grouped = extensionConnections.flatMap(\.instances)
+        var seen = Set<ObjectIdentifier>()
+        return ([extensionInstance] + workspace + grouped).filter {
+            seen.insert(ObjectIdentifier($0)).inserted
+        }
     }
 
     static func stopRevokedInstances<Instance>(_ instances: [Instance],

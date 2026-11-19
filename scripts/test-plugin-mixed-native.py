@@ -349,6 +349,9 @@ export function activate(ctx){
              b'                    }',
              b'_ = name.withCString { unlinkat(resourceRootFD, $0, AT_REMOVEDIR) }', 1,
              'local cleanup failure must not report closure'),
+            ('revocation-group-owner', 'AppModel', b'let grouped = extensionConnections.flatMap(\\.instances)',
+             b'let grouped: [ExtensionInstanceModel] = []', 1,
+             'a live group owner remains a channel stop target without its workspace pane'),
         ] if faults else [
             ('parent-pump', 'ExtensionController', b'                    _ = try self.run.parent?.multiplexer?.step()\n', b'', 2, None),
         ]
