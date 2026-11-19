@@ -93,7 +93,7 @@ def main():
                 if path.name != 'local.properties': inputs[str(path.relative_to(ROOT))] = sha(path)
     for name in ('scripts/test-plugin-views-android-native.py', 'scripts/test-plugin-codex-patch-android.py',
                  'scripts/test-plugin-task.py', 'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
-                 'scripts/test-plugin-channel.py', 'scripts/lib/gt-timeout.sh'):
+                 'scripts/test-plugin-channel.py', 'scripts/lib/gt-timeout.sh', 'scripts/check-android-plugin-license.py'):
         inputs[name] = sha(ROOT / name)
     if any(b'GT_ANDROID_VIEWS_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.kt')):
         raise RuntimeError('leftover Native views mutation')
@@ -152,6 +152,8 @@ def main():
         def compile_apks(label):
             run(label, [source / 'android/gradlew', '-p', source / 'android', '--offline', '--no-daemon', '--max-workers=2',
                 '-Dorg.gradle.parallel=false', '-PghostermPluginJs=true', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
+            run(label + "-license", [sys.executable, ROOT / "scripts/check-android-plugin-license.py",
+                                      apks[0], "--plugin-js", "enabled"])
             return [sha(p) for p in apks]
         baseline = compile_apks('build-baseline')
 

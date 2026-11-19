@@ -72,12 +72,13 @@ jobs:
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
         run: bash scripts/build-android.sh :app:assembleRelease
-      - name: Check APK for build-host paths
+      - name: Check APK paths and optional runtime license
         run: |
           set -euo pipefail
           apks=(android/app/build/outputs/apk/release/*.apk)
           test "${#apks[@]}" -eq 1
           python3 scripts/check-android-package-paths.py "${apks[0]}"
+          python3 scripts/check-android-plugin-license.py "${apks[0]}" --plugin-js disabled
       - name: Verify signed installable APK
         if: github.event_name != 'pull_request'
         run: |
