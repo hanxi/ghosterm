@@ -185,6 +185,36 @@ import XCTest
         m.invalidate(); f.alpha.release(); await pending.value
         XCTAssertNil(table.page); XCTAssertFalse(table.valid); XCTAssertTrue(m.items.isEmpty)
     }
+
+    func testNativeCloseControlsRouteOverlappingHandlesToTheirOwnInstance() async throws {
+        TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        let first = PluginViewsFixture(), second = PluginViewsFixture(instance: String(repeating: "c", count: 32))
+        let firstModel = try first.populated(), secondModel = try second.populated()
+        let overlap = firstModel.items[0].id
+        XCTAssertEqual(secondModel.items[0].id, overlap)
+        let firstHost = NSHostingView(rootView: PluginViewsView(model: firstModel))
+        let secondHost = NSHostingView(rootView: PluginViewsView(model: secondModel))
+        let firstProbe = ConversationUIProbe(root: firstHost), secondProbe = ConversationUIProbe(root: secondHost)
+        defer { firstProbe.close(); secondProbe.close() }
+        try await Task.sleep(for: .milliseconds(100))
+        secondHost.layoutSubtreeIfNeeded()
+        let close = try XCTUnwrap(PluginTableRendering.elements(secondHost).first {
+            PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-view-close" &&
+                PluginTableRendering.attribute($0, "accessibilityLabel") == "关闭视图 table-a"
+        })
+        XCTAssertTrue(PluginTableRendering.press(close))
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while secondModel.items.count == 4 && ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(second.closes, [overlap])
+        XCTAssertFalse(secondModel.items.contains { $0.id == overlap })
+        XCTAssertTrue(first.closes.isEmpty)
+        XCTAssertEqual(firstModel.items.map(\.id).first, overlap)
+    }
     func testTaskReopenKeepsUnknownCancellationIdentity() async throws {
         let f = PluginViewsFixture(), m = try f.populated()
         guard case .task(let old) = m.items[3].content else { return XCTFail("task") }
