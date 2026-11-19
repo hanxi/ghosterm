@@ -89,7 +89,7 @@ def main():
         'test-plugin-release.py', 'fixtures/plugin-dev-executor.c', 'fixtures/plugin-release-agent.mjs'):
         inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
     if args.android_api:
-        for filename in ('lib/plugin-mixed-android.py', 'test-plugin-codex-patch-android.py', 'test-plugin-channel.py'):
+        for filename in ('lib/plugin-mixed-android.py', 'lib/tmux-fault-proxy.py', 'test-plugin-codex-patch-android.py', 'test-plugin-channel.py'):
             inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
     source = args.project.absolute() if args.project else out / ('android-project' if args.android_api else 'project')
     marker = source / '.mixed-fixture-project.json'
@@ -248,7 +248,7 @@ export function activate(ctx){
             receipt = dict(accepted=True, inputs=inputs, commands=commands, **report,
                 binaries={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
                 logs={path.name: sha(path) for path in logs.iterdir()},
-                scope=('owned no-window Android cross-process revocation of signed pending Sessions and active Runtimes, explicit stop and release'
+                scope=('owned no-window Android cross-process revocation, explicit stop and release, and SSH reset after stop request'
                     if revocation else 'owned no-window Android Native mixed groups; consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
             (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
             return

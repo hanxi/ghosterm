@@ -102,9 +102,16 @@ class ExtensionMixedConnectionTest {
     @Test fun mixedExecutorsKeepResourcesAndAdmissionFailuresIndependent() {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val args = InstrumentationRegistry.getArguments()
-        val payload = Socket("127.0.0.1", checkNotNull(args.getString("fixturePort")).toInt()).use { socket ->
+        val fixturePort = checkNotNull(args.getString("fixturePort")).toInt()
+        val fixtureToken = checkNotNull(args.getString("fixtureToken"))
+        fun transportFault(mode: String) = Socket("127.0.0.1", fixturePort).use { socket ->
             socket.soTimeout = 5000
-            socket.getOutputStream().write((checkNotNull(args.getString("fixtureToken")) + "\n").toByteArray())
+            socket.getOutputStream().write("$fixtureToken:$mode\n".toByteArray())
+            assertEquals("owned SSH fault $mode", "OK", socket.getInputStream().bufferedReader().readLine())
+        }
+        val payload = Socket("127.0.0.1", fixturePort).use { socket ->
+            socket.soTimeout = 5000
+            socket.getOutputStream().write("$fixtureToken\n".toByteArray())
             val input = DataInputStream(socket.getInputStream()); val size = input.readInt(); require(size in 1..1048576)
             JSONObject(ByteArray(size).also(input::readFully).toString(Charsets.UTF_8))
         }
@@ -226,6 +233,24 @@ class ExtensionMixedConnectionTest {
                     assertTrue(main { model.canInteractWithRuntime })
                     echo(model, "still active", 0, stage = "after publisher revocation")
                     assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    if (payload.getBoolean("disconnectOnStop")) {
+                        transportFault("blackhole")
+                        ui.onNodeWithTag("plugin-channel-stop").performScrollTo().performClick()
+                        ui.waitUntil(15000) {
+                            ui.onAllNodes(hasTestTag("plugin-channel-refresh-status") and
+                                hasText("已向 1 个实例发出停止请求", substring = true)).fetchSemanticsNodes().isNotEmpty()
+                        }
+                        transportFault("reset")
+                        await("owned SSH transport reset not observed") { main { current.state?.info?.error?.let { it != 0 } == true } }
+                        assertFalse(main { model.canInteractWithRuntime })
+                        assertEquals(OsConstants.EAGAIN, leaseStatus())
+                        assertTrue(runBlocking { withContext(Dispatchers.Main) { current.close() } })
+                        assertTrue(main { current.state?.info?.released == true })
+                        assertFalse("TCP reset must not establish remote exit", checkNotNull(main { current.state?.transport }).remoteEof)
+                        assertTrue(main { current.issue?.contains("执行端退出未确认") == true })
+                        assertEquals(0, leaseStatus())
+                        return
+                    }
                     ui.onNodeWithTag("plugin-channel-stop").performScrollTo()
                     checkNotNull(context.contentResolver.call(writer, "hold-cache-lock", null, null))
                     try {

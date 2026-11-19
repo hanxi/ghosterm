@@ -33,6 +33,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
     streams = load('mixed_android_streams', 'test-plugin-ssh-stream.py')
     routes = load('mixed_android_routes', 'test-plugin-route.py')
     junit = load('mixed_android_junit', 'test-plugin-channel.py')
+    faults = load('mixed_android_ssh_faults', 'lib/tmux-fault-proxy.py')
     devices, records, mutations = [], [], []
     # Boot before allocating a copied NDK/Gradle build: the selected AOSP image
     # checks its required free partition space at startup. Do not shrink it.
@@ -122,7 +123,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         if start >= end:
             raise RuntimeError('no listener range outside device ephemeral range')
 
-        def actual(route, label, red=False, expected_assertion=None, active_revocation=False):
+        def actual(route, label, red=False, expected_assertion=None, active_revocation=False, disconnect=False):
             if revocation:
                 cleared, _ = run(label + '-reset', [*adb, 'shell', 'pm', 'clear', 'com.hanxi.ghosterm'])
                 if cleared.strip() != b'Success':
@@ -155,21 +156,33 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                         raise RuntimeError('actual reverse mapping differs')
                     return device
                 raise RuntimeError('no free owned device listener')
+            proxy = None
             try:
                 target_ports = list(ports)
                 first = 0 if route == 'jump' else 1
-                target_ports[first] = reverse(ports[first])
+                if disconnect:
+                    proxy = faults.SSHFaultProxy('127.0.0.1', ports[first], scratch)
+                target_ports[first] = reverse(proxy.port if proxy else ports[first])
                 payload = dict(route=route, scratch=str(scratch), temporary=str(scratch / 'stage'), package=str(package),
                     installed=str(installed / 'payload'), release=str(installed), policy=str(policy), policySHA256=sha(policy),
                     ports=target_ports, hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name,
                     pem=private.decode(), gterm=str(launcher), node=str(node), nodeVersion=node_version,
                     nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_digest,
-                    packageFiles={} if revocation else package_files, revocation=revocation, activeRevocation=active_revocation,
+                    packageFiles={} if revocation else package_files, revocation=revocation,
+                    activeRevocation=active_revocation, disconnectOnStop=disconnect,
                     packageDigest=sha(package / 'integrity.json'))
                 class Handler(socketserver.StreamRequestHandler):
                     def handle(self):
                         self.connection.settimeout(5)
-                        if self.rfile.readline(128).rstrip(b'\n') != token.encode():
+                        request = self.rfile.readline(128).rstrip(b'\n')
+                        if proxy and request in (f'{token}:blackhole'.encode(), f'{token}:reset'.encode()):
+                            with proxy.lock:
+                                connected = bool(proxy.links)
+                            if connected:
+                                proxy.fault(request.rsplit(b':', 1)[1].decode())
+                                self.wfile.write(b'OK\n')
+                            return
+                        if request != token.encode():
                             return
                         data = json.dumps(payload, separators=(',', ':')).encode()
                         self.wfile.write(struct.pack('>I', len(data)) + data)
@@ -194,8 +207,12 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     if list((scratch / 'stage').iterdir()): raise RuntimeError('remote staging was not released')
                     records.append(dict(api=api, route=route, label=label, apks=[sha(p) for p in apks]))
             finally:
-                for port in mappings:
-                    run(label + '-unmap-' + str(port), [*adb, 'reverse', '--remove', f'tcp:{port}'])
+                try:
+                    for port in mappings:
+                        run(label + '-unmap-' + str(port), [*adb, 'reverse', '--remove', f'tcp:{port}'])
+                finally:
+                    if proxy:
+                        proxy.close()
 
         completed = []
         failures = []
@@ -204,6 +221,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 actual(route, 'android-' + route)
                 if revocation:
                     actual(route, 'android-' + route + '-active', active_revocation=True)
+                    actual(route, 'android-' + route + '-disconnect', active_revocation=True, disconnect=True)
             except RuntimeError as failure:
                 failures.append(f'{route}: {failure}')
             else:
