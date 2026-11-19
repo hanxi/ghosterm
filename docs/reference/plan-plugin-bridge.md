@@ -15749,3 +15749,8 @@ P3 Codex 启动回执统一校验非空字符串且最多 128 UTF-8 字节，And
 直连与 ProxyJump 八项夹具回归在确认后再次调用入口，检查线程及错误状态。
 Android QuickJS Debug 构建通过，未在设备上注入非法回执。未使用真实模型，
 临时构件和 SSH 夹具已清理。
+
+P3 Android 线程回执由 Host 解码器统一验证。API 36 无窗口的 11 项 Host
+测试通过，确认拒绝缺失、null、数字、布尔、空白和超长值，并接受正好
+128 UTF-8 字节的多字节 ID。QuickJS Debug／测试 APK 构建通过；本轮使用
+本地 JSON 夹具，未从 SSH 注入非法回执。临时构件和 AVD 已清理。

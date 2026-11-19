@@ -67,6 +67,12 @@ internal object CodexHostEvents {
         return outcome.optJSONObject("value") ?: error("Codex RPC success value is missing")
     }
 
+    fun threadID(value: JSONObject): String {
+        val id = value.opt("threadID") as? String
+        require(id != null && id.isNotBlank() && codexChangeUtf8(id).size <= 128) { "Codex thread ID 无效" }
+        return id
+    }
+
     fun decode(request: ExtensionSession.RPCRequest): CodexHostEvent {
         require(request.method == "codex.event") { "Host method is not registered" }
         val source = strictUtf8(request.input)

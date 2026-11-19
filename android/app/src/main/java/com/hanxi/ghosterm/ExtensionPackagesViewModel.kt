@@ -407,9 +407,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         if (!canCallCodex("codex.thread.start") || codex.threadID != null) return
         callCodex("无法启动 Codex 对话") {
             val value = codexRPC("codex.thread.start", JSONObject())
-            val id = value.opt("threadID") as? String
-            require(id != null && id.isNotBlank() && id.toByteArray().size <= 128) { "Codex thread ID 无效" }
-            codex = codex.copy(threadID = id)
+            codex = codex.copy(threadID = CodexHostEvents.threadID(value))
         }
     }
 

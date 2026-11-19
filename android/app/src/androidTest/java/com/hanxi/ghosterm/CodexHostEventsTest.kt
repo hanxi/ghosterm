@@ -17,6 +17,17 @@ class CodexHostEventsTest {
             JSONObject().put("event", event).toString().toByteArray(Charsets.UTF_8))
     }
 
+    @Test fun threadReceiptRequiresANonblankBoundedString() {
+        val exact = "😀".repeat(32)
+        assertEquals(exact, CodexHostEvents.threadID(JSONObject().put("threadID", exact)))
+        for (value in listOf(JSONObject.NULL, 42, true, "", " \n", exact + "x")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                CodexHostEvents.threadID(JSONObject().put("threadID", value))
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) { CodexHostEvents.threadID(JSONObject()) }
+    }
+
     @Test fun acknowledgedEventKeepsDraftAndRpcUpdatesMadeWhileAcknowledging() {
         val approval = CodexPendingApproval("42", "item/fileChange/requestApproval", "{}", "change")
         val before = CodexHostState(approvals = listOf(approval), messageDraft = "old", callBusy = true,
