@@ -70,6 +70,11 @@ int main(int argc, char **argv) {
     char client_digest[65];
     memset(client_digest, 'd', 64);
     client_digest[64] = 0;
+    const char *fixture_client_digest = getenv("GT_GTERM_FIXTURE_CLIENT_DIGEST");
+    if (fixture_client_digest) {
+        CHECK(strlen(fixture_client_digest) == 64);
+        memcpy(client_digest, fixture_client_digest, 64);
+    }
     bool pipes = !strcmp(mode, "pipes");
     int fd[2], up[2] = {-1, -1}, down[2] = {-1, -1};
     if (pipes) {

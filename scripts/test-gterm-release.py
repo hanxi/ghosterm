@@ -773,8 +773,10 @@ def install_official_candidates(build, fixtures, work):
         require(observed == expected, f'{name}: installed payload must match signed archive')
         require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
         profile = ['--client-digest', release.sha(expected['integrity.json'])]
+        workspace = work / f'{name}-workspace'
         if name in ('preview', 'ai-codex', 'ai-claude'):
-            profile.extend(['--root', 'workspace', work])
+            workspace.mkdir(mode=0o700)
+            profile.extend(['--root', 'workspace', workspace])
         if name in ('ai-codex', 'ai-claude'):
             program = 'codex' if name == 'ai-codex' else 'claude-node'
             inert = Path('/usr/bin/false').resolve(strict=True)
@@ -789,7 +791,7 @@ def install_official_candidates(build, fixtures, work):
                 f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
         manifest = json.loads(expected['plugin.json'])
         command = manifest['commands'][0]['path']
-        arguments = ['sample.txt'] if name == 'preview' else []
+        arguments = ['site/index.md', '--assets', r'site/theme\,dark.css'] if name == 'preview' else []
         invocation = [*command, *arguments]
         endpoint = work / f'{name}-ipc'
         endpoint.mkdir(mode=0o700)
@@ -833,6 +835,32 @@ def install_official_candidates(build, fixtures, work):
                 require(not list(endpoint.iterdir()), f'{name}: rejected attachment must clean the IPC endpoint')
             finally:
                 ipc.terminate(frontend)
+        if name == 'preview':
+            site = workspace / 'site'
+            site.mkdir()
+            (site / 'index.md').write_text('# Preview runtime fixture\n')
+            (site / 'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
+            resource_store = work / 'preview-host-resources'
+            resource_store.mkdir(mode=0o700)
+            policy.write_bytes(trusted)
+            with subprocess.Popen([build / 'gterm', *invocation], env=launch_env, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
+                try:
+                    ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
+                             'signed Preview ready for Host')
+                    require(frontend.poll() is None, 'signed Preview must await Host')
+                    instance = permit.read_bytes()[8:24].hex()
+                    host_env = dict(launch_env, GT_GTERM_FIXTURE_ATTACH=str(endpoint),
+                                    GT_GTERM_FIXTURE_ATTACH_INSTANCE=instance, GT_GTERM_FIXTURE_CLIENT_DIGEST=digest,
+                                    GT_GTERM_FIXTURE_PLUGIN_VERSION=manifest['pluginVersion'])
+                    result = subprocess.run([build / 'test_gterm_stdio', build / 'gterm', payload, digest,
+                        'preview', workspace, resource_store], env=host_env, capture_output=True, timeout=30)
+                    require(result.returncode == 0 and b'PASS stdio preview' in result.stdout,
+                            f'signed Preview Host must receive both resources: {result.stdout!r} {result.stderr!r}')
+                finally:
+                    ipc.terminate(frontend)
+            require(not list(endpoint.iterdir()), 'signed Preview must clean the IPC endpoint after session')
+            print('PASS signed Preview Host consent and resources', flush=True)
         print('PASS official gterm install, register and dispatch', name, flush=True)
 
 
