@@ -26,7 +26,7 @@ import GhostermCore
         public let session: ExtensionController.SessionState?
         public let runtime: ExtensionController.RuntimeState?
         public let receivedResources: [ExtensionController.ReceivedResource]
-        public let codexEvents: [String]
+        public fileprivate(set) var codexEvents: [String]
     }
 
     public struct CodexPendingApproval: Identifiable, Sendable, Equatable {
@@ -1011,12 +1011,8 @@ import GhostermCore
         lastCodexEventSequence = event.sequence
         applyCodexApprovalEvent(kind: event.kind, notificationMethod: event.notification?.method,
             added: approvalToAdd, removedID: approvalToRemove)
-        extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
-            command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
-            executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
-            requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
-            receivedResources: run.receivedResources, codexEvents: history)
+        // Acknowledging suspends. Preserve any newer run state, such as a publication receipt.
+        extensionRun?.codexEvents = history
         if event.kind == "notification" {
             if event.notification?.method == "turn/started" { codexTurnActive = true }
             if event.notification?.method == "turn/completed" { codexTurnActive = false }
