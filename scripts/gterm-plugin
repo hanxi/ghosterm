@@ -2,6 +2,7 @@
 """Candidate Portable plugin developer commands. No install or post-build hooks."""
 import argparse
 import ctypes
+import errno
 import hashlib
 import json
 import math
@@ -210,9 +211,14 @@ def publish(stage, destination):
             raise Failure('ATOMIC_PUBLISH_UNSUPPORTED', 4)
         if result:
             number = ctypes.get_errno()
+            if number == errno.EEXIST:
+                raise Failure('OUTPUT_EXISTS')
             raise OSError(number, os.strerror(number))
     else:
-        os.link(stage, destination, follow_symlinks=False)
+        try:
+            os.link(stage, destination, follow_symlinks=False)
+        except FileExistsError as error:
+            raise Failure('OUTPUT_EXISTS') from error
 
 
 def worker(work, tools, source, output=None, host=None, registry=(), test=False, execution=None, resources=False, processes=False, views=None):
