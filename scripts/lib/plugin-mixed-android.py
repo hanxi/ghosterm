@@ -163,10 +163,17 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     run(label + '-unmap-' + str(port), [*adb, 'reverse', '--remove', f'tcp:{port}'])
 
         completed = []
+        failures = []
         for route in selected_routes or ('direct', 'jump'):
-            actual(route, 'android-' + route)
-            completed.append(route)
-            print('PASS Android API' + api + ' mixed ' + route, flush=True)
+            try:
+                actual(route, 'android-' + route)
+            except RuntimeError as failure:
+                failures.append(f'{route}: {failure}')
+            else:
+                completed.append(route)
+                print('PASS Android API' + api + ' mixed ' + route, flush=True)
+        if failures:
+            raise RuntimeError('Android mixed route failures:\n' + '\n'.join(failures))
         if mutate:
             filename = 'android/app/src/main/java/com/hanxi/ghosterm/ExtensionController.kt'
             path = source / filename; original = path.read_bytes(); anchor = b'            parent?.multiplexer?.step()\n'

@@ -149,11 +149,23 @@ class ExtensionMixedConnectionTest {
             instances.forEachIndexed { slot, instance -> resource(instance.model, slot) }
             assertEquals(8, main { instances.map { it.model.receivedResources.single().descriptor.sha256 }.distinct().size })
             val uncertain = instances[3].model
-            main { uncertain.runtimeObservationFailed("owned mixed observation failure") }
-            assertEquals(ExtensionRuntime.Phase.ACTIVE, main { uncertain.activeRuntime?.info?.phase })
-            assertFalse(main { uncertain.canInteractWithRuntime })
-            assertTrue(main { uncertain.runtimeStateIsUnknown })
-            assertTrue(main { instances.filterIndexed { slot, _ -> slot != 3 }.all { it.model.canInteractWithRuntime } })
+            main {
+                val peers = instances.withIndex().filter { it.index != 3 }
+                fun checkPeers(stage: String) {
+                    peers.forEach { (slot, instance) ->
+                        val model = instance.model
+                        assertTrue("$stage slot=$slot phase=${model.activeRuntime?.info?.phase} " +
+                            "busy=${model.launchBusy} observation=${model.runtimeObservationIssue} issue=${model.error}",
+                            model.canInteractWithRuntime)
+                    }
+                }
+                checkPeers("Before observation failure")
+                uncertain.runtimeObservationFailed("owned mixed observation failure")
+                assertEquals(ExtensionRuntime.Phase.ACTIVE, uncertain.activeRuntime?.info?.phase)
+                assertFalse(uncertain.canInteractWithRuntime)
+                assertTrue(uncertain.runtimeStateIsUnknown)
+                checkPeers("After observation failure")
+            }
             val refused = assertThrows(IllegalStateException::class.java) { runBlocking {
                 uncertain.requestPluginViewOutcome("fixture.echo", """{"text":"blocked","count":3}""".toByteArray())
             } }
