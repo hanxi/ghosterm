@@ -69,6 +69,7 @@ int main(int argc, char **argv) {
     bool claude = !strcmp(mode, "claude-status");
     bool views = !strcmp(mode, "views-beta");
     bool view = table || task || diff || views;
+    const bool fixture_denied = getenv("GT_GTERM_FIXTURE_DENY") != NULL;
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
@@ -568,6 +569,7 @@ int main(int argc, char **argv) {
         }
         gt_ext_session_info_t info;
         CHECK(gt_ext_session_info(session, &info));
+        CHECK(!fixture_denied || info.phase != GT_EXT_SESSION_ACTIVE);
         if (info.phase == GT_EXT_SESSION_CONSENT && !decided) {
             if (!consent_at) {
                 consent_at = now();
@@ -581,7 +583,7 @@ int main(int argc, char **argv) {
                 } else {
                     CHECK(gt_ext_session_decide(session,
                                                 info.consent_token,
-                                                !strcmp(mode, "deny")
+                                                (fixture_denied || !strcmp(mode, "deny"))
                                                     ? GT_EXT_DECISION_DENY
                                                     : GT_EXT_DECISION_ALLOW) == GT_OK);
                     decided = true;
@@ -868,12 +870,14 @@ int main(int argc, char **argv) {
         gt_ext_session_info_t info;
         CHECK(gt_ext_session_info(session, &info) && !info.received);
     }
-    if (preview) {
+    if (fixture_denied) {
+        CHECK(decided && consent_at && !handle && !preview_main && !preview_asset);
+    } else if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (view || claude || codex || !strcmp(mode, "roundtrip") || process_config ||
-        !strcmp(mode, "dispose-error") || pipes || !strcmp(mode, "active-cancel") ||
-        !strcmp(mode, "lost")) {
+    if (!fixture_denied && (view || claude || codex || !strcmp(mode, "roundtrip") ||
+                            process_config || !strcmp(mode, "dispose-error") || pipes ||
+                            !strcmp(mode, "active-cancel") || !strcmp(mode, "lost"))) {
         CHECK(confirmed && decided && consent_at);
     }
     if (!strcmp(mode, "host-method")) {

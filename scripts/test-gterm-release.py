@@ -876,31 +876,36 @@ def install_official_candidates(build, fixtures, work):
                 (site / 'index.md').write_text('# Preview runtime fixture\n')
                 (site / 'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
                 resource_store = work / 'preview-host-resources'
-                resource_store.mkdir(mode=0o700)
                 host_arguments = ['preview', workspace, resource_store]
             policy.write_bytes(trusted)
-            with subprocess.Popen([build / 'gterm', *invocation], env=launch_env, stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
-                try:
-                    ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
-                             f'{name}: ready for signed Host')
-                    require(frontend.poll() is None, f'{name}: signed command must await Host')
-                    instance = permit.read_bytes()[8:24].hex()
-                    host_env = dict(launch_env, GT_GTERM_FIXTURE_ATTACH=str(endpoint),
-                                    GT_GTERM_FIXTURE_ATTACH_INSTANCE=instance, GT_GTERM_FIXTURE_CLIENT_DIGEST=digest,
-                                    GT_GTERM_FIXTURE_PLUGIN_VERSION=manifest['pluginVersion'],
-                                    GT_GTERM_FIXTURE_PLUGIN_ID=manifest['id'])
-                    result = subprocess.run([build / 'test_gterm_stdio', build / 'gterm', payload, digest,
-                        *host_arguments], env=host_env, capture_output=True, timeout=30)
-                    require(result.returncode == 0 and f'PASS stdio {host_arguments[0]}'.encode() in result.stdout,
-                            f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
-                    output, diagnostics = frontend.communicate(timeout=6)
-                    require(frontend.returncode == 0,
-                            f'{name}: ordinary command must finish cleanly after Host revocation: '
-                            f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
-                finally:
-                    ipc.terminate(frontend)
-            require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
+            for denied in (True, False):
+                if name == 'preview':
+                    resource_store.mkdir(mode=0o700, exist_ok=True)
+                with subprocess.Popen([build / 'gterm', *invocation], env=launch_env, stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
+                    try:
+                        ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
+                                 f'{name}: ready for signed Host')
+                        require(frontend.poll() is None, f'{name}: signed command must await Host')
+                        instance = permit.read_bytes()[8:24].hex()
+                        host_env = dict(launch_env, GT_GTERM_FIXTURE_ATTACH=str(endpoint),
+                                        GT_GTERM_FIXTURE_ATTACH_INSTANCE=instance, GT_GTERM_FIXTURE_CLIENT_DIGEST=digest,
+                                        GT_GTERM_FIXTURE_PLUGIN_VERSION=manifest['pluginVersion'],
+                                        GT_GTERM_FIXTURE_PLUGIN_ID=manifest['id'])
+                        if denied:
+                            host_env['GT_GTERM_FIXTURE_DENY'] = '1'
+                        result = subprocess.run([build / 'test_gterm_stdio', build / 'gterm', payload, digest,
+                            *host_arguments], env=host_env, capture_output=True, timeout=30)
+                        require(result.returncode == 0 and f'PASS stdio {host_arguments[0]}'.encode() in result.stdout,
+                                f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
+                        output, diagnostics = frontend.communicate(timeout=6)
+                        expected_exit = 6 if denied else 0
+                        require(frontend.returncode == expected_exit,
+                                f'{name}: ordinary command must preserve Host decision: '
+                                f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
+                    finally:
+                        ipc.terminate(frontend)
+                require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
             print('PASS signed Host consent and runtime', name, flush=True)
         print('PASS official gterm install, register and dispatch', name, flush=True)
 
