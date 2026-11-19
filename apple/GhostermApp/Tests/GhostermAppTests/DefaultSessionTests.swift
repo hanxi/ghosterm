@@ -38,6 +38,26 @@ import XCTest
         try await verifyPassiveDiscovery(ending: .exit)
     }
 
+    func testDisabledPluginRuntimePreservesOrdinaryPTYOutput() async throws {
+        try XCTSkipIf(ExtensionRuntime.supportStatus == 0)
+        XCTAssertEqual(ExtensionRuntime.supportStatus, 7) // GT_ERR_UNSUPPORTED from ghosterm/types.h
+        _ = NSApplication.shared
+        let model = isolatedAppModel()
+        defer { model.disconnectForTesting() }
+        model.preferences.defaultShell = "/bin/sh"
+        model.connect(to: .localShell)
+        let pane = try XCTUnwrap(model.activePane)
+        let surface = try XCTUnwrap(pane.surface)
+        try await sendDiscoveryOffer(to: surface)
+
+        surface.sendCommittedText("printf 'PTY_%s' CONTINUES\r")
+        try await until { surface.readText()?.contains("PTY_CONTINUES") == true }
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertTrue(model.frontendCandidates.isEmpty)
+        XCTAssertNil(model.extensionRun)
+        XCTAssertTrue(pane.isRunning)
+    }
+
     func testPassiveDiscoveryExpiresWhileTerminalIsIdle() async throws {
         try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
         try await verifyPassiveDiscovery(ending: .idle)

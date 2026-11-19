@@ -15558,3 +15558,9 @@ P1 macOS 候选六组可在同一命令重复传入 `--case` 批量执行，共�
 `discovery-late-exit`、`discovery-runtime-failure` 全部通过；每组仍独立检查
 重编后的目标断言红、配置对照绿、源码 SHA256 与恢复绿。临时构件已清理。
 仅复验 macOS 候选组及无效参数拒绝，Android 与剪贴板组未重跑。
+
+P1 macOS QuickJS 关闭专项。隔离构建设置 `GHOSTERM_WITH_PLUGIN_JS=OFF` 和
+`GHOSTERM_CORE_TEST_PLUGIN_JS=0`。后台离屏测试确认运行时报告
+`GT_ERR_UNSUPPORTED`，真实普通 PTY 在候选提示到达后仍绘制后续文本，
+界面没有候选或插件会话，终端保持运行。一项通过，临时构件已清理。
+首轮错误地对照插件注册表状态编号，断言失败后改用共享 C ABI 编号复验。
