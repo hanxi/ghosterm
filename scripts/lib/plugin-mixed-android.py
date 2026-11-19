@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import pwd
 import secrets
+import shlex
 import shutil
 import socketserver
 import struct
@@ -107,6 +108,11 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
 
         def actual(route, label, red=False):
             scratch = out / label; scratch.mkdir(); (scratch / 'stage').mkdir()
+            remote_stderr = scratch / 'gterm.stderr'
+            launcher = scratch / 'gterm'
+            launcher.write_text('#!/bin/sh\nexec ' + shlex.quote(str(build / 'gterm')) + ' "$@" 2>>' +
+                                shlex.quote(str(remote_stderr)) + '\n')
+            launcher.chmod(0o700)
             for slot in range(8):
                 folder = scratch / ('workspace-' + str(slot)); folder.mkdir()
                 (folder / 'file.bin').write_bytes(bytes((i + slot * 17) % 251 for i in range(262144)))
@@ -136,7 +142,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 payload = dict(route=route, scratch=str(scratch), temporary=str(scratch / 'stage'), package=str(package),
                     installed=str(installed / 'payload'), release=str(installed), policy=str(policy), policySHA256=sha(policy),
                     ports=target_ports, hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name,
-                    pem=private.decode(), gterm=str(build / 'gterm'), node=str(node), nodeVersion=node_version,
+                    pem=private.decode(), gterm=str(launcher), node=str(node), nodeVersion=node_version,
                     nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_digest, packageFiles=package_files,
                     packageDigest=sha(package / 'integrity.json'))
                 class Handler(socketserver.StreamRequestHandler):
@@ -151,6 +157,13 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     try:
                         fixture_port = reverse(server.server_address[1])
                         test(label, red=red, extra=('-e', 'fixturePort', str(fixture_port), '-e', 'fixtureToken', token))
+                    except RuntimeError as failure:
+                        if remote_stderr.exists():
+                            with remote_stderr.open('rb') as diagnostics:
+                                diagnostics.seek(max(0, remote_stderr.stat().st_size - 8192))
+                                tail = diagnostics.read(8192).decode(errors='replace')
+                            raise RuntimeError(f'{failure}\nOwned gterm stderr (tail):\n{tail}') from failure
+                        raise
                     finally:
                         server.shutdown(); thread.join(5)
                 if thread.is_alive():
