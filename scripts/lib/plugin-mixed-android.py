@@ -81,7 +81,9 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 publication_failed = any(mark in text for mark in (
                     'publish:failed:EXPIRED', 'publish:unknown:RESOURCE_RESULT_UNKNOWN'))
                 rpc_cancelled = 'CANCELLED' in text and 'state=UNKNOWN' in text
-                if 'RPC resource/0:' not in text or not (publication_failed or rpc_cancelled):
+                if not any(f'RPC resource/{slot}:' in text for slot in range(8)) or not (
+                    publication_failed or rpc_cancelled
+                ):
                     raise RuntimeError(label + ': assertion did not identify the resource-progress regression\n' + text[-10000:])
             elif 'OK (1 test)' not in text or 'INSTRUMENTATION_STATUS: numtests=1\n' not in text or any(
                 mark in text for mark in ('INSTRUMENTATION_FAILED', 'assumption failed:', 'INSTRUMENTATION_STATUS_CODE: -4')):

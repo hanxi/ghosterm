@@ -158,7 +158,13 @@ class ExtensionMixedConnectionTest {
             val instances = main { current.instances.toList() }; assertEquals(8, instances.size)
             instances.forEach(::approve)
             runBlocking { instances.mapIndexed { slot, instance -> async(Dispatchers.Default) { echo(instance.model, "slot-$slot", slot) } }.awaitAll() }
-            instances.forEachIndexed { slot, instance -> resource(instance.model, slot) }
+            // Exercise all scopes under the same external-executor lifetime
+            // instead of making later scopes wait for earlier publications.
+            runBlocking {
+                instances.mapIndexed { slot, instance ->
+                    async(Dispatchers.Default) { resource(instance.model, slot) }
+                }.awaitAll()
+            }
             assertEquals(8, main { instances.map { it.model.receivedResources.single().descriptor.sha256 }.distinct().size })
             val uncertain = instances[3].model
             main {
