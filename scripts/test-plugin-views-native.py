@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginViews.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
+VIEW_TEST_COUNT = 21
 
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -37,6 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True); parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--receipt', type=Path, required=True); parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--mutation-case', action='append', help='run only named mutations after the baseline')
     parser.add_argument('--route', choices=['local', 'direct', 'jump'], action='append')
     parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     args = parser.parse_args(); build, package = args.build.resolve(), args.package.resolve()
@@ -58,7 +60,14 @@ def main():
         ('remove', MODEL, 'for old in items where !handles.contains(old.id)', 'for old in items where false && !handles.contains(old.id)', 'testReopenSameViewIDUsesFreshModel'),
         ('task-history', MODEL, 'expectedViewID: r.viewID, history: history', 'expectedViewID: r.viewID, history: nil', 'testTaskReopenKeepsUnknownCancellationIdentity'),
         ('descriptor-id', 'apple/GhostermApp/Sources/GhostermAppModel/PluginTable.swift', 'expectedViewID == nil || expectedViewID == description.viewID', 'true', 'testDescriptorMustMatchRegisteredViewID'),
+        ('close-label', 'apple/GhostermApp/Sources/GhostermApp/PluginViewsView.swift',
+         '"关闭视图 \\(item.registration.viewID)"', '"关闭视图"',
+         'testNativeCloseControlsRouteOverlappingHandlesToTheirOwnInstance'),
     ]
+    if args.mutation_case:
+        if not args.mutate or set(args.mutation_case) - {case[0] for case in cases}:
+            parser.error('--mutation-case requires --mutate and known case names')
+        cases = [case for case in cases if case[0] in args.mutation_case]
     for label, filename, old, _new, _test in cases:
         assert (ROOT / filename).read_text().count(old) == 1, label
     with tempfile.TemporaryDirectory(prefix='mv-', dir=ROOT / 'tmp') as temporary:
@@ -87,7 +96,7 @@ def main():
                 assert child.returncode == 0 and f'Executed {count} test' in text and 'with 0 failures' in text and 'skipped' not in text.lower(), (label, text[-16000:])
             commands.append(dict(label=label, status=child.returncode, sha256=hashlib.sha256(output + errors).hexdigest()))
             print('PASS ' + label, flush=True)
-        test('baseline', 'PluginViewsTests', 20)
+        test('baseline', 'PluginViewsTests', VIEW_TEST_COUNT)
         test('bootstrap', 'ExtensionControllerTests.testRelayBootstrapAcceptsFourUniqueImplementedViewServices')
         test('host-profile', 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities')
         test('legacy-table', 'PluginTableTests', 15); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 27)
@@ -132,7 +141,7 @@ def main():
                             try: test('actual-' + route, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel')
                             finally: server.shutdown(); thread.join(5)
                         assert not thread.is_alive(); actual.append(dict(route=route, ipc=frontend.finish()) if frontend else route)
-        test('restored', 'PluginViewsTests', 20)
+        test('restored', 'PluginViewsTests', VIEW_TEST_COUNT)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()
         args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=actual,

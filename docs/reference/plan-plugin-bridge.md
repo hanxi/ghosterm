@@ -13535,6 +13535,11 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 10 项全部通过，覆盖焦点归还、仅关闭选中的实例、清理失败保留重试和等待标签页清理。
 两批均未执行 VoiceOver。
 
+通用视图原生 runner 随后以本机真实运行档通过，基线和恢复各 21 项。删除关闭
+按钮无障碍标签中的视图名后，隔离副本编译成功且只触发目标断言失败，独立配置
+对照和源码恢复均通过。收据 SHA256
+`55ad8b72c049887f8d29ff12d62b24f59fcdb6922a6cfe50d1a5cc353ef51a27`。
+
 ### P1 默认 Core 通道集中复验（2026-11-19）
 
 固定 `33d7afed`，使用完整 Xcode CLI 增量构建默认 Core（插件通道开启、插件
