@@ -65,7 +65,8 @@ int main(int argc, char **argv) {
     bool table = !strcmp(mode, "table-describe");
     bool task = !strcmp(mode, "task-read");
     bool diff = !strcmp(mode, "diff-page");
-    bool view = table || task || diff;
+    bool views = !strcmp(mode, "views-beta");
+    bool view = table || task || diff || views;
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
@@ -136,6 +137,17 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
+            } else if (views) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "views demo",
+                      (char *)NULL);
             } else if (diff) {
                 execl(binary,
                       binary,
@@ -482,12 +494,14 @@ int main(int argc, char **argv) {
         strcpy(methods[0].method,
                table  ? "view.table.describe"
                : task ? "view.task.describe"
-                      : "view.diff.describe");
+               : diff ? "view.diff.describe"
+                      : "beta.describe");
         methods[1] = methods[0];
         strcpy(methods[1].method,
                table  ? "view.table.page"
                : task ? "view.task.read"
-                      : "view.diff.page");
+               : diff ? "view.diff.page"
+                      : "beta.page");
         method_count++;
     }
     bool view_read = false;
@@ -663,7 +677,16 @@ int main(int argc, char **argv) {
                 bool valid = strstr(result.outcome, "stdio") != NULL;
                 char page_input[160];
                 int page_size = 0;
-                if (view && !view_read) {
+                if (views && !view_read) {
+                    page_size = snprintf(
+                        page_input,
+                        sizeof(page_input),
+                        "{\"viewId\":\"beta\",\"revision\":\"1\",\"offset\":4,\"limit\":2}");
+                    valid = strstr(result.outcome, "\"viewId\":\"beta\"") &&
+                            strstr(result.outcome, "\"revision\":\"1\"") &&
+                            strstr(result.outcome, "Beta numbers") &&
+                            strstr(result.outcome, "\"total\":5");
+                } else if (view && !view_read) {
                     page_size = snprintf(page_input,
                                          sizeof(page_input),
                                          "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64 "\"%s}",
@@ -692,6 +715,10 @@ int main(int argc, char **argv) {
                                             : strstr(result.outcome, "Count primes") &&
                                                   strstr(result.outcome, "\"cancellable\":true"));
                     }
+                } else if (views) {
+                    valid = strstr(result.outcome, "\"viewId\":\"beta\"") &&
+                            strstr(result.outcome, "\"offset\":4") &&
+                            strstr(result.outcome, "\"cells\":[\"5\",\"50\"]");
                 } else if (table) {
                     valid = strstr(result.outcome, "\"offset\":16") &&
                             strstr(result.outcome, "\"total\":17") &&

@@ -779,6 +779,8 @@ def install_official_candidates(build, fixtures, work):
             profile.extend(['--method', 'view.task.describe', '--method', 'view.task.read'])
         if name == 'diff':
             profile.extend(['--method', 'view.diff.describe', '--method', 'view.diff.page'])
+        if name == 'views':
+            profile.extend(['--method', 'beta.describe', '--method', 'beta.page'])
         workspace = work / f'{name}-workspace'
         if name in ('preview', 'ai-codex', 'ai-claude'):
             workspace.mkdir(mode=0o700)
@@ -847,8 +849,8 @@ def install_official_candidates(build, fixtures, work):
                 require(not list(endpoint.iterdir()), f'{name}: rejected attachment must clean the IPC endpoint')
             finally:
                 ipc.terminate(frontend)
-        if name in ('preview', 'table', 'task', 'diff'):
-            host_arguments = [{'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page'}.get(name)]
+        if name in ('preview', 'table', 'task', 'diff', 'views'):
+            host_arguments = [{'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page', 'views': 'views-beta'}.get(name)]
             if name == 'preview':
                 site = workspace / 'site'
                 site.mkdir()
