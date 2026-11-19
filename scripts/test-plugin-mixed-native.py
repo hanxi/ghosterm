@@ -339,25 +339,34 @@ export function activate(ctx){
             completed.append(route)
             print('PASS mixed Native ' + route, flush=True)
         mutations = []
-        if args.mutate:
-            stem = 'ExtensionConnectionModel' if faults else 'ExtensionController'
+        recipes = [
+            ('remote-exit-unknown', 'ExtensionConnectionModel',
+             'if done && state?.peerEOF != true && process?.reaped != true { issue = "连接已释放；执行端退出未确认，请检查各实例回执" }'.encode(),
+             b'', 1, 'released connection must preserve unconfirmed remote exit'),
+            ('local-release-error', 'ExtensionController',
+             b'guard name.withCString({ unlinkat(resourceRootFD, $0, AT_REMOVEDIR) }) == 0 else {\n'
+             b'                        throw ControllerError.resourceUnavailable\n'
+             b'                    }',
+             b'_ = name.withCString { unlinkat(resourceRootFD, $0, AT_REMOVEDIR) }', 1,
+             'local cleanup failure must not report closure'),
+        ] if faults else [
+            ('parent-pump', 'ExtensionController', b'                    _ = try self.run.parent?.multiplexer?.step()\n', b'', 2, None),
+        ]
+        for mutation, stem, anchor, replacement, occurrences, expected in recipes if args.mutate else []:
             filename = f'apple/GhostermApp/Sources/GhostermAppModel/{stem}.swift'
             target = source / filename; original = target.read_bytes()
-            anchor = ('if done && state?.peerEOF != true && process?.reaped != true { issue = "连接已释放；执行端退出未确认，请检查各实例回执" }'.encode()
-                if faults else b'                    _ = try self.run.parent?.multiplexer?.step()\n')
-            if original.count(anchor) != (1 if faults else 2):
-                raise RuntimeError('ambiguous macOS mixed mutation')
+            if original.count(anchor) != occurrences:
+                raise RuntimeError('ambiguous macOS mixed mutation: ' + mutation)
             objects = [p for p in (source / 'apple/GhostermApp/.build').rglob('*.o')
                        if p.name in (stem + '.o', stem + '.swift.o')]
             before = {str(p): sha(p) for p in objects}
             if not before: raise RuntimeError('missing compiled worker object')
             try:
-                mutation = 'remote-exit-unknown' if faults else 'parent-pump'
                 route = 'direct' if faults else 'local'
-                target.write_bytes(original.replace(anchor, b'') + b'\n// GT_MIXED_MUTATION\n')
+                target.write_bytes(original.replace(anchor, replacement))
                 actual(route, mutation + '-red', assertion=True, compile=True)
-                if faults and 'released connection must preserve unconfirmed remote exit' not in (logs / (mutation + '-red.log')).read_text():
-                    raise RuntimeError('missing remote exit assertion')
+                if expected and expected not in (logs / (mutation + '-red.log')).read_text():
+                    raise RuntimeError('missing targeted assertion: ' + mutation)
                 if not any(p.is_file() and sha(p) != before[str(p)] for p in objects):
                     raise RuntimeError('mutated worker did not recompile')
                 _, control = run(mutation + '-control', [*command[:-2], '--filter', 'HostListTests.testReadingDoesNotMutateConfig'])
@@ -376,7 +385,7 @@ export function activate(ctx){
     receipt = dict(accepted=True, inputs=inputs, commands=commands, routes=completed, mutations=mutations,
         artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
         logs={path.name: sha(path) for path in logs.iterdir()},
-        scope=('macOS App-owned SSH reset after explicit stop; local release and remote exit unknown'
+        scope=('macOS App-owned SSH reset after explicit stop, local release failure and retry, remote exit unknown'
             if args.macos_stop_disconnect else 'macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
 

@@ -135,8 +135,26 @@ import XCTest
             let owner = try XCTUnwrap(model.extensionController)
             try await owner.stopRuntime()
             XCTAssertEqual(try fixtureExchange("reset"), Data("OK\n".utf8))
+            let resources = root.appendingPathComponent("resources")
+            let children = try FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("resource-") }
+            XCTAssertEqual(children.count, 1)
+            let directory = try XCTUnwrap(children.first)
+            let remaining = directory.appendingPathComponent("owned-cleanup-probe")
+            try Data("owned".utf8).write(to: remaining)
+            defer { try? FileManager.default.removeItem(at: remaining) }
+            let firstClose = await group.close()
+            XCTAssertFalse(firstClose, "local cleanup failure must not report closure")
+            guard !firstClose else { return }
+            XCTAssertTrue(group.cleanupPending)
+            XCTAssertFalse(group.closed)
+            XCTAssertFalse(group.canAdd)
+            XCTAssertEqual(try Data(contentsOf: remaining), Data("owned".utf8))
+            try FileManager.default.removeItem(at: remaining)
             let done = await group.close()
             XCTAssertTrue(done)
+            XCTAssertFalse(group.cleanupPending)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
             XCTAssertTrue(group.state?.released == true)
             XCTAssertFalse(try XCTUnwrap(group.state).peerEOF)
             XCTAssertTrue(group.issue?.contains("执行端退出未确认") == true,
