@@ -15817,6 +15817,13 @@ appcast 和 dev / release 元数据。该轮只验证本地夹具，未访问 Gi
 Developer ID 或公证误判为必要条件。该轮只生成本地产物，未上传 GitHub Release，
 产物目录已清理。
 
+只读核对当前公开 `dev` Release：GitHub API 返回 macOS / Android 资产及
+`appcast.xml`、`version.json`、`SHA256SUMS`，固定 URL 均可下载。线上清单的
+`signature` 为 `adhoc` 且 `notarized` 为 `false`，Ed25519 更新签名存在；该
+Release 仍指向较早提交 `fa5b0044`，其历史 `BUILD-INFO.txt` 仍写着旧的“未公证
+不能直接分发”文案。源码打包脚本已修正，新 Release 生成时不再使用该文案。
+本轮只读线上资产，未修改或上传 Release。
+
 随后运行 `scripts/test-macos-update-install.py` 的真实 Sparkle ad-hoc 回环安装
 烟测通过。`install` 完成下载、解包、安装、退出批准和重启，`later` 保留旧版本，
 `cancel-quit` 在取消退出后保留旧版本，`bad-feed` 与 `bad-archive` 均在 Ed25519
