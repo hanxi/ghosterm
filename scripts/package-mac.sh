@@ -35,8 +35,8 @@
 #   · 内嵌依赖没做到自包含 → 失败（不是警告）；
 #   · 依赖的 minos 高于声明的 LSMinimumSystemVersion → 抬到真实值并**打印原因**，
 #     绝不写一个自己都跑不起来的最低系统版本；
-#   · 代码签名：默认 ad-hoc（本机/内测可跑），真分发需 Developer ID + 公证；
-#     没证书时**显式说明**产物未公证，不假装可分发给终端用户；
+#   · 代码签名：默认 ad-hoc，项目通过 GitHub Release 分发；不把 Developer ID 或公证
+#     当作发布前置。应用内更新仍必须使用独立 Ed25519 签名链，Apple 签名状态如实记账；
 #   · 签名档位按证书**真实的类**记账：`Developer ID Application:` → `id`（可公证），
 #     `Apple Development:` → `dev`（免费个人账号，不能公证），其余身份直接拒。
 # 已知坑：本脚本大量用中文提示。**`$VAR` 后面紧跟中文字符时，bash 会把非 ASCII
@@ -355,7 +355,7 @@ BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then echo "插件运行时:  experimental QuickJS-NG"; fi
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
   echo "签名:        ${SIGN_MODE}${SIGN_ID:+ ${SIGN_ID}}"
-  echo "公证:        ${NOTARIZE_PROFILE:-无（未公证的包不能直接分发给终端用户）}"
+  echo "公证:        ${NOTARIZE_PROFILE:-无（GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名）}"
   echo "源码:        git ${GIT_SHA}${GIT_DIRTY}"
   echo "libghostty:  pin ${PIN} + patches/libghostty/${PIN}/"
   echo "内嵌动态库:"
@@ -565,9 +565,9 @@ for f in ${DIST_FILES[@]+"${DIST_FILES[@]}"}; do echo "  产物: $f"; done
 echo "  信息: $OUT/BUILD-INFO.txt"
 case "$SIGN_MODE" in
   adhoc)
-    echo "  提示: 这是 ad-hoc 签名的包，适合本机与内测；正式分发请用 --sign \"Developer ID Application: ...\" --notarize <profile>"
+    echo "  提示: 这是 ad-hoc 签名的包，按项目策略通过 GitHub Release 分发；应用内更新必须另有 Ed25519 签名"
     ;;
   dev)
-    echo "  提示: Apple Development（免费个人账号）签名——身份稳定但**不可公证**，用户下载来仍被 Gatekeeper 拦；正式分发需要付费计划的 Developer ID + 公证"
+    echo "  提示: Apple Development 签名不可公证；GitHub Release 仍可分发，但应用内更新必须另有 Ed25519 签名"
     ;;
 esac
