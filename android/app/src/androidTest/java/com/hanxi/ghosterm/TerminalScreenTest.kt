@@ -125,6 +125,42 @@ class TerminalScreenTest {
         onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(TerminalView::class.java))
             .perform(GeneralClickAction(if (long) Tap.LONG else Tap.SINGLE, coordinates, Press.FINGER, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0))
     }
+    private fun emitPassiveDiscoveryOffer(): FrontendCandidate? {
+        val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+        ui.runOnIdle {
+            terminal().commitText("printf '%b' '\\033]777;ghosterm-discovery;1;$payload\\007\\033[2J\\033[HPTY_CANDIDATE_READY'\r")
+        }
+        ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "PTY_CANDIDATE_READY" }
+        if (!BuildConfig.PLUGIN_JS_ENABLED) {
+            ui.runOnIdle { assertTrue(sessions.frontendCandidates.isEmpty()) }
+            return null
+        }
+        ui.waitUntil(5_000) { ui.runOnIdle { sessions.frontendCandidates.size == 1 } }
+        return ui.runOnIdle { sessions.frontendCandidates.single() }
+    }
+
+    @Test fun passiveCandidateExpiresWithoutNewOutput() {
+        val candidate = emitPassiveDiscoveryOffer() ?: return
+        ui.runOnIdle {
+            assertEquals(candidate.sourceID, sessions.active?.id)
+            assertTrue(sessions.frontendCandidateIsCurrent(candidate))
+        }
+        ui.waitUntil(35_000) { ui.runOnIdle { sessions.frontendCandidates.isEmpty() } }
+        ui.runOnIdle {
+            assertTrue(candidate.expired)
+            assertTrue(sessions.active?.state?.connected == true)
+            assertEquals("PTY_CANDIDATE_READY", terminal().currentFrame?.line(0))
+        }
+    }
+
+    @Test fun closingATerminalImmediatelyClearsItsPassiveCandidate() {
+        val candidate = emitPassiveDiscoveryOffer() ?: return
+        ui.runOnIdle {
+            sessions.close(candidate.sourceID)
+            assertTrue("closed terminal must immediately remove its passive candidate", sessions.frontendCandidates.isEmpty())
+        }
+    }
+
     @Test fun mouseModeFingerTapSendsRealCoordinatesAndOpensKeyboard() {
         hideMouseTestKeyboard()
         val packet = File(directory, "mouse-packet")

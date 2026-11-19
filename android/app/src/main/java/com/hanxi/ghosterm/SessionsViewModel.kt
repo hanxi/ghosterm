@@ -253,6 +253,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     fun close(id: UUID) {
         val session = sessions.firstOrNull { it.id == id } ?: return
         session.connection.close(); sessions.remove(session)
+        frontendCandidates = frontendCandidates.filterNot { it.sourceID == id }
         surfaceTargets.value = sessions.toList()
         if (terminalStore.previous == id) terminalStore.previous = null
         if (selected == id) selected = (sessions.lastOrNull { !it.state.terminal } ?: sessions.lastOrNull())?.id
