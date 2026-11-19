@@ -2,6 +2,7 @@
 #define _DARWIN_C_SOURCE 1
 #include "ghosterm.h"
 #include <fcntl.h>
+#include <inttypes.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -458,10 +459,14 @@ int main(int argc, char **argv) {
                                        .receiver = GT_EXT_EXECUTOR,
                                        .input_shape = GT_EXT_JSON_OBJECT,
                                        .output_shape = GT_EXT_JSON_OBJECT}};
+    size_t method_count = 1;
     if (table) {
         strcpy(methods[0].method, "view.table.describe");
+        methods[1] = methods[0];
+        strcpy(methods[1].method, "view.table.page");
+        method_count++;
     }
-    size_t method_count = 1;
+    bool table_page = false;
     if (!strcmp(mode, "host-method")) {
         methods[1] = (gt_ext_rpc_method_t){.method = "fixture.ask",
                                            .capability = "session.rpc",
@@ -631,10 +636,32 @@ int main(int argc, char **argv) {
                 lost = true;
             }
             if (result.confirmed && strcmp(mode, "pending-loss")) {
-                const bool valid = table ? strstr(result.outcome, "Number powers") &&
-                                               strstr(result.outcome, "\"total\":17") &&
-                                               strstr(result.outcome, "\"pageSize\":16")
-                                         : strstr(result.outcome, "stdio") != NULL;
+                bool valid = strstr(result.outcome, "stdio") != NULL;
+                char page_input[160];
+                int page_size = 0;
+                if (table && !table_page) {
+                    page_size = snprintf(page_input,
+                                         sizeof(page_input),
+                                         "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64
+                                         "\",\"offset\":16,\"limit\":16}",
+                                         lease.instance,
+                                         lease.epoch);
+                    char view_key[64], revision_key[64];
+                    snprintf(view_key, sizeof(view_key), "\"viewId\":\"%s\"", lease.instance);
+                    snprintf(revision_key,
+                             sizeof(revision_key),
+                             "\"revision\":\"%" PRIu64 "\"",
+                             lease.epoch);
+                    valid = strstr(result.outcome, "Number powers") &&
+                            strstr(result.outcome, "\"total\":17") &&
+                            strstr(result.outcome, "\"pageSize\":16") &&
+                            strstr(result.outcome, view_key) &&
+                            strstr(result.outcome, revision_key);
+                } else if (table) {
+                    valid = strstr(result.outcome, "\"offset\":16") &&
+                            strstr(result.outcome, "\"total\":17") &&
+                            strstr(result.outcome, "\"cells\":[\"17\",\"289\",\"4913\"]");
+                }
                 if (result.state != GT_EXT_RPC_SUCCEEDED || !valid) {
                     fprintf(stderr,
                             "RPC state %d outcome %.*s\n",
@@ -643,8 +670,21 @@ int main(int argc, char **argv) {
                             result.outcome);
                     CHECK(false);
                 }
-                confirmed = true;
                 CHECK(gt_ext_session_forget_request(session, &lease, handle) == GT_EXT_RPC_OK);
+                if (table && !table_page) {
+                    CHECK(page_size > 0 && (size_t)page_size < sizeof(page_input));
+                    CHECK(gt_ext_session_request(session,
+                                                 &lease,
+                                                 methods[1].method,
+                                                 page_input,
+                                                 (size_t)page_size,
+                                                 3000,
+                                                 &handle) == GT_EXT_RPC_OK &&
+                          handle);
+                    table_page = true;
+                    continue;
+                }
+                confirmed = true;
                 if (!strcmp(mode, "active-cancel")) {
                     CHECK(!kill(child, SIGTERM));
                     signalled = true;

@@ -774,7 +774,7 @@ def install_official_candidates(build, fixtures, work):
         require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
         profile = ['--client-digest', release.sha(expected['integrity.json'])]
         if name == 'table':
-            profile.extend(['--method', 'view.table.describe'])
+            profile.extend(['--method', 'view.table.describe', '--method', 'view.table.page'])
         workspace = work / f'{name}-workspace'
         if name in ('preview', 'ai-codex', 'ai-claude'):
             workspace.mkdir(mode=0o700)

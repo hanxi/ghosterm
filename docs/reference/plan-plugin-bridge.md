@@ -15112,3 +15112,7 @@ installed=true、committed=false，且未创建执行端目录登记。后台运
 `view.table.describe`，核对 Number powers、总数 17 和页长 16。Preview 正向、
 七包安装与分派、原有 roundtrip 对照同轮后台通过。临时文件已清理，本轮
 只验证表格描述 RPC，签名入口的页数据仍待验。
+
+签名 Table 正向会话核对描述的实例和代次，再通过 `view.table.page` 请求
+偏移 16 的最后一页，核对总数 17 与实际返回的 17、289、4913。Preview 正向、
+七包安装与分派及原有 roundtrip 在同一后台批次通过。临时构件已清理。
