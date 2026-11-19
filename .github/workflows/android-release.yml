@@ -65,6 +65,9 @@ jobs:
           PY
       - name: Build optimized release
         env:
+          ORG_GRADLE_PROJECT_ghostermPluginChannel: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
+          ORG_GRADLE_PROJECT_ghostermPluginChannelRoot: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
+          ORG_GRADLE_PROJECT_ghostermPluginChannelUrl: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}

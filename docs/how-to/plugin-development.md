@@ -1001,8 +1001,9 @@ python3 -B scripts/gterm-plugin release verify-policy \
   变量。要在本地启用 JS 实验包，使用 `package-mac.sh --experimental-plugin-js`
   并提供独立的 `--out` 路径。
 - Android 在启用插件 JS 的构建中提供 Gradle 属性 `ghostermPluginChannel`、
-  `ghostermPluginChannelRoot`、`ghostermPluginChannelUrl`。两端默认发行档仍关闭
-  实验插件 JS。
+  `ghostermPluginChannelRoot`、`ghostermPluginChannelUrl`。Android 发布工作流分别
+  从仓库变量 `ANDROID_PLUGIN_CHANNEL`、`ANDROID_PLUGIN_CHANNEL_ROOT`、
+  `ANDROID_PLUGIN_CHANNEL_URL` 传入这些属性。两端默认发行档仍关闭实验插件 JS。
 - 撤销时在 `revokedKeyIds` 列出被撤销的发布键摘要，以新代次签署并发布。
   若需恢复策略内容，用更高代次重新签署已经审阅的内容。旧代和同代不同声明
   会被已记录该渠道的客户端拒绝。
