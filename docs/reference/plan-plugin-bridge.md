@@ -975,7 +975,7 @@ ExtensionPlatformServices
 
 | 阶段 | 已有证据 | 退出条件仍缺 |
 |---|---|---|
-| P1 | 默认 Core 612 项、JS-on Core 874 项与 206 个 ABI 符号有分轮证据。原始 SSH 终端字节 SHA256、两端应用内终端与插件共存、两端嵌套 tmux 退出隔离已验。Session 21、RPC 23、SSH provider 14 组及公共通道 C 21 / Swift 3 / JNI 4 组变异已验。macOS OSC 52 六组、菜单剪贴板十六组在独立命名剪贴板上通过。 | 核齐生产普通终端控制串的变异对照及同版本平台产物。macOS 命名剪贴板和注入的窗口查询覆盖引擎与菜单路由，真实桌面焦点与通用剪贴板、其它设备档仍待验收。 |
+| P1 | 默认 Core 612 项、JS-on Core 874 项与 206 个 ABI 符号有分轮证据。原始 SSH 终端字节 SHA256、两端应用内终端与插件共存、两端嵌套 tmux 退出隔离已验。Session 21、RPC 23、SSH provider 14 组及公共通道 C 21 / Swift 3 / JNI 4 组变异已验。macOS OSC 52 六组、菜单剪贴板十六组在独立命名剪贴板上通过。Android API 36 已验 OSC 52 六组变异与 JS 两档，终端控制串、Kitty 及 SSH Canvas 组合通过 33 项。 | 核齐生产普通终端控制串的变异对照及同版本平台产物。macOS 命名剪贴板和注入的窗口查询覆盖引擎与菜单路由，真实桌面焦点与通用剪贴板、其它设备档仍待验收。 |
 | P2 | 原生包 78 份夹具、Runtime 22 组及资源生命周期 27 组变异通过。macOS 离屏导入回调、原生资源预览和工作区焦点通过。Android API 36 五项真实 SAF / 两跳预览通过，涵盖 Markdown、HTML、Unicode 路径与键盘返回。 | macOS 系统选择器实际交互及关闭后的焦点、Android 其它设备与输入法、两端平台包与运行时生命周期故障矩阵。 |
 | P3 | 本机隔离项目已有真实 Codex 账号的对话及文件审批证据。两端直连和 ProxyJump 原生补丁审批经独立协议夹具通过。锁定 CLI 已验建线程和关闭；macOS 原生直连与 ProxyJump 已用隔离 app-server 验证中断、回执丢失及 SSH 执行通道关闭。 | 联合验证真实后端的两端启动与批准、中断、断线结果未知，以及 tmux 切 pane 和外部客户端切换。 |
 | P4 | 两端 Portable、Node、Exec 混合运行及资源专项通过。Claude 真实 CLI 禁网启停、Node 29 项及 34 组变异、两端回环 SSH 原生工具与问题审批和超时保留回执通过。此前真实 Claude 请求在所选服务 TLS 阶段中断。 | 可达且已授权的真实 Claude 后端问答、工具批准，以及实际模型回合的取消、退出和进程树预算。 |
@@ -15188,3 +15188,8 @@ OSC 52 变异入口支持重复 `--case`，一轮只执行一次前置构建，�
 API 36 arm64 无窗口设备以同一轮验证 permission 与 cancel，拒绝读取和隐藏后
 取消的保护均正常断言红、独立对照绿、恢复绿，JNI 原件 SHA256 与先前四组一致。
 Android 六组至此分三轮通过，临时 AVD 和日志已清理。
+
+固定 `35a312ae`，macOS 完整 Xcode 下离屏复跑 TerminalOSC52Tests 5 项及
+TerminalSurfaceTests 15 项，零失败。覆盖命名剪贴板读写与确认、终端网格、
+语义事件、状态报告及查询回包。使用工程内临时 scratch 并已清理，系统通用
+剪贴板与真实桌面焦点仍待独立验收。
