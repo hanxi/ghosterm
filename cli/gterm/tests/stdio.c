@@ -64,7 +64,8 @@ int main(int argc, char **argv) {
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
     bool table = !strcmp(mode, "table-describe");
     bool task = !strcmp(mode, "task-read");
-    bool view = table || task;
+    bool diff = !strcmp(mode, "diff-page");
+    bool view = table || task || diff;
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
@@ -135,6 +136,21 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
+            } else if (diff) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "diff",
+                      "--before",
+                      "\"old\"",
+                      "--after",
+                      "\"new\"",
+                      (char *)NULL);
             } else if (view) {
                 execl(binary,
                       binary,
@@ -463,9 +479,15 @@ int main(int argc, char **argv) {
                                        .output_shape = GT_EXT_JSON_OBJECT}};
     size_t method_count = 1;
     if (view) {
-        strcpy(methods[0].method, table ? "view.table.describe" : "view.task.describe");
+        strcpy(methods[0].method,
+               table  ? "view.table.describe"
+               : task ? "view.task.describe"
+                      : "view.diff.describe");
         methods[1] = methods[0];
-        strcpy(methods[1].method, table ? "view.table.page" : "view.task.read");
+        strcpy(methods[1].method,
+               table  ? "view.table.page"
+               : task ? "view.task.read"
+                      : "view.diff.page");
         method_count++;
     }
     bool view_read = false;
@@ -647,7 +669,9 @@ int main(int argc, char **argv) {
                                          "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64 "\"%s}",
                                          lease.instance,
                                          lease.epoch,
-                                         table ? ",\"offset\":16,\"limit\":16" : "");
+                                         table  ? ",\"offset\":16,\"limit\":16"
+                                         : diff ? ",\"offset\":0,\"limit\":2"
+                                                : "");
                     char view_key[64], revision_key[64];
                     snprintf(view_key, sizeof(view_key), "\"viewId\":\"%s\"", lease.instance);
                     snprintf(revision_key,
@@ -656,15 +680,28 @@ int main(int argc, char **argv) {
                              lease.epoch);
                     valid =
                         strstr(result.outcome, view_key) && strstr(result.outcome, revision_key);
-                    valid = valid && (table ? strstr(result.outcome, "Number powers") &&
+                    if (diff) {
+                        valid = valid && strstr(result.outcome, "Text comparison") &&
+                                strstr(result.outcome, "\"added\":1") &&
+                                strstr(result.outcome, "\"removed\":1");
+                    } else {
+                        valid =
+                            valid && (table ? strstr(result.outcome, "Number powers") &&
                                                   strstr(result.outcome, "\"total\":17") &&
                                                   strstr(result.outcome, "\"pageSize\":16")
                                             : strstr(result.outcome, "Count primes") &&
                                                   strstr(result.outcome, "\"cancellable\":true"));
+                    }
                 } else if (table) {
                     valid = strstr(result.outcome, "\"offset\":16") &&
                             strstr(result.outcome, "\"total\":17") &&
                             strstr(result.outcome, "\"cells\":[\"17\",\"289\",\"4913\"]");
+                } else if (diff) {
+                    valid = strstr(result.outcome, "\"total\":2") &&
+                            strstr(result.outcome, "\"kind\":\"delete\"") &&
+                            strstr(result.outcome, "\"text\":\"old\"") &&
+                            strstr(result.outcome, "\"kind\":\"insert\"") &&
+                            strstr(result.outcome, "\"text\":\"new\"");
                 } else if (task) {
                     valid = strstr(result.outcome, "\"phase\":\"succeeded\"") &&
                             strstr(result.outcome, "7 primes up to 17");
