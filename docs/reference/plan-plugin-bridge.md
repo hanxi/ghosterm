@@ -15858,3 +15858,7 @@ macOS 资产与文案漂移项已复验为绿；脚本不上传或修改远端�
 同一脚本随后审计公开 `dev` Release 的 Android 资产，`PUBLIC RELEASE PASS`
 通过。macOS 与 Android 两个平台的线上资产摘要、文件大小和固定 URL 均已
 完成只读核对。
+
+P6 更新信任链专项通过：`scripts/test-plugin-channel-macos-tls.py` 构建并运行
+真实 macOS URLSession TLS 夹具，覆盖有效刷新、轮换后的策略验证、撤销证书、
+重定向拒绝、超大响应拒绝和失败后缓存保留，1 项测试通过。
