@@ -15662,3 +15662,10 @@ P2 Android HTML 预览后台准备接通协程取消：入口、每份附件前�
 调用返回。开启 QuickJS 的隔离 Debug 与测试 APK 构建通过，API 36 无窗口设备
 HTML 模型及原生 WebView 共 17 项通过；新增用例注入附件之间的取消。
 未跑变异、SSH 或其它设备档，临时 APK 与 AVD 已清理。
+
+P2 Android 附件准备取消补变异。常驻 `mutation-check-android-html.py` 新增
+`--case attachment-cancellation`。本轮用隔离副本对同一锚点执行 API 36
+无窗口专项：忽略当前任务的取消回调后重编，触发单条指定断言；同 APK Core
+对照与恢复测试通过，源码 SHA256
+`af02e5e4d69c34b652100a748b041103580da00c078ae7ccdf2d975bdba36b93` 一致。
+本轮只运行新增组的隔离等价步骤，未重跑常驻脚本的全组。临时构件与 AVD 已清理。

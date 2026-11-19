@@ -34,7 +34,7 @@ class PluginResourceHTMLTest {
                 if (++checkpoints == 3) throw cancellation
             }
         }
-        assertSame(cancellation, result.exceptionOrNull())
+        assertSame("cancelled preparation must exit before the next attachment", cancellation, result.exceptionOrNull())
         assertEquals(3, checkpoints)
     }
 

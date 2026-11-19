@@ -48,6 +48,9 @@ def main():
     render = native + 'nativeWebViewRendersOnlyFixedCssAndPngWithOfflineConfiguration'
     lifetime = native + 'selectingImageSourceAndRemovingPanelRevokeRetainedClientsAndUseNewOrigins'
     cases = [
+        ('attachment-cancellation', model + 'cancelledSnapshotDoesNotContinuePreparingAttachments', document,
+         'checkCancellation: () -> Unit = {}): Snapshot? {',
+         'ignoredCancellation: () -> Unit = {}): Snapshot? {\n        val checkCancellation: () -> Unit = {}'),
         ('document-hash', strict, document, 'return bytes.takeIf { sha(it) == d.sha256 }', 'return bytes'),
         ('document-known-size', strict, document, '!d.sizeKnown || ', ''),
         ('document-parent-path', strict, document, ' && it != ".."', ''),
