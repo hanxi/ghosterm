@@ -63,6 +63,15 @@ final class PluginChannelTLSLoopbackTests: XCTestCase {
         let valid = try await refresh("valid")
         XCTAssertEqual(valid.generation, 2)
         try verify(valid)
+        let untrustedEndpoint = try XCTUnwrap(URL(string: origin + "/revoked/"))
+        let untrusted = ExtensionController.ChannelTrust(channel: "fixture", root: root, stateDirectory: state,
+                                                         refreshDirectory: untrustedEndpoint)
+        do {
+            _ = try await PluginChannelRefresh.refresh(untrusted)
+            XCTFail("production channel client trusted the uninstalled loopback certificate")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .serverCertificateUntrusted)
+        }
         do {
             _ = try await refresh("redirect")
             XCTFail("channel client followed a redirect")
