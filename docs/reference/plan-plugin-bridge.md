@@ -15107,3 +15107,8 @@ installed=true、committed=false，且未创建执行端目录登记。后台运
 先观察明确批准，再从签名安装的 QuickJS Executor 收到 Markdown 和 CSS，
 按资源名称、MIME、摘要与字节核对。首轮旧夹具固定 Client 摘要，未完成会话；
 传入实际摘要后正向和七包既有检查全部通过。后端其它六包正向及生产发行待验。
+
+签名 Table 普通命令以 `--count 17` 启动，真实 C Host 附着并明确批准后调用
+`view.table.describe`，核对 Number powers、总数 17 和页长 16。Preview 正向、
+七包安装与分派、原有 roundtrip 对照同轮后台通过。临时文件已清理，本轮
+只验证表格描述 RPC，签名入口的页数据仍待验。

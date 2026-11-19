@@ -61,6 +61,7 @@ int main(int argc, char **argv) {
     CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)) || process_config);
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
+    bool table = !strcmp(mode, "table-describe");
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
@@ -131,6 +132,19 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
+            } else if (table) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "table",
+                      "--count",
+                      "17",
+                      (char *)NULL);
             } else {
                 execl(binary,
                       binary,
@@ -444,6 +458,9 @@ int main(int argc, char **argv) {
                                        .receiver = GT_EXT_EXECUTOR,
                                        .input_shape = GT_EXT_JSON_OBJECT,
                                        .output_shape = GT_EXT_JSON_OBJECT}};
+    if (table) {
+        strcpy(methods[0].method, "view.table.describe");
+    }
     size_t method_count = 1;
     if (!strcmp(mode, "host-method")) {
         methods[1] = (gt_ext_rpc_method_t){.method = "fixture.ask",
@@ -569,10 +586,10 @@ int main(int argc, char **argv) {
             }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
-                const char *input = "{\"text\":\"stdio\",\"count\":17}";
+                const char *input = table ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
                 CHECK(gt_ext_session_request(session,
                                              &lease,
-                                             "fixture.echo",
+                                             methods[0].method,
                                              input,
                                              strlen(input),
                                              process_prefix ? 25000 : 3000,
@@ -614,7 +631,11 @@ int main(int argc, char **argv) {
                 lost = true;
             }
             if (result.confirmed && strcmp(mode, "pending-loss")) {
-                if (result.state != GT_EXT_RPC_SUCCEEDED || !strstr(result.outcome, "stdio")) {
+                const bool valid = table ? strstr(result.outcome, "Number powers") &&
+                                               strstr(result.outcome, "\"total\":17") &&
+                                               strstr(result.outcome, "\"pageSize\":16")
+                                         : strstr(result.outcome, "stdio") != NULL;
+                if (result.state != GT_EXT_RPC_SUCCEEDED || !valid) {
                     fprintf(stderr,
                             "RPC state %d outcome %.*s\n",
                             (int)result.state,
@@ -685,8 +706,8 @@ int main(int argc, char **argv) {
     if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (!strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") || pipes ||
-        !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
+    if (table || !strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") ||
+        pipes || !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
     }
     if (!strcmp(mode, "host-method")) {
