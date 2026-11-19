@@ -17,10 +17,12 @@
 #   --out DIR          产物目录（默认 <repo>/dist）
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
 #   --experimental-plugin-js  本地 dev ad-hoc 包启用插件运行时；须显式指定 --out
-#   --app-only         只出 .app（不出 dmg/zip）
+#   --app-only         跳过 DMG（ZIP 仍默认生成）
 #   --no-zip           不出 .zip
-#   --sign ID|adhoc|none   签名（默认 adhoc；ID 必须是 Developer ID Application 或
-#                      Apple Development 两类之一，按证书**真实的类**记成 id/dev 两档）
+#   --adhoc            ad-hoc 签名（默认）
+#   --sign ID          使用 Developer ID Application 或 Apple Development 证书，
+#                      按证书真实类别记成 id 或 dev
+#   --no-sign          不签名
 #   --notarize PROFILE     公证（notarytool 的 keychain profile；只有 id 档能公证）
 #   --min-os auto|X.Y  最低系统（默认 auto = 取实际二进制与内嵌库的最大 minos）
 #   --force-ghostty    强制重建 libghostty xcframework（默认有就复用）

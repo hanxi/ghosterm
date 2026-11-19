@@ -15595,3 +15595,12 @@ P2 Android HTML 文档切换专项。生产资源列表点击另一目录的文�
 `.build/release/GhostermApp` 兼容路径也通过可执行检查。首轮仅编译成功，
 手工指定的旧架构目录未找到文件；第二轮以 SwiftPM 返回路径核对。未执行
 签名、打包或云端 CI，临时构件已清理。
+
+P6 固定 `dfa383f151b2` 在干净隔离检出运行 macOS arm64
+`package-mac.sh --experimental-plugin-js --app-only --arch arm64 --adhoc --out …`。
+生成实验档 .app 和 ZIP，严格深度签名校验、自包含库、固定 libssh2、QuickJS
+许可、包内主题与无窗口 GRID 冒烟通过。ZIP SHA256
+`7e0c39a43ebdbe929bc54186745a50769b918b7785b4fd182cfb0b52bd0936b2`。
+首轮帮助所示签名参数与解析不一致；第二轮主题目录符号链接不被查找器跟随。
+修正帮助并在隔离检出复制实际主题文件后复验。未执行 DMG、公证或发布，
+临时检出与产物已清理。
