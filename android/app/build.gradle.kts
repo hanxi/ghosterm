@@ -16,7 +16,8 @@ if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNo
     require(Base64.getDecoder().decode(pluginChannelRoot).size == 32) { "Expected a 32-byte channel root" }
     val endpoint = URI(pluginChannelUrl)
     require(endpoint.scheme == "https" && endpoint.host != null && endpoint.userInfo == null &&
-        endpoint.rawFragment == null && endpoint.rawQuery == null && endpoint.port != 0) { "Expected an HTTPS channel directory" }
+        endpoint.rawFragment == null && endpoint.rawQuery == null &&
+        (endpoint.port == -1 || endpoint.port in 1..65535)) { "Expected an HTTPS channel directory" }
 }
 val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
 val runtimeLicenseAssets = layout.buildDirectory.dir("generated/plugin-js-license-assets")
