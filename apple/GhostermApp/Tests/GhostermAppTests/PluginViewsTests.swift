@@ -13,6 +13,13 @@ import XCTest
     var entries: [[String: Any]] = []
     var closes: [String] = []
     var closeFails = false
+    var pauseClose = false
+    var closeBarrier: CheckedContinuation<Void, Never>?
+    func releaseClose() {
+        pauseClose = false
+        closeBarrier?.resume()
+        closeBarrier = nil
+    }
     var current = true
     init(instance: String = String(repeating: "b", count: 32)) {
         self.instance = instance
@@ -41,6 +48,9 @@ import XCTest
                 return try await self.task.request("view.task." + suffix, input)
             }, isCurrent: { self.current }, close: { handle in
                 self.closes.append(handle)
+                if self.pauseClose {
+                    await withCheckedContinuation { self.closeBarrier = $0 }
+                }
                 if self.closeFails { throw PluginViewValue.Failure.unconfirmedResult }
                 self.entries.removeAll { $0["handle"] as? String == handle }; self.revision += 1
                 return try self.data()
@@ -172,6 +182,37 @@ import XCTest
         await secondTable.showPage(offset: 16)
         XCTAssertEqual(secondTable.page?.rows.first?.id, "17")
         XCTAssertNil(firstTable.page)
+    }
+
+    func testLateCloseAfterRuntimeInvalidationDoesNotAffectAnotherInstance() async throws {
+        let first = PluginViewsFixture(), second = PluginViewsFixture(instance: String(repeating: "c", count: 32))
+        let firstModel = try first.populated(), secondModel = try second.populated()
+        let firstItem = firstModel.items[0], secondItem = secondModel.items[0]
+        XCTAssertEqual(firstItem.id, secondItem.id)
+        guard case .table(let activeTable) = secondItem.content else { return XCTFail("expected table") }
+        await activeTable.load()
+
+        first.pauseClose = true
+        defer { first.releaseClose() }
+        let pending = Task { await firstModel.closeView(handle: firstItem.id) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while first.closeBarrier == nil && ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        guard first.closeBarrier != nil else { return XCTFail("expected pending close receipt") }
+
+        firstModel.invalidate()
+        await activeTable.showPage(offset: 16)
+        first.releaseClose()
+        await pending.value
+
+        XCTAssertFalse(firstModel.available)
+        XCTAssertTrue(firstModel.items.isEmpty)
+        XCTAssertNil(firstModel.issue)
+        XCTAssertEqual(first.closes, [firstItem.id])
+        XCTAssertTrue(second.closes.isEmpty)
+        XCTAssertTrue(secondModel.items.first === secondItem)
+        XCTAssertEqual(activeTable.page?.rows.first?.id, "17")
     }
 
     func testRuntimeInvalidationStopsLatePage() async throws {

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginViews.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
-VIEW_TEST_COUNT = 21
+VIEW_TEST_COUNT = 22
 FOREGROUND_MUTATION = 'foreground-loss'
 FOREGROUND_ASSERTION = 'foreground loss must invalidate the Native view registry'
 
