@@ -95,6 +95,21 @@ def main():
             sign(old, generation='1')
             verify(old, expected='CHANNEL_POLICY_ROLLBACK')
 
+            revoked = json.loads(policy.read_bytes())
+            revoked['revokedKeyIds'] = [revoked['keys'][0]['id']]
+            policy.write_text(json.dumps(revoked))
+            fork = work / 'fork'
+            sign(fork)
+            verify(fork, expected='CHANNEL_POLICY_FORK')
+            assert verify(output)['statementSHA256'] == signed['statementSHA256']
+            next_generation = work / 'revocation'
+            signed_revocation = sign(next_generation, generation='3')
+            receipt = verify(next_generation)
+            assert receipt['generation'] == '3'
+            assert receipt['statementSHA256'] == signed_revocation['statementSHA256']
+            verify(output, expected='CHANNEL_POLICY_ROLLBACK')
+            assert verify(next_generation) == receipt
+
     print('CHANNEL POLICY SIGN PASS')
 
 
