@@ -1010,9 +1010,20 @@ python3 -B scripts/gterm-plugin release verify-policy \
   以其停止回执为准。生产根轮换、失陷恢复和跨进程撤销仍待独立发布决策。
 
 本地可运行 `python3 -B scripts/test-plugin-channel-sign.py` 与
-`python3 -B scripts/test-plugin-channel-macos-tls.py`。Android 回环方案先构建
-启用 JS 的 Debug 和测试 APK，再运行 `python3 -B scripts/test-plugin-channel-android-tls.py`。
-这些夹具使用一次性测试根及本地服务。
+`python3 -B scripts/test-plugin-channel-macos-tls.py`。Android 回环脚本默认构建启用
+JS 的 Debug 和测试 APK，再启动专用的 API 36 无窗口模拟器。若已有同源 APK，
+可用以下命令复用构建产物。
+
+```bash
+python3 -B scripts/test-plugin-channel-android-tls.py \
+  --apks android/app/build/outputs/apk/debug/app-debug.apk \
+  android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+```
+
+可以加 `--serial 设备序列号`，使用已授权的专用测试设备。设备上须没有 Ghosterm
+或其测试包。脚本通过 ADB 转发连接本地 HTTPS 夹具，结束后卸载当次安装的包并
+移除当次转发。`--settings-cache` 专项每轮将一次性测试根写入应用，因此需要由
+脚本构建 APK。该专项检查设置从已签名本机缓存读取状态，并核对服务没有收到请求。
 
 ## Android 发布签名核对后端
 
