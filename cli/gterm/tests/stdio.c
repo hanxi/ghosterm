@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
     bool table = !strcmp(mode, "table-describe");
     bool task = !strcmp(mode, "task-read");
     bool diff = !strcmp(mode, "diff-page");
+    bool codex = !strcmp(mode, "codex-thread");
     bool claude = !strcmp(mode, "claude-status");
     bool views = !strcmp(mode, "views-beta");
     bool view = table || task || diff || views;
@@ -138,7 +139,7 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
-            } else if (claude) {
+            } else if (claude || codex) {
                 execl(binary,
                       binary,
                       "relay",
@@ -147,7 +148,7 @@ int main(int argc, char **argv) {
                       "--instance",
                       instance,
                       "--",
-                      "ai claude",
+                      claude ? "ai claude" : "ai codex",
                       (char *)NULL);
             } else if (views) {
                 execl(binary,
@@ -452,7 +453,7 @@ int main(int argc, char **argv) {
     gt_ext_channel_t *channel = NULL;
     CHECK(gt_ext_channel_open_fd(fd[0], pipes ? fd[1] : fd[0], &channel) == GT_OK);
     gt_ext_session_config_t c = {.required_count =
-                                     preview ? 2 : ((process_config || claude) ? 3 : 1),
+                                     preview ? 2 : ((process_config || claude || codex) ? 3 : 1),
                                  .available_count = 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
@@ -475,7 +476,7 @@ int main(int argc, char **argv) {
     strcpy(c.host_version, "0.1.0");
     strcpy(c.client_digest, client_digest);
     strcpy(c.executor_digest, package_digest);
-    if (process_config || claude) {
+    if (process_config || claude || codex) {
         c.available_count = 3;
         strcpy(c.required[0], "session.rpc");
         strcpy(c.required[1], "process.spawn");
@@ -517,8 +518,8 @@ int main(int argc, char **argv) {
                       : "beta.page");
         method_count++;
     }
-    if (claude) {
-        strcpy(methods[0].method, "claude.status");
+    if (claude || codex) {
+        strcpy(methods[0].method, claude ? "claude.status" : "codex.thread.start");
     }
     bool view_read = false;
     if (!strcmp(mode, "host-method")) {
@@ -645,7 +646,8 @@ int main(int argc, char **argv) {
             }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
-                const char *input = (view || claude) ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
+                const char *input =
+                    (view || claude || codex) ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
                 CHECK(gt_ext_session_request(session,
                                              &lease,
                                              methods[0].method,
@@ -693,7 +695,9 @@ int main(int argc, char **argv) {
                 bool valid = strstr(result.outcome, "stdio") != NULL;
                 char page_input[160];
                 int page_size = 0;
-                if (claude) {
+                if (codex) {
+                    valid = strstr(result.outcome, "\"threadID\":\"thread-fixture\"") != NULL;
+                } else if (claude) {
                     valid = strstr(result.outcome, "\"phase\":\"new\"") &&
                             strstr(result.outcome, "\"reaped\":false") &&
                             strstr(result.outcome, "\"exitJSON\":\"null\"");
@@ -837,7 +841,7 @@ int main(int argc, char **argv) {
     if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (view || claude || !strcmp(mode, "roundtrip") || process_config ||
+    if (view || claude || codex || !strcmp(mode, "roundtrip") || process_config ||
         !strcmp(mode, "dispose-error") || pipes || !strcmp(mode, "active-cancel") ||
         !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);

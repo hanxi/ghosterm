@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import platform
+import shlex
 from pathlib import Path
 import shutil
 import stat
@@ -783,14 +784,28 @@ def install_official_candidates(build, fixtures, work):
             profile.extend(['--method', 'beta.describe', '--method', 'beta.page'])
         if name == 'ai-claude':
             profile.extend(['--method', 'claude.status'])
+        if name == 'ai-codex':
+            profile.extend(['--method', 'codex.thread.start'])
         workspace = work / f'{name}-workspace'
+        if name == 'ai-codex':
+            workspace = work / 'codex-patch-signed' / 'workspace'
+            workspace.parent.mkdir(mode=0o700)
         if name in ('preview', 'ai-codex', 'ai-claude'):
             workspace.mkdir(mode=0o700)
             profile.extend(['--root', 'workspace', workspace])
         if name in ('ai-codex', 'ai-claude'):
             program = 'codex' if name == 'ai-codex' else 'claude-node'
-            inert = Path('/usr/bin/false').resolve(strict=True)
-            profile.extend(['--process-program', program, inert, 'fixture-inert', release.sha(inert.read_bytes())])
+            executable = Path('/usr/bin/false').resolve(strict=True)
+            version = 'fixture-inert'
+            if name == 'ai-codex':
+                (workspace / 'fixture.json').write_text(json.dumps({'fixture': 'ghosterm-patch-rpc', 'version': 1}))
+                executable = work / 'codex-app-server-fixture'
+                fixture = ROOT / 'scripts/probes/codex-patch-server.py'
+                executable.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, '-B', str(fixture)]) + ' "$@"\n')
+                executable.chmod(0o700)
+                lock = ROOT / 'plugins/official/ai-codex/protocol/app-server.lock.json'
+                version = json.loads(lock.read_text())['codexCliVersion']
+            profile.extend(['--process-program', program, executable, version, release.sha(executable.read_bytes())])
         registration = subprocess.run([build / 'gterm', 'plugin', 'register-signed', '--catalog', catalog,
             '--expect-revision', '0', '--policy', policy, '--host-json', host, '--', payload.parent,
             *profile],
@@ -851,9 +866,9 @@ def install_official_candidates(build, fixtures, work):
                 require(not list(endpoint.iterdir()), f'{name}: rejected attachment must clean the IPC endpoint')
             finally:
                 ipc.terminate(frontend)
-        if name in ('preview', 'table', 'task', 'diff', 'views', 'ai-claude'):
+        if name in ('preview', 'table', 'task', 'diff', 'views', 'ai-claude', 'ai-codex'):
             host_arguments = [{'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page', 'views': 'views-beta',
-                               'ai-claude': 'claude-status'}.get(name)]
+                               'ai-claude': 'claude-status', 'ai-codex': 'codex-thread'}.get(name)]
             if name == 'preview':
                 site = workspace / 'site'
                 site.mkdir()
