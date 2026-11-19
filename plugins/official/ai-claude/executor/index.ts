@@ -50,13 +50,13 @@ export function activate(context: PluginContext): Disposable {
       if (disposed || request.cancelled) { await child.stop(); request.check(); throw new Error("Claude call cancelled before dispatch"); }
       request.check();
       const raw = await child.call(value.method, parameters);
-      // Retain an actual helper receipt even if the outer RPC was cancelled.
-      // Reading that observation never replays the input or changes old outcomes.
-      const receipt = documents.capture(responseID, raw);
       if (value.method === "stop" && child.acceptedStop) {
         const exit = await child.waitForExit();
         if (exit.state !== "exited" || exit.code !== 0 || exit.signal !== null || !child.reaped) throw new Error("Claude stop cleanup not confirmed");
       }
+      // Retain an actual helper receipt even if the outer RPC was cancelled.
+      // Reading that observation never replays the input or changes old outcomes.
+      const receipt = documents.capture(responseID, raw);
       request.check(); return receipt;
     } catch (error) {
       if (!child) startupFailure = error instanceof ClaudeTransportError ? error.code : "STARTUP";

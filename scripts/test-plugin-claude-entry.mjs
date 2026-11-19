@@ -300,3 +300,43 @@ test("Claude returns a rejected stop receipt while the child remains live", asyn
     assert.equal(value.spawns, 1);
   } finally { value.disposable.dispose(); }
 });
+
+test("Claude publishes a successful stop receipt only after confirmed clean exit", async () => {
+  for (const releaseFails of [false, true]) {
+    const value = fixture();
+    const status = () => value.handlers.get("claude.status")({});
+    const release = value.child.release.bind(value.child);
+    let beginRelease, finishRelease;
+    const releasing = new Promise(resolve => { beginRelease = resolve; });
+    const releaseGate = new Promise((resolve, reject) => {
+      finishRelease = () => releaseFails ? reject(Error("fixture release failure")) : resolve();
+    });
+    value.child.release = async () => {
+      beginRelease();
+      await releaseGate;
+      await release();
+    };
+    try {
+      await read(value, await invoke(value, "start"));
+      const stopping = invoke(value, "stop");
+      const checking = releaseFails ? assert.rejects(stopping, /REAP/) : stopping;
+      await Promise.race([releasing, stopping]);
+      try {
+        const state = await status();
+        assert.equal(state.phase, "closing");
+        assert.equal(state.responseID, "", "stop receipt must wait for release");
+        assert.equal(state.reaped, false);
+      } finally { finishRelease(); }
+      const receipt = await checking;
+      const state = await status();
+      if (releaseFails) {
+        assert.equal(state.responseID, "");
+        assert.equal(state.failure, "REAP");
+      } else {
+        assert.equal(state.responseID, receipt.responseID);
+        assert.equal(state.reaped, true);
+        assert.equal((await read(value, receipt)).result.phase, "closed");
+      }
+    } finally { value.disposable.dispose(); }
+  }
+});
