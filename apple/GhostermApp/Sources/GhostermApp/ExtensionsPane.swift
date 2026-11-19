@@ -24,6 +24,7 @@ struct ExtensionsPane: View {
     @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspection: (entryID: String, task: Task<Void, Never>)?
+    @State private var reviewingPackage = false
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
@@ -110,11 +111,11 @@ struct ExtensionsPane: View {
             HStack {
                 Text("插件包").font(DS.Font.labelEmphasis)
                 Spacer()
-                Button("选择文件夹…") {
+                Button(reviewingPackage ? "正在审查插件包…" : "选择文件夹…") {
                     if let packagePicker { packagePicker(selectedPackage) }
                     else { importing = true }
                 }
-                    .disabled(model.extensionController == nil)
+                    .disabled(model.extensionController == nil || reviewingPackage)
                     .accessibilityIdentifier("plugin-package-import")
             }
 
@@ -439,8 +440,12 @@ struct ExtensionsPane: View {
     private func selectedPackage(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            Task { await review(url) }
+            guard let url = urls.first, !reviewingPackage else { return }
+            reviewingPackage = true
+            Task {
+                defer { reviewingPackage = false }
+                await review(url)
+            }
         case .failure(let error):
             if (error as? CocoaError)?.code == .userCancelled { return }
             issue = "无法选择插件包：\(error.localizedDescription)"
