@@ -28,7 +28,7 @@ def main():
         for name in ('home', 'config', 'project', 'codex'):
             (work / name).mkdir()
         environment = {'HOME': str(work / 'home'), 'XDG_CONFIG_HOME': str(work / 'config'),
-                       'CODEX_HOME': str(work / 'codex'), 'TMPDIR': str(ROOT / 'tmp'),
+                       'CODEX_HOME': str(work / 'codex'), 'TMPDIR': str(work),
                        'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
         observation = subprocess.run([executable, '--version'], cwd=work, env=environment,
                                      capture_output=True, text=True, timeout=10, check=True)

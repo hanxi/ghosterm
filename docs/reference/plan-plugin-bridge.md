@@ -14832,6 +14832,11 @@ TypeScript 严格检查、34 项协议测试及禁网的锁定 CLI 基线通过�
 同批执行端入口对照通过，覆盖延迟启动、回合、批准、事件、取消和回收。
 使用隔离 Host 夹具，未安装到应用。临时包已清理。
 
+同摘要的候选包以 `0789b8bb` 的隔离检出重建，经 Native Client QuickJS、
+gterm Executor QuickJS 与锁定真实 Codex CLI 完成 thread 创建、事件、过期
+变更状态及关闭。该轮禁止网络和 Keychain 访问，使用独立 HOME、工作区及
+临时目录，未发起模型回合。独立检出与产物已清理。
+
 `test-plugin-codex-app.py` 显式启用离屏自动化，重建官方包与 gterm，用锁定
 Codex CLI 0.166.0 运行原生 AppModel 的四项真实回环 SSH 测试。直连和
 ProxyJump 建线程、跳板主机验证拒绝及旧启动不能影响替代会话均通过。
