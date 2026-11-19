@@ -15830,6 +15830,11 @@ Release 仍指向较早提交 `fa5b0044`，其历史 `BUILD-INFO.txt` 仍写着�
 了共享 Release 变异夹具；`mutation-check-dev-release-assets.py` 的 22 组目标
 红、对照绿、恢复绿全部通过。
 
+将同一检查实际应用于公开 `dev` Release 的六个 macOS 元数据资产时，检查按
+预期拒绝线上旧包：其 `BUILD-INFO.txt` 缺少新的 GitHub Release/ad-hoc 声明，
+而 `version.json` 的 `adhoc`、`notarized:false` 和更新签名字段可读。该结果
+确认闸门能发现线上旧文案漂移；待下一次 Release 上传新打包产物后再复验为绿。
+
 随后运行 `scripts/test-macos-update-install.py` 的真实 Sparkle ad-hoc 回环安装
 烟测通过。`install` 完成下载、解包、安装、退出批准和重启，`later` 保留旧版本，
 `cancel-quit` 在取消退出后保留旧版本，`bad-feed` 与 `bad-archive` 均在 Ed25519
