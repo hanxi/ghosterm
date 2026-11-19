@@ -29,7 +29,7 @@ test("Claude Node CLI reports an unavailable SDK before reading the launch profi
     assert.throws(() => createRequire(entry).resolve("@anthropic-ai/claude-agent-sdk"), { code: "MODULE_NOT_FOUND" });
     const result = spawnSync(process.execPath, [entry, "--profile", join(work, "unread-profile.json")],
       { cwd: work, env: { HOME: work, CLAUDE_CONFIG_DIR: work, TMPDIR: work }, encoding: "utf8", timeout: 10_000 });
-    assert.equal(result.status, 4);
+    assert.equal(result.status, 4, "missing Claude SDK must be reported as unavailable");
     assert.equal(result.stdout, "");
     assert.equal(result.stderr, "claude-node: DEPENDENCY_UNAVAILABLE\n");
   } finally { rmSync(work, { recursive: true, force: true }); }
@@ -47,7 +47,7 @@ test("Claude Node CLI distinguishes missing executable and unsupported version w
       if (diagnostic === "CLAUDE_CLI_VERSION_MISMATCH") writeFileSync(executable, bytes, { mode: 0o700 });
       const result = spawnSync(process.execPath, [join(directory, "dist/cli.js"), "--profile", profile],
         { cwd: work, env, encoding: "utf8", timeout: 10_000 });
-      assert.equal(result.status, 4);
+      assert.equal(result.status, 4, "missing or incompatible Claude CLI must be reported as unavailable");
       assert.equal(result.stdout, "");
       assert.equal(result.stderr, `claude-node: ${diagnostic}\n`);
     }

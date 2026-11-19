@@ -15,6 +15,14 @@ SOURCE = ROOT / 'plugins/official/ai-claude/node'
 MAIN = 'Claude approval binds scope and frozen input, resolves once, and replays only its identical live request'
 CONTROL = 'Claude decline preserves hints but never grants suggested persistent permissions'
 CASES = (
+    ('startup-sdk', 'cli.ts', 'code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND"',
+     'code === "MODULE_NOT_FOUND"',
+     'Claude Node CLI reports an unavailable SDK before reading the launch profile',
+     'missing Claude SDK must be reported as unavailable'),
+    ('startup-cli', 'cli.ts', 'code === "CLAUDE_CLI_UNAVAILABLE" || code === "CLAUDE_CLI_VERSION_MISMATCH"',
+     'code === "CLAUDE_CLI_UNAVAILABLE"',
+     'Claude Node CLI distinguishes missing executable and unsupported version without starting a session',
+     'missing or incompatible Claude CLI must be reported as unavailable'),
     ('scope', 'approvals.ts', 'reference.scope === this.scope &&', 'true &&', MAIN,
      'foreign Claude scope must not authorize a callback'),
     ('snapshot', 'approvals.ts', 'const value = snapshot(input);', 'const value = input as unknown as Json;', MAIN,
@@ -149,8 +157,14 @@ def main():
     dependencies.add_argument('--reuse-dependencies', type=Path,
                               help='reuse a previously installed dependency tree with matching package and lock files')
     parser.add_argument('--mutate', action='store_true', help='compile isolated protection mutations')
+    parser.add_argument('--mutation-case', action='append', choices=[case[0] for case in CASES],
+                        help='run only named mutations after the baseline')
     parser.add_argument('--real-cli', action='store_true', help='also initialize the locked native CLI without a prompt, under macOS no-network sandbox')
     args = parser.parse_args()
+    if args.mutation_case and not args.mutate:
+        parser.error('--mutation-case requires --mutate')
+    if args.mutation_case and 'executor-sha' in args.mutation_case and not args.real_cli:
+        parser.error('executor-sha requires --real-cli')
     if args.real_cli and sys.platform != 'darwin':
         parser.error('--real-cli requires the macOS no-network test profile; no fallback or skip is allowed')
     existing = args.reuse_dependencies.resolve() if args.reuse_dependencies else None
@@ -191,6 +205,8 @@ def main():
         print(output, end='', flush=True)
         test_environment.pop('GHOSTERM_CLAUDE_REAL_CLI', None)
         cases = [case for case in CASES if args.real_cli or case[0] != 'executor-sha']
+        if args.mutation_case:
+            cases = [case for case in cases if case[0] in args.mutation_case]
         if args.mutate:
             for name, file, old, new, target, assertion in cases:
                 if name == 'executor-sha': test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
