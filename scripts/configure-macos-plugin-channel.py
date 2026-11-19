@@ -16,11 +16,13 @@ def configure(path, channel, key, directory):
         raise ValueError('invalid GHOSTERM_PLUGIN_CHANNEL')
     if len(base64.b64decode(key, validate=True)) != 32:
         raise ValueError('GHOSTERM_PLUGIN_CHANNEL_ROOT must encode 32 public key bytes')
-    if any(character.isspace() or ord(character) < 32 for character in directory) or '\\' in directory:
+    if (any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in directory)
+            or any(character in directory for character in '\\"<>^`{|}')
+            or re.search(r'%(?![0-9A-Fa-f]{2})', directory)):
         raise ValueError('invalid GHOSTERM_PLUGIN_CHANNEL_URL')
     url = urlsplit(directory)
     if (url.scheme != 'https' or not url.hostname or url.username is not None or url.password is not None
-            or '?' in directory or '#' in directory or url.port == 0):
+            or '?' in directory or '#' in directory or url.netloc.endswith(':') or url.port == 0):
         raise ValueError('GHOSTERM_PLUGIN_CHANNEL_URL must be a credential-free HTTPS directory')
     plist = plistlib.loads(path.read_bytes())
     plist['GhostermPluginChannel'] = {'Name': channel, 'Root': key, 'Directory': directory}
