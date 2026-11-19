@@ -437,13 +437,17 @@ import GhostermCore
 
     public func startCodexThread() async {
         guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", !codexCallBusy,
-              run.methods.contains("codex.thread.start") else { return }
+              codexThreadID == nil, run.methods.contains("codex.thread.start") else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
         defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Started: Decodable { let threadID: String }
             let value: Started = try await callCodexExecutor("codex.thread.start", input: [:])
+            guard !value.threadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  value.threadID.utf8.count <= 128 else {
+                throw GhostermError.failed("Codex thread ID 无效")
+            }
             codexThreadID = value.threadID
         } catch { if generation == extensionRunGeneration { extensionRunIssue = "无法启动 Codex 对话：\(error)" } }
     }

@@ -168,6 +168,9 @@ final class CodexPatchRPCAppTests: XCTestCase {
         try await wait("Client Runtime did not activate") { model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
         try await press(pane, id: "plugin-codex-start-thread")
         try await wait("Fixture thread did not reach the Native UI") { model.codexThreadID == "thread-fixture" && !model.codexCallBusy }
+        await model.startCodexThread()
+        XCTAssertNil(model.extensionRunIssue, "a confirmed thread must not send another start request")
+        XCTAssertEqual(model.codexThreadID, "thread-fixture")
         if !useJump && !dropTurnReply && !interruptTurn && !closeExecutor {
             let invalidDraft = String(repeating: "x", count: 2049)
             model.codexMessageDraft = invalidDraft
