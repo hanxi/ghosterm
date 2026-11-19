@@ -4,16 +4,44 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.os.Process
+import com.hanxi.ghosterm.bridge.LocalPublicationFile
+import com.hanxi.ghosterm.bridge.PluginInstallFiles
+import java.io.File
 
 /** Included only in explicitly requested debug test APKs. */
 class PluginChannelWriterProvider : ContentProvider() {
+    private var heldDirectory: ParcelFileDescriptor? = null
+
     override fun onCreate(): Boolean = true
 
+    @Synchronized
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
-        require(method == "commit" && arg == null)
+        require(arg == null)
+        val application = checkNotNull(context)
+        when (method) {
+            "hold-cache-lock" -> {
+                check(heldDirectory == null)
+                val directory = LocalPublicationFile.directory(File(application.filesDir, "plugin-channel-policy"), "")
+                try {
+                    check(PluginInstallFiles.lock(directory.fd) == 0)
+                    heldDirectory = directory
+                } finally {
+                    if (heldDirectory !== directory) directory.close()
+                }
+                return Bundle()
+            }
+            "release-cache-lock" -> {
+                val directory = checkNotNull(heldDirectory)
+                heldDirectory = null
+                directory.close()
+                return Bundle()
+            }
+        }
+        require(method == "commit")
         val input = requireNotNull(extras)
-        val store = checkNotNull(PluginChannelRefresh.configured(checkNotNull(context))).store
+        val store = checkNotNull(PluginChannelRefresh.configured(application)).store
         val policy = store.refresh(
             requireNotNull(input.getByteArray("statement")),
             requireNotNull(input.getByteArray("signature")),

@@ -207,8 +207,9 @@ class ExtensionMixedConnectionTest {
                     ui.onNodeWithTag("plugin-channel-stop").assertDoesNotExist()
                 }
                 val materials = revocation.getJSONObject("revoked")
+                val writer = Uri.parse("content://${context.packageName}.test-channel-writer")
                 val written = checkNotNull(context.contentResolver.call(
-                    Uri.parse("content://${context.packageName}.test-channel-writer"), "commit", null,
+                    writer, "commit", null,
                     Bundle().apply {
                         for (name in listOf("statement", "signature", "policy")) putByteArray(name, bytes(materials, name))
                     }))
@@ -225,8 +226,31 @@ class ExtensionMixedConnectionTest {
                     assertTrue(main { model.canInteractWithRuntime })
                     echo(model, "still active", 0, stage = "after publisher revocation")
                     assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    ui.onNodeWithTag("plugin-channel-stop").performScrollTo()
+                    checkNotNull(context.contentResolver.call(writer, "hold-cache-lock", null, null))
+                    try {
+                        ui.onNodeWithTag("plugin-channel-stop").performClick()
+                        ui.waitUntil(15000) {
+                            ui.onAllNodesWithTag("plugin-channel-refresh-status").fetchSemanticsNodes().isNotEmpty()
+                        }
+                        ui.onNodeWithTag("plugin-channel-refresh-status")
+                            .assertTextContains("已向 0 个实例发出停止请求", substring = true)
+                            .assertTextContains("1 个实例未能完成核对或发出请求", substring = true)
+                            .assertTextContains("安装目录正由另一项操作使用", substring = true)
+                        assertTrue(main { model.canInteractWithRuntime })
+                        echo(model, "stop unavailable", 0, stage = "channel cache busy")
+                        assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    } finally {
+                        checkNotNull(context.contentResolver.call(writer, "release-cache-lock", null, null))
+                    }
+                    ui.waitUntil(15000) {
+                        ui.onAllNodes(hasTestTag("plugin-channel-stop") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+                    }
                     ui.onNodeWithTag("plugin-channel-stop").performScrollTo().performClick()
-                    ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-channel-refresh-status").fetchSemanticsNodes().isNotEmpty() }
+                    ui.waitUntil(15000) {
+                        ui.onAllNodes(hasTestTag("plugin-channel-refresh-status") and
+                            hasText("已向 1 个实例发出停止请求", substring = true)).fetchSemanticsNodes().isNotEmpty()
+                    }
                     ui.onNodeWithTag("plugin-channel-refresh-status").assertTextContains("已向 1 个实例发出停止请求", substring = true)
                     await("revoked Runtime did not stop") {
                         main { !model.launchBusy && model.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED }
