@@ -252,7 +252,8 @@ class ExtensionMixedConnectionTest {
                         val remaining = File(directory, "owned-cleanup-probe").apply { writeText("owned") }
                         Os.chmod(directory.path, OsConstants.S_IRUSR or OsConstants.S_IXUSR)
                         try {
-                            assertFalse(runBlocking { withContext(Dispatchers.Main) { current.close() } })
+                            assertFalse("local cleanup failure must not report closure",
+                                runBlocking { withContext(Dispatchers.Main) { current.close() } })
                             assertTrue(main { current.cleanupPending && !current.closed && !current.canAdd })
                             assertTrue(main { current.issue?.contains("插件资源私有目录清理失败") == true })
                             assertEquals("owned", remaining.readText())
@@ -264,7 +265,8 @@ class ExtensionMixedConnectionTest {
                         await("local connection release did not recover") { main { current.closed && !current.cleanupPending } }
                         assertTrue(main { current.state?.info?.released == true })
                         assertFalse("TCP reset must not establish remote exit", checkNotNull(main { current.state?.transport }).remoteEof)
-                        assertTrue(main { current.issue?.contains("执行端退出未确认") == true })
+                        assertTrue("released connection must preserve unconfirmed remote exit",
+                            main { current.issue?.contains("执行端退出未确认") == true })
                         assertFalse(directory.exists())
                         assertEquals(0, leaseStatus())
                         return

@@ -233,16 +233,24 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
             ('android-consent-recheck', 'ExtensionController',
              b'decision == ExtensionSession.Decision.ALLOW && channelAdmission != null',
              b'decision == ExtensionSession.Decision.DENY && channelAdmission != null', 1,
-             'revoked consent must not advance the Native Session'),
+             'revoked consent must not advance the Native Session', False),
             ('android-stop-consent', 'ExtensionPackagesViewModel',
              b'activeRuntime == null -> requestSessionStop(owner, includePendingConsent = true)',
              b'activeRuntime == null -> requestSessionStop(owner, includePendingConsent = false)', 1,
-             'revocation stop must request cancellation of pending consent'),
+             'revocation stop must request cancellation of pending consent', False),
+            ('android-local-release-error', 'ExtensionController',
+             'if (resourceDirectory.exists() && !resourceDirectory.deleteRecursively()) throw IllegalStateException("插件资源私有目录清理失败")'.encode(),
+             b'if (resourceDirectory.exists()) resourceDirectory.deleteRecursively()', 1,
+             'local cleanup failure must not report closure', True),
+            ('android-remote-exit-unknown', 'ExtensionConnectionModel',
+             'if (state?.transport?.remoteEof == false) issue = "连接已释放；执行端退出未确认，请检查各实例回执"'.encode(),
+             b'if (state?.transport?.remoteEof == false) issue = null', 1,
+             'released connection must preserve unconfirmed remote exit', True),
         ] if revocation else [
-            ('android-parent-pump', 'ExtensionController', b'            parent?.multiplexer?.step()\n', b'', 2, None),
+            ('android-parent-pump', 'ExtensionController', b'            parent?.multiplexer?.step()\n', b'', 2, None, False),
         ]
         restored = baseline
-        for label, stem, anchor, replacement, occurrences, assertion in recipes if mutate else []:
+        for label, stem, anchor, replacement, occurrences, assertion, disconnect in recipes if mutate else []:
             filename = f'android/app/src/main/java/com/hanxi/ghosterm/{stem}.kt'
             path = source / filename
             original = path.read_bytes()
@@ -258,7 +266,8 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 if not any(p.is_file() and sha(p) != before[str(p)] for p in objects):
                     raise RuntimeError('mutated Kotlin worker did not recompile')
                 install(label)
-                actual('direct', label + '-red', red=True, expected_assertion=assertion)
+                actual('direct', label + '-red', red=True, expected_assertion=assertion,
+                    active_revocation=disconnect, disconnect=disconnect)
                 test(label + '-control', target=CONTROL)
             finally:
                 path.write_bytes(original)
@@ -276,7 +285,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 raise RuntimeError('restored Kotlin worker classes differ from baseline: ' + ', '.join(changed))
             if sha(path) != inputs[filename]: raise RuntimeError('Android worker source restoration mismatch')
             install(label + '-restored')
-            actual('direct', label + '-restored')
+            actual('direct', label + '-restored', active_revocation=disconnect, disconnect=disconnect)
             mutations.append(label)
             print('PASS ' + label + ': compiled assertion / same APK Core / restore / classes / SHA256', flush=True)
     return dict(routes=completed, mutations=mutations, devices=devices, actual=records, baselineAPKs=baseline, finalAPKs=restored,
