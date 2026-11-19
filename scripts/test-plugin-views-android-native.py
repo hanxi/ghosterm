@@ -36,6 +36,7 @@ RUNNER = 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'
 TESTS = 'com.hanxi.ghosterm.PluginViewsTest,com.hanxi.ghosterm.PluginViewsUiTest'
 ACTUAL = 'com.hanxi.ghosterm.PluginViewsSSHAppTest#registeredViewsThroughViewModelAndNativeControls'
 BASELINE_COUNT = 29
+FOREGROUND_MUTATION = 'foreground-loss'
 
 
 CASES = [
@@ -53,6 +54,8 @@ CASES = [
     ('native-close', UI, 'onClick = { model.closeView(item.handle) }', 'onClick = { Unit }', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
     ('native-heading', UI, 'Modifier.weight(1f).semantics { heading() }', 'Modifier.weight(1f)', 'UI#darkLargeTextPaints'),
     ('native-restart', APP + 'PluginTaskContent.kt', 'LaunchedEffect(model, model.available)', 'LaunchedEffect(model)', 'UI#unconfirmedCloseRetainsWidgetAndRestartsPolling'),
+    (FOREGROUND_MUTATION, VM, '                    registeredViews?.invalidate(); task?.invalidate()\n',
+        '                    task?.invalidate()\n', None),
 ]
 
 
@@ -240,7 +243,10 @@ def main():
                                         payload['ports'][first] = reverse(ports[first])
                                         fixture_port = reverse(server.server_address[1])
                                         thread = threading.Thread(target=server.serve_forever); thread.start()
-                                        try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
+                                        try:
+                                            text = test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
+                                            if red and scenario == 'views-loss' and 'foreground loss must invalidate registered Native views' not in text:
+                                                raise RuntimeError('Wrong foreground-loss assertion\n' + text)
                                         finally: server.shutdown(); thread.join(5)
                                         if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
                                 finally:
@@ -252,10 +258,11 @@ def main():
                             for scenario in scenarios:
                                 actual('api' + api + '-' + route + '-' + scenario, route, scenario)
                                 print('PASS API' + api + ': actual Native ' + route + ' ' + scenario, flush=True)
-                        cases = CASES
+                        cases = [case for case in CASES if args.attach_loss or case[0] != FOREGROUND_MUTATION]
                         if args.case and set(args.case) - {c[0] for c in cases}: parser.error('unknown mutation group')
                         for label, filename, old, new, target in cases if args.mutate and api_index == 0 else []:
                             if args.case and label not in args.case: continue
+                            scenario = 'views-loss' if label == FOREGROUND_MUTATION else 'views'
                             path = source / filename; original = path.read_bytes()
                             if original.count(old.encode()) != 1: raise RuntimeError('Ambiguous mutation anchor: ' + label)
                             before = [sha(p) for p in apks]
@@ -267,12 +274,12 @@ def main():
                                 if before[0] == mutated[0]: raise RuntimeError('Actual production APK unchanged: ' + label)
                                 install(label + '-red')
                                 if selected: test(label + '-red', selected, 1, True)
-                                else: actual(label + '-red', 'direct', 'views', True)
+                                else: actual(label + '-red', 'direct', scenario, True)
                                 test(label + '-control', CONTROL, 1)
                             finally: path.write_bytes(original)
                             compile_apks(label + '-build-restored'); install(label + '-restored')
                             if selected: test(label + '-restored', selected, 1)
-                            else: actual(label + '-restored', 'direct', 'views')
+                            else: actual(label + '-restored', 'direct', scenario)
                             if sha(path) != inputs[filename]: raise RuntimeError('Source restoration mismatch')
                             groups.append(dict(api=api, name=label, mutatedAPK=mutated[0]))
                             print('PASS ' + label + ': ordinary assertion / same-APK Core / restored / APK / SHA256', flush=True)

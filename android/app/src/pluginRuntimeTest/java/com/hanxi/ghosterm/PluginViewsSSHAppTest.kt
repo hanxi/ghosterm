@@ -159,9 +159,13 @@ class PluginViewsSSHAppTest {
                 val observed = fixture("lose-foreground").getJSONObject("ipcObservation")
                 assertFalse(observed.getBoolean("frontendAlive"))
                 assertEquals("injected-ipc-loss", observed.getString("fault"))
-                await("Transport loss invalidates registered views") {
-                    main { !views.state.value.valid && views.state.value.items.isEmpty() }
+                await("Foreground loss reaches a terminal Runtime") {
+                    main { extensions.activeRuntime?.info?.phase in setOf(ExtensionRuntime.Phase.FAILED,
+                        ExtensionRuntime.Phase.STOPPED, ExtensionRuntime.Phase.CLOSED) }
                 }
+                assertFalse("foreground loss must invalidate registered Native views", main { views.state.value.valid })
+                assertTrue(main { views.state.value.items.isEmpty() })
+                assertNotEquals(PluginTaskSnapshot.Phase.CANCELLED, main { reopened.state.value.snapshot?.phase })
                 ui.onAllNodesWithTag("plugin-view-close").assertCountEquals(0)
             } else {
                 ui.onNodeWithTag("plugin-task-cancel").performScrollTo().performClick()
