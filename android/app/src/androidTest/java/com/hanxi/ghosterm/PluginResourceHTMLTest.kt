@@ -23,6 +23,21 @@ internal fun htmlFixturePNG(width: Int = 8, height: Int = 8): ByteArray {
 @RunWith(AndroidJUnit4::class)
 class PluginResourceHTMLTest {
     private fun doc(source: ByteArray = "<h1>HTML</h1>".toByteArray()) = htmlFixture("docs/读我.html", "text/html; charset=utf-8", source)
+    @Test fun cancelledSnapshotDoesNotContinuePreparingAttachments() {
+        val document = htmlFixture("docs/index.html", "text/html", "<p>preview</p>".toByteArray())
+        val first = htmlFixture("docs/one.css", "text/css", "body{color:red}".toByteArray())
+        val second = htmlFixture("docs/two.css", "text/css", "body{color:blue}".toByteArray())
+        val cancellation = kotlinx.coroutines.CancellationException("preview replaced")
+        var checkpoints = 0
+        val result = runCatching {
+            PluginResourceHTMLDocument.capture(document, listOf(document, first, second)) {
+                if (++checkpoints == 3) throw cancellation
+            }
+        }
+        assertSame(cancellation, result.exceptionOrNull())
+        assertEquals(3, checkpoints)
+    }
+
     @Test fun htmlRequiresConfirmedExactBytesStrictUtf8AndCanonicalNames() {
         val d = doc(); val data = listOf(d)
         assertNotNull(PluginResourceHTMLDocument.capture(d, data))

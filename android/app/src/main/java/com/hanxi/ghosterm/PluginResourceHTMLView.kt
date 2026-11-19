@@ -24,6 +24,7 @@ import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content
 import java.io.ByteArrayInputStream
 import java.net.URI
 import java.util.UUID
+import kotlinx.coroutines.ensureActive
 
 /** One immutable preview and one fresh synthetic origin. Requests run off the
  * UI thread; close revokes future reads without changing global WebView stores. */
@@ -187,7 +188,8 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
             var ready by remember(document.descriptor, descriptors) { mutableStateOf(false) }
             val snapshot by produceState<PluginResourceHTMLDocument.Snapshot?>(null, document.descriptor, descriptors) {
                 value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    PluginResourceHTMLDocument.capture(document, resources)
+                    val preparation = coroutineContext
+                    PluginResourceHTMLDocument.capture(document, resources) { preparation.ensureActive() }
                 }
                 ready = true
             }

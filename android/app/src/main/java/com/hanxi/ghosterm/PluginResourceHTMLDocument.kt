@@ -93,7 +93,8 @@ internal object PluginResourceHTMLDocument {
     }
     private class Limit : java.io.IOException()
 
-    fun capture(document: Content, resources: List<Content>): Snapshot? {
+    fun capture(document: Content, resources: List<Content>, checkCancellation: () -> Unit = {}): Snapshot? {
+        checkCancellation()
         val d = document.descriptor
         if (!supports(d.mime) || !canonical(d.displayName)) return null
         val sourceBytes = fixed(document, MAX_DOCUMENT_BYTES) ?: return null
@@ -109,6 +110,7 @@ internal object PluginResourceHTMLDocument {
         var omitted = candidates.size > MAX_ATTACHMENTS
         var pixels = 0L
         for (resource in candidates.take(MAX_ATTACHMENTS)) {
+            checkCancellation()
             val descriptor = resource.descriptor
             val path = descriptor.displayName
             if (!canonical(path) || !path.startsWith(directory)) { omitted = true; continue }
@@ -125,8 +127,12 @@ internal object PluginResourceHTMLDocument {
             }
             if (asset == null) omitted = true else assets[path] = asset
         }
+        checkCancellation()
         val identity = mutableListOf(d.resourceId, d.generation.toString(), d.displayName, d.sha256, omitted.toString())
-        for ((path, asset) in assets) identity += listOf(path, asset.mime, sha(asset.bytes))
+        for ((path, asset) in assets) {
+            checkCancellation()
+            identity += listOf(path, asset.mime, sha(asset.bytes))
+        }
         val fingerprint = MessageDigest.getInstance("SHA-256")
         for (field in identity) {
             val bytes = field.toByteArray()
