@@ -15464,3 +15464,10 @@ P5 固定 `332b2ec5` 重建官方 views 候选包和启用 JS／SSH 的 gterm，
 同对 APK 在直连和两跳 ProxyJump 各通过前台 IPC 正常与进程退出用例，合计
 四项。收据 SHA256 `8635feaecae4b1d394e5929c528fc3a75a530b3348b90587ae0b56bfab38cbb4`。
 本轮未跑变异、其它设备档或 TalkBack 实际播报。临时构件、夹具和 AVD 已清理。
+
+P5 固定 `5cbc5dce`，API 36 无窗口复验 `native-enable`、`native-owner`、
+`native-render` 三组生产接线变异。每组实际重编、实际安装 APK 摘要检查、
+直连原生整链单条正常断言红、同 APK Core 配置对照绿、恢复直连和源码摘要绿。
+29 项通用测试、84 项表格／差异／任务、直连和两跳基线及恢复后 29 项均通过。
+收据 SHA256 `1adbdb29b2702298cf01d881bc38ddea75cedc0cafc8d2e1de4e10eca524513f`。
+本轮未跑前台附着、其它设备档或 TalkBack 实际播报，临时构件已清理。
