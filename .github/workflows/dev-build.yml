@@ -75,6 +75,19 @@ jobs:
           shasum -a 256 -c SHA256SUMS
           grep -Eq '签名: *adhoc' BUILD-INFO.txt || {
             echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
+          grep -Fq 'GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名' BUILD-INFO.txt || {
+            echo "BUILD-INFO 缺少 GitHub Release/ad-hoc 更新口径" >&2; exit 1; }
+          grep -Fq '未公证的包不能直接分发给终端用户' BUILD-INFO.txt && {
+            echo "BUILD-INFO 仍含过时的公证阻塞文案" >&2; exit 1; } || true
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('version.json').read_text())
+          if value.get('signature') != 'adhoc' or value.get('notarized') is not False:
+              raise SystemExit('version.json 的 Apple 签名状态不符合 GitHub Release ad-hoc 口径')
+          if not isinstance(value.get('update_signature'), str) or not value['update_signature']:
+              raise SystemExit('version.json 缺少 Ed25519 更新签名')
+          PY
           echo "dev 产物 $(ls -1 *.dmg | tr '\n' ' ') 校验通过"
 
       # dev 比随包 commit；workflow build 只用于追溯，不跨轨比大小。
