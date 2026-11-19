@@ -15804,3 +15804,8 @@ macOS 采用自签 ad-hoc 包，不要求有效的 Apple Developer ID 身份或�
 P6 只需验证 GitHub Release 资产获取、验签、安装与回滚，以及 Ed25519 密钥
 轮换和撤销传播，不再把 Apple 公证或 Developer ID 作为阻塞项。真实发布
 资产和端到端更新复验尚未完成。
+
+随后运行 `scripts/test-macos-update.py` 验证独立更新签名链：7 项 Sparkle
+appcast / ZIP 夹具通过，覆盖有效 Ed25519 签名、篡改拒绝、无密钥时保留空
+appcast 和 dev / release 元数据。该轮只验证本地夹具，未访问 GitHub Release
+或真实模型，临时目录已清理。
