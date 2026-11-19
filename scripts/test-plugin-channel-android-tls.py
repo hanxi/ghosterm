@@ -148,12 +148,16 @@ def main():
                      ':app:assembleDebug', ':app:assembleDebugAndroidTest']
             if args.settings_cache:
                 bundle = work / 'signed-channel'
+                revoked = work / 'revoked-channel'
                 build.extend(['-PghostermPluginChannel=fixture', f'-PghostermPluginChannelRoot={root}',
                               f'-PghostermPluginChannelUrl={origin}/valid/'])
                 test = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
                 extras = [
                     '-e', 'settingsChannelStatement', base64.b64encode((bundle / 'channel-policy.json').read_bytes()).decode(),
                     '-e', 'settingsChannelSignature', base64.b64encode((bundle / 'channel-policy.sig').read_bytes()).decode(),
+                    '-e', 'settingsRevokedStatement', base64.b64encode((revoked / 'channel-policy.json').read_bytes()).decode(),
+                    '-e', 'settingsRevokedSignature', base64.b64encode((revoked / 'channel-policy.sig').read_bytes()).decode(),
+                    '-e', 'settingsRevokedPolicy', base64.b64encode((revoked / 'policy.json').read_bytes()).decode(),
                 ]
             else:
                 test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'

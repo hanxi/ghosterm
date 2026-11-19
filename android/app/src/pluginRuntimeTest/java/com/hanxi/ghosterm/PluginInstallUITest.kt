@@ -214,7 +214,32 @@ class PluginInstallUITest {
                 ui.onNodeWithTag("plugin-version-acknowledge").performScrollTo().performClick()
                 ui.onNodeWithTag("plugin-version-confirm").assertIsEnabled().performScrollTo().performClick()
                 ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-selection-result").fetchSemanticsNodes().isNotEmpty() }
-                assertTrue(runBlocking { extensions.controller!!.installedVersions().selection!!.choices.values.single().enabled })
+                val owner = checkNotNull(extensions.controller)
+                val selected = runBlocking { checkNotNull(owner.installedVersions().selection) }
+                val choice = selected.choices.values.single()
+                assertTrue(choice.enabled)
+
+                // A separately opened cache writes the next signed policy while
+                // Settings still holds a previously verified selection preview.
+                ui.onNodeWithTag("plugin-version-select-$releaseID").performScrollTo().assertIsEnabled().performClick()
+                ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-preview").fetchSemanticsNodes().isNotEmpty() }
+                ui.onNodeWithTag("plugin-version-acknowledge").performScrollTo().performClick()
+                fun bytes(name: String) = Base64.getDecoder().decode(checkNotNull(arguments.getString(name)))
+                val writer = checkNotNull(PluginChannelRefresh.configured(context)).store
+                val revoked = writer.refresh(bytes("settingsRevokedStatement"), bytes("settingsRevokedSignature"),
+                    bytes("settingsRevokedPolicy"), (System.currentTimeMillis() / 1000).toULong())
+                assertEquals(3uL, revoked.generation)
+                ui.onNodeWithTag("plugin-version-confirm").performScrollTo().assertIsEnabled().performClick()
+                ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-version-selection-issue").fetchSemanticsNodes().isNotEmpty() }
+                ui.onNodeWithTag("plugin-version-selection-result").assertDoesNotExist()
+                assertEquals(selected, runBlocking { owner.installedVersions().selection })
+                ui.onNodeWithTag("plugin-version-select-$releaseID").performScrollTo().assertIsEnabled().performClick()
+                ui.waitUntil(15000) {
+                    ui.onAllNodesWithTag("plugin-version-selection-issue").fetchSemanticsNodes().isNotEmpty()
+                }
+                ui.onNodeWithTag("plugin-version-selection-issue").assertTextContains("撤销", substring = true)
+                ui.onNodeWithTag("plugin-version-confirm").assertDoesNotExist()
+                assertEquals(selected, runBlocking { owner.installedVersions().selection })
                 return
             }
             verify()
