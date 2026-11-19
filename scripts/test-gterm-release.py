@@ -894,6 +894,10 @@ def install_official_candidates(build, fixtures, work):
                         *host_arguments], env=host_env, capture_output=True, timeout=30)
                     require(result.returncode == 0 and f'PASS stdio {host_arguments[0]}'.encode() in result.stdout,
                             f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
+                    output, diagnostics = frontend.communicate(timeout=6)
+                    require(frontend.returncode == 0,
+                            f'{name}: ordinary command must finish cleanly after Host revocation: '
+                            f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
                 finally:
                     ipc.terminate(frontend)
             require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
