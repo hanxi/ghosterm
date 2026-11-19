@@ -49,10 +49,17 @@ class TerminalOSC52Test {
         session.commit("printf '%b' '\\033P$offer\\033\\0134\\033[2J\\033[HPTY_CONTROL_MARKER'\r")
         ready(session, "PTY_CONTROL_MARKER")
         val nested = session.discovery()
-        assertEquals(0, nested.status)
+        val discoveryStatus = if (BuildConfig.PLUGIN_JS_ENABLED) 0 else 7
+        assertEquals(discoveryStatus, nested.status)
         assertNull("OSC nested in ordinary DCS must not become an offer", nested.offer)
         session.commit("printf '%b' '$offer\\033[2J\\033[HPTY_CANDIDATE_MARKER'\r")
         ready(session, "PTY_CANDIDATE_MARKER")
+        if (!BuildConfig.PLUGIN_JS_ENABLED) {
+            val disabled = session.discovery()
+            assertEquals(discoveryStatus, disabled.status)
+            assertNull(disabled.offer)
+            return@terminal
+        }
         var observed: DiscoveryOffer? = null
         await { observed = session.discovery().offer; observed != null }
         assertEquals("/work/front", observed?.directory)
