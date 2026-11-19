@@ -1,0 +1,85 @@
+diff --git a/include/libssh2.h b/include/libssh2.h
+index f47858a..51fc11d 100644
+--- a/include/libssh2.h
++++ b/include/libssh2.h
+@@ -1484,6 +1484,11 @@ LIBSSH2_API void libssh2_keepalive_config(LIBSSH2_SESSION *session,
+ LIBSSH2_API int libssh2_keepalive_send(LIBSSH2_SESSION *session,
+                                        int *seconds_to_next);
+ 
++/* Number of keepalive requests awaiting SSH_MSG_REQUEST_SUCCESS/FAILURE.
++ * Only meaningful when keepalive_config() was called with want_reply != 0. */
++LIBSSH2_API unsigned int
++libssh2_keepalive_unanswered(LIBSSH2_SESSION *session);
++
+ /* NOTE NOTE NOTE
+    libssh2_trace() has no function in builds that aren't built with debug
+    enabled
+diff --git a/src/keepalive.c b/src/keepalive.c
+index 489a1da..8a322fa 100644
+--- a/src/keepalive.c
++++ b/src/keepalive.c
+@@ -47,11 +47,11 @@ libssh2_keepalive_config(LIBSSH2_SESSION *session,
+                          int want_reply,
+                          unsigned int interval)
+ {
+-    if(interval == 1)
+-        session->keepalive_interval = 2;
+-    else
+-        session->keepalive_interval = interval;
++    session->keepalive_interval = interval;
+     session->keepalive_want_reply = want_reply ? 1 : 0;
++    session->keepalive_unanswered = 0;
++    /* The first request is due after INTERVAL, not immediately. */
++    session->keepalive_last_sent = time(NULL);
+ }
+ 
+ LIBSSH2_API int
+@@ -88,6 +88,10 @@ libssh2_keepalive_send(LIBSSH2_SESSION *session,
+             return rc;
+         }
+ 
++        if(!rc && session->keepalive_want_reply &&
++           session->keepalive_unanswered < UINT_MAX)
++            session->keepalive_unanswered++;
++
+         session->keepalive_last_sent = now;
+         if(seconds_to_next)
+             *seconds_to_next = session->keepalive_interval;
+@@ -99,3 +103,9 @@ libssh2_keepalive_send(LIBSSH2_SESSION *session,
+ 
+     return 0;
+ }
++
++LIBSSH2_API unsigned int
++libssh2_keepalive_unanswered(LIBSSH2_SESSION *session)
++{
++    return session ? session->keepalive_unanswered : 0;
++}
+diff --git a/src/libssh2_priv.h b/src/libssh2_priv.h
+index 9b8866d..9e3da71 100644
+--- a/src/libssh2_priv.h
++++ b/src/libssh2_priv.h
+@@ -943,6 +943,7 @@ struct _LIBSSH2_SESSION
+     /* Keepalive variables used by keepalive.c. */
+     int keepalive_interval;
+     int keepalive_want_reply;
++    unsigned int keepalive_unanswered;
+     time_t keepalive_last_sent;
+ 
+     /* Configurable timeout for packets. Replaces LIBSSH2_READ_TIMEOUT */
+diff --git a/src/packet.c b/src/packet.c
+index 6da14e9..7d98db6 100644
+--- a/src/packet.c
++++ b/src/packet.c
+@@ -657,6 +657,11 @@ _libssh2_packet_add(LIBSSH2_SESSION * session, unsigned char *data,
+             return _libssh2_error(session, LIBSSH2_ERROR_INVALID_MAC,
+                                   "Invalid MAC received");
+         }
++        /* Global request replies are ordered. Core only uses this counter for
++         * keepalive requests, so either reply type acknowledges one request. */
++        if((msg == SSH_MSG_REQUEST_SUCCESS || msg == SSH_MSG_REQUEST_FAILURE) &&
++           session->keepalive_unanswered)
++            session->keepalive_unanswered--;
+         session->packAdd_state = libssh2_NB_state_allocated;
+         break;
+     case libssh2_NB_state_jump1:

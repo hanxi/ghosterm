@@ -94,3 +94,10 @@ python3 scripts/test-libssh2-sftp.py --android emulator-5554
 第四份补丁须证明真实 0 / 非零、无状态、信号、截断 / 重复、超范围及 EOF 后迟到状态能被区分，
 查询不关闭进程、不改未知输出；升级若提供等价 API，先迁移 Core 与两端锁定构建、验证收据拒绝旧库，
 再撤掉该扩展。不依据旧 getter 的值猜测存在性。
+
+`0005-keepalive-replies.patch` 为可选 SSH ServerAlive 实现提供两项 libssh2 能力：首次调用
+`keepalive_send()` 前从配置时刻开始计时（否则 1.11.1 的 `keepalive_last_sent == 0` 会立即发送），
+并记录尚未收到 `SSH_MSG_REQUEST_SUCCESS/FAILURE` 的 keepalive 请求数。计数只在实际完整发送
+且 `want_reply` 打开时增加；收到全局请求答复时按 SSH 请求顺序减少。Core 使用它实现
+`ServerAliveCountMax`，不是把 socket 空闲或 send 成功推断为答复。公开 getter 返回当前待答数；
+不改变既有函数签名。补丁不承诺操作系统挂起期间能够运行定时器。

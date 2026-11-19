@@ -34,11 +34,14 @@ typedef gt_hostkey_decision_t (*gt_hostkey_decider_fn)(void *userdata,
                                                        const char *fingerprint_sha256);
 
 typedef struct {
-    const char *host;             /* 必填 */
-    uint16_t port;                /* 0 → 22 */
-    const char *username;         /* 必填 */
-    const char *known_hosts_path; /* NULL → $HOME/.ssh/known_hosts */
-    int connect_timeout_ms;       /* TCP + 握手的总预算；0 → 默认 15000 */
+    const char *host;                /* 必填 */
+    uint16_t port;                   /* 0 → 22 */
+    const char *username;            /* 必填 */
+    const char *known_hosts_path;    /* NULL → $HOME/.ssh/known_hosts */
+    int connect_timeout_ms;          /* TCP + 握手的总预算；0 → 默认 15000 */
+    int server_alive_interval;       /* 秒；0 → 禁用 */
+    int server_alive_count_max;      /* 0 → 不因未答复探测自动断开；默认 3 */
+    bool server_alive_count_max_set; /* 区分显式 0 与旧调用方未设置 */
 } gt_ssh_opts_t;
 
 /*

@@ -174,6 +174,27 @@ static gt_ssh_t *mk(const char *host,
     return s;
 }
 
+static gt_ssh_t *mk_keepalive(const char *host,
+                              int port,
+                              const char *user,
+                              const char *pem,
+                              const char *kh,
+                              int interval,
+                              int count_max) {
+    gt_ssh_opts_t options = {.host = host,
+                             .port = (uint16_t)port,
+                             .username = user,
+                             .known_hosts_path = kh,
+                             .server_alive_interval = interval,
+                             .server_alive_count_max = count_max,
+                             .server_alive_count_max_set = true};
+    gt_ssh_t *ssh = gt_ssh_new(&options);
+    if (ssh && pem) {
+        gt_ssh_auth_private_key(ssh, pem, NULL);
+    }
+    return ssh;
+}
+
 static int read_until(gt_transport_t *t, const char *needle, char *buf, size_t cap, int max_ms) {
     size_t total = 0;
     int elapsed = 0;
@@ -352,7 +373,35 @@ int main(int argc, char **argv) {
         gt_ssh_close(s);
     }
 
-    /* 8. SFTP e2e（M4）：list / stat / upload / download 全链路（真 sshd）。
+    /* 8. ServerAlive is driven by the session read owner after authentication.
+     * OpenSSH replies FAILURE to libssh2's unrecognized global request; that is
+     * still an acknowledgement and must not consume CountMax. */
+    {
+        gt_ssh_t *s = mk_keepalive(host, port, user, pem, kh, 1, 1);
+        if (s && gt_ssh_connect(s) == GT_OK) {
+            gt_shell_opts_t options = {.term = "xterm-256color", .cols = 80, .rows = 24};
+            gt_transport_t *t = gt_transport_open_ssh_shell(s, &options);
+            CHECK(t != NULL, "open shell with ServerAlive enabled");
+            if (t) {
+                uint8_t byte;
+                int rc = gt_transport_read(t, &byte, 1, 1800);
+                CHECK(rc > 0 || rc == GT_TRANSPORT_READ_TIMEOUT,
+                      "keepalive reply does not fail or close the idle shell");
+                const char *command = "echo KEEPALIVE_OK\n";
+                CHECK(gt_transport_write(t, (const uint8_t *)command, strlen(command)) == GT_OK,
+                      "session remains usable after keepalive reply");
+                char output[128];
+                CHECK(read_until(t, "KEEPALIVE_OK", output, sizeof output, 5000),
+                      "shell output continues after keepalive");
+                gt_transport_close(t);
+            }
+        } else {
+            CHECK(0, "keepalive connection authenticated");
+        }
+        gt_ssh_close(s);
+    }
+
+    /* 9. SFTP e2e（M4）：list / stat / upload / download 全链路（真 sshd）。
    * 工作目录在 sshd 侧就是发起目录（无 chroot），本地与远端同一文件系统——
    * 语义仍是真的 SFTP 协议往返（不是本地拷贝的假绿）。 */
     {
@@ -361,6 +410,25 @@ int main(int argc, char **argv) {
         snprintf(up_local, sizeof up_local, "%s/gt-sftp-e2e-local.bin", argv[5]);
         snprintf(down_local, sizeof down_local, "%s/gt-sftp-e2e-downloaded.bin", argv[5]);
         snprintf(remote_home, sizeof remote_home, "%s", argv[5]);
+
+        /* The SFTP owner must wake while idle and keep its libssh2 session
+         * serialized with ordinary list/stat calls. */
+        gt_ssh_t *idle_ssh = mk_keepalive(host, port, user, pem, kh, 1, 1);
+        gt_sftp_t *idle_sftp = NULL;
+        if (idle_ssh && gt_ssh_connect(idle_ssh) == GT_OK) {
+            idle_sftp = gt_ssh_sftp(idle_ssh);
+        }
+        CHECK(idle_sftp != NULL, "open SFTP session with ServerAlive enabled");
+        if (idle_sftp) {
+            usleep(1500 * 1000);
+            gt_sftp_entry_t *idle_entries = NULL;
+            size_t idle_count = 0;
+            CHECK(gt_sftp_list(idle_sftp, remote_home, &idle_entries, &idle_count) == GT_OK,
+                  "idle SFTP owner receives keepalive reply and remains usable");
+            gt_sftp_list_free(idle_entries, idle_count);
+            gt_sftp_close(idle_sftp);
+        }
+        gt_ssh_close(idle_ssh);
 
         /* 上传源：带可校验内容的固定缓冲。 */
         unsigned char payload[4096];

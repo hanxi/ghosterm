@@ -2673,7 +2673,26 @@ static void *worker_main(void *arg) {
     for (;;) {
         pthread_mutex_lock(&sftp->qlock);
         while (!sftp->pending_head && !sftp->quit) {
-            pthread_cond_wait(&sftp->qcond, &sftp->qlock);
+            if (!gt__ssh_keepalive_enabled(sftp->ssh)) {
+                pthread_cond_wait(&sftp->qcond, &sftp->qlock);
+            } else {
+                struct timespec wake;
+                clock_gettime(CLOCK_REALTIME, &wake);
+                wake.tv_sec++;
+                int wait_status = pthread_cond_timedwait(&sftp->qcond, &sftp->qlock, &wake);
+                if (wait_status != ETIMEDOUT || sftp->pending_head || sftp->quit) {
+                    continue;
+                }
+                pthread_mutex_unlock(&sftp->qlock);
+                SFTP_LOCK(sftp);
+                int keepalive_status = gt__ssh_keepalive_tick(sftp->ssh);
+                if (keepalive_status != GT_OK) {
+                    (void)gt_ssh_abort(sftp->ssh);
+                    gt__emit_status(GT_ERR_IO, "ssh keepalive failed; connection closed");
+                }
+                SFTP_UNLOCK(sftp);
+                pthread_mutex_lock(&sftp->qlock);
+            }
         }
         if (sftp->quit) {
             pthread_mutex_unlock(&sftp->qlock);

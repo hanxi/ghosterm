@@ -10,7 +10,7 @@ macOS 的 Core、Swift 和打包命令应在同一 Xcode 工具链环境执行�
 
 | 路径 | 当前工作区行为 | 边界 |
 |---|---|---|
-| `scripts/build-host-ssh2.py` | 校验 libssh2 1.11.1 源码包，在 `tmp/host-ssh2` 解包并应用三份 SFTP 补丁（第三份按 §9.49 验证），安装到 `build/host-native` | 默认不下载；首次缺源码需显式 `--fetch`。依赖 pkg-config 可发现的 OpenSSL libcrypto |
+| `scripts/build-host-ssh2.py` | 校验 libssh2 1.11.1 源码包，在 `tmp/host-ssh2` 解包并应用锁定补丁；第五份为 SSH keepalive 回复跟踪 | 默认不下载；首次缺源码需显式 `--fetch`。依赖 pkg-config 可发现的 OpenSSL libcrypto |
 | `core/cmake/HostSSH2.cmake` | 默认 SSH 构建校验收据并链接上述共享库 | 缺失或校验失败直接停止；不再查找系统 libssh2 或自动降级 |
 | 两个 Apple `Package.swift` | 从仓库 `build/host-native/lib` 链接 libssh2 | SwiftPM 不负责准备库；CMake 自定义 prefix 不会自动同步到 SwiftPM |
 | `scripts/build-core.sh` / `scripts/gate.sh` | 前者先准备/验证本地依赖；后者只配置、构建和验证现有依赖 | gate 保持离线；缓存不足时应先准备依赖 |
@@ -82,6 +82,8 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 `gt_sftp_stat_t` 追加大小已知和普通文件标志；Swift 已映射，Android §9.51 的 JNI/Kotlin 后端也已保留这些信息，文件页已在 §9.52 消费。属于公开结构布局变更，所有绑定与原生消费者须重编译；符号对拍本身不检查旧结构布局。macOS 产品的 `FileEntry` 仍丢弃这些标志，未知大小/特殊类型的页面语义尚未修复。
 
 第三份补丁 `0003-sftp-name-bounds.patch` 校验 NAME 返回路径长度不超过实际 payload，并拒绝空目录项名称。当时主机及 Android 应用三份补丁，历史两补丁的设备与打包变异证据不得自动移记为第三份通过；当前第四份补丁见下。
+
+第五份补丁 `0005-keepalive-replies.patch` 只扩展锁定 libssh2：配置间隔从配置时刻计时，暴露待回复探测数，并在收到有序全局请求回复时递减。Core 以该计数执行 `ServerAliveCountMax`；构建收据同时钉住主机和 Android 依赖补丁列表。主机依赖、Core SSHD e2e、Android NDK archive 构建结果见 [Android 实现计划 §9.215](android-implementation.md#9215-ssh-serveralive-周期保活2026-11-19)；没有把普通 SFTP/插件补丁证据挪作本补丁证据。
 
 ## 插件 S2b：明确退出状态（2026-11-05）
 

@@ -107,6 +107,9 @@ gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh);
  */
 void gt__ssh_io_lock(gt_ssh_t *ssh);
 void gt__ssh_io_unlock(gt_ssh_t *ssh);
+/* IO-owner-only. Caller serializes access to the libssh2 session. */
+int gt__ssh_keepalive_tick(gt_ssh_t *ssh);
+bool gt__ssh_keepalive_enabled(const gt_ssh_t *ssh);
 
 int gt__ssh_borrow(gt_ssh_t *, void **session, int *socket);
 /* A fresh authenticated connection only: rejects any prior channel/borrow.

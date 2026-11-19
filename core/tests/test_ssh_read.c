@@ -70,6 +70,8 @@ int test_last_error(LIBSSH2_SESSION *session, char **message, int *length, int c
 
 static void check(ssize_t read_result, int confirmed_eof, int expected, int poll) {
     ssh_shell_t shell = {0};
+    gt_ssh_t ssh = {0};
+    shell.ssh = &ssh;
     shell.sess = (LIBSSH2_SESSION *)&shell;
     shell.chan = (LIBSSH2_CHANNEL *)&shell;
     unsigned char output[8] = {0};

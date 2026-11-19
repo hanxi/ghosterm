@@ -114,12 +114,36 @@ int main(int argc, char **argv) {
         "Host web\n Compression yes\n", "web", 0, "compression", 2, "active compression rejected");
     issue(
         "Host web\n ForwardAgent yes\n", "web", 0, "forwardagent", 2, "agent forwarding rejected");
-    issue("Host web\n ServerAliveInterval 60\n",
+    issue("Host web\n ServerAliveInterval 60\n ServerAliveCountMax 0\n",
+          "web",
+          0,
+          NULL,
+          0,
+          "configured keepalive admitted");
+    issue("Host web\n ServerAliveInterval bad\n",
           "web",
           0,
           "serveraliveinterval",
           2,
-          "keepalive rejected");
+          "malformed keepalive rejected");
+    issue("Host web\n ServerAliveCountMax 2147483648\n",
+          "web",
+          0,
+          "serveralivecountmax",
+          2,
+          "keepalive count upper bound");
+    static const char keepalive_config[] =
+        "Host web\n ServerAliveInterval 60\n ServerAliveCountMax 0\n";
+    gt_config_t *keepalive_cfg = gt_config_parse(keepalive_config, sizeof keepalive_config - 1);
+    CHECK(keepalive_cfg != NULL, "keepalive resolve fixture");
+    if (keepalive_cfg) {
+        gt_resolved_t *resolved = gt_config_resolve(keepalive_cfg, "web", NULL);
+        CHECK(resolved && resolved->server_alive_interval == 60 &&
+                  resolved->server_alive_count_max == 0,
+              "resolved keepalive values");
+        gt_resolved_free(resolved);
+        gt_config_free(keepalive_cfg);
+    }
     issue("Host web\n User one two\n", "web", 0, "user", 2, "extra basic arguments refused");
     gt_config_connection_issue_t out = {0};
     CHECK(gt_config_check_connection(NULL, "web", 0, &out) == GT_ERR_INVALID_ARG,

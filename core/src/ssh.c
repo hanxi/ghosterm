@@ -149,6 +149,8 @@ struct gt_ssh {
     char *kh_path;          /* 解析后的 known_hosts 路径（拥有） */
     int connect_timeout_ms; /* TCP + 握手预算 */
     int auth_methods;       /* 服务器允许的认证方式（握手后才有值） */
+    int server_alive_interval;
+    int server_alive_count_max;
 
     int sock;
     LIBSSH2_SESSION *session;
@@ -600,6 +602,11 @@ gt_ssh_t *gt_ssh_new(const gt_ssh_opts_t *opts) {
         gt__set_error("gt_ssh_new: host/username required");
         return NULL;
     }
+    if (opts->server_alive_interval < 0 || opts->server_alive_interval > 86400 ||
+        (opts->server_alive_count_max_set && opts->server_alive_count_max < 0)) {
+        gt__set_error("gt_ssh_new: invalid ServerAlive configuration");
+        return NULL;
+    }
     gt_ssh_t *s = gt__alloc(sizeof *s);
     if (!s) {
         return NULL;
@@ -608,6 +615,8 @@ gt_ssh_t *gt_ssh_new(const gt_ssh_opts_t *opts) {
     s->username = gt__strdup(opts->username);
     s->port = opts->port ? opts->port : 22;
     s->connect_timeout_ms = opts->connect_timeout_ms;
+    s->server_alive_interval = opts->server_alive_interval;
+    s->server_alive_count_max = opts->server_alive_count_max_set ? opts->server_alive_count_max : 3;
     s->sock = -1;
     if (pthread_mutex_init(&s->io_lock, NULL) == 0) {
         s->io_lock_init = true;
@@ -868,6 +877,9 @@ int gt_ssh_authenticate(gt_ssh_t *ssh) {
         return GT_ERR_AUTH;
     }
     ssh->connected = true;
+    if (ssh->server_alive_interval > 0) {
+        libssh2_keepalive_config(ssh->session, 1, (unsigned int)ssh->server_alive_interval);
+    }
     gt__emit_status(0, "ssh connected");
     return GT_OK;
 }
@@ -1439,6 +1451,9 @@ gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *c) {
             }
             if (!rc) {
                 s->connected = true;
+                if (s->server_alive_interval > 0) {
+                    libssh2_keepalive_config(s->session, 1, (unsigned int)s->server_alive_interval);
+                }
                 c->info.phase = GT_SSH_CONNECT_READY;
             } else if (rc != LIBSSH2_ERROR_EAGAIN) {
                 gt_status_t error = connector_error(rc);
@@ -1789,6 +1804,34 @@ typedef struct {
     uint8_t *wtail; /* 没送出去的尾巴（见 gt__ssh_shell_write） */
     size_t wtail_len;
 } ssh_shell_t;
+
+/* Called only by the SSH session's IO owner, after a read has had a chance to
+ * consume an ordered global-request reply. */
+static int ssh_keepalive_tick_session(gt_ssh_t *ssh, LIBSSH2_SESSION *session) {
+    if (!ssh || !session || !ssh->connected || ssh->server_alive_interval <= 0) {
+        return GT_OK;
+    }
+    int seconds_to_next = 0;
+    int rc = libssh2_keepalive_send(session, &seconds_to_next);
+    if (rc && rc != LIBSSH2_ERROR_EAGAIN) {
+        gt__set_error("ssh: keepalive send failed (%d)", rc);
+        return GT_ERR_IO;
+    }
+    if (!rc && seconds_to_next == 0 && ssh->server_alive_count_max > 0 &&
+        libssh2_keepalive_unanswered(session) >= (unsigned int)ssh->server_alive_count_max) {
+        gt__set_error("ssh: ServerAliveCountMax exceeded");
+        return GT_ERR_IO;
+    }
+    return GT_OK;
+}
+
+int gt__ssh_keepalive_tick(gt_ssh_t *ssh) {
+    return ssh ? ssh_keepalive_tick_session(ssh, ssh->session) : GT_ERR_INVALID_ARG;
+}
+
+bool gt__ssh_keepalive_enabled(const gt_ssh_t *ssh) {
+    return ssh && ssh->server_alive_interval > 0;
+}
 
 /* Nonblocking command/channel admission on a dedicated SSH owner. Every wait
  * shares one monotonic budget; cancellation never borrows a terminal/SFTP link.
@@ -2184,18 +2227,28 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
         return GT_TRANSPORT_READ_ERROR;
     }
     ssh_flush_wtail(sh); /* 读是尾队列的泵：没有它，排队的输入只能等下一次写 */
+    int effective_timeout = timeout_ms;
+    if (sh->ssh->server_alive_interval > 0 && timeout_ms != 0) {
+        int keepalive_wait = sh->ssh->server_alive_interval * 1000;
+        if (effective_timeout < 0 || keepalive_wait < effective_timeout) {
+            effective_timeout = keepalive_wait;
+        }
+    }
     /* Transport zero is a poll; libssh2 zero is an unlimited blocking wait.
    * Restore both settings before another operation borrows this session. */
     long previous_timeout = libssh2_session_get_timeout(sh->sess);
     int previous_blocking = libssh2_session_get_blocking(sh->sess);
-    if (timeout_ms == 0) {
+    if (effective_timeout == 0) {
         libssh2_session_set_blocking(sh->sess, 0);
     } else {
-        libssh2_session_set_timeout(sh->sess, timeout_ms < 0 ? 0 : (long)timeout_ms);
+        libssh2_session_set_timeout(sh->sess, effective_timeout < 0 ? 0 : (long)effective_timeout);
     }
     ssize_t n = libssh2_channel_read(sh->chan, (char *)buf, cap);
     libssh2_session_set_blocking(sh->sess, previous_blocking);
     libssh2_session_set_timeout(sh->sess, previous_timeout);
+    if (ssh_keepalive_tick_session(sh->ssh, sh->sess) != GT_OK) {
+        return GT_TRANSPORT_READ_ERROR;
+    }
     if (n > 0) {
         return (int)n;
     }
@@ -2417,16 +2470,22 @@ int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap, int timeout_ms,
                 hard = true;
             }
         }
+        int keepalive_status = ssh_keepalive_tick_session(e->ssh, e->sess);
         /* The library's channel EOF includes all queued streams. No per-stream
      * latch on raw 0: a later read must still pump late exit-status packets. */
         bool both_eof = n < 0 && libssh2_channel_eof(e->chan);
         int directions = n < 0 ? libssh2_session_block_directions(e->sess) : 0;
         int socket = e->ssh->sock;
         char diagnostic[192] = {0};
-        if (hard && !both_eof) {
+        if ((hard || keepalive_status != GT_OK) && !both_eof) {
             char *message = NULL;
-            libssh2_session_last_error(e->sess, &message, NULL, 0);
-            snprintf(diagnostic, sizeof(diagnostic), "%s", message ? message : "unknown");
+            if (keepalive_status == GT_OK) {
+                libssh2_session_last_error(e->sess, &message, NULL, 0);
+            }
+            snprintf(diagnostic,
+                     sizeof(diagnostic),
+                     "%s",
+                     keepalive_status != GT_OK ? gt_last_error() : (message ? message : "unknown"));
         }
         libssh2_session_set_blocking(e->sess, previous_blocking);
         libssh2_session_set_timeout(e->sess, previous_timeout);
@@ -2440,7 +2499,7 @@ int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap, int timeout_ms,
         if (both_eof) {
             return GT_EXEC_READ_EOF;
         }
-        if (hard) {
+        if (hard || keepalive_status != GT_OK) {
             gt__set_error("ssh_exec read: %s", diagnostic);
             return GT_EXEC_READ_ERROR;
         }

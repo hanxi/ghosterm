@@ -873,7 +873,24 @@ static bool connection_value_supported(const gt_node_t *n) {
         return !strcasecmp(value, "none");
     }
     if (!strcmp(key, "serveraliveinterval")) {
-        return !strcmp(value, "0");
+        unsigned seconds = 0;
+        for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+            if (*p < '0' || *p > '9' || seconds > 86400) {
+                return false;
+            }
+            seconds = seconds * 10 + (*p - '0');
+        }
+        return seconds <= 86400;
+    }
+    if (!strcmp(key, "serveralivecountmax")) {
+        unsigned count = 0;
+        for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+            if (*p < '0' || *p > '9' || count > 214748364u) {
+                return false;
+            }
+            count = count * 10 + (*p - '0');
+        }
+        return count <= 2147483647u;
     }
     if (!strcmp(key, "addressfamily")) {
         return !strcasecmp(value, "any");
@@ -1251,6 +1268,7 @@ gt_config_resolve(const gt_config_t *cfg, const char *host, const gt_resolve_opt
     r->forward_agent = flag01(&m, "forwardagent");
     r->compression = flag01(&m, "compression");
     r->server_alive_interval = int_of(&m, "serveraliveinterval", 0);
+    r->server_alive_count_max = int_of(&m, "serveralivecountmax", 3);
     r->identity_files = slot_to_array(&m.slot[key_index("identityfile")]);
     r->proxy_jump = split_commas(&m.slot[key_index("proxyjump")]);
     r->setenv = slot_to_array(&m.slot[key_index("setenv")]);

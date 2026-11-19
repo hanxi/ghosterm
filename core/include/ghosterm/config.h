@@ -171,6 +171,7 @@ typedef struct {
     int forward_agent; /* -1 = 未知；0/1 */
     int compression;   /* -1 = 未知；0/1 */
     int server_alive_interval;
+    int server_alive_count_max;
     char **identity_files; /* NULL 结尾 */
     char **proxy_jump;     /* NULL 结尾（已按 ',' 拆分） */
     char **setenv;         /* NULL 结尾（形如 "K=V"） */
