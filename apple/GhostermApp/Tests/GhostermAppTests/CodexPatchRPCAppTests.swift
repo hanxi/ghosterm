@@ -109,7 +109,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
         }
         let workspace = root.appendingPathComponent("workspace")
-        let editWhileSending = !useJump && !dropTurnReply && !interruptTurn && !closeExecutor
+        let editWhileSending = !dropTurnReply && !interruptTurn && !closeExecutor
         if editWhileSending { try Data().write(to: workspace.appendingPathComponent("defer-turn-reply")) }
         if dropTurnReply { try Data().write(to: workspace.appendingPathComponent("drop-turn-reply")) }
         if interruptTurn { try Data().write(to: workspace.appendingPathComponent("interrupt-turn")) }
