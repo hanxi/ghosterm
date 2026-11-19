@@ -389,8 +389,11 @@ def main():
     parser.add_argument('--export-official-fixtures', type=Path,
                         help='write only the seven signed test releases to a new project tmp directory')
     parser.add_argument('--mutate',action='store_true')
+    parser.add_argument('--mutation-case', action='append', help='run only named mutations after the full baseline')
     parser.add_argument('--receipt',type=Path,default=ROOT/'tmp/plugin-release-receipt.json')
     args=parser.parse_args()
+    if args.mutation_case and not args.mutate:
+        parser.error('--mutation-case requires --mutate')
     official = ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')
     export = args.export_official_fixtures
     if export is not None:
@@ -430,6 +433,7 @@ def main():
                 ('artifact','artifact',"(release['artifact']['bytes'], release['artifact']['sha256']) == (size, digest)","True"),
                 ('channel','channel',"release['channel'] == trusted['channel']","True"),
                 ('revoked','revoked',"release['keyId'] not in trusted['revokedKeyIds']","True"),
+                ('channel-rollback', 'channel-revocation', "generation >= old, 'CHANNEL_POLICY_ROLLBACK'", "True, 'CHANNEL_POLICY_ROLLBACK'"),
                 ('publisher','publisher',"release['publisher'] == key['publisher'] and release['pluginId'] in key['pluginIds']","release['pluginId'] in key['pluginIds']"),
                 ('scope','scope',"release['publisher'] == key['publisher'] and release['pluginId'] in key['pluginIds']","release['publisher'] == key['publisher']"),
                 ('identity','identity',"all(release[name] == value for name, value in identity.items())","True"),
@@ -446,6 +450,11 @@ def main():
             target=source/'scripts/plugin_release.py';original=target.read_bytes();groups=[];observations={}
             for label,selected,old,new in recipes:
                 assert original.count(old.encode())==1,label
+            if args.mutation_case:
+                unknown = set(args.mutation_case) - {recipe[0] for recipe in recipes}
+                if unknown:
+                    parser.error('unknown mutation cases: ' + ', '.join(sorted(unknown)))
+                recipes = [recipe for recipe in recipes if recipe[0] in args.mutation_case]
             for label,selected,old,new in recipes if args.mutate else []:
                 target.write_bytes(original.replace(old.encode(),new.encode()))
                 compile(target.read_bytes(),str(target),'exec')
