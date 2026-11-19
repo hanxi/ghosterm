@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read'])
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read'])
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='osc52-', dir=ROOT / 'tmp') as temporary:
         verify(parser, args, Path(temporary))
@@ -113,7 +113,7 @@ def verify(parser, args, work):
     try:
         build('baseline')
         for name, (old, new, target) in tests.items():
-            if args.case and name != args.case: continue
+            if args.case and name not in args.case: continue
             text = original.decode()
             if text.count(old) != 1: raise RuntimeError(f'{name}: mutation anchor count {text.count(old)}')
             probe(target, name+'-baseline')
