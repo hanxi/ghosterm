@@ -35,6 +35,15 @@ import XCTest
         XCTAssertTrue(panes.allSatisfy { !$0.isRunning })
     }
     func testPassiveDiscoveryKeepsOrdinaryPTYOutput() async throws {
+        try await verifyPassiveDiscovery(expiresWhileIdle: false)
+    }
+
+    func testPassiveDiscoveryExpiresWhileTerminalIsIdle() async throws {
+        try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
+        try await verifyPassiveDiscovery(expiresWhileIdle: true)
+    }
+
+    private func verifyPassiveDiscovery(expiresWhileIdle: Bool) async throws {
         _ = NSApplication.shared
         let model = isolatedAppModel(); defer { model.disconnectForTesting() }
         model.preferences.defaultShell = "/bin/sh"
@@ -63,6 +72,20 @@ import XCTest
         XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)])
         XCTAssertEqual(model.frontendCandidates.first?.sourceID, pane.id)
         XCTAssertNil(model.extensionRun)
+        if expiresWhileIdle {
+            let candidate = try XCTUnwrap(model.frontendCandidates.first)
+            let clock = ProcessInfo.processInfo
+            let earlyDelay = max(0, candidate.expiresAt - clock.systemUptime - 2)
+            try await Task.sleep(for: .seconds(earlyDelay))
+            XCTAssertEqual(model.frontendCandidates.map(\.id), [candidate.id])
+            while !model.frontendCandidates.isEmpty, clock.systemUptime < candidate.expiresAt + 4 {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertTrue(model.frontendCandidates.isEmpty, "idle passive candidate must expire without another offer")
+            XCTAssertTrue(pane.isRunning)
+            XCTAssertTrue(surface.readText()?.contains("PTY_OUTPUT") == true)
+            return
+        }
         surface.sendCommittedText("exit\r")
         try await until { !pane.isRunning || model.frontendCandidates.isEmpty }
         XCTAssertTrue(model.frontendCandidates.isEmpty, "terminal exit must remove its passive discovery candidates")

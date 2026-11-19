@@ -22,9 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed'])
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed', 'discovery-expiry'])
     parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
+    expiry = 'discovery-expiry' in (args.case or ())
+    if expiry and (args.platform != 'apple' or args.case != ['discovery-expiry']):
+        parser.error('discovery-expiry runs alone on Apple')
     discovery = 'discovery-feed' in (args.case or ())
     if discovery and (args.case != ['discovery-feed'] or (args.platform == 'android' and not args.headless_api)):
         parser.error('discovery-feed runs alone and requires --headless-api on Android')
@@ -50,7 +53,7 @@ def verify(parser, args, work, owned_serial=None):
         (work / f'{label}.log').write_text(result.stdout)
         return result
 
-    if args.platform == 'apple' and args.case == ['discovery-feed']:
+    if args.platform == 'apple' and args.case in (['discovery-feed'], ['discovery-expiry']):
         for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
             shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -65,6 +68,14 @@ def verify(parser, args, work, owned_serial=None):
         tests = {'discovery-feed': (
             'try bytes.withUnsafeBytes { try observer.feed($0, now:',
             'try Data().withUnsafeBytes { try observer.feed($0, now:', 'testPassiveDiscoveryKeepsOrdinaryPTYOutput')}
+        assertion_message = 'top-level discovery must arrive after ordinary PTY output'
+        if args.case == ['discovery-expiry']:
+            relative = 'apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift'
+            source = work / relative
+            tests = {'discovery-expiry': (
+                'self.frontendCandidates = candidates\n                self.scheduleFrontendExpiry()',
+                'self.frontendCandidates = candidates', 'testPassiveDiscoveryExpiresWhileTerminalIsIdle')}
+            assertion_message = 'idle passive candidate must expire without another offer'
         def build(label):
             if label != 'baseline': return
             directory = work / 'core/build'
@@ -80,7 +91,7 @@ def verify(parser, args, work, owned_serial=None):
             success = result.returncode == 0 and 'Executed 1 test, with 0 failures' in text and 'skipped' not in text.lower()
             assertion = (result.returncode == 1 and 'Build complete!' in text and
                          'Executed 1 test, with 1 failure (0 unexpected)' in text and
-                         'top-level discovery must arrive after ordinary PTY output' in text)
+                         assertion_message in text)
             if not (assertion if red else success): raise RuntimeError(f'{label}:\n{text[-12000:]}')
     elif args.platform == 'apple':
         package = work / 'apple/GhostermTerminal'
@@ -214,7 +225,7 @@ def verify(parser, args, work, owned_serial=None):
             probe('control', name+'-control')
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            if args.case == ['discovery-feed']:
+            if args.case in (['discovery-feed'], ['discovery-expiry']):
                 assert (ROOT / relative).read_bytes() == original
             build(name+'-restored')
             probe(target, name+'-restored')
