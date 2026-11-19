@@ -88,6 +88,41 @@ import XCTest
         }
     }
 
+    func testRuntimeFailureClearsOnlyItsOwnPassiveCandidates() async throws {
+        try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
+        _ = NSApplication.shared
+        let model = isolatedAppModel()
+        defer { model.disconnectForTesting() }
+        model.preferences.defaultShell = "/bin/sh"
+        model.connect(to: .localShell)
+        let unaffected = try XCTUnwrap(model.activePane)
+        try await sendDiscoveryOffer(to: XCTUnwrap(unaffected.surface))
+        try await until { model.frontendCandidates.contains { $0.sourceID == unaffected.id } }
+        let otherID = try XCTUnwrap(model.frontendCandidates.first?.id)
+
+        model.connect(to: .localShell)
+        let pane = try XCTUnwrap(model.activePane)
+        XCTAssertFalse(pane === unaffected)
+        let surface = try TerminalSurface(app: XCTUnwrap(model.terminalApp))
+        let session = try SessionController.localShell(surface: surface, executable: "/bin/sh", kind: .shell)
+        pane.attach(surface: surface, session: session)
+        pane.start()
+        try await sendDiscoveryOffer(to: surface)
+        try await until { model.frontendCandidates.contains { $0.sourceID == pane.id } }
+
+        let report = try XCTUnwrap(session.onStateChange)
+        session.stop()
+        report(.failed("Fixture transport failure"))
+        XCTAssertEqual(model.frontendCandidates.map(\.id), [otherID],
+                       "runtime transport failure must remove only its pane's candidates")
+        guard case .failed("Fixture transport failure") = pane.status else {
+            return XCTFail("runtime error must remain visible in its pane")
+        }
+        XCTAssertTrue(model.activePane === pane)
+        XCTAssertTrue(unaffected.isRunning)
+        XCTAssertNil(model.extensionRun)
+    }
+
     private enum DiscoveryEnding { case exit, idle, failure, reattach }
 
     private func sendDiscoveryOffer(to surface: TerminalSurface) async throws {
