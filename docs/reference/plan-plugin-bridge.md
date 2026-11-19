@@ -980,7 +980,7 @@ ExtensionPlatformServices
 | P3 | 本机隔离项目已有真实 Codex 账号的对话及文件审批证据。两端直连和 ProxyJump 原生补丁审批、发送期间草稿隔离经独立协议夹具通过。锁定 CLI 已验建线程和关闭；macOS 原生直连与 ProxyJump 已用隔离 app-server 验证中断、回执丢失及 SSH 执行通道关闭。 | 联合验证真实后端的两端启动与批准、中断、断线结果未知，以及 tmux 切 pane 和外部客户端切换。 |
 | P4 | 两端 Portable、Node、Exec 混合运行及资源专项通过。Claude 真实 CLI 禁网启停、Node 29 项及 34 组变异、两端回环 SSH 原生工具与问题审批和超时保留回执通过。两端成功回执保留新草稿及变异专项通过；官方候选包已重建并核对。此前真实 Claude 请求在所选服务 TLS 阶段中断。 | 可达且已授权的真实 Claude 后端问答、工具批准，以及实际模型回合的取消、退出和进程树预算。 |
 | P5 | 开发工具 76 项和场景 10 项通过。两端有控件语义、跨实例同句柄隔离及运行失效后晚到关闭回执证据。macOS 本机、直连、两跳及 Android API 36 直连、两跳通过真实前台进程退出和视图失效专项。两端终态失效接线均有独立变异。 | 两端读屏实际播报、其它设备档的前台退出及剩余原生接线矩阵。 |
-| P6 | 两端各安装并核对七个签名候选包。回环 HTTPS 覆盖系统 TLS 拒绝、签名、过期、撤销及旧代拒绝。macOS 和 Android API 36 分轮覆盖独立进程策略写入、缓存锁冲突、停止后 SSH 断线及本机释放失败。macOS arm64 实验包本地 ad-hoc 校验通过；Android 开启与关闭 QuickJS 的 Release APK 已核对许可切换。Android API 29 已验跨进程撤销及锁冲突；macOS 另验从设置页停止已脱离展示的活动连接组。项目分发渠道确定为 GitHub Release，macOS 采用自签 ad-hoc 包，不把 Developer ID 或公证作为发布前置条件；应用内更新继续使用独立 Ed25519 签名链。 | GitHub Release 的真实资产、appcast / ZIP 验签、Ed25519 公钥与轮换仍需端到端复验，另有其余设备、完整磁盘故障和撤销传播矩阵待验。 |
+| P6 | 两端各安装并核对七个签名候选包。回环 HTTPS 覆盖系统 TLS 拒绝、签名、过期、撤销及旧代拒绝。macOS 和 Android API 36 分轮覆盖独立进程策略写入、缓存锁冲突、停止后 SSH 断线及本机释放失败。macOS arm64 实验包本地 ad-hoc 校验通过；Android 开启与关闭 QuickJS 的 Release APK 已核对许可切换。Android API 29 已验跨进程撤销及锁冲突；macOS 另验从设置页停止已脱离展示的活动连接组。项目分发渠道确定为 GitHub Release，macOS 采用自签 ad-hoc 包，不把 Developer ID 或公证作为发布前置条件；应用内更新继续使用独立 Ed25519 签名链。公开 `dev` Release 的 macOS / Android 资产、appcast、ZIP、清单、摘要和固定 URL 已通过只读审计。 | Ed25519 公钥轮换、撤销传播、其余设备、完整磁盘故障及正式版本矩阵待验。 |
 
 证据口径按后文分批记录。交付范围和各项通过条件以本节各阶段及共同验收闸门为准。
 
