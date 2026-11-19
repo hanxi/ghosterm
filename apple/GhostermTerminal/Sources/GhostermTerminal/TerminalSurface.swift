@@ -331,7 +331,12 @@ public final class TerminalSurface {
     }
     private let box = CallbackBox()
 
-    public init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
+    public convenience init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
+        try self.init(app: app, frame: frame, clipboard: .general)
+    }
+
+    init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600),
+         clipboard: NSPasteboard) throws {
         self.view = SurfaceAnchorView(frame: frame)
         // 不要在这里设 wantsLayer：libghostty 的 Metal 渲染器要把 view 做成
         // "layer-hosting"——必须先给它自己的 layer，再置 wantsLayer（见
@@ -413,7 +418,7 @@ public final class TerminalSurface {
         }
         self.box.clipboardRead = { [weak self] request in
             guard let self else { return false }
-            let text = NSPasteboard.general.string(forType: .string) ?? ""
+            let text = clipboard.string(forType: .string) ?? ""
             text.withCString { gt_ghostty_surface_clipboard_complete(self.raw, request, $0, text.utf8.count, false) }
             return true
         }
@@ -429,8 +434,8 @@ public final class TerminalSurface {
         self.box.clipboardWrite = { [weak self] text, confirm in
             guard let self else { return }
             let write = {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
+                clipboard.clearContents()
+                clipboard.setString(text, forType: .string)
             }
             if confirm { self.confirmClipboard(text: text, operation: .write) { if $0 { write() } } }
             else { write() }

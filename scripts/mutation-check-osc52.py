@@ -35,7 +35,7 @@ def main():
         source = ROOT / 'apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift'
         prefix = ['swift', 'test', '--build-system', 'native', '--package-path', 'apple/GhostermTerminal', '--filter']
         tests = {
-            'write': ('NSPasteboard.general.setString(text, forType: .string)', '_ = text',
+            'write': ('clipboard.setString(text, forType: .string)', '_ = text',
                       'testOSC52WriteAndReadUseSystemClipboardAndEngineReply'),
             'read': ('guard let self else { return false }',
                      'guard let self, self.clipboardGeneration < 0 else { return false }',
@@ -43,8 +43,8 @@ def main():
             'size-write': ('self.box.clipboardWrite = { [weak self] text, confirm in',
                            'self.box.clipboardWrite = { [weak self] text, confirm in\n            if text.utf8.count > 1024 * 1024 { return }',
                            'testWriteAndReadAboveOneMiBUseEngineAndClipboard'),
-            'size-read': ('let text = NSPasteboard.general.string(forType: .string) ?? ""',
-                          'let text = NSPasteboard.general.string(forType: .string) ?? ""\n            guard text.utf8.count <= 1024 * 1024 else { return false }',
+            'size-read': ('let text = clipboard.string(forType: .string) ?? ""',
+                          'let text = clipboard.string(forType: .string) ?? ""\n            guard text.utf8.count <= 1024 * 1024 else { return false }',
                           'testWriteAndReadAboveOneMiBUseEngineAndClipboard'),
             'permission': ('pending(allowed)', 'pending(true)', 'testExplicitDenialNeverDisclosesText'),
             'cancel': ('if !visible { cancelClipboard() }', 'if !visible { /* mutation: omit cancel */ }',

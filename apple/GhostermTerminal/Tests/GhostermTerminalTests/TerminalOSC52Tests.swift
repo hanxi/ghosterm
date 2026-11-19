@@ -3,15 +3,6 @@ import AppKit
 import XCTest
 
 @MainActor final class TerminalOSC52Tests: XCTestCase {
-    private func preserveClipboard() -> () -> Void {
-        let items: [NSPasteboardItem] = NSPasteboard.general.pasteboardItems?.map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
-            return copy
-        } ?? []
-        return { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(items) }
-    }
-
     private func pump(_ app: TerminalApp, until done: () -> Bool) {
         let deadline = Date().addingTimeInterval(5)
         while !done() && Date() < deadline {
@@ -24,9 +15,9 @@ import XCTest
     func testOSC52WriteAndReadUseSystemClipboardAndEngineReply() throws {
         _ = NSApplication.shared
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
-        let clipboard = NSPasteboard.general
-        let restore = preserveClipboard(); defer { restore() }
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
         let text = "OSC 52 中文 café\nsecond line"
         let encoded = Data(text.utf8).base64EncodedString()
         clipboard.clearContents(); clipboard.setString("before", forType: .string)
@@ -57,17 +48,18 @@ import XCTest
     func testWriteAndReadAboveOneMiBUseEngineAndClipboard() throws {
         _ = NSApplication.shared
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
-        let restore = preserveClipboard(); defer { restore() }
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
         let text = String(repeating: "x", count: 1024 * 1024 + 1) + "中文"
         let encoded = Data(text.utf8).base64EncodedString()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("before-large-write", forType: .string)
+        clipboard.clearContents()
+        clipboard.setString("before-large-write", forType: .string)
         let sequence = Data(("\u{1b}]52;c;" + encoded + "\u{7}").utf8)
         for offset in stride(from: 0, to: sequence.count, by: 4096) {
             surface.feed(sequence.subdata(in: offset..<min(offset + 4096, sequence.count)))
         }
-        pump(app) { NSPasteboard.general.string(forType: .string) == text }
+        pump(app) { clipboard.string(forType: .string) == text }
         let expected = Data(("\u{1b}]52;c;" + encoded + "\u{1b}\\").utf8)
         let lock = NSLock(); var reply = Data()
         surface.onInput = { data in lock.lock(); reply.append(data); lock.unlock() }
@@ -84,21 +76,23 @@ import XCTest
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
         let window = NSWindow(contentRect: surface.view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.alphaValue = 0
         window.contentView = surface.view
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)); window.order(.below, relativeTo: 0)
-        let restore = preserveClipboard(); defer { window.close(); restore() }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("OSC_NATIVE_SHEET", forType: .string)
+        defer { window.close() }
+        clipboard.clearContents()
+        clipboard.setString("OSC_NATIVE_SHEET", forType: .string)
         let lock = NSLock(); var reply = Data()
         surface.onInput = { data in lock.lock(); reply.append(data); lock.unlock() }
         surface.feed(Data("\u{1b}]52;c;?\u{7}".utf8))
         pump(app) { window.attachedSheet != nil }
         lock.lock(); XCTAssertTrue(reply.isEmpty); lock.unlock()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("CHANGED_AFTER_PROMPT", forType: .string)
+        clipboard.clearContents()
+        clipboard.setString("CHANGED_AFTER_PROMPT", forType: .string)
         func allowButton(_ view: NSView) -> NSButton? {
             if let button = view as? NSButton, button.title == "允许一次" { return button }
             return view.subviews.lazy.compactMap { allowButton($0) }.first
@@ -114,9 +108,9 @@ import XCTest
     func testExplicitDenialNeverDisclosesText() throws {
         _ = NSApplication.shared
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
-        let clipboard = NSPasteboard.general
-        let restore = preserveClipboard(); defer { restore() }
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
         clipboard.clearContents(); clipboard.setString("OSC_DENIED_FIXTURE", forType: .string)
         surface.clipboardConfirmation = { _, _, decide in decide(false) }
         let lock = NSLock(); var reply = Data()
@@ -130,10 +124,11 @@ import XCTest
     func testDeniedAndHiddenRequestsNeverDiscloseClipboard() throws {
         _ = NSApplication.shared
         let app = try TerminalApp.shared()
-        let surface = try TerminalSurface(app: app)
-        let restore = preserveClipboard(); defer { restore() }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("OSC_HIDDEN_FIXTURE", forType: .string)
+        let clipboard = NSPasteboard.withUniqueName()
+        defer { clipboard.releaseGlobally() }
+        let surface = try TerminalSurface(app: app, clipboard: clipboard)
+        clipboard.clearContents()
+        clipboard.setString("OSC_HIDDEN_FIXTURE", forType: .string)
         var decision: ((Bool) -> Void)?
         surface.clipboardConfirmation = { _, _, callback in decision = callback }
         let lock = NSLock(); var reply = Data()
