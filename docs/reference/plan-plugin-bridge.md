@@ -15178,3 +15178,8 @@ JS-off 要求嵌套和顶层输入后均明确不支持，JS-on 仍要求忽略 
 `16bcbe8d2f149cf689185c8aeb2f41ff77f93a319c8d1bcb1e621dc510d0975c`。
 两组分别覆盖写入丢失与错误限制超过 1 MiB 的合法写入。恢复源码并清理了
 临时 AVD 和日志，其余 Android OSC 52 变异另验。
+
+固定 `baec7d8d`，Android API 36 arm64 无窗口设备补跑 OSC 52 的 read 与
+size-read。读取方向错误和超过 1 MiB 的读取回执受限均触发普通断言红，
+同 APK 配置对照与恢复通过，JNI SHA256 与两组写入复验一致。无窗口 AVD
+和临时构件已清理。Android 读写四组已验，权限与隐藏取消仍为后续专项。
