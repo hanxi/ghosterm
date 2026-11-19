@@ -212,7 +212,10 @@ class PluginReleaseCatalogTest {
             val extra = JSONObject(good).put("unexpected", true).toString()
             val extraChoice = JSONObject(good).also { it.getJSONObject("choices").getJSONObject(plugin).put("unexpected", true) }.toString()
             val overflow = JSONObject(good).also { value -> repeat(64) { value.getJSONObject("choices").put("org.other.p$it", JSONObject(value.getJSONObject("choices").getJSONObject(plugin).toString())) } }.toString()
-            for (raw in listOf("{}", good.replace("\"schemaVersion\":1", "\"schemaVersion\":1.0"),
+            val invalidSchemas = listOf("null", "true", "\"1\"", "1.0", "2").map { token ->
+                good.replace("\"schemaVersion\":1", "\"schemaVersion\":$token")
+            }
+            for (raw in invalidSchemas + listOf("{}",
                 good.replace("\"enabled\":true", "\"enabled\":\"true\""), good.replace("\"nonce\":", "\"unexpected\":"),
                 good.replace("\"choices\":", "\"choices\":{},\"choices\":"), good.replace(a, "../invalid"), nonce, generation, extra, extraChoice, overflow)) {
                 assertNotEquals("fixture failed to alter valid record", good, raw); writeRecord(root, raw)

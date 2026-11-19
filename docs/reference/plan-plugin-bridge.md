@@ -15785,3 +15785,8 @@ P1 Android 常驻 OSC 52／发现脚本新增 `--platform android --case discove
 均通过。SessionsViewModel SHA256
 `66b5c86121de1159cbd1cf3129eaddd8862ae1bc38bfaafd36b78d5e6435ef03`。
 只执行新增组，未重跑其他发现或剪贴板用例，临时构件和 AVD 已清理。
+
+P6 Android 活动选择记录的版本字段只读取一次并按数字类型校验。目录回归
+覆盖 null、布尔、字符串、小数和未知版本，确认观察结果为未知，写入入口
+拒绝覆盖并保留原记录字节。QuickJS 开启的 API 36 无窗口目录组 21 项通过。
+只验本机目录，未重跑正式渠道；临时 APK 与 AVD 已清理。

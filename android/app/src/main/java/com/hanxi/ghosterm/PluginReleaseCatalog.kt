@@ -143,8 +143,9 @@ internal class PluginReleaseCatalog private constructor(
         }
         val raw = readFile(fd.fd, SELECTION, 131072)
         val value = PluginReleaseSignature.declarationObject(raw)
+        val schema = value.opt("schemaVersion") as? Number
         demand(keys(value) == setOf("schemaVersion", "nonce", "choices") &&
-            value.opt("schemaVersion") is Number && value.opt("schemaVersion").toString() == "1" && uuid(value.opt("nonce") as? String))
+            schema?.toString() == "1" && uuid(value.opt("nonce") as? String))
         val entries = value.opt("choices") as? JSONObject ?: throw Rejected(Reason.INVALID)
         demand(entries.length() <= 64, Reason.LIMIT)
         val result = linkedMapOf<String, Choice>()
