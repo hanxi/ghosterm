@@ -24,6 +24,8 @@ sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginViews.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 VIEW_TEST_COUNT = 21
+FOREGROUND_MUTATION = 'foreground-loss'
+FOREGROUND_ASSERTION = 'foreground loss must invalidate the Native view registry'
 
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -45,6 +47,8 @@ def main():
     args = parser.parse_args(); build, package = args.build.resolve(), args.package.resolve()
     if args.attach_loss and not args.attach:
         parser.error('--attach-loss requires --attach')
+    foreground_mutation = args.mutate and args.attach_loss and (
+        not args.mutation_case or FOREGROUND_MUTATION in args.mutation_case)
     for p in [build, package, args.receipt.resolve()]: assert p.is_relative_to(ROOT / 'tmp')
     cache = (build / 'CMakeCache.txt').read_text()
     assert all(s + ':BOOL=ON' in cache for s in ['GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2'])
@@ -68,7 +72,10 @@ def main():
          'testNativeCloseControlsRouteOverlappingHandlesToTheirOwnInstance'),
     ]
     if args.mutation_case:
-        if not args.mutate or set(args.mutation_case) - {case[0] for case in cases}:
+        known = {case[0] for case in cases}
+        if args.attach_loss:
+            known.add(FOREGROUND_MUTATION)
+        if not args.mutate or set(args.mutation_case) - known:
             parser.error('--mutation-case requires --mutate and known case names')
         cases = [case for case in cases if case[0] in args.mutation_case]
     for label, filename, old, _new, _test in cases:
@@ -82,7 +89,7 @@ def main():
         (source / 'tmp').mkdir()
         env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
         commands, groups, actual = [], [], []
-        def test(label, selected, count=1, red=False):
+        def test(label, selected, count=1, red=False, expected=None):
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require views-native; shift; exec "$gt_timeout_bin" "$@"', 'views-native', ROOT, 300, 'swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected]
             child = subprocess.Popen(list(map(str, command)), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
             try: output, errors = child.communicate(timeout=305)
@@ -95,6 +102,8 @@ def main():
             if red:
                 failures = re.findall(r'^.*: error: .* : (?:XCTAssert\w+ failed|XCTUnwrap failed)[^\n]*', text, re.M)
                 assert child.returncode == 1 and len(failures) == 1 and 'Executed 1 test, with 1 failure (0 unexpected)' in text and not any(s in text for s in ['unexpected signal', 'AddressSanitizer', 'fatalError']), (label, text[-16000:])
+                if expected:
+                    assert expected in failures[0], (label, failures)
             else:
                 assert child.returncode == 0 and f'Executed {count} test' in text and 'with 0 failures' in text and 'skipped' not in text.lower(), (label, text[-16000:])
             commands.append(dict(label=label, status=child.returncode, sha256=hashlib.sha256(output + errors).hexdigest()))
@@ -122,8 +131,8 @@ def main():
             host_keys = [keys.add_memory_key(agent, 'views-hop-' + str(i)) for i in range(2)]
             route_root = work / 'r'; route_root.mkdir()
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
-                for route in args.route or ['local', 'direct', 'jump']:
-                    scratch = work / route; scratch.mkdir(); (scratch / 'stage').mkdir()
+                def actual_route(route, label, red=False):
+                    scratch = work / label; scratch.mkdir(); (scratch / 'stage').mkdir()
                     token = secrets.token_hex(24)
                     payload = dict(route=route, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'), ports=ports, hostKeys=[k.decode() for k in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(), foregroundLoss=args.attach_loss)
                     with ExitStack() as attached:
@@ -142,9 +151,34 @@ def main():
                         with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
                             thread = threading.Thread(target=server.serve_forever); thread.start()
                             env.update(GHOSTERM_VIEWS_PORT=str(server.server_address[1]), GHOSTERM_VIEWS_TOKEN=token)
-                            try: test('actual-' + route, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel')
+                            try: test(label, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel',
+                                      red=red, expected=FOREGROUND_ASSERTION if red else None)
                             finally: server.shutdown(); thread.join(5)
-                        assert not thread.is_alive(); actual.append(dict(route=route, ipc=frontend.finish()) if frontend else route)
+                        assert not thread.is_alive()
+                        observation = dict(route=route, ipc=frontend.finish()) if frontend else route
+                        if not red:
+                            actual.append(observation)
+                for route in args.route or ['local', 'direct', 'jump']:
+                    actual_route(route, 'actual-' + route)
+                if foreground_mutation:
+                    name = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
+                    path = source / name
+                    original = path.read_bytes()
+                    anchor = b'if !Self.runtimeIsRunning(runtime.phase) {\n            extensionRegisteredViews?.invalidate()\n'
+                    assert original.count(anchor) == 1
+                    objects = {p: sha(p) for p in (source / 'apple/GhostermApp/.build').rglob('*.o')
+                               if p.name in ('ExtensionInstanceModel.o', 'ExtensionInstanceModel.swift.o')}
+                    assert objects
+                    try:
+                        path.write_bytes(original.replace(anchor, b'if !Self.runtimeIsRunning(runtime.phase) {\n'))
+                        actual_route('local', FOREGROUND_MUTATION + '-assertion', red=True)
+                        assert any(p.is_file() and sha(p) != digest for p, digest in objects.items())
+                        test(FOREGROUND_MUTATION + '-control', CONTROL)
+                    finally:
+                        path.write_bytes(original)
+                    actual_route('local', FOREGROUND_MUTATION + '-restored')
+                    assert sha(path) == inputs[name]
+                    groups.append(FOREGROUND_MUTATION)
         test('restored', 'PluginViewsTests', VIEW_TEST_COUNT)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()

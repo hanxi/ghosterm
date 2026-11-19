@@ -150,7 +150,14 @@ import XCTest
             let observed = try XCTUnwrap(try fixture("lose-foreground")["ipcObservation"] as? [String: Any])
             XCTAssertEqual(observed["frontendAlive"] as? Bool, false)
             XCTAssertEqual(observed["fault"] as? String, "injected-ipc-loss")
-            try await until("foreground loss invalidates Native views") { !views.valid && views.items.isEmpty }
+            try await until("foreground loss reaches a terminal Runtime") {
+                guard let phase = app.extensionRun?.runtime?.phase else { return false }
+                return [ExtensionRuntime.Phase.failed.rawValue, ExtensionRuntime.Phase.stopped.rawValue,
+                        ExtensionRuntime.Phase.closed.rawValue].contains(phase)
+            }
+            XCTAssertFalse(views.valid, "foreground loss must invalidate the Native view registry")
+            guard !views.valid else { return }
+            XCTAssertTrue(views.items.isEmpty)
             XCTAssertFalse(reopenedTask.available)
             XCTAssertNotEqual(reopenedTask.snapshot?.phase, .cancelled)
             try await until("foreground loss removes Native close controls") {
