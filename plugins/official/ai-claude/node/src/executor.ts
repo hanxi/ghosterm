@@ -37,7 +37,14 @@ function readProfile(path: string): Record<string, Json> {
 /** Consistency check of an explicitly selected file. It does not eliminate
  * same-user path races or prove publisher trust / a Core authorization grant. */
 function verifyExecutable(path: string, expected: string): void {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      throw Object.assign(new Error("Selected Claude executable is unavailable"), { code: "CLAUDE_CLI_UNAVAILABLE" });
+    }
+    throw error;
+  }
   try {
     const before = fstatSync(fd, { bigint: true });
     if (!before.isFile() || !(before.mode & 0o111n)) throw new Error("Claude executable is not a regular executable");
@@ -96,7 +103,9 @@ export async function runClaudeExecutor(path: string, input: Readable, output: W
   if (JSON.parse(readFileSync(sdkPackage, "utf8")).version !== CLAUDE_SDK_VERSION) throw new Error("Claude SDK version mismatch");
   verifyExecutable(executable, sha256);
   const version = execFileSync(executable, ["--version"], { cwd, env: environment, encoding: "utf8", timeout: 5000, maxBuffer: 4096 }).trim();
-  if (version !== `${CLAUDE_CLI_VERSION} (Claude Code)`) throw new Error("Claude CLI version mismatch");
+  if (version !== `${CLAUDE_CLI_VERSION} (Claude Code)`) {
+    throw Object.assign(new Error("Claude CLI version mismatch"), { code: "CLAUDE_CLI_VERSION_MISMATCH" });
+  }
   const session = new ClaudeNodeSession(profile), bridge = new ClaudeStdioBridge(session, broker);
   let cancelled = false, result = 5;
   const cancel = () => { cancelled = true; bridge.close(); input.destroy(new Error("Claude executor cancelled")); };

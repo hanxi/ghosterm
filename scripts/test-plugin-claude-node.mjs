@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import { EventEmitter, once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 
@@ -19,6 +19,25 @@ const context = (id = "request-1", signal = new AbortController().signal) =>
   ({ requestId: id, toolUseID: "tool-1", signal });
 const drain = broker => { while (broker.takeEvent()) {} };
 const event = broker => { const value = broker.takeEvent(); assert(value); return value; };
+
+test("Claude Node CLI distinguishes missing executable and unsupported version without starting a session", () => {
+  const work = mkdtempSync(join(process.env.TMPDIR, "claude-version-"));
+  try {
+    const executable = join(work, "claude"), profile = join(work, "profile.json");
+    const bytes = "#!/bin/sh\n[ \"$1\" = --version ] || exit 99\nprintf '0.0.0 (Claude Code)\\n'\n";
+    const env = { HOME: work, CLAUDE_CONFIG_DIR: work, TMPDIR: work };
+    writeFileSync(profile, JSON.stringify({ version: 1, cwd: work, executable, cliVersion: CLAUDE_CLI_VERSION,
+      sha256: createHash("sha256").update(bytes).digest("hex"), environmentNames: Object.keys(env), tools: [] }));
+    for (const diagnostic of ["CLAUDE_CLI_UNAVAILABLE", "CLAUDE_CLI_VERSION_MISMATCH"]) {
+      if (diagnostic === "CLAUDE_CLI_VERSION_MISMATCH") writeFileSync(executable, bytes, { mode: 0o700 });
+      const result = spawnSync(process.execPath, [join(directory, "dist/cli.js"), "--profile", profile],
+        { cwd: work, env, encoding: "utf8", timeout: 10_000 });
+      assert.equal(result.status, 4);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, `claude-node: ${diagnostic}\n`);
+    }
+  } finally { rmSync(work, { recursive: true, force: true }); }
+});
 
 test("Claude approval binds scope and frozen input, resolves once, and replays only its identical live request", async () => {
   const broker = new ClaudeApprovalBroker("scope-1");
