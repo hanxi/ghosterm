@@ -62,8 +62,8 @@ jobs:
     name: Package macOS app（${{ inputs.channel }}）
     runs-on: macos-15
     # full 轨要跑九份 Apple 变异 + 一份打包变异（后者自己就要出四次包）。
-    # 90 分钟是加打包变异之前的上限，实测会顶到边缘。
-    timeout-minutes: 120
+    # Apple 闸门在 macOS runner 上可能超过两小时，不能让 job 超时取消正式发布。
+    timeout-minutes: 240
     env:
       INPUT_VERSION: ${{ inputs.version }}
       INPUT_NOTARIZE: ${{ inputs.notarize }}
