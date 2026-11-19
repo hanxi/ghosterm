@@ -138,6 +138,41 @@ class PluginResourceHTMLViewTest {
         assertEquals(403, client.shouldInterceptRequest(first, HTMLRequest(address))!!.statusCode)
     }
 
+    @Test fun switchingDocumentsRevokesPreviousClientAndKeepsAttachmentsScoped() {
+        val first = document()
+        val firstCSS = css()
+        val second = htmlFixture("other/index.html", "text/html",
+            "<link rel='stylesheet' href='theme.css'>".toByteArray())
+        val secondCSS = htmlFixture("other/theme.css", "text/css", "body{color:green}".toByteArray())
+        ui.setContent { PluginResourcesPanel(listOf(first, firstCSS, image(), second, secondCSS)) }
+        val oldView = awaitRender()
+        val oldClient = ui.runOnIdle { oldView.webViewClient }
+        val oldURL = ui.runOnIdle { URI(oldView.url!!) }
+        val oldCSSRequest = HTMLRequest(oldURL.resolve("theme.css").toString())
+        assertEquals(200, oldClient.shouldInterceptRequest(oldView, oldCSSRequest)!!.statusCode)
+
+        ui.onNodeWithTag("plugin-resource-select-${second.descriptor.resourceId}").performClick()
+        ui.waitUntil(15000) {
+            ui.runOnIdle {
+                findPluginHTMLView(ui.activity.window.decorView)?.let { view ->
+                    view !== oldView && view.url?.let { URI(it).path == "/other/index.html" } == true
+                } == true
+            }
+        }
+        val newView = web()
+        val newClient = ui.runOnIdle { newView.webViewClient }
+        val newURL = ui.runOnIdle { URI(newView.url!!) }
+        assertNotEquals(oldURL.host, newURL.host)
+        assertEquals(403, oldClient.shouldInterceptRequest(oldView, oldCSSRequest)!!.statusCode)
+        assertEquals(403, newClient.shouldInterceptRequest(newView, oldCSSRequest)!!.statusCode)
+        val wrongPath = HTMLRequest(newURL.resolve("/docs/theme.css").toString())
+        assertEquals(403, newClient.shouldInterceptRequest(newView, wrongPath)!!.statusCode)
+        val matchingPath = HTMLRequest(newURL.resolve("theme.css").toString())
+        val response = newClient.shouldInterceptRequest(newView, matchingPath)!!
+        assertEquals(200, response.statusCode)
+        assertArrayEquals(secondCSS.bytes, response.data.use { it.readBytes() })
+    }
+
     @Test fun decomposedDirectoryAndEncodedUnicodeAttachmentsReallyRender() {
         val directory = "docs/cafe\u0301"
         val d = htmlFixture("$directory/页面 #?%.html", "text/html",
