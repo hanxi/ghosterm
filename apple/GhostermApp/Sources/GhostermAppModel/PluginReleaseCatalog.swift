@@ -200,7 +200,7 @@ final class PluginReleaseCatalog {
     private func decodeSelection(_ raw: Data) throws -> Selection {
         let object = try ReleaseJSON.parse(raw).object()
         guard Set(object.keys) == ["schemaVersion", "nonce", "choices"],
-              try object["schemaVersion"]?.integer(maximum: 1) == 1,
+              case .number("1")? = object["schemaVersion"],
               let nonce = try object["nonce"]?.string(), UUID(uuidString: nonce) != nil,
               let choices = try object["choices"]?.object(), choices.count <= 64 else { throw Failure.invalid }
         var result: [String: Choice] = [:]

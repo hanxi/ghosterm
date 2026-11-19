@@ -252,6 +252,21 @@ final class PluginReleaseCatalogTests: XCTestCase {
         XCTAssertEqual(try owner.selection(), value, "post-rename fsync failure is not an absent write")
     }
 
+    func testSelectionRequiresCanonicalSchemaWithoutOverwritingInvalidRecords() throws {
+        let root = try root(), owner = try XCTUnwrap(PluginReleaseCatalog(directory: root, exclusive: true))
+        let file = root.appendingPathComponent(PluginReleaseCatalog.selectionName)
+        let nonce = UUID().uuidString
+        for token in ["1.0", "1e0", "null", "true", "\"1\"", "2"] {
+            let raw = Data(#"{"schemaVersion":\#(token),"nonce":"\#(nonce)","choices":{}}"#.utf8)
+            try raw.write(to: file)
+            XCTAssertThrowsError(try owner.selection(), "invalid schema: \(token)")
+            XCTAssertThrowsError(try owner.writeSelection(.init(revision: nil, choices: [:]), expected: nil))
+            XCTAssertEqual(try Data(contentsOf: file), raw)
+        }
+        try Data(#"{"schemaVersion":1,"nonce":"\#(nonce)","choices":{}}"#.utf8).write(to: file)
+        XCTAssertTrue(try owner.selection().choices.isEmpty)
+    }
+
     func testStrictSelectionRejectsDuplicateBooleanAndSymlink() throws {
         let root = try root(), owner = try XCTUnwrap(PluginReleaseCatalog(directory: root, exclusive: true))
         let file = root.appendingPathComponent(PluginReleaseCatalog.selectionName)
