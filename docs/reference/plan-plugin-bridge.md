@@ -15862,3 +15862,8 @@ macOS 资产与文案漂移项已复验为绿；脚本不上传或修改远端�
 P6 更新信任链专项通过：`scripts/test-plugin-channel-macos-tls.py` 构建并运行
 真实 macOS URLSession TLS 夹具，覆盖有效刷新、轮换后的策略验证、撤销证书、
 重定向拒绝、超大响应拒绝和失败后缓存保留，1 项测试通过。
+
+Android 端随后使用 `scripts/test-plugin-channel-android-tls.py` 启动项目内
+API 36 无窗口 AVD，真实安装测试 APK 并运行同一 TLS 夹具，1 项
+`PluginChannelRefreshTlsTest` 通过，进程以 0 退出。Android / macOS 两端的
+轮换、撤销和失败缓存保留证据已齐。
