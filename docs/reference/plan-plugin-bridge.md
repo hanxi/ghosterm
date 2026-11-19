@@ -15676,3 +15676,9 @@ P2 Android HTML 常驻变异脚本增加 `--headless-api`，使用自有无窗�
 `--headless-api 36 --case attachment-cancellation` 的目标红、同 APK Core
 对照、恢复与三份源摘要通过。缺 API 29 镜像的启动失败也退出并完成清理，
 未执行 API 29 设备用例或全组变异。
+
+P2 Android HTML 变异脚本现逐阶段检查安装成功、唯一安装路径和应用／测试
+APK 的设备 SHA256，并要求变异生产 APK 与基线不同。API 36 无窗口
+`attachment-cancellation` 基线、变异及恢复均通过安装字节核对，
+单条目标断言红、同 APK Core 对照绿和恢复绿通过。未重跑其余用例；
+临时构件与 AVD 已清理。

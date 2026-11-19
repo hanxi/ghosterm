@@ -146,8 +146,26 @@ def verify(args, work, project, adb, build_prefix):
         # Compile the production renderer, real WebView test and independent Core control.
         logged(label + '-build', [*build_prefix, '-PghostermPluginJs=true',
             ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
-        for relative in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
-            logged(label + '-install-' + Path(relative).name, [*adb, 'install', '-r', '-t', project / 'android/app/build/outputs/apk' / relative])
+        digests = {}
+        for package_id, relative in (
+            ('com.hanxi.ghosterm', 'debug/app-debug.apk'),
+            ('com.hanxi.ghosterm.test', 'androidTest/debug/app-debug-androidTest.apk'),
+        ):
+            apk = project / 'android/app/build/outputs/apk' / relative
+            result = logged(label + '-install-' + package_id, [*adb, 'install', '-r', '-t', apk])
+            if 'Success' not in result.splitlines():
+                raise RuntimeError('APK install did not confirm success: ' + package_id)
+            remote = logged(label + '-path-' + package_id, [*adb, 'shell', 'pm', 'path', package_id]).strip()
+            if not remote.startswith('package:/data/app/') or len(remote.splitlines()) != 1:
+                raise RuntimeError('Expected one installed APK path: ' + package_id)
+            actual = logged(label + '-sha-' + package_id, [*adb, 'shell', 'sha256sum',
+                            remote.removeprefix('package:')]).split()
+            digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+            if not actual or actual[0] != digest:
+                raise RuntimeError('Installed APK differs from the built bytes: ' + package_id)
+            digests[package_id] = digest
+        return digests
+
     def test(label, method, green):
         output = logged(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', method,
             'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
@@ -165,13 +183,20 @@ def verify(args, work, project, adb, build_prefix):
     control = 'com.hanxi.ghosterm.NativeSmokeTest#corePreservesUtf8AndLineEndings'
     results = []
     try:
-        build('baseline')
+        baseline = build('baseline')
         for index, target in enumerate(dict.fromkeys(c[1] for c in cases)): test('baseline-' + str(index), target, True)
         for name, target, path, before, after in cases:
             write(path, (originals[path].decode().replace(before, after) + '\n// ' + MARK + '\n').encode())
-            build(name); test(name + '-target', target, False); test(name + '-control', control, True)
-            restore(); build(name + '-restored'); test(name + '-restored', target, True)
-            results.append(dict(case=name, compiled_assertion_red=True, same_apk_core_green=True, restored_green=True))
+            mutant = build(name)
+            if mutant['com.hanxi.ghosterm'] == baseline['com.hanxi.ghosterm']:
+                raise RuntimeError('Mutation did not change the production APK: ' + name)
+            test(name + '-target', target, False)
+            test(name + '-control', control, True)
+            restore()
+            restored = build(name + '-restored')
+            test(name + '-restored', target, True)
+            results.append(dict(case=name, compiled_assertion_red=True, same_apk_core_green=True,
+                                restored_green=True, apk_sha256=dict(baseline=baseline, mutant=mutant, restored=restored)))
             (work / 'accepted-results.json').write_text(json.dumps(results, indent=2) + '\n')
             print(name + ': compiled normal assertion RED / Core GREEN / restored GREEN / SHA256', flush=True)
     finally:
