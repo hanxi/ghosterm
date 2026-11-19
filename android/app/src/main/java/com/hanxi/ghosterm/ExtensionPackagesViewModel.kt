@@ -936,8 +936,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             respondCodexEvent(owner, request.ticket, false, "Host method is not registered")
             return
         }
-        val next = try {
-            CodexHostEvents.accept(codex, CodexHostEvents.decode(request))
+        val previous = codex
+        val (event, validated) = try {
+            val decoded = CodexHostEvents.decode(request)
+            decoded to CodexHostEvents.accept(previous, decoded)
         } catch (failure: Exception) {
             respondCodexEvent(owner, request.ticket, false,
                 failure.message?.take(256) ?: "Malformed Codex event")
@@ -946,10 +948,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         }
         respondCodexEvent(owner, request.ticket, true, null)
         if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration || runtimeObservationIssue != null) return
-        codex = next
+        // The acknowledgement suspends; local drafts and RPC results may have changed meanwhile.
+        codex = CodexHostEvents.commitAcknowledged(previous, validated, codex, event)
         changeReview.invalidate(::currentChange)
-        if (next.rawEvents.lastOrNull()?.let { JSONObject(it).optString("kind") } in
-            setOf("protocol-error", "closed", "outcome-unknown")) changeReview.cancel()
+        if (event.kind in setOf("protocol-error", "closed", "outcome-unknown")) changeReview.cancel()
     }
 
     private suspend fun respondCodexEvent(owner: ExtensionController, ticket: Long, accepted: Boolean, message: String?) {

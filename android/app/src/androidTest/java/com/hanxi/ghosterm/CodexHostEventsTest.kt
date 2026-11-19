@@ -17,6 +17,22 @@ class CodexHostEventsTest {
             JSONObject().put("event", event).toString().toByteArray(Charsets.UTF_8))
     }
 
+    @Test fun acknowledgedEventKeepsDraftAndRpcUpdatesMadeWhileAcknowledging() {
+        val approval = CodexPendingApproval("42", "item/fileChange/requestApproval", "{}", "change")
+        val before = CodexHostState(approvals = listOf(approval), messageDraft = "old", callBusy = true,
+            sendUnconfirmed = true)
+        val event = CodexHostEvents.decode(rpc(1, "notification",
+            "\"notification\":{\"method\":\"turn/started\",\"params\":{}}"))
+        val validated = CodexHostEvents.accept(before, event)
+        val latest = before.copy(approvals = emptyList(), threadID = "started", messageDraft = "new draft",
+            callBusy = false, sendUnconfirmed = false)
+
+        val committed = CodexHostEvents.commitAcknowledged(before, validated, latest, event)
+        assertEquals(latest.copy(sequence = 1, rawEvents = listOf(event.encoded), turnActive = true),
+            committed.copy(timeline = latest.timeline))
+        assertEquals(validated.timeline, committed.timeline)
+    }
+
     @Test fun longConversationRetiresDiagnosticsButKeepsApprovalAndSequenceOwnership() {
         val pending = CodexHostEvents.decode(rpc(1, "approval-request",
             "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"change\"}}"))

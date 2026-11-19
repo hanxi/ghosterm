@@ -170,6 +170,13 @@ internal object CodexHostEvents {
             timeline = timeline, approvals = approvals, turnActive = turnActive)
     }
 
+    fun commitAcknowledged(
+        previous: CodexHostState,
+        validated: CodexHostState,
+        latest: CodexHostState,
+        event: CodexHostEvent,
+    ): CodexHostState = if (latest === previous) validated else accept(latest, event)
+
     private fun reduceTimeline(entries: List<CodexTimelineEntry>, sequence: Long,
         method: String, value: Any): List<CodexTimelineEntry> {
         val objectValue = value as? JSONObject
