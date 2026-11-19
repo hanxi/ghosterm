@@ -77,8 +77,9 @@ jobs:
             echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
           grep -Fq 'GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名' BUILD-INFO.txt || {
             echo "BUILD-INFO 缺少 GitHub Release/ad-hoc 更新口径" >&2; exit 1; }
-          grep -Fq '未公证的包不能直接分发给终端用户' BUILD-INFO.txt && {
-            echo "BUILD-INFO 仍含过时的公证阻塞文案" >&2; exit 1; } || true
+          if grep -Fq '未公证的包不能直接分发给终端用户' BUILD-INFO.txt; then
+            echo "BUILD-INFO 仍含过时的公证阻塞文案" >&2; exit 1
+          fi
           python3 - <<'PY'
           import json
           from pathlib import Path
