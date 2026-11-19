@@ -90,6 +90,37 @@ class PluginViewsTest {
         assertEquals("1", secondTable.state.value.page?.rows?.firstOrNull()?.id)
     }
 
+    @Test fun lateCloseAfterRuntimeInvalidationDoesNotAffectAnotherInstance() = main {
+        val first = PluginViewsFixture()
+        val second = PluginViewsFixture(instance = "c".repeat(32))
+        val firstModel = first.populated(this)
+        val secondModel = second.populated(this)
+        val handle = firstModel.state.value.items.first().handle
+        val survivingItem = secondModel.state.value.items.first()
+        assertEquals(handle, survivingItem.handle)
+        val survivingTable = table(secondModel)
+        survivingTable.load()!!.join()
+
+        first.pauseClose = true
+        val closing = firstModel.closeView(handle)!!
+        try {
+            withTimeout(5000) { first.closeEntered.await() }
+            firstModel.invalidate()
+            survivingTable.showPage(16)!!.join()
+        } finally {
+            first.closeRelease.complete(Unit)
+            closing.join()
+        }
+
+        assertFalse(firstModel.state.value.valid)
+        assertTrue(firstModel.state.value.items.isEmpty())
+        assertNull(firstModel.state.value.issue)
+        assertEquals(listOf(handle), first.closes)
+        assertTrue(second.closes.isEmpty())
+        assertSame(survivingItem, secondModel.state.value.items.first())
+        assertEquals("17", survivingTable.state.value.page?.rows?.firstOrNull()?.id)
+    }
+
     @Test fun wrongInstanceClearsViews() = main {
         val f = PluginViewsFixture(); val m = f.populated(this); f.revision++
         assertTrue(rejects { m.apply(f.data(instance = "c".repeat(32))) } && !m.state.value.valid && m.state.value.items.isEmpty())
