@@ -238,3 +238,41 @@ test("Claude releases an unsupported Node child even if termination signaling fa
     assert.equal(value.spawns, 1);
   } finally { value.disposable.dispose(); }
 });
+
+test("Claude reports release failure through both lifecycle promises", async () => {
+  const child = new PipeFixture();
+  child.release = () => { throw Error("fixture release failure"); };
+  const process = new ClaudeNodeProcess(child);
+  await Promise.all([
+    assert.rejects(process.stop(), /REAP/),
+    assert.rejects(process.waitForExit(), /REAP/),
+  ]);
+  assert.equal(process.reaped, false);
+  assert.equal(process.failure.code, "REAP");
+});
+
+test("Claude exposes confirmed exit with unknown details when the last poll was live", async () => {
+  const child = new PipeFixture();
+  child.signal = () => { throw Error("fixture signal failure"); };
+  const process = new ClaudeNodeProcess(child);
+  await process.stop();
+  const exit = { state: "exited", code: null, signal: null };
+  assert.equal(process.reaped, true);
+  assert.deepEqual(process.exit, exit);
+  assert.deepEqual(await process.waitForExit(), exit);
+});
+
+test("Claude exposes failed startup cleanup through the host status", async () => {
+  const child = new PipeFixture();
+  child.verifiedVersion = "v18.14.0";
+  child.release = async () => { throw Error("fixture release failure"); };
+  const value = fixture({ child });
+  try {
+    await assert.rejects(invoke(value, "start"), /REAP/);
+    const status = await value.handlers.get("claude.status")({});
+    assert.equal(status.phase, "failed");
+    assert.equal(status.failure, "REAP");
+    assert.equal(status.reaped, false);
+    assert.equal(child.writes.length, 0);
+  } finally { value.disposable.dispose(); }
+});

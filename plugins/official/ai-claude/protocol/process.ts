@@ -124,9 +124,12 @@ export class ClaudeNodeProcess {
     if (!this.releasePromise) {
       this.closed = true;
       this.decoder = undefined;
-      this.releasePromise = this.child.release().then(() => {
+      this.releasePromise = Promise.resolve().then(() => this.child.release()).then(() => {
         this.reapedValue = true;
-        this.exitResolve(this.observed?.state === "exited" ? this.observed : { state: "exited", code: null, signal: null });
+        if (this.observed?.state !== "exited") {
+          this.observed = { state: "exited", code: null, signal: null };
+        }
+        this.exitResolve(this.observed);
       }, () => { const error = new ClaudeTransportError("REAP"); this.error = error; this.exitReject(error); throw error; });
       void this.releasePromise.catch(() => {});
     }
@@ -157,7 +160,11 @@ export async function spawnClaudeNode(context: PluginContext): Promise<ClaudeNod
     } catch {
       // Release owns the final termination and reap even if the signal fails.
     }
-    await child.release();
+    try {
+      await child.release();
+    } catch {
+      throw new ClaudeTransportError("REAP");
+    }
     throw new ClaudeTransportError("NODE_VERSION");
   }
   return new ClaudeNodeProcess(child);
