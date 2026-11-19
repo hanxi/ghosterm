@@ -15240,3 +15240,8 @@ Android SSH 后台入口的构建/设备日志、包装脚本和 Python 缓存�
 七包共享登记目录新增并发混合授权。Preview、Task、Claude 同轮拒绝并走
 各自退出 6，Table、Diff、Views、Codex 继续实际 RPC 后退出 0。混合、全拒绝
 和全批准共三批各七项后台通过，每批核对实例隔离和端点清理。临时材料已清理。
+
+固定 `7f8d3609` 重建 JS / SSH / 签名 gterm 和 Node SDK，在隔离 macOS
+项目离屏通过本机、直连及两跳 ProxyJump 三条八实例连接组。各路径覆盖
+Portable / Node / Exec、签名及开发来源、逐实例准入、RPC、资源与故障隔离。
+临时构建和自有 SSH 夹具已清理。本轮未运行 Android 或真实模型。
