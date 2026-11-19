@@ -9,7 +9,7 @@ import XCTest
 
 /// A real App-owned group; the fixture supplies only owned endpoints and bytes.
 @MainActor final class ExtensionMixedConnectionTests: XCTestCase {
-    private func fixture() throws -> [String: Any] {
+    private func fixtureExchange(_ operation: String? = nil) throws -> Data {
         let env = ProcessInfo.processInfo.environment
         guard let port = env["GHOSTERM_MIXED_PORT"].flatMap(UInt16.init), let token = env["GHOSTERM_MIXED_TOKEN"] else {
             throw XCTSkip("explicit owned JS/signature/SSH-enabled mixed fixture required")
@@ -22,7 +22,7 @@ import XCTest
         guard result == 0 else { throw GhostermError.failed("fixture connect") }
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         guard setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else { throw GhostermError.failed("fixture timeout") }
-        let auth = Array((token + "\n").utf8)
+        let auth = Array((token + (operation.map { ":" + $0 } ?? "") + "\n").utf8)
         guard auth.withUnsafeBytes({ Darwin.write(fd, $0.baseAddress, $0.count) }) == auth.count else { throw GhostermError.failed("fixture auth") }
         var bytes = Data(), buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -30,6 +30,10 @@ import XCTest
             guard count > 0, bytes.count + count <= 131072 else { throw GhostermError.failed("fixture read") }
             bytes.append(contentsOf: buffer.prefix(count))
         }
+        return bytes
+    }
+    private func fixture() throws -> [String: Any] {
+        let bytes = try fixtureExchange()
         guard bytes.count >= 4, bytes.prefix(4).reduce(0, { $0 * 256 + Int($1) }) == bytes.count - 4,
               let value = try JSONSerialization.jsonObject(with: bytes.dropFirst(4)) as? [String: Any] else { throw GhostermError.failed("fixture JSON") }
         return value
@@ -109,12 +113,13 @@ import XCTest
                 execution: execution, releaseEvidence: evidence, variantID: runtime, command: "fixture"),
                 sshAlias: "mixed-target", localLaunch: local, clientWorkspace: nil, temporaryDirectory: stage.path)
         }
-        let runtimes = ["portable", "node", "exec", "portable", "node", "exec", "portable", "node"]
-        let invocations = try runtimes.enumerated().map { try invocation($0.offset, runtime: $0.element, signed: $0.offset % 2 == 1) }
+        let disconnect = payload["disconnectOnStop"] as? Bool == true
+        let runtimes = disconnect ? ["portable"] : ["portable", "node", "exec", "portable", "node", "exec", "portable", "node"]
+        let invocations = try runtimes.enumerated().map { try invocation($0.offset, runtime: $0.element, signed: disconnect || $0.offset % 2 == 1) }
         await app.startExtensionGroup(invocations)
         let group = try XCTUnwrap(app.extensionConnections.last)
-        XCTAssertNil(group.issue); XCTAssertEqual(group.instances.count, 8)
-        guard group.instances.count == 8 else { return }
+        XCTAssertNil(group.issue); XCTAssertEqual(group.instances.count, runtimes.count)
+        guard group.instances.count == runtimes.count else { return }
         for model in group.instances {
             XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
             XCTAssertNil(model.extensionRun?.runtime)
@@ -122,6 +127,21 @@ import XCTest
         }
         try await until("mixed activation: \(group.instances.compactMap(\.extensionRunIssue))") {
             group.instances.allSatisfy { $0.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
+        }
+        if disconnect {
+            let model = try XCTUnwrap(group.instances.first)
+            guard try await resource(model, slot: 0) else { return }
+            XCTAssertEqual(try fixtureExchange("blackhole"), Data("OK\n".utf8))
+            let owner = try XCTUnwrap(model.extensionController)
+            try await owner.stopRuntime()
+            XCTAssertEqual(try fixtureExchange("reset"), Data("OK\n".utf8))
+            let done = await group.close()
+            XCTAssertTrue(done)
+            XCTAssertTrue(group.state?.released == true)
+            XCTAssertFalse(try XCTUnwrap(group.state).peerEOF)
+            XCTAssertTrue(group.issue?.contains("执行端退出未确认") == true,
+                          "released connection must preserve unconfirmed remote exit")
+            return
         }
         await withTaskGroup(of: Void.self) { tasks in
             for (slot, model) in group.instances.enumerated() { tasks.addTask { @MainActor in

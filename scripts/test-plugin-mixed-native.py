@@ -63,11 +63,14 @@ def main():
     parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
     parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
     parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
+    parser.add_argument('--macos-stop-disconnect', action='store_true', help='reset the owned macOS SSH route after explicit Runtime stop starts')
     args = parser.parse_args()
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
     if args.android_revocation and not args.android_api:
         parser.error('--android-revocation requires --android-api')
+    if args.macos_stop_disconnect and (args.android_api or 'local' in (args.route or ())):
+        parser.error('--macos-stop-disconnect requires macOS direct/jump routes')
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')
@@ -91,6 +94,8 @@ def main():
     if args.android_api:
         for filename in ('lib/plugin-mixed-android.py', 'lib/tmux-fault-proxy.py', 'test-plugin-codex-patch-android.py', 'test-plugin-channel.py'):
             inputs['scripts/' + filename] = sha(ROOT / 'scripts' / filename)
+    if args.macos_stop_disconnect:
+        inputs['scripts/lib/tmux-fault-proxy.py'] = sha(ROOT / 'scripts/lib/tmux-fault-proxy.py')
     source = args.project.absolute() if args.project else out / ('android-project' if args.android_api else 'project')
     marker = source / '.mixed-fixture-project.json'
     if not source.is_relative_to(ROOT / 'tmp') or source.is_symlink():
@@ -284,6 +289,7 @@ export function activate(ctx){
         host_keys = [keys.add_memory_key(agent, 'mixed-hop-' + str(i)) for i in range(2)]
         route_root = out / 'r'; route_root.mkdir()
         ports, _, _ = stack.enter_context(routes.chain(route_root, 2, client_public, host_keys, agent, 'echo'))
+        faults = load('mixed_macos_ssh_faults', 'lib/tmux-fault-proxy.py') if args.macos_stop_disconnect else None
         completed = []
         def actual(route, label, assertion=False, compile=False):
             scratch = out / label; scratch.mkdir(); (scratch / 'stage').mkdir()
@@ -291,15 +297,30 @@ export function activate(ctx){
                 root = scratch / ('workspace-' + str(slot)); root.mkdir()
                 (root / 'file.bin').write_bytes(bytes((i + slot * 17) % 251 for i in range(262144)))
             token = secrets.token_hex(24)
+            endpoint_ports = list(ports)
+            proxy = None
+            if faults:
+                first = 0 if route == 'jump' else 1
+                proxy = faults.SSHFaultProxy('127.0.0.1', ports[first], scratch)
+                stack.callback(proxy.close)
+                endpoint_ports[first] = proxy.port
             payload = dict(route=route, scratch=str(scratch), package=str(package), installed=str(installed / 'payload'),
-                release=str(installed), policy=str(policy), policySHA256=sha(policy), ports=ports,
+                release=str(installed), policy=str(policy), policySHA256=sha(policy), ports=endpoint_ports, disconnectOnStop=bool(proxy),
                 hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                 gterm=str(build / 'gterm'), gtermSHA256=sha(build / 'gterm'), node=str(node), nodeVersion=node_version,
                 nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_hash.hexdigest())
             class Handler(socketserver.StreamRequestHandler):
                 def handle(self):
                     self.connection.settimeout(5)
-                    if self.rfile.readline(128).rstrip(b'\n') != token.encode():
+                    request = self.rfile.readline(128).rstrip(b'\n')
+                    if proxy and request in (f'{token}:blackhole'.encode(), f'{token}:reset'.encode()):
+                        with proxy.lock:
+                            connected = bool(proxy.links)
+                        if connected:
+                            proxy.fault(request.rsplit(b':', 1)[1].decode())
+                            self.wfile.write(b'OK\n')
+                        return
+                    if request != token.encode():
                         return
                     body = json.dumps(payload, separators=(',', ':')).encode()
                     self.wfile.write(struct.pack('>I', len(body)) + body)
@@ -313,34 +334,41 @@ export function activate(ctx){
                     server.shutdown(); thread.join(5)
             if thread.is_alive() or (not assertion and ('Executed 1 test, with 0 failures' not in text or 'skipped' in text.lower())):
                 raise RuntimeError(label + ': exact discovery/no-skip evidence missing')
-        for route in args.route or ('local', 'direct', 'jump'):
+        for route in args.route or (('direct', 'jump') if faults else ('local', 'direct', 'jump')):
             actual(route, route)
             completed.append(route)
             print('PASS mixed Native ' + route, flush=True)
         mutations = []
         if args.mutate:
-            filename = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
+            stem = 'ExtensionConnectionModel' if faults else 'ExtensionController'
+            filename = f'apple/GhostermApp/Sources/GhostermAppModel/{stem}.swift'
             target = source / filename; original = target.read_bytes()
-            anchor = b'                    _ = try self.run.parent?.multiplexer?.step()\n'
-            if original.count(anchor) != 2:
-                raise RuntimeError('ambiguous Runtime parent-pump mutation')
-            objects = list((source / 'apple/GhostermApp/.build').rglob('ExtensionController.o'))
+            anchor = ('if done && state?.peerEOF != true && process?.reaped != true { issue = "连接已释放；执行端退出未确认，请检查各实例回执" }'.encode()
+                if faults else b'                    _ = try self.run.parent?.multiplexer?.step()\n')
+            if original.count(anchor) != (1 if faults else 2):
+                raise RuntimeError('ambiguous macOS mixed mutation')
+            objects = [p for p in (source / 'apple/GhostermApp/.build').rglob('*.o')
+                       if p.name in (stem + '.o', stem + '.swift.o')]
             before = {str(p): sha(p) for p in objects}
             if not before: raise RuntimeError('missing compiled worker object')
             try:
-                target.write_bytes(original.replace(anchor, b'') + b'\n// GT_MIXED_PARENT_PUMP_MUTATION\n')
-                actual('local', 'parent-pump-red', assertion=True, compile=True)
+                mutation = 'remote-exit-unknown' if faults else 'parent-pump'
+                route = 'direct' if faults else 'local'
+                target.write_bytes(original.replace(anchor, b'') + b'\n// GT_MIXED_MUTATION\n')
+                actual(route, mutation + '-red', assertion=True, compile=True)
+                if faults and 'released connection must preserve unconfirmed remote exit' not in (logs / (mutation + '-red.log')).read_text():
+                    raise RuntimeError('missing remote exit assertion')
                 if not any(p.is_file() and sha(p) != before[str(p)] for p in objects):
                     raise RuntimeError('mutated worker did not recompile')
-                _, control = run('parent-pump-control', [*command[:-2], '--filter', 'HostListTests.testReadingDoesNotMutateConfig'])
+                _, control = run(mutation + '-control', [*command[:-2], '--filter', 'HostListTests.testReadingDoesNotMutateConfig'])
                 if 'Executed 1 test, with 0 failures' not in control or 'skipped' in control.lower():
                     raise RuntimeError('independent configuration control did not pass')
             finally:
                 target.write_bytes(original)
-            actual('local', 'parent-pump-restored', compile=True)
+            actual(route, mutation + '-restored', compile=True)
             if sha(target) != inputs[filename]: raise RuntimeError('worker restoration mismatch')
-            mutations.append('parent-pump')
-            print('PASS parent-pump: compiled ordinary assertion / independent config / restore / object / SHA256', flush=True)
+            mutations.append(mutation)
+            print('PASS ' + mutation + ': compiled ordinary assertion / independent config / restore / object / SHA256', flush=True)
     verify_inputs(inputs)
     for path in logs.iterdir():
         if b'PRIVATE KEY-----' in path.read_bytes():
@@ -348,7 +376,8 @@ export function activate(ctx){
     receipt = dict(accepted=True, inputs=inputs, commands=commands, routes=completed, mutations=mutations,
         artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
         logs={path.name: sha(path) for path in logs.iterdir()},
-        scope='macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; selected worker mutation only when requested; no Android, system picker, model or full fault/performance/device matrix')
+        scope=('macOS App-owned SSH reset after explicit stop; local release and remote exit unknown'
+            if args.macos_stop_disconnect else 'macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
 
 
