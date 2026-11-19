@@ -740,13 +740,59 @@ def clean_error(function, path, info):
     function(path)
 
 
+def install_official_candidates(build, fixtures, work):
+    env = {key: value for key, value in os.environ.items() if not key.startswith(('GTERM_', 'GT_GTERM_'))}
+    env['TMPDIR'] = str(work)
+    names = ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')
+    host = work / 'host.json'
+    host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1],
+        runtimes=['portable-js'], capabilities=['resource.receive', 'file.readScoped', 'session.rpc',
+                                                'process.spawn', 'process.pipes'])))
+    for name in names:
+        bundle = fixtures / f'official-{name}-release'
+        artifact, descriptor, signature = (bundle / member for member in ('plugin.zip', 'release.json', 'release.sig'))
+        policy = fixtures / f'official-{name}-policy.json'
+        catalog, store = work / f'{name}-catalog', work / f'{name}-store'
+        catalog.mkdir(mode=0o700)
+        store.mkdir(mode=0o700)
+        raw = descriptor.read_bytes()
+        require(json.loads(raw)['pluginId'] == f'org.ghosterm.{name}', f'{name}: signed fixture identity')
+        result = subprocess.run([build / 'gterm', 'plugin', 'install', '--catalog', catalog,
+            '--expect-revision', '0', '--store', store, '--artifact', artifact, '--descriptor', descriptor,
+            '--signature', signature, '--policy', policy, '--host-json', host, '--'],
+            env=env, capture_output=True, timeout=15)
+        report = json.loads(result.stdout)
+        require(result.returncode == 2 and report.get('installed') is True and report.get('committed') is False,
+                f'{name}: installation without registration: {report}, {result.stderr!r}')
+        payload = store / release.sha(raw) / 'payload'
+        with zipfile.ZipFile(artifact) as archive:
+            expected = {member: archive.read(member) for member in archive.namelist()}
+        observed = {path.relative_to(payload).as_posix(): path.read_bytes()
+                    for path in payload.rglob('*') if path.is_file()}
+        require(observed == expected, f'{name}: installed payload must match signed archive')
+        require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
+        print('PASS official gterm install', name, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
-    parser.add_argument('--node', type=Path, required=True)
+    parser.add_argument('--node', type=Path)
     parser.add_argument('--sdk', type=Path)
-    parser.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
+    selection.add_argument('--official-release-directory', type=Path,
+                           help='install the seven fixtures exported by test-plugin-release.py')
     args = parser.parse_args()
+    if args.official_release_directory:
+        fixtures = args.official_release_directory.resolve(strict=True)
+        if not fixtures.is_relative_to(ROOT / 'tmp') or not fixtures.is_dir():
+            parser.error('official release fixtures must be a directory under project tmp/')
+        with tempfile.TemporaryDirectory(prefix='grel-official-', dir=ROOT / 'tmp') as directory:
+            install_official_candidates(args.build.resolve(), fixtures, Path(directory))
+        return
+    if not args.node:
+        parser.error('--node is required for generated release fixtures')
     for case in args.case or CASES:
         directory = Path(tempfile.mkdtemp(prefix='grel-', dir=ROOT / 'tmp'))
         try:

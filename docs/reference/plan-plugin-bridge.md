@@ -15076,3 +15076,9 @@ macOS 签名安装专项在真实控制器上准备有效的短期渠道发布�
 文件集合与归档逐字节一致。省略显式登记参数时逐包确认退出码 2、
 installed=true、committed=false，且未创建执行端目录登记。后台运行，
 冻结的安装目录及一次性签名材料均已清理。本轮未启动官方插件或模型。
+
+七包 CLI 安装专项固化为 `test-gterm-release.py --build <gterm构建目录>
+--official-release-directory <七包夹具目录>`。夹具由 `test-plugin-release.py
+--export-official-fixtures` 生成。专项逐包检查签名描述的身份、安装收据、
+逐字节载荷和无隐式登记。后台运行七项通过，原有 roundtrip 对照通过，
+关闭后清理临时目录。
