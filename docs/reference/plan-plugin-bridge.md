@@ -15471,3 +15471,11 @@ P5 固定 `5cbc5dce`，API 36 无窗口复验 `native-enable`、`native-owner`�
 29 项通用测试、84 项表格／差异／任务、直连和两跳基线及恢复后 29 项均通过。
 收据 SHA256 `1adbdb29b2702298cf01d881bc38ddea75cedc0cafc8d2e1de4e10eca524513f`。
 本轮未跑前台附着、其它设备档或 TalkBack 实际播报，临时构件已清理。
+
+P5 macOS `--attach --attach-loss` 离屏通过本机、SSH 直连和两跳 ProxyJump。
+重建官方 views 包后真实打开、分页、关闭和重开原生视图，任务仍 running 时
+只终止本轮前台进程。已观察前台退出，注册表与任务控件失效、关闭控件消失，
+没有伪造已取消回执；显式停止后资源释放。一用一次 IPC 入口已撤销、重放
+失败，普通 PTY 零协议字节。21 项通用用例、2 项入口契约和 58 项组件用例
+同轮通过。收据 SHA256 `195fdfed2601a0f2b5e52f659cce0f9bd7a87232118aa7215ae93ecf70382363`。
+未跑变异或 VoiceOver 播报。临时构件、进程与 SSH 夹具已清理。

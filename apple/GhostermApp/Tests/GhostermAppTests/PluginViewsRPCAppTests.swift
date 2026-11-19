@@ -10,7 +10,7 @@ import XCTest
 
 /// Same official Executor over local process transport or owned direct/jump SSH.
 @MainActor final class PluginViewsRPCAppTests: XCTestCase {
-    private func fixture() throws -> [String: Any] {
+    private func fixture(_ operation: String? = nil) throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
         guard let port = env["GHOSTERM_VIEWS_PORT"].flatMap(UInt16.init), let token = env["GHOSTERM_VIEWS_TOKEN"],
               ExtensionRuntime.supportStatus == 0 else { throw XCTSkip("requires explicit owned Native task runner") }
@@ -24,7 +24,7 @@ import XCTest
         guard connected == 0 else { throw GhostermError.failed("owned task fixture connection") }
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         guard setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else { throw GhostermError.failed("owned task fixture timeout") }
-        let request = Data((token + "\n").utf8)
+        let request = Data((token + (operation.map { " " + $0 } ?? "") + "\n").utf8)
         guard request.withUnsafeBytes({ Darwin.write(fd, $0.baseAddress, $0.count) }) == request.count else { throw GhostermError.failed("owned task fixture request") }
         func read(_ size: Int) throws -> Data {
             var data = Data(count: size), at = 0
@@ -144,11 +144,28 @@ import XCTest
         guard case .task(let reopenedTask) = views.items.first(where: { $0.registration.kind == .task })?.content else { return XCTFail("reopened task") }
         await reopenedTask.load()
         try await until("reopened task ready for explicit cancellation") { reopenedTask.canCancel }
-        try await Task.sleep(for: .milliseconds(100)); nodes = PluginTableRendering.elements(pane)
-        let cancel = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-task-cancel" })
-        XCTAssertTrue(PluginTableRendering.press(cancel))
-        try await until("actual task cancellation") { reopenedTask.snapshot?.phase == .cancelled }
-        XCTAssertEqual(reopenedTask.cancellation, .requested); XCTAssertEqual(reopenedTask.snapshot?.result, .cancelled("none"))
+        if f["foregroundLoss"] as? Bool == true {
+            XCTAssertNotNil(attachment)
+            XCTAssertEqual(reopenedTask.snapshot?.phase, .running)
+            let observed = try XCTUnwrap(try fixture("lose-foreground")["ipcObservation"] as? [String: Any])
+            XCTAssertEqual(observed["frontendAlive"] as? Bool, false)
+            XCTAssertEqual(observed["fault"] as? String, "injected-ipc-loss")
+            try await until("foreground loss invalidates Native views") { !views.valid && views.items.isEmpty }
+            XCTAssertFalse(reopenedTask.available)
+            XCTAssertNotEqual(reopenedTask.snapshot?.phase, .cancelled)
+            try await until("foreground loss removes Native close controls") {
+                pane.layoutSubtreeIfNeeded()
+                return !PluginTableRendering.elements(pane).contains {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-view-close"
+                }
+            }
+        } else {
+            try await Task.sleep(for: .milliseconds(100)); nodes = PluginTableRendering.elements(pane)
+            let cancel = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-task-cancel" })
+            XCTAssertTrue(PluginTableRendering.press(cancel))
+            try await until("actual task cancellation") { reopenedTask.snapshot?.phase == .cancelled }
+            XCTAssertEqual(reopenedTask.cancellation, .requested); XCTAssertEqual(reopenedTask.snapshot?.result, .cancelled("none"))
+        }
         XCTAssertEqual(interaction.hosts.count, 0)
         await app.stopExtensionRun()
         XCTAssertNil(app.extensionRun); XCTAssertNil(app.extensionRunIssue); XCTAssertFalse(views.valid); XCTAssertTrue(views.items.isEmpty)

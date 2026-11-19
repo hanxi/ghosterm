@@ -41,7 +41,10 @@ def main():
     parser.add_argument('--mutation-case', action='append', help='run only named mutations after the baseline')
     parser.add_argument('--route', choices=['local', 'direct', 'jump'], action='append')
     parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
+    parser.add_argument('--attach-loss', action='store_true', help='terminate the owned foreground after Native view interactions')
     args = parser.parse_args(); build, package = args.build.resolve(), args.package.resolve()
+    if args.attach_loss and not args.attach:
+        parser.error('--attach-loss requires --attach')
     for p in [build, package, args.receipt.resolve()]: assert p.is_relative_to(ROOT / 'tmp')
     cache = (build / 'CMakeCache.txt').read_text()
     assert all(s + ':BOOL=ON' in cache for s in ['GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2'])
@@ -122,7 +125,7 @@ def main():
                 for route in args.route or ['local', 'direct', 'jump']:
                     scratch = work / route; scratch.mkdir(); (scratch / 'stage').mkdir()
                     token = secrets.token_hex(24)
-                    payload = dict(route=route, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'), ports=ports, hostKeys=[k.decode() for k in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode())
+                    payload = dict(route=route, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'), ports=ports, hostKeys=[k.decode() for k in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(), foregroundLoss=args.attach_loss)
                     with ExitStack() as attached:
                         frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'views', [], env)) if args.attach else None
                         if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
@@ -132,8 +135,9 @@ def main():
                                 request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
                                 if request[0] != token.encode() or len(request) > 2: return
                                 if len(request) == 2:
-                                    if frontend is None: return
-                                    frontend.control(request[1].decode('ascii'))
+                                    if frontend is None or not args.attach_loss or request[1] != b'lose-foreground': return
+                                    frontend.control('pause')
+                                    frontend.control('kill')
                                 data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload).encode(); self.wfile.write(struct.pack('>I', len(data)) + data)
                         with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
                             thread = threading.Thread(target=server.serve_forever); thread.start()
@@ -144,7 +148,8 @@ def main():
         test('restored', 'PluginViewsTests', VIEW_TEST_COUNT)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()
-        args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=actual,
+        args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, foregroundLoss=args.attach_loss,
+            inputs=inputs, commands=commands, mutations=groups, actual=actual,
             gtermSHA256=sha(build / 'gterm'), package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native registrations/models, actual local/direct/jump and offscreen controls; no Android, OS VoiceOver, full user import flow or release'), indent=2) + '\n')
 
