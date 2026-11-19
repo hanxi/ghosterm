@@ -15551,3 +15551,10 @@ P1 macOS 运行期失败回调专项。两个真实本地 PTY 分别发布候选
 候选。去掉失败分支清理后重编仅目标断言红，独立配置对照、恢复与源码 SHA256
 `42c841bad96605e979530f33316b32e086fbe509a7b8117ff4038a016dc7ea12` 通过。
 此轮验证回调消费，未诱发真实传输读写错误。
+
+P1 macOS 候选六组可在同一命令重复传入 `--case` 批量执行，共用一个隔离
+检出与 QuickJS Core 构建。本轮后台离屏复验
+`discovery-feed`、`discovery-expiry`、`discovery-failure`、`discovery-reattach`、
+`discovery-late-exit`、`discovery-runtime-failure` 全部通过；每组仍独立检查
+重编后的目标断言红、配置对照绿、源码 SHA256 与恢复绿。临时构件已清理。
+仅复验 macOS 候选组及无效参数拒绝，Android 与剪贴板组未重跑。

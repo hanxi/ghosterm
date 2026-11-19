@@ -30,12 +30,16 @@ def main():
     parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', *DISCOVERY_CASES])
     parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
-    if any(case in APPLE_DISCOVERY_LIFECYCLE for case in (args.case or ())):
-        if args.platform != 'apple' or len(args.case) != 1:
-            parser.error('discovery lifecycle cases run alone on Apple')
-    discovery = 'discovery-feed' in (args.case or ())
-    if discovery and (args.case != ['discovery-feed'] or (args.platform == 'android' and not args.headless_api)):
-        parser.error('discovery-feed runs alone and requires --headless-api on Android')
+    selected = args.case or ()
+    discovery = 'discovery-feed' in selected
+    if args.platform == 'apple':
+        if any(case in DISCOVERY_CASES for case in selected) and not all(case in DISCOVERY_CASES for case in selected):
+            parser.error('select Apple discovery cases separately from clipboard cases')
+    else:
+        if any(case in APPLE_DISCOVERY_LIFECYCLE for case in selected):
+            parser.error('discovery lifecycle cases require Apple')
+        if discovery and (args.case != ['discovery-feed'] or not args.headless_api):
+            parser.error('Android discovery-feed runs alone and requires --headless-api')
     if args.headless_api and (not discovery or args.platform != 'android'):
         parser.error('--headless-api supports only Android discovery-feed')
     device = nullcontext(None)
@@ -58,7 +62,8 @@ def verify(parser, args, work, owned_serial=None):
         (work / f'{label}.log').write_text(result.stdout)
         return result
 
-    if args.platform == 'apple' and any(case in DISCOVERY_CASES for case in (args.case or ())):
+    apple_discovery = args.platform == 'apple' and any(case in DISCOVERY_CASES for case in (args.case or ()))
+    if apple_discovery:
         for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
             shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -67,48 +72,35 @@ def verify(parser, args, work, owned_serial=None):
         (work / 'core').mkdir()
         (work / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
         (work / 'tmp').mkdir()
-        relative = 'apple/GhostermApp/Sources/GhostermAppModel/SessionController.swift'
-        source = work / relative
         env.update(DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
-        tests = {'discovery-feed': (
-            'try bytes.withUnsafeBytes { try observer.feed($0, now:',
-            'try Data().withUnsafeBytes { try observer.feed($0, now:', 'testPassiveDiscoveryKeepsOrdinaryPTYOutput')}
-        assertion_message = 'top-level discovery must arrive after ordinary PTY output'
-        if args.case == ['discovery-expiry']:
-            relative = 'apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift'
-            source = work / relative
-            tests = {'discovery-expiry': (
+        cases = {
+            'discovery-feed': ('SessionController.swift',
+                'try bytes.withUnsafeBytes { try observer.feed($0, now:',
+                'try Data().withUnsafeBytes { try observer.feed($0, now:', 'testPassiveDiscoveryKeepsOrdinaryPTYOutput',
+                'top-level discovery must arrive after ordinary PTY output'),
+            'discovery-expiry': ('AppModel.swift',
                 'self.frontendCandidates = candidates\n                self.scheduleFrontendExpiry()',
-                'self.frontendCandidates = candidates', 'testPassiveDiscoveryExpiresWhileTerminalIsIdle')}
-            assertion_message = 'idle passive candidate must expire without another offer'
-        if args.case == ['discovery-failure']:
-            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
-            source = work / relative
-            tests = {'discovery-failure': (
+                'self.frontendCandidates = candidates', 'testPassiveDiscoveryExpiresWhileTerminalIsIdle',
+                'idle passive candidate must expire without another offer'),
+            'discovery-failure': ('TerminalTab.swift',
                 'public func markFailed(_ message: String) {\n        invalidateDiscovery()',
-                'public func markFailed(_ message: String) {', 'testPassiveDiscoveryIsClearedWhenPaneFails')}
-            assertion_message = 'failed pane must immediately remove its passive candidates'
-        if args.case == ['discovery-reattach']:
-            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
-            source = work / relative
-            tests = {'discovery-reattach': (
+                'public func markFailed(_ message: String) {', 'testPassiveDiscoveryIsClearedWhenPaneFails',
+                'failed pane must immediately remove its passive candidates'),
+            'discovery-reattach': ('TerminalTab.swift',
                 'self.session = session\n        invalidateDiscovery()\n        let generation',
-                'self.session = session\n        let generation', 'testPassiveDiscoveryChangesOwnerWhenPaneReattaches')}
-            assertion_message = 'reattaching a pane must immediately remove its old candidates'
-        if args.case == ['discovery-late-exit']:
-            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
-            source = work / relative
-            tests = {'discovery-late-exit': (
+                'self.session = session\n        let generation', 'testPassiveDiscoveryChangesOwnerWhenPaneReattaches',
+                'reattaching a pane must immediately remove its old candidates'),
+            'discovery-late-exit': ('TerminalTab.swift',
                 'guard let self, let session, self.session === session else { return }',
-                'guard let self, session != nil else { return }', 'testLateTerminalExitDoesNotInvalidateReplacementCandidates')}
-            assertion_message = 'late exit from the old terminal must leave the replacement and its candidate intact'
-        if args.case == ['discovery-runtime-failure']:
-            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
-            source = work / relative
-            tests = {'discovery-runtime-failure': (
+                'guard let self, session != nil else { return }', 'testLateTerminalExitDoesNotInvalidateReplacementCandidates',
+                'late exit from the old terminal must leave the replacement and its candidate intact'),
+            'discovery-runtime-failure': ('TerminalTab.swift',
                 'case .failed(let message):\n                self.invalidateDiscovery()',
-                'case .failed(let message):', 'testRuntimeFailureClearsOnlyItsOwnPassiveCandidates')}
-            assertion_message = "runtime transport failure must remove only its pane's candidates"
+                'case .failed(let message):', 'testRuntimeFailureClearsOnlyItsOwnPassiveCandidates',
+                "runtime transport failure must remove only its pane's candidates"),
+        }
+        tests = {name: case[1:4] for name, case in cases.items()}
+        source_root = Path('apple/GhostermApp/Sources/GhostermAppModel')
         def build(label):
             if label != 'baseline': return
             directory = work / 'core/build'
@@ -117,7 +109,7 @@ def verify(parser, args, work, owned_serial=None):
                             ['cmake', '--build', str(directory), '--target', 'ghosterm_core', '-j', '8']):
                 result = run(command, 'core-' + command[1].lstrip('-'), env)
                 if result.returncode: raise RuntimeError(result.stdout[-12000:])
-        def probe(test, label, red=False):
+        def probe(test, label, red=False, assertion_message=None):
             name = 'HostListTests.testReadingDoesNotMutateConfig' if test == 'control' else 'DefaultSessionTests.' + test
             result = run(['xcrun', 'swift', 'test', '--package-path', work / 'apple/GhostermApp', '--filter', name], label, env)
             text = result.stdout
@@ -241,31 +233,38 @@ def verify(parser, args, work, owned_serial=None):
             if not ok: raise RuntimeError(f'{label}:\n{text[-12000:]}')
             if red and owned_serial and '顶层发现候选未到达，普通终端标记已绘制' not in text:
                 raise RuntimeError(f'{label}: wrong discovery assertion\n{text[-12000:]}')
-    original = source.read_bytes()
-    digest = hashlib.sha256(original).hexdigest()
     def interrupted(signum, frame): raise RuntimeError(f'interrupted: {signum}')
     for sig in (signal.SIGINT, signal.SIGTERM): signal.signal(sig, interrupted)
-    try:
-        build('baseline')
-        for name, (old, new, target) in tests.items():
-            if args.case and name not in args.case: continue
-            text = original.decode()
-            if text.count(old) != 1: raise RuntimeError(f'{name}: mutation anchor count {text.count(old)}')
-            probe(target, name+'-baseline')
+    build('baseline')
+    for name, (old, new, target) in tests.items():
+        if args.case and name not in args.case:
+            continue
+        if apple_discovery:
+            filename, *_, assertion_message = cases[name]
+            relative = source_root / filename
+            source = work / relative
+        original = source.read_bytes()
+        digest = hashlib.sha256(original).hexdigest()
+        text = original.decode()
+        if text.count(old) != 1:
+            raise RuntimeError(f'{name}: mutation anchor count {text.count(old)}')
+        probe(target, name+'-baseline')
+        try:
             source.write_text(text.replace(old, new))
             build(name+'-mutant')
-            probe(target, name+'-red', True)
+            if apple_discovery:
+                probe(target, name+'-red', True, assertion_message=assertion_message)
+            else:
+                probe(target, name+'-red', True)
             probe('control', name+'-control')
+        finally:
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            if any(case in DISCOVERY_CASES for case in (args.case or ())):
-                assert (ROOT / relative).read_bytes() == original
-            build(name+'-restored')
-            probe(target, name+'-restored')
-            print(f'PASS {args.platform}/{name}: assertion red / control green / restored green / SHA256 {digest}', flush=True)
-    finally:
-        source.write_bytes(original)
-        assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
+        if apple_discovery or owned_serial:
+            assert (ROOT / relative).read_bytes() == original
+        build(name+'-restored')
+        probe(target, name+'-restored')
+        print(f'PASS {args.platform}/{name}: assertion red / control green / restored green / SHA256 {digest}', flush=True)
 
 
 if __name__ == '__main__': main()
