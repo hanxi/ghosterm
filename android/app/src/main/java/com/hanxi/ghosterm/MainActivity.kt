@@ -99,7 +99,12 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         if (result.resultCode == Activity.RESULT_OK && uri != null) extensions.reviewTree(uri)
     }
     fun pickPluginFolder() {
-        pluginTreePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        if (!extensions.runtimeAvailable || extensions.busy) return
+        try {
+            pluginTreePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        } catch (_: android.content.ActivityNotFoundException) {
+            extensions.reportError("此设备没有可用的文件夹选择器，无法审查插件包。")
+        }
     }
     val storageContext=LocalContext.current
     var storageAccessRequested by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
