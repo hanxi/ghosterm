@@ -174,9 +174,26 @@ SWIFT_TEST_ARGS=()
 if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
   SWIFT_TEST_ARGS+=(--filter "$GHOSTERM_APP_TEST_FILTER")
 fi
-# Bash 3.2 treats an empty array as unset under nounset. Expand optional argv
-# only when populated; preserve each environment assignment/filter as one word.
-( cd "$PKG" && gt_timeout 1800 ${ENVARGS[@]+"${ENVARGS[@]}"} swift test ${SWIFT_TEST_ARGS[@]+"${SWIFT_TEST_ARGS[@]}"} ) >"$TMP/apple-app-test.log" 2>&1 || {
+# Run each test class in a fresh serial xctest process. A single full-package
+# process can retain AppKit/WebKit state after all assertions pass and never
+# exit, while `--parallel` lets shared UserDefaults fixtures race each other.
+# Bash 3.2 treats an empty array as unset under nounset, so expand optional
+# argv only when populated and preserve each environment assignment as one word.
+(
+  cd "$PKG"
+  : >"$TMP/apple-app-test.log"
+  SUITES=()
+  while IFS= read -r suite; do
+    [ -n "$suite" ] && SUITES+=("$suite")
+  done < <(gt_timeout 300 swift test --list-tests 2>/dev/null |
+    sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u)
+  [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
+  for suite in "${SUITES[@]}"; do
+    echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
+    gt_timeout 1800 ${ENVARGS[@]+"${ENVARGS[@]}"} swift test --filter "$suite" \
+      >>"$TMP/apple-app-test.log" 2>&1 || exit $?
+  done
+) || {
   echo "apple-app-gate: swift test 失败" >&2
   grep -E "(^|: )error:|Test Case .* failed|Fatal error:|unexpected signal|panic" "$TMP/apple-app-test.log" >&2 | head -30
   exit 1
