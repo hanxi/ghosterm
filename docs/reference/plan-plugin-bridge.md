@@ -15116,3 +15116,8 @@ installed=true、committed=false，且未创建执行端目录登记。后台运
 签名 Table 正向会话核对描述的实例和代次，再通过 `view.table.page` 请求
 偏移 16 的最后一页，核对总数 17 与实际返回的 17、289、4913。Preview 正向、
 七包安装与分派及原有 roundtrip 在同一后台批次通过。临时构件已清理。
+
+签名 Task 走普通命令 `task primes --limit 17`，真实 C Host 附着并批准，
+读取绑定本会话实例和代次的任务描述与结果，核对 succeeded 和 7 primes
+up to 17。七包安装及分派、Preview 与 Table 正向和原有往返测试同轮后台通过。
+本轮未覆盖 Task 主动取消；临时构建与签名材料已清理。

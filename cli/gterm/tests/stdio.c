@@ -63,6 +63,8 @@ int main(int argc, char **argv) {
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
     bool table = !strcmp(mode, "table-describe");
+    bool task = !strcmp(mode, "task-read");
+    bool view = table || task;
     const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : getenv("GT_GTERM_PREVIEW_MAIN");
@@ -133,7 +135,7 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
-            } else if (table) {
+            } else if (view) {
                 execl(binary,
                       binary,
                       "relay",
@@ -142,8 +144,8 @@ int main(int argc, char **argv) {
                       "--instance",
                       instance,
                       "--",
-                      "table",
-                      "--count",
+                      table ? "table" : "task primes",
+                      table ? "--count" : "--limit",
                       "17",
                       (char *)NULL);
             } else {
@@ -460,13 +462,13 @@ int main(int argc, char **argv) {
                                        .input_shape = GT_EXT_JSON_OBJECT,
                                        .output_shape = GT_EXT_JSON_OBJECT}};
     size_t method_count = 1;
-    if (table) {
-        strcpy(methods[0].method, "view.table.describe");
+    if (view) {
+        strcpy(methods[0].method, table ? "view.table.describe" : "view.task.describe");
         methods[1] = methods[0];
-        strcpy(methods[1].method, "view.table.page");
+        strcpy(methods[1].method, table ? "view.table.page" : "view.task.read");
         method_count++;
     }
-    bool table_page = false;
+    bool view_read = false;
     if (!strcmp(mode, "host-method")) {
         methods[1] = (gt_ext_rpc_method_t){.method = "fixture.ask",
                                            .capability = "session.rpc",
@@ -591,7 +593,7 @@ int main(int argc, char **argv) {
             }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
-                const char *input = table ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
+                const char *input = view ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
                 CHECK(gt_ext_session_request(session,
                                              &lease,
                                              methods[0].method,
@@ -639,28 +641,33 @@ int main(int argc, char **argv) {
                 bool valid = strstr(result.outcome, "stdio") != NULL;
                 char page_input[160];
                 int page_size = 0;
-                if (table && !table_page) {
+                if (view && !view_read) {
                     page_size = snprintf(page_input,
                                          sizeof(page_input),
-                                         "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64
-                                         "\",\"offset\":16,\"limit\":16}",
+                                         "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64 "\"%s}",
                                          lease.instance,
-                                         lease.epoch);
+                                         lease.epoch,
+                                         table ? ",\"offset\":16,\"limit\":16" : "");
                     char view_key[64], revision_key[64];
                     snprintf(view_key, sizeof(view_key), "\"viewId\":\"%s\"", lease.instance);
                     snprintf(revision_key,
                              sizeof(revision_key),
                              "\"revision\":\"%" PRIu64 "\"",
                              lease.epoch);
-                    valid = strstr(result.outcome, "Number powers") &&
-                            strstr(result.outcome, "\"total\":17") &&
-                            strstr(result.outcome, "\"pageSize\":16") &&
-                            strstr(result.outcome, view_key) &&
-                            strstr(result.outcome, revision_key);
+                    valid =
+                        strstr(result.outcome, view_key) && strstr(result.outcome, revision_key);
+                    valid = valid && (table ? strstr(result.outcome, "Number powers") &&
+                                                  strstr(result.outcome, "\"total\":17") &&
+                                                  strstr(result.outcome, "\"pageSize\":16")
+                                            : strstr(result.outcome, "Count primes") &&
+                                                  strstr(result.outcome, "\"cancellable\":true"));
                 } else if (table) {
                     valid = strstr(result.outcome, "\"offset\":16") &&
                             strstr(result.outcome, "\"total\":17") &&
                             strstr(result.outcome, "\"cells\":[\"17\",\"289\",\"4913\"]");
+                } else if (task) {
+                    valid = strstr(result.outcome, "\"phase\":\"succeeded\"") &&
+                            strstr(result.outcome, "7 primes up to 17");
                 }
                 if (result.state != GT_EXT_RPC_SUCCEEDED || !valid) {
                     fprintf(stderr,
@@ -671,7 +678,7 @@ int main(int argc, char **argv) {
                     CHECK(false);
                 }
                 CHECK(gt_ext_session_forget_request(session, &lease, handle) == GT_EXT_RPC_OK);
-                if (table && !table_page) {
+                if (view && !view_read) {
                     CHECK(page_size > 0 && (size_t)page_size < sizeof(page_input));
                     CHECK(gt_ext_session_request(session,
                                                  &lease,
@@ -681,7 +688,7 @@ int main(int argc, char **argv) {
                                                  3000,
                                                  &handle) == GT_EXT_RPC_OK &&
                           handle);
-                    table_page = true;
+                    view_read = true;
                     continue;
                 }
                 confirmed = true;
@@ -746,7 +753,7 @@ int main(int argc, char **argv) {
     if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (table || !strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") ||
+    if (view || !strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") ||
         pipes || !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
     }
