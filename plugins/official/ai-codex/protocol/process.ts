@@ -89,11 +89,14 @@ export async function spawnCodexAppServer(
     return releasePromise;
   };
   const stop = async (): Promise<void> => {
-    if (!stopped && !releasePromise) {
-      stopped = true;
-      child.signal("terminate");
+    try {
+      if (!stopped && !releasePromise) {
+        stopped = true;
+        child.signal("terminate");
+      }
+    } finally {
+      await release();
     }
-    await release();
   };
   const ready = stdio.client.initialize(clientInfo).then(result => {
     const reportedVersion = appServerVersion((result as { userAgent?: unknown }).userAgent);

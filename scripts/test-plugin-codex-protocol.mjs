@@ -715,6 +715,36 @@ test("initialize response version mismatch stops and reaps its child", async () 
   assert.deepEqual(server.exit, { state: "exited", code: 0, signal: null });
 });
 
+test("Codex stop still releases its child when the signal request fails", async () => {
+  let releases = 0, signals = 0;
+  const signalFailure = new Error("fixture terminate failed");
+  const child = {
+    verifiedVersion: lock.codexCliVersion,
+    writeStdin(bytes) { return { state: "data", count: bytes.length }; },
+    readStdout() { return { state: "wait" }; },
+    readStderr() { return { state: "wait" }; },
+    closeStdin() {},
+    signal() { signals++; throw signalFailure; },
+    poll() { return { state: "running" }; },
+    async release() { releases++; },
+  };
+  const server = await spawnCodexAppServer({
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { return child; } },
+  }, clientInfo);
+  void server.ready.catch(() => {});
+  await assert.rejects(server.stop(), signalFailure);
+  assert.equal(releases, 1);
+  assert.equal(server.reaped, true);
+  assert.deepEqual(server.exit, { state: "exited", code: null, signal: null });
+  await server.stop();
+  assert.equal(signals, 1);
+  assert.equal(releases, 1);
+});
+
 test("naturally exited Codex child drains both pipes and is reaped without an explicit stop", async () => {
   let released = false;
   let signalled = false;
