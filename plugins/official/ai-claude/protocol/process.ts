@@ -152,7 +152,13 @@ export async function spawnClaudeNode(context: PluginContext): Promise<ClaudeNod
     envPolicy: "selected-user-environment", cancellation: context.cancellation });
   const version = /^v([0-9]+)\.([0-9]+)\.([0-9]+)$/.exec(child.verifiedVersion);
   if (!version || version.slice(1).some(value => !Number.isSafeInteger(Number(value))) || Number(version[1]) < CLAUDE_NODE_MIN_MAJOR) {
-    child.signal("terminate"); await child.release(); throw new ClaudeTransportError("NODE_VERSION");
+    try {
+      child.signal("terminate");
+    } catch {
+      // Release owns the final termination and reap even if the signal fails.
+    }
+    await child.release();
+    throw new ClaudeTransportError("NODE_VERSION");
   }
   return new ClaudeNodeProcess(child);
 }

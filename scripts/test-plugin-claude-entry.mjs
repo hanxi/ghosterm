@@ -224,3 +224,17 @@ test("Claude version and grant checks reject unsupported Node before helper acti
   const denied = fixture({ allowed: false });
   await assert.rejects(spawnClaudeNode(denied.context), /UNSUPPORTED/); assert.equal(denied.spawns, 0); denied.disposable.dispose();
 });
+
+test("Claude releases an unsupported Node child even if termination signaling fails", async () => {
+  const child = new PipeFixture();
+  child.verifiedVersion = "v18.14.0";
+  child.signal = () => { throw Error("fixture signal failure"); };
+  const value = fixture({ child });
+  try {
+    await assert.rejects(spawnClaudeNode(value.context).finally(() => {
+      assert.equal(child.released, 1, "unsupported Node child must be released");
+    }), /NODE_VERSION/);
+    assert.equal(child.writes.length, 0);
+    assert.equal(value.spawns, 1);
+  } finally { value.disposable.dispose(); }
+});
