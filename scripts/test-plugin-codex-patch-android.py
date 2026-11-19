@@ -164,6 +164,9 @@ def execute(args):
                         (workspace / "interrupt-turn").touch()
                     if args.close_executor:
                         (workspace / "hold-turn-reply").touch()
+                    edit_while_sending = not (args.lost_reply or args.interrupt_turn or args.close_executor)
+                    if edit_while_sending:
+                        (workspace / 'defer-turn-reply').touch()
                     environment = {'TMPDIR': str(ROOT / 'tmp'), 'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
                     for variable, name in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_CONFIG_HOME', 'config')):
                         directory = owned / name; directory.mkdir(); environment[variable] = str(directory)
@@ -202,9 +205,12 @@ def execute(args):
                             if action == b'fixture': value = fixture
                             elif action == b'update':
                                 (workspace / 'request-update').touch(); value = {'ok': True}
-                            elif (args.lost_reply or args.close_executor) and action == b'turn-receipt':
+                            elif (args.lost_reply or args.close_executor or edit_while_sending) and action == b'turn-receipt':
                                 receipt = workspace / 'turn-received.json'
                                 value = json.loads(receipt.read_bytes()) if receipt.exists() else {}
+                            elif edit_while_sending and action == b'release-turn-reply':
+                                (workspace / 'release-turn-reply').touch()
+                                value = {'ok': True}
                             elif args.close_executor and action == b'close-executor':
                                 if not (workspace / 'turn-received.json').is_file():
                                     value = {'ok': False}

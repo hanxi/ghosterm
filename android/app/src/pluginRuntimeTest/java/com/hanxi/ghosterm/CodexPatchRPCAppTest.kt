@@ -143,6 +143,22 @@ class CodexPatchRPCAppTest {
             ui.onNodeWithTag("plugin-codex-message").performScrollTo().performTextInput("exercise isolated protocol fixture")
             Espresso.closeSoftKeyboard()
             ui.onNodeWithTag("plugin-codex-send").performScrollTo().performClick()
+            if (!dropTurnReply && !interruptTurn && !closeExecutor) {
+                val deadline = SystemClock.elapsedRealtime() + 10_000
+                while (!fixture("turn-receipt").optBoolean("received")) {
+                    check(SystemClock.elapsedRealtime() < deadline) { "fixture did not receive the send" }
+                    SystemClock.sleep(50)
+                }
+                main {
+                    assertTrue(extensions.codex.callBusy)
+                    extensions.editCodexMessage("draft for the next turn")
+                }
+                assertTrue(fixture("release-turn-reply").getBoolean("ok"))
+                await("confirmed message did not settle") {
+                    !extensions.codex.callBusy && !extensions.codex.sendUnconfirmed
+                }
+                assertEquals("draft for the next turn", main { extensions.codex.messageDraft })
+            }
             if (closeExecutor) {
                 val deadline = SystemClock.elapsedRealtime() + 10_000
                 while (!fixture("turn-receipt").optBoolean("received")) {
