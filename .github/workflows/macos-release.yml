@@ -63,6 +63,21 @@ jobs:
       - name: 建草稿 Release
         run: |
           set -euo pipefail
+          test -f dist/BUILD-INFO.txt && test -f dist/version.json
+          grep -Fq 'GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名' dist/BUILD-INFO.txt || {
+            echo "BUILD-INFO 缺少 GitHub Release/ad-hoc 更新口径" >&2; exit 1; }
+          if grep -Fq '未公证的包不能直接分发给终端用户' dist/BUILD-INFO.txt; then
+            echo "BUILD-INFO 仍含过时的公证阻塞文案" >&2; exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path('dist/version.json').read_text())
+          if value.get('signature') != 'adhoc' or value.get('notarized') is not False:
+              raise SystemExit('version.json 的 Apple 签名状态不符合 GitHub Release ad-hoc 口径')
+          if not isinstance(value.get('update_signature'), str) or not value['update_signature']:
+              raise SystemExit('version.json 缺少 Ed25519 更新签名')
+          PY
           TAG="${GITHUB_REF_NAME}"
           case "$TAG" in
             v*) ;;
