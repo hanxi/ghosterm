@@ -15854,3 +15854,7 @@ GitHub 资产上传。工作流 YAML 解析和 diff 检查通过，未触碰远�
 `05aa4cd9` 的六个资产通过完整校验，`BUILD-INFO.txt` 已使用新的 GitHub
 Release/ad-hoc 文案，`version.json` 的 Ed25519 更新签名存在。P6 的线上
 macOS 资产与文案漂移项已复验为绿；脚本不上传或修改远端。
+
+同一脚本随后审计公开 `dev` Release 的 Android 资产，`PUBLIC RELEASE PASS`
+通过。macOS 与 Android 两个平台的线上资产摘要、文件大小和固定 URL 均已
+完成只读核对。
