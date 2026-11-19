@@ -108,24 +108,23 @@ static const char *load_echo =
 
 static const char *load_process_roundtrip =
     "export async function activate(ctx){if(!ctx.process)throw Error('process unavailable');"
+    "function readText(child,expected){let output='';"
+    "for(let i=0;i<200000&&output.length<expected.length;i++){"
+    "const read=child.readStdout(128);"
+    "if(read.state==='data')output+=String.fromCharCode(...read.bytes);"
+    "else if(read.state==='eof'||read.state==='error')break;}"
+    "if(output!==expected)throw Error('unexpected process output');}"
     "const child=await "
     "ctx.process.spawn({program:'cat',argv:['cat'],cwd:ctx.invocation.workspaceHandle,"
     "envPolicy:'selected-user-environment',cancellation:ctx.cancellation});"
     "if(child.verifiedVersion!=='fixture-1')throw Error('version');"
     "const write=child.writeStdin(new Uint8Array([65,66,67]));"
     "if(write.state!=='data'||write.count!==3)throw Error('write');child.closeStdin();"
-    "let output;for(let i=0;i<200000&&!output;i++){const read=child.readStdout(16);"
-    "if(read.state==='data')output=read.bytes;else if(read.state==='error')throw Error('read');}"
-    "if(!output||output.length!==3||output[0]!==65||output[1]!==66||output[2]!==67)"
-    "throw Error('roundtrip');await child.release();"
+    "readText(child,'ABC');await child.release();"
     "const env=await ctx.process.spawn({program:'env',argv:['env'],"
     "cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
-    "cancellation:ctx.cancellation});env.closeStdin();let envBytes;"
-    "for(let i=0;i<200000&&!envBytes;i++){const read=env.readStdout(128);"
-    "if(read.state==='data')envBytes=read.bytes;else if(read.state==='error')throw Error('env "
-    "read');}"
-    "if(!envBytes||String.fromCharCode(...envBytes)!=='GT_FIXTURE_ENV=approved\\n')"
-    "throw Error('environment');await env.release();return {dispose(){}};}";
+    "cancellation:ctx.cancellation});env.closeStdin();"
+    "readText(env,'GT_FIXTURE_ENV=approved\\n');await env.release();return {dispose(){}};}";
 static const char *load_process_kept =
     "export async function activate(ctx){await ctx.process.spawn({program:'cat',argv:['cat'],"
     "cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
@@ -915,7 +914,22 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                           !strcmp(mode, "process-identity") || !strcmp(mode, "native") ||
                           !strcmp(mode, "node") || !strcmp(mode, "network") ||
                           !strcmp(mode, "binary") || !strcmp(mode, "nul") || !strcmp(mode, "utf8");
-            CHECK(load_info(r).phase == (memory || script ? GT_RUNTIME_FAILED : GT_RUNTIME_ACTIVE));
+            const gt_runtime_phase_t expected_phase =
+                memory || script ? GT_RUNTIME_FAILED : GT_RUNTIME_ACTIVE;
+            const gt_runtime_info_t observed = load_info(r);
+            if (observed.phase != expected_phase) {
+                fprintf(stderr,
+                        "%s: expected phase %d, got %d (runtime error %d, session end %d, "
+                        "session error %d, cleanup error %d)\n",
+                        mode,
+                        expected_phase,
+                        observed.phase,
+                        observed.error,
+                        observed.session_end,
+                        observed.session_error,
+                        observed.cleanup_error);
+            }
+            CHECK(observed.phase == expected_phase);
             if (!strcmp(mode, "process-close")) {
                 CHECK(load_info(r).phase == GT_RUNTIME_ACTIVE &&
                       ext_fds() >= before_process_run + 3);
