@@ -1,6 +1,7 @@
 package com.hanxi.ghosterm
 
 import android.os.SystemClock
+import android.os.ParcelFileDescriptor
 import android.util.Base64
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -117,9 +118,29 @@ class ExtensionMixedConnectionTest {
         val extensions = main { ViewModelProvider(ui.activity)[ExtensionPackagesViewModel::class.java] }
         val sessions = main { ViewModelProvider(ui.activity)[SessionsViewModel::class.java] }
         val owner = checkNotNull(extensions.controller)
+        val revocation = payload.optJSONObject("revocation")
+        fun bytes(bundle: JSONObject, key: String): ByteArray = Base64.decode(bundle.getString(key), Base64.DEFAULT)
+        fun updatePolicy(bundle: JSONObject) = checkNotNull(PluginChannelRefresh.configured(context)).store.refresh(
+            bytes(bundle, "statement"), bytes(bundle, "signature"), bytes(bundle, "policy"),
+            (System.currentTimeMillis() / 1000).toULong())
         var group: ExtensionConnectionModel? = null
         try {
-            val review = runBlocking { owner.review(root) }
+            val review = runBlocking {
+                if (revocation == null) owner.review(root) else {
+                    check(File(context.filesDir, "plugin-channel-policy").mkdir())
+                    assertEquals(1uL, updatePolicy(revocation.getJSONObject("initial")).generation)
+                    val archive = File(root, "fixture.zip").apply { writeBytes(bytes(revocation, "artifact")) }
+                    val descriptor = bytes(revocation, "descriptor")
+                    val signature = bytes(revocation, "signature")
+                    val installed = ParcelFileDescriptor.open(archive, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                        val expected = owner.inspectConfiguredChannelArchive(fd, descriptor, signature)
+                        owner.installConfiguredChannelArchive(fd, descriptor, signature, expected)
+                    }
+                    val revision = owner.installedVersions().selection?.revision
+                    val preview = owner.previewInstalledVersion(UUID.randomUUID().toString(), installed.publication.releaseID, revision, byteArrayOf())
+                    checkNotNull(owner.confirmInstalledVersion(preview.id, true).review)
+                }
+            }
             assertEquals(payload.getString("packageDigest"), review.digest)
             assertEquals(ExtensionRegistry.Status.OK, runBlocking { owner.approve(review.id, review.digest) })
             val entry = ExtensionPackagesViewModel.Entry(review, "已批准（本进程）")
@@ -140,11 +161,12 @@ class ExtensionMixedConnectionTest {
                 main { extensions.prepareLaunch(entry, review.commands.single(), request(slot, runtime, signed, stale), null) }, payload.getString("temporary"))
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
-            val runtimes = listOf("portable", "node", "exec", "portable", "node", "exec", "portable", "node")
+            val runtimes = if (revocation == null) listOf("portable", "node", "exec", "portable", "node", "exec", "portable", "node")
+                else listOf("portable")
             main {
                 runtimes.forEachIndexed { slot, runtime -> extensions.enqueueGroup(entry, review.commands.single(), target.alias,
-                    request(slot, runtime, slot % 2 == 1), null, payload.getString("temporary")) }
-                assertNull(extensions.error); assertEquals(8, extensions.pendingGroup.size)
+                    request(slot, runtime, revocation != null || slot % 2 == 1), null, payload.getString("temporary")) }
+                assertNull(extensions.error); assertEquals(runtimes.size, extensions.pendingGroup.size)
                 extensions.launchGroup(sessions) { target }
             }
             await("group created") { main { extensions.connectionGroups.isNotEmpty() } }
@@ -163,7 +185,36 @@ class ExtensionMixedConnectionTest {
                 }
             }
             assertNull(main { current.issue }); assertFalse(main { current.busy })
-            val instances = main { current.instances.toList() }; assertEquals(8, instances.size)
+            val instances = main { current.instances.toList() }; assertEquals(runtimes.size, instances.size)
+            if (revocation != null) {
+                val instance = instances.single()
+                val model = instance.model
+                await("managed Session consent") {
+                    main { model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT && !model.launchBusy }
+                }
+                val revoked = updatePolicy(revocation.getJSONObject("revoked"))
+                assertEquals(2uL, revoked.generation)
+                assertEquals(1, runBlocking { owner.runningInstancesWithRevokedPublisher(revoked) })
+                ui.onNodeWithTag("plugin-instance-${instance.id}").performScrollTo().performClick()
+                ui.onNodeWithText("允许并启动").performClick()
+                await("revoked consent did not finish") { main { !model.launchBusy } }
+                assertEquals("revoked consent must not advance the Native Session", ExtensionSession.Phase.CONSENT,
+                    main { model.activeSession?.info?.phase })
+                assertTrue(main { model.error?.contains("撤销") == true })
+                assertNull(main { model.activeRuntime })
+                assertTrue(main { model.receivedResources.isEmpty() })
+                val stop = runBlocking { withContext(Dispatchers.Main) { extensions.requestStopInstancesWithRevokedPublisher() } }
+                assertEquals(1, stop.requested)
+                assertTrue(stop.failures.toString(), stop.failures.isEmpty())
+                await("revoked Session did not stop") {
+                    main { !model.launchBusy && model.activeSession?.info?.phase in
+                        setOf(ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED) }
+                }
+                main { model.releaseFinished() }
+                await("revoked Session did not release") { main { !model.launchBusy && model.activeSession == null } }
+                assertEquals(0, runBlocking { owner.runningInstancesWithRevokedPublisher(revoked) })
+                return
+            }
             instances.forEach(::approve)
             runBlocking { instances.mapIndexed { slot, instance -> async(Dispatchers.Default) { echo(instance.model, "slot-$slot", slot) } }.awaitAll() }
             // Exercise all scopes under the same external-executor lifetime

@@ -24,6 +24,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +62,12 @@ def main():
     parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
     parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
     parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
+    parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
     args = parser.parse_args()
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
+    if args.android_revocation and (not args.android_api or args.mutate):
+        parser.error('--android-revocation requires --android-api and runs the dedicated baseline')
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')
@@ -216,16 +220,36 @@ export function activate(ctx){
             raise RuntimeError('fixture signed version was not installed and registered')
         installed = store / sha(descriptor)
         if args.android_api:
+            revocation = None
+            if args.android_revocation:
+                authority = out / 'channel-authority'
+                authority.mkdir()
+                channel_root, channel_signer = stack.enter_context(release.agent(node, authority))
+                now = int(time.time())
+                def signed_policy(generation, data):
+                    statement = json.dumps(dict(schemaVersion=1, channel='fixture', generation=str(generation),
+                        issuedAt=str(now - 60), expiresAt=str(now + 1800), policySHA256=hashlib.sha256(data).hexdigest())).encode()
+                    proof = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', channel_signer],
+                        input=b'ghosterm.channel-policy.v1\0' + statement, capture_output=True, check=True, timeout=5).stdout
+                    return {name: base64.b64encode(value).decode() for name, value in
+                            (('statement', statement), ('signature', proof), ('policy', data))}
+                revoked = json.loads(policy.read_bytes())
+                revoked['revokedKeyIds'] = [key_id]
+                revocation = dict(root=channel_root, initial=signed_policy(1, policy.read_bytes()),
+                    revoked=signed_policy(2, json.dumps(revoked).encode()), **{
+                        name: base64.b64encode(path.read_bytes()).decode() for name, path in
+                        (('artifact', artifact), ('descriptor', descriptor), ('signature', signature))})
             backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
             report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
-                policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source)
+                policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source, revocation)
             verify_inputs(inputs)
             for path in logs.iterdir():
                 if b'PRIVATE KEY-----' in path.read_bytes(): raise RuntimeError('fixture private material leaked to a log')
             receipt = dict(accepted=True, inputs=inputs, commands=commands, **report,
                 binaries={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
                 logs={path.name: sha(path) for path in logs.iterdir()},
-                scope='owned no-window Android Native mixed direct/two-hop groups; per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse; not a physical device/full client/fault/performance matrix')
+                scope=('owned no-window Android signed pending Session revocation, refused consent, explicit stop and release'
+                    if revocation else 'owned no-window Android Native mixed groups; consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
             (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
             return
 

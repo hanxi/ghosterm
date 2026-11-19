@@ -15331,3 +15331,13 @@ macOS 授权前渠道复核加入独立源副本变异。离屏三项基线通�
 首轮的输入摘要变化未计整轮通过，固定输入后完整重跑通过。最终收据 SHA256
 `c4f6f05be2ca8bd149e7760f1b5e39fa665dde0ffe86e3b2c4872c28edf130cd`，
 本轮独立日志、构件和 SSH 夹具已清理。Android 对应设备与变异专项仍待验证。
+
+Android `test-plugin-mixed-native.py --android-api 36 --android-revocation` 在同一对
+实编 APK 上通过直连（9.539 秒）及两跳 ProxyJump（7.863 秒）。真实签名包安装、
+活动版本选择与单独来源批准后，远端 Session 到达 consent。同进程的独立缓存
+对象提交已签名撤销，点击允许显示撤销、原生 Session 仍待授权且没有 Runtime
+与资源；设置页所用停止处理方法发出一条请求，观察到原生结束，显式释放后
+受影响计数归零。首轮第二条路线因复用第一条测试缓存失败；最终每条路线开始前
+重置自有 AVD 上的应用数据。最终收据 SHA256
+`72d2a776faa046bbbac8400dd89347f4ba5318dbe384a75aeff44e34ab1992b9`。
+本轮未验证跨进程写入、停止故障或 Android 变异，临时构件、AVD 和 SSH 夹具已清理。

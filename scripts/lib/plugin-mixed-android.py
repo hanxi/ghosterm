@@ -27,7 +27,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source):
+def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source, revocation):
     helper = load('mixed_avd', 'test-plugin-codex-patch-android.py')
     keys = load('mixed_android_keys', 'test-plugin-ssh.py')
     streams = load('mixed_android_streams', 'test-plugin-ssh-stream.py')
@@ -53,6 +53,9 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
             JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(out))
         gradle = [source / 'android/gradlew', '-p', source / 'android', '--offline', '--no-daemon', '--max-workers=2',
             '-Dorg.gradle.parallel=false', '-PghostermPluginJs=true']
+        if revocation:
+            gradle += ['-PghostermPluginChannel=fixture', '-PghostermPluginChannelRoot=' + revocation['root'],
+                       '-PghostermPluginChannelUrl=https://localhost.invalid/']
         app = source / 'android/app/build/outputs/apk'
         apks = [app / 'debug/app-debug.apk', app / 'androidTest/debug/app-debug-androidTest.apk']
         adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
@@ -148,7 +151,8 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     installed=str(installed / 'payload'), release=str(installed), policy=str(policy), policySHA256=sha(policy),
                     ports=target_ports, hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name,
                     pem=private.decode(), gterm=str(launcher), node=str(node), nodeVersion=node_version,
-                    nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_digest, packageFiles=package_files,
+                    nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_digest,
+                    packageFiles={} if revocation else package_files, revocation=revocation,
                     packageDigest=sha(package / 'integrity.json'))
                 class Handler(socketserver.StreamRequestHandler):
                     def handle(self):
@@ -184,6 +188,11 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         failures = []
         for route in selected_routes or ('direct', 'jump'):
             try:
+                if revocation:
+                    cleared, _ = run('android-' + route + '-reset',
+                        [*adb, 'shell', 'pm', 'clear', 'com.hanxi.ghosterm'])
+                    if cleared.strip() != b'Success':
+                        raise RuntimeError('could not reset the owned revocation fixture')
                 actual(route, 'android-' + route)
             except RuntimeError as failure:
                 failures.append(f'{route}: {failure}')
