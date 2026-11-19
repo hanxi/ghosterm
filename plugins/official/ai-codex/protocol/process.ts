@@ -74,14 +74,18 @@ export async function spawnCodexAppServer(
   let releasePromise: Promise<void> | undefined;
   const release = (): Promise<void> => {
     if (!releasePromise) {
-      stdio.close();
-      const observed = child.poll();
-      releasePromise = child.release().then(() => {
-        reaped = true;
-        // release invalidates the Native child handle. Its contract proves exit
-        // and reap, but supplies no final exit code when the last poll was live.
-        exit = observed.state === "exited" ? observed : { state: "exited", code: null, signal: null };
-      });
+      releasePromise = (async () => {
+        let observed: ReturnType<typeof child.poll> | undefined;
+        try {
+          stdio.close();
+          observed = child.poll();
+        } finally {
+          await child.release();
+          reaped = true;
+          // Release confirms exit and reap. Only a successful exit poll supplies details.
+          exit = observed?.state === "exited" ? observed : { state: "exited", code: null, signal: null };
+        }
+      })();
       // step() may observe natural exit without a caller awaiting stop(). Keep
       // the rejection observed here; stop() returns the same rejecting promise.
       void releasePromise.catch(() => {});

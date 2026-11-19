@@ -745,6 +745,35 @@ test("Codex stop still releases its child when the signal request fails", async 
   assert.equal(releases, 1);
 });
 
+test("Codex stop still releases its child when exit status cannot be read", async () => {
+  let releases = 0, polls = 0;
+  const pollFailure = new Error("fixture exit poll failed");
+  const child = {
+    verifiedVersion: lock.codexCliVersion,
+    writeStdin(bytes) { return { state: "data", count: bytes.length }; },
+    readStdout() { return { state: "wait" }; },
+    readStderr() { return { state: "wait" }; },
+    closeStdin() {},
+    signal() {},
+    poll() { polls++; throw pollFailure; },
+    async release() { releases++; },
+  };
+  const server = await spawnCodexAppServer({
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { return child; } },
+  }, clientInfo);
+  void server.ready.catch(() => {});
+  await assert.rejects(server.stop(), pollFailure);
+  await assert.rejects(server.stop(), pollFailure);
+  assert.equal(polls, 1);
+  assert.equal(releases, 1);
+  assert.equal(server.reaped, true);
+  assert.deepEqual(server.exit, { state: "exited", code: null, signal: null });
+});
+
 test("naturally exited Codex child drains both pipes and is reaped without an explicit stop", async () => {
   let released = false;
   let signalled = false;
