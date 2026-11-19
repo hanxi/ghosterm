@@ -5,12 +5,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +151,26 @@ def run_case(name, work, tools, core, execution=None):
         assert cli('pack', *common, '--out', file, status=2)['code'] == 'OUTPUT_EXISTS' and file.read_text() == 'retain'
         assert cli('build', *common, '--out', project / 'out', status=2)['code'] == 'OUTPUT_SOURCE_OVERLAP'
         assert cli('init', project, '--id', 'org.example.test', '--command', 'echo', '--publisher', 'Example', status=2)['code'] == 'OUTPUT_EXISTS'
+        module = runpy.run_path(str(ROOT / 'scripts/gterm-plugin'))
+        publish, failure = module['publish'], module['Failure']
+        exists = Path.exists
+        for directory in (False, True):
+            source = work / ('directory-stage' if directory else 'zip-stage')
+            destination = empty if directory else file
+            if directory:
+                source.mkdir()
+            else:
+                source.write_text('replacement')
+            # Let the real exclusive syscall see the conflict after the preflight misses it.
+            with patch.object(Path, 'exists', lambda path: path != destination and exists(path)):
+                try:
+                    publish(source, destination)
+                except failure as error:
+                    assert str(error) == 'OUTPUT_EXISTS' and error.status == 2
+                else:
+                    raise AssertionError('exclusive publication replaced the destination')
+            assert source.exists()
+            assert not list(empty.iterdir()) and file.read_text() == 'retain'
     elif name == 'rpc':
         report = native()
         assert report['kind'] == 'tested' and report['observations'][2]['outcome']['kind'] == 'unknown'
