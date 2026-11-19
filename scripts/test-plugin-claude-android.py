@@ -38,6 +38,8 @@ CASES = [
 
 
 CONVERSATION_CASES = [
+    ('chat-confirmed-send-draft', 'ClaudeConversation.kt', 'draft = if (current.draft == text) "" else current.draft',
+     'draft = ""', 'ClaudeConversationTest#confirmedSendKeepsTheDraftEditedWhileWaiting'),
     ('chat-question-not-allow', 'ClaudeConversation.kt', 'allow && prompt.isQuestion', 'false', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
     ('chat-all-answers', 'ClaudeConversation.kt', 'answers.any { it.isEmpty() || ClaudeJson.utf8(it).size > 2048 }', 'false', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
     ('chat-queued-reference', 'ClaudeConversation.kt', 'checkPrompt(reference)\n            val reply = call("approve"', 'val reply = call("approve"', 'ClaudeConversationTest#queuedDecisionRechecksExpiryAfterAnInFlightPoll'),
@@ -106,12 +108,12 @@ def main():
 def execute(args, serial):
     jdk = ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'
     sdk = ROOT / 'build/android-toolchain/sdk'
-    env = dict(os.environ, JAVA_HOME=str(jdk), ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk),
-        TMPDIR=str(ROOT / 'tmp'), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp'))
+    env = dict(os.environ, JAVA_HOME=str(jdk), ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
     adb = [str(sdk / 'platform-tools/adb'), '-s', serial]
     before = {path: path.read_bytes() for path in (ROOT / SOURCE).glob('*.kt')}
     with tempfile.TemporaryDirectory(prefix='claude-android-check-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
+        env.update(TMPDIR=str(work), JAVA_TOOL_OPTIONS=f'-Djava.io.tmpdir={work} -Djava.awt.headless=true')
         def run(command, seconds=180):
             shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require claude-android; shift; gt_timeout "$@"'
             result = subprocess.run(['bash', '-c', shell, 'claude-android', str(ROOT), str(seconds), *map(str, command)],

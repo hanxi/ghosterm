@@ -15713,3 +15713,10 @@ P4 Claude 两端确认发送草稿专项。用明确挂起的协议夹具接收�
 保留。macOS 离屏与 Android API 36 无窗口各 15 项会话模型测试通过；保留既有
 未确认发送和旧 owner 测试。此轮未改产品逻辑，未执行真实 SDK／模型或 SSH，
 临时构件和 AVD 已清理。
+
+P4 Claude 草稿确认新增两端常驻变异。macOS `--case confirmed-send-draft` 使用
+独立 JS-off Core，25 项基线及恢复组合通过。Android `--headless-api 36
+--conversation --plugin-js --mutate --case chat-confirmed-send-draft` 的 33 项
+组合基线及恢复通过。两端移除草稿相等检查后均实际重编，只触发目标断言，
+独立对照、恢复和源码摘要通过。此次为本地模型夹具，未调用 SDK、CLI、
+模型或 SSH，临时构件和 AVD 已清理。

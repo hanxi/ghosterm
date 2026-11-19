@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Isolated Claude Native conversation and shared-control protection mutations."""
+import argparse
 import hashlib
 import os
 from pathlib import Path
@@ -17,6 +18,8 @@ CONTROLS = '../GhostermApp/ConversationControls.swift'
 MARK = 'GT_CLAUDE_CONVERSATION_MUTATION'
 CONTROL = 'ClaudeRPCClientTests.testRelayRejectsInvalidPrefixAndEnvironmentBeforeLaunch'
 CASES = [
+    ('confirmed-send-draft', CHAT, 'if self.draft.utf8.elementsEqual(text.utf8) { self.draft = "" }',
+     'self.draft = ""', 'ClaudeConversationTests.testConfirmedSendKeepsTheDraftEditedWhileWaiting'),
     ('reference-bytes', CHAT, 'a.requestID.utf8.elementsEqual(b.requestID.utf8)', 'a.requestID == b.requestID',
      'ClaudeConversationTests.testReferencesUseExactBytesAndQuestionsNeverAcceptGenericAllow'),
     ('question-not-allow', CHAT, '!allow || !prompt.isQuestion', 'true',
@@ -58,11 +61,17 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main():
-    cache = (ROOT / 'core/build/CMakeCache.txt').read_text()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES])
+    parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build')
+    args = parser.parse_args()
+    core_build = args.core_build.resolve()
+    cases = [case for case in CASES if not args.case or case[0] in args.case]
+    cache = (core_build / 'CMakeCache.txt').read_text()
     if 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' not in cache:
         raise SystemExit('Restore the default JS=OFF Core before these Native fixture mutations; real JS-enabled SSH cases run separately')
-    originals = {file: (ROOT / MODEL / file).read_bytes() for file in sorted(set(case[1] for case in CASES))}
-    for name, file, old, _, _ in CASES:
+    originals = {file: (ROOT / MODEL / file).read_bytes() for file in sorted(set(case[1] for case in cases))}
+    for name, file, old, _, _ in cases:
         if originals[file].count(old.encode()) != 1 or MARK.encode() in originals[file]:
             raise RuntimeError(name + ': mutation preflight mismatch')
     with tempfile.TemporaryDirectory(prefix='claude-conversation-mutations-', dir=ROOT / 'tmp') as temporary:
@@ -77,9 +86,10 @@ def main():
                 if entry.is_dir(): shutil.rmtree(entry)
                 else: entry.unlink()
         (source / 'build').symlink_to(ROOT / 'build', target_is_directory=True)
-        (source / 'core').mkdir(); (source / 'core/build').symlink_to(ROOT / 'core/build', target_is_directory=True)
+        (source / 'core').mkdir(); (source / 'core/build').symlink_to(core_build, target_is_directory=True)
         shutil.copytree(ROOT / 'core/include', source / 'core/include')
-        env = dict(os.environ, TMPDIR=str(work), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer')
+        env = dict(os.environ, TMPDIR=str(work), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
+                   GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='0')
         def test(target=None, red=False):
             shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require claude-swift; shift; gt_timeout 240 "$@"'
             command = ['swift', 'test', '--verbose', '--package-path', source / 'apple/GhostermApp', '--scratch-path', scratch,
@@ -92,11 +102,11 @@ def main():
                 accepted = accepted and ('XCTAssert' in output or 'failed - Claude' in output)
                 accepted = accepted and not any(token in output for token in ['emit-module command failed', 'Fatal error:', 'unexpected signal'])
             else:
-                accepted = result.returncode == 0 and f'Executed {1 if target else 24} test' in output and 'skipped' not in output.lower()
+                accepted = result.returncode == 0 and f'Executed {1 if target else 25} test' in output and 'skipped' not in output.lower()
             if not accepted: raise RuntimeError(('Expected compiled XCTest assertion red' if red else 'Expected green suite') + '\n' + output)
             return output
-        test(); print('BASELINE PASS: 24 Native conversation/view/document tests', flush=True)
-        for name, file, old, new, target in CASES:
+        test(); print('BASELINE PASS: 25 Native conversation/view/document tests', flush=True)
+        for name, file, old, new, target in cases:
             path = source / MODEL / file
             try:
                 path.write_bytes(originals[file].replace(old.encode(), new.encode(), 1) + ('\n// ' + MARK + '\n').encode())
@@ -113,7 +123,7 @@ def main():
         test()
     if any((ROOT / MODEL / file).read_bytes() != original for file, original in originals.items()):
         raise RuntimeError('working production source changed')
-    print(f'CLAUDE CONVERSATION PASS: {len(CASES)} isolated mutation groups; working sources unchanged')
+    print(f'CLAUDE CONVERSATION PASS: {len(cases)} isolated mutation groups; working sources unchanged')
 
 
 def stop(number, frame): raise KeyboardInterrupt(str(number))
