@@ -26,6 +26,7 @@ VIEW = 'apple/GhostermApp/Sources/GhostermApp/PluginSignatureReviewView.swift'
 CONTROLLER = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
 TEST = 'PluginDirectorySignatureTests.'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
+CONSENT_MUTATION = 'channel-consent-recheck'
 sys.dont_write_bytecode = True
 
 
@@ -138,8 +139,11 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
     if args.diagnose_live_version or args.diagnose_live_channel_revocation:
-        if args.mutate or args.case or args.install or args.versions or args.remove or args.policy_review or args.selection_review:
+        if args.install or args.versions or args.remove or args.policy_review or args.selection_review:
             parser.error('live diagnostics must run standalone')
+        if args.mutate or args.case:
+            if args.diagnose_live_version or not args.mutate or args.case != [CONSENT_MUTATION]:
+                parser.error('live channel diagnostics support only --mutate --case ' + CONSENT_MUTATION)
         args.versions = True
     if args.selection_review: args.policy_review = True
     if args.policy_review: args.remove = True
@@ -165,6 +169,14 @@ def main():
         inputs['core/CMakeLists.txt'] = sha(ROOT / 'core/CMakeLists.txt')
         inputs.update({str(p.relative_to(ROOT)): sha(p) for p in (ROOT / 'cli/gterm').rglob('*') if p.is_file() and 'build' not in p.parts})
     recipes = [
+        *([(CONSENT_MUTATION, CONTROLLER,
+         '                    let channelPolicyLease = try self.authorizeChannelStart(record, access: access)\n'
+         '                    defer { withExtendedLifetime(channelPolicyLease?.1) {} }\n'
+         '                    if self.run.channelAdmission != nil, channelPolicyLease == nil {\n'
+         '                        throw PluginDirectorySignatureVerifier.Failure.channelHistory\n'
+         '                    }\n',
+         '', 'PluginPaneFlowTests.testManagedPreviewRejectsChannelRevocationBeforeConsent')]
+          if args.policy_review or args.diagnose_live_channel_revocation else []),
         ('signature', VERIFIER, 'guard publicKey.isValidSignature(signatureBytes, for: message)',
          'guard publicKey.rawRepresentation.count == 32', TEST + 'testRealSignatureBindsRawDescriptorAndDomain'),
         ('revoked', VERIFIER, 'guard !revokedIDs.contains(keyID)', 'guard keyID.count == 64', TEST + 'testPolicyRevocationAndScope'),
@@ -341,8 +353,11 @@ def main():
         def run(label, selected, count=1, red=False, jump=False):
             lifetime = selected.startswith('PluginPaneFlowTests.')
             child_env = dict(env)
+            gate_log = work / 'gate/apple-app-test.log'
             if lifetime:
-                child_env.update(GHOSTERM_TEST_GTERM=str(args.gterm), GHOSTERM_APP_TEST_PACKAGE=str(package), GHOSTERM_APP_TEST_FILTER=selected)
+                gate_log.unlink(missing_ok=True)
+                child_env.update(GHOSTERM_TEST_GTERM=str(args.gterm), GHOSTERM_APP_TEST_PACKAGE=str(package),
+                                 GHOSTERM_APP_TEST_FILTER=selected, GHOSTERM_APP_TEST_TMP=str(gate_log.parent))
                 for key in list(child_env):
                     if key.startswith('GHOSTERM_SSH_'): del child_env[key]
                 if jump:
@@ -363,7 +378,8 @@ def main():
                     try: child.communicate(timeout=8)
                     except subprocess.TimeoutExpired: os.killpg(child.pid, signal.SIGKILL); child.communicate()
             log = output.decode(errors='replace')
-            if lifetime: log += (ROOT / 'tmp/apple-app-test.log').read_text()
+            if lifetime and gate_log.is_file():
+                log += gate_log.read_text()
             full_output = log.encode()
             (work / (label + '.log')).write_bytes(full_output)
             if child.returncode != 0 and not red:
@@ -379,6 +395,8 @@ def main():
                 assert child.returncode == 1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)', log), (label, log[-9000:])
                 assert re.search(r': error: .* : (?:XCTAssert\w+ failed|failed -)', log), (label, log[-9000:])
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError', 'Build failed']), label
+                if label == CONSENT_MUTATION + '-assertion':
+                    assert 'revoked consent must not advance the Native Session' in log, (label, log[-9000:])
             else:
                 assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, log[-9000:])
                 assert 'skipped' not in log.lower(), label
@@ -402,16 +420,17 @@ def main():
         revocation = 'PluginPaneFlowTests.testManagedPreview(ReportsChannelRevocationUntilStopped(ThroughProxyJump)?|RejectsChannelRevocationBeforeConsent)$'
         if args.diagnose_live_channel_revocation:
             run('live-channel-revocation', revocation, count=3, jump=True)
-            print('LIVE CHANNEL REVOCATION PASS', flush=True)
-            return
         if args.diagnose_live_version:
             run('live-version-diagnostic', live)
             print('LIVE VERSION DIAGNOSTIC PASS (no acceptance receipt)', flush=True)
             return
-        run('baseline', baseline, count=baseline_count)
+        if args.diagnose_live_channel_revocation:
+            baseline_count = 3
+        else:
+            run('baseline', baseline, count=baseline_count)
         if args.official_packages:
             run('official-install', 'PluginOfficialReleaseInstallTests')
-        if args.versions: run('live-version-baseline', live)
+        if args.versions and not args.diagnose_live_channel_revocation: run('live-version-baseline', live)
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
         if args.policy_review:
             run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
@@ -434,7 +453,8 @@ def main():
             groups.append(label)
         binary = next((package / '.build').rglob('GhostermAppTests.xctest/Contents/MacOS/GhostermAppTests'))
         binary_sha = sha(binary)
-    assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed'
+    changed = [name for name, digest in inputs.items() if not (ROOT / name).is_file() or sha(ROOT / name) != digest]
+    assert not changed, 'source changed: ' + ', '.join(changed)
     assert all(sha(Path(name)) == digest for name, digest in binaries.items()), 'tool/archive changed'
     out.parent.mkdir(parents=True, exist_ok=True)
     scope = ('macOS explicit native removal preview/confirmation, bounded intent and explicit recovery; actual managed SSH Runtime lease, no automatic replay or remote cleanup' if args.remove else
@@ -443,6 +463,8 @@ def main():
              'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
     if args.policy_review:
         scope += '; live channel cache delivery, explicit stop and version lease release'
+    if args.diagnose_live_channel_revocation:
+        scope = 'macOS live channel revocation before consent and during direct/two-hop SSH Runtime'
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
         baselineTests=baseline_count, lifetimeTests=sum(test['label'].startswith('live-') for test in commands), installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review, selectionReview=args.selection_review,
         inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')

@@ -429,7 +429,8 @@ final class PluginPaneFlowTests: XCTestCase {
             guard try await until({ !model.extensionRunBusy && model.extensionRunIssue != nil }) else {
                 XCTFail("allow did not surface the revoked publisher"); return
             }
-            XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
+            XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue,
+                           "revoked consent must not advance the Native Session")
             XCTAssertNil(model.extensionRun?.runtime)
             XCTAssertTrue(model.extensionRun?.receivedResources.isEmpty == true)
             await model.stopExtensionRun()
