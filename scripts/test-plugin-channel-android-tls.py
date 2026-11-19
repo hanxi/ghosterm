@@ -128,6 +128,8 @@ def main():
     parser.add_argument('--apks', nargs=2, type=Path, metavar=('APP_APK', 'TEST_APK'),
                         help='reuse APKs built with -PghostermPluginJs=true for the HTTPS client test')
     parser.add_argument('--serial', help='use an explicitly authorized test device without Ghosterm installed')
+    parser.add_argument('--api', type=int, choices=(29, 36), default=36,
+                        help='headless AVD API level (default: 36)')
     args = parser.parse_args()
     if args.apks:
         if args.settings_cache:
@@ -176,7 +178,7 @@ def main():
             else:
                 device = work / 'device'
                 device.mkdir()
-                target = runner.headless(36, device, env)
+                target = runner.headless(args.api, device, env)
             with target as (adb, device_env), ExitStack() as cleanup:
                 packages = ('com.hanxi.ghosterm', 'com.hanxi.ghosterm.test')
                 if args.serial:

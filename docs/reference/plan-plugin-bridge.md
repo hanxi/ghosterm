@@ -15867,3 +15867,8 @@ Android 端随后使用 `scripts/test-plugin-channel-android-tls.py` 启动项�
 API 36 无窗口 AVD，真实安装测试 APK 并运行同一 TLS 夹具，1 项
 `PluginChannelRefreshTlsTest` 通过，进程以 0 退出。Android / macOS 两端的
 轮换、撤销和失败缓存保留证据已齐。
+
+此前没有 API29 工具链，现已用工程内 SDK 下载固定的
+`system-images;android-29;google_apis;arm64-v8a`，并扩展脚本 `--api 29`。
+API29 无窗口 AVD 的 `PluginChannelRefreshTlsTest` 真实安装运行通过，进程
+退出码 0。API29 / API36 / macOS 三档更新信任链证据已齐。
