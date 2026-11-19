@@ -13661,6 +13661,13 @@ SSH shell 二进制输出对拍。收据 SHA256
 临时夹具已清理。本轮验证 Core Transport 透传，Kitty 渲染与 OSC 平台行为
 仍按各端专项验收。
 
+另用 `b82646b5` 的生产被动发现实现做两组隔离编译变异。分别撤去 APC 内容屏蔽，
+以及把分片 UTF-8 的 `0x9c` 续字节误作字符串结束。两组均在
+`ext_discovery_strings` 触发同一条「普通控制串内部不得产生候选」断言，
+同构件合法候选分片及独立 SSH 配置对照通过，复原后目标绿。源码 SHA256
+`89b5d6e571aaf6c77b63f8776a24793fc84853b4790fddc841c7e574747fe2a3`，
+临时副本已清理。此轮直编观察器及现有 Core archive，平台终端接线另计。
+
 ### P1 终端 Kitty 与 OSC 专项复验（2026-11-19）
 
 固定 `6fa5cd19`。macOS 完整 Xcode 离屏执行 TerminalSurface 的语义提示、
