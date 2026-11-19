@@ -743,7 +743,7 @@ def clean_error(function, path, info):
     function(path)
 
 
-def exercise_official_sessions(build, cases, denied):
+def exercise_official_sessions(build, cases, denied_names):
     with ExitStack() as owners:
         ready = []
         for name, invocation, launch_env, endpoint, host_args, host_env, resource_store in cases:
@@ -757,7 +757,7 @@ def exercise_official_sessions(build, cases, denied):
                      f'{name}: ready for signed Host')
             require(frontend.poll() is None, f'{name}: signed command must await Host')
             attached_env = dict(host_env, GT_GTERM_FIXTURE_ATTACH_INSTANCE=permit.read_bytes()[8:24].hex())
-            if denied:
+            if name in denied_names:
                 attached_env['GT_GTERM_FIXTURE_DENY'] = '1'
             ready.append((name, endpoint, host_args, attached_env, frontend))
         require(len({env['GT_GTERM_FIXTURE_ATTACH_INSTANCE'] for _, _, _, env, _ in ready}) == len(cases),
@@ -771,7 +771,7 @@ def exercise_official_sessions(build, cases, denied):
             require(result.returncode == 0 and f'PASS stdio {host_mode}'.encode() in result.stdout,
                     f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
             output, diagnostics = frontend.communicate(timeout=6)
-            require(frontend.returncode == (6 if denied else 0),
+            require(frontend.returncode == (6 if name in denied_names else 0),
                     f'{name}: ordinary command must preserve Host decision: '
                     f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
             require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
@@ -939,9 +939,10 @@ def install_official_candidates(build, fixtures, work):
                          [build / 'gterm', payload, digest, *mode_arguments], host_env, resource_store))
         print('PASS official gterm install, register and dispatch', name, flush=True)
 
-    for denied in (True, False):
-        exercise_official_sessions(build, sessions, denied)
-        print('PASS concurrent signed Hosts', 'denied' if denied else 'allowed', len(sessions), flush=True)
+    for label, denied_names in [('denied', set(names)), ('allowed', set()),
+                                ('mixed', {'preview', 'task', 'ai-claude'})]:
+        exercise_official_sessions(build, sessions, denied_names)
+        print('PASS concurrent signed Hosts', label, len(sessions), flush=True)
 
 
 def main():
