@@ -50,6 +50,7 @@ class PluginTaskUiTest {
         ui.onNodeWithTag("plugin-task-cancel").assertIsNotEnabled()
         ui.onNodeWithTag("plugin-task-phase").assertTextEquals("正在运行")
         ui.onNodeWithTag("plugin-task-cancel-status")
+            .assertContentDescriptionEquals("${checkNotNull(model.state.value.descriptor).title}，取消请求已受理，仍需任务确认停止")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertEquals(1, f.calls.count { it.first == "view.task.cancel" })
     }
@@ -62,6 +63,7 @@ class PluginTaskUiTest {
         ui.onNodeWithTag("plugin-task-read").performScrollTo().performClick()
         awaitState { model.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.CANCELLED }
         ui.onNodeWithTag("plugin-task-phase").assertTextEquals("已确认取消")
+            .assertContentDescriptionEquals("${checkNotNull(model.state.value.descriptor).title}，已确认取消")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
         assertTrue(model.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED && f.calls.count { it.first == "view.task.cancel" } == 1)
     }

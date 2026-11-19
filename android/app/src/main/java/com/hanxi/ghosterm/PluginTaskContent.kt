@@ -14,6 +14,11 @@ import kotlinx.coroutines.isActive
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun PluginTaskContent(model: PluginTaskModel) {
     val state by model.state.collectAsState()
+    val title = state.descriptor?.title ?: "任务"
+    fun statusSemantics(tag: String, message: String) = Modifier.testTag(tag).semantics {
+        contentDescription = "$title，$message"
+        liveRegion = LiveRegionMode.Polite
+    }
     LaunchedEffect(model, model.available) {
         if (model.state.value.descriptor == null && model.state.value.issue == null) model.load()?.join()
         while (isActive && model.available) {
@@ -22,12 +27,11 @@ import kotlinx.coroutines.isActive
         }
     }
     Column(Modifier.fillMaxWidth().testTag("plugin-task"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(state.descriptor?.title ?: "任务", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-        state.issue?.let { Text(it, Modifier.testTag("plugin-task-issue")
-            .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
+        Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+        state.issue?.let { Text(it, statusSemantics("plugin-task-issue", it), color = MaterialTheme.colorScheme.error) }
         state.snapshot?.let { snapshot ->
             if (state.issue != null) Text("以下为上次读取的任务状态", style = MaterialTheme.typography.bodySmall)
-            Text(snapshot.phase.label, Modifier.testTag("plugin-task-phase").semantics { liveRegion = LiveRegionMode.Polite })
+            Text(snapshot.phase.label, statusSemantics("plugin-task-phase", snapshot.phase.label))
             SelectionContainer { Text(snapshot.message, Modifier.testTag("plugin-task-message")) }
             val total = snapshot.total
             val count = if (total == null) "${snapshot.completed} · 总量未知 · ${state.descriptor?.unit.orEmpty()}"
@@ -47,7 +51,7 @@ import kotlinx.coroutines.isActive
             else -> null
         }
         cancellationMessage?.let {
-            Text(it, Modifier.testTag("plugin-task-cancel-status").semantics { liveRegion = LiveRegionMode.Polite })
+            Text(it, statusSemantics("plugin-task-cancel-status", it))
         }
         if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
