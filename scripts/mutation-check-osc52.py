@@ -22,10 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed', 'discovery-expiry', 'discovery-failure', 'discovery-reattach'])
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed', 'discovery-expiry', 'discovery-failure', 'discovery-reattach', 'discovery-late-exit'])
     parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
-    apple_lifecycle_cases = ('discovery-expiry', 'discovery-failure', 'discovery-reattach')
+    apple_lifecycle_cases = ('discovery-expiry', 'discovery-failure', 'discovery-reattach', 'discovery-late-exit')
     if any(case in apple_lifecycle_cases for case in (args.case or ())):
         if args.platform != 'apple' or len(args.case) != 1:
             parser.error('discovery lifecycle cases run alone on Apple')
@@ -54,7 +54,7 @@ def verify(parser, args, work, owned_serial=None):
         (work / f'{label}.log').write_text(result.stdout)
         return result
 
-    if args.platform == 'apple' and args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure'], ['discovery-reattach']):
+    if args.platform == 'apple' and args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure'], ['discovery-reattach'], ['discovery-late-exit']):
         for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
             shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -91,6 +91,13 @@ def verify(parser, args, work, owned_serial=None):
                 'self.session = session\n        invalidateDiscovery()\n        let generation',
                 'self.session = session\n        let generation', 'testPassiveDiscoveryChangesOwnerWhenPaneReattaches')}
             assertion_message = 'reattaching a pane must immediately remove its old candidates'
+        if args.case == ['discovery-late-exit']:
+            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
+            source = work / relative
+            tests = {'discovery-late-exit': (
+                'guard let self, let session, self.session === session else { return }',
+                'guard let self, session != nil else { return }', 'testLateTerminalExitDoesNotInvalidateReplacementCandidates')}
+            assertion_message = 'late exit from the old terminal must leave the replacement and its candidate intact'
         def build(label):
             if label != 'baseline': return
             directory = work / 'core/build'
@@ -240,7 +247,7 @@ def verify(parser, args, work, owned_serial=None):
             probe('control', name+'-control')
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            if args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure'], ['discovery-reattach']):
+            if args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure'], ['discovery-reattach'], ['discovery-late-exit']):
                 assert (ROOT / relative).read_bytes() == original
             build(name+'-restored')
             probe(target, name+'-restored')

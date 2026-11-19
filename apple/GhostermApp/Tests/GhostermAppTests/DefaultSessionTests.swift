@@ -53,6 +53,41 @@ import XCTest
         try await verifyPassiveDiscovery(ending: .reattach)
     }
 
+    func testLateTerminalExitDoesNotInvalidateReplacementCandidates() async throws {
+        try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
+        _ = NSApplication.shared
+        let model = isolatedAppModel()
+        defer { model.disconnectForTesting() }
+        model.preferences.defaultShell = "/bin/sh"
+        model.connect(to: .localShell)
+        let pane = try XCTUnwrap(model.activePane)
+        let app = try XCTUnwrap(model.terminalApp)
+
+        let oldSurface = try TerminalSurface(app: app)
+        let oldSession = try SessionController.localShell(surface: oldSurface, executable: "/bin/sh", kind: .shell)
+        defer { oldSession.stop() }
+        pane.attach(surface: oldSurface, session: oldSession)
+        pane.start()
+        let deliverOldState = try XCTUnwrap(oldSession.onStateChange)
+
+        let newSurface = try TerminalSurface(app: app)
+        let newSession = try SessionController.localShell(surface: newSurface, executable: "/bin/sh", kind: .shell)
+        pane.attach(surface: newSurface, session: newSession)
+        pane.start()
+        try await sendDiscoveryOffer(to: newSurface)
+        try await until { !model.frontendCandidates.isEmpty }
+        let candidate = try XCTUnwrap(model.frontendCandidates.first)
+
+        withExtendedLifetime(oldSession) {
+            deliverOldState(.exited(code: 0))
+        }
+        guard case .ready = pane.status,
+              pane.isRunning, model.activePane === pane,
+              model.frontendCandidates.map(\.id) == [candidate.id] else {
+            return XCTFail("late exit from the old terminal must leave the replacement and its candidate intact")
+        }
+    }
+
     private enum DiscoveryEnding { case exit, idle, failure, reattach }
 
     private func sendDiscoveryOffer(to surface: TerminalSurface) async throws {
