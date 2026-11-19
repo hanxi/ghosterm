@@ -692,18 +692,16 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     private suspend fun requestStopIfPublisherRevoked(): Boolean {
         val owner = controller ?: return false
-        if (launchBusy || (activeSession == null && activeRuntime == null)) return false
+        if (activeSession == null && activeRuntime == null) return false
         val generation = sessionGeneration
-        if (!owner.currentInstanceHasRevokedPublisher() || generation !== sessionGeneration || launchBusy) return false
+        if (!owner.currentInstanceHasRevokedPublisher() || generation !== sessionGeneration) return false
+        check(!launchBusy) { "受撤销影响的插件仍在处理其它操作，暂未发出停止请求。" }
         return when {
             activeRuntime?.info?.phase in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.ACTIVE) -> {
                 stopRuntime()
                 true
             }
-            activeRuntime == null && activeSession?.info?.phase == ExtensionSession.Phase.ACTIVE -> {
-                stopSession()
-                true
-            }
+            activeRuntime == null -> requestSessionStop(owner, includePendingConsent = true)
             else -> false
         }
     }
@@ -722,8 +720,16 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     fun stopSession() {
         val owner = controller ?: return
-        val current = activeSession ?: return
-        if (launchBusy || current.info.phase != ExtensionSession.Phase.ACTIVE || activeRuntime != null) return
+        requestSessionStop(owner, includePendingConsent = false)
+    }
+
+    private fun requestSessionStop(owner: ExtensionController, includePendingConsent: Boolean): Boolean {
+        val phase = activeSession?.info?.phase ?: return false
+        if (launchBusy || activeRuntime != null) return false
+        val pendingConsent = phase == ExtensionSession.Phase.CONSENT || phase == ExtensionSession.Phase.WAIT_DECISION
+        if (phase != ExtensionSession.Phase.ACTIVE && !(includePendingConsent && pendingConsent)) return false
+        handshakeJob?.cancel()
+        handshakeJob = null
         invalidateExtensionCalls()
         launchBusy = true
         owner.requestStopSession()
@@ -739,6 +745,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             catch (failure: Throwable) { error = "停止插件 Session 失败：${failure.message ?: failure.javaClass.simpleName}" }
             finally { launchBusy = false }
         }
+        return true
     }
 
     fun releaseFinished() {
