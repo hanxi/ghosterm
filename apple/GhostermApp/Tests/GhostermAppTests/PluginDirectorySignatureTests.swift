@@ -224,6 +224,15 @@ final class PluginDirectorySignatureTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel(); ChannelRefreshProtocol.set([:]) }
         ChannelRefreshProtocol.set(try responses("1", body: policy))
+        for port in [0, 65536] {
+            let invalidDirectory = try XCTUnwrap(URL(string: "https://channel.invalid:\(port)/test/"))
+            let invalidTrust = ExtensionController.ChannelTrust(channel: trust.channel, root: trust.root,
+                stateDirectory: state, refreshDirectory: invalidDirectory)
+            do {
+                _ = try await PluginChannelRefresh.refresh(invalidTrust, session: session)
+                XCTFail("out-of-range port must prevent channel refresh: \(port)")
+            } catch PluginChannelRefresh.Failure.endpoint {}
+        }
         let first = try await PluginChannelRefresh.refresh(trust, session: session)
         XCTAssertEqual(first.generation, 1)
         let cachedByOwner = try await configured.cachedChannelPolicy()
