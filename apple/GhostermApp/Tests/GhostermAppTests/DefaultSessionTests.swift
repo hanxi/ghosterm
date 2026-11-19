@@ -48,15 +48,14 @@ import XCTest
         try await verifyPassiveDiscovery(ending: .failure)
     }
 
-    private enum DiscoveryEnding { case exit, idle, failure }
+    func testPassiveDiscoveryChangesOwnerWhenPaneReattaches() async throws {
+        try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
+        try await verifyPassiveDiscovery(ending: .reattach)
+    }
 
-    private func verifyPassiveDiscovery(ending: DiscoveryEnding) async throws {
-        _ = NSApplication.shared
-        let model = isolatedAppModel(); defer { model.disconnectForTesting() }
-        model.preferences.defaultShell = "/bin/sh"
-        model.connect(to: .localShell)
-        let pane = try XCTUnwrap(model.activePane)
-        let surface = try XCTUnwrap(pane.surface)
+    private enum DiscoveryEnding { case exit, idle, failure, reattach }
+
+    private func sendDiscoveryOffer(to surface: TerminalSurface) async throws {
         surface.sendCommittedText("stty -echo; PS1=''; printf '\\033[2J\\033[HPTY_%s' READY\r")
         try await until { surface.readText()?.contains("PTY_READY") == true }
         let payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
@@ -66,6 +65,16 @@ import XCTest
         let offer = "\\033]777;ghosterm-discovery;1;\(payload)\\007"
         surface.sendCommittedText("printf '%b%s' '\\033P\(nestedOffer)\\033\\0134\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
         try await until { surface.readText()?.contains("PTY_OUTPUT") == true }
+    }
+
+    private func verifyPassiveDiscovery(ending: DiscoveryEnding) async throws {
+        _ = NSApplication.shared
+        let model = isolatedAppModel(); defer { model.disconnectForTesting() }
+        model.preferences.defaultShell = "/bin/sh"
+        model.connect(to: .localShell)
+        let pane = try XCTUnwrap(model.activePane)
+        let surface = try XCTUnwrap(pane.surface)
+        try await sendDiscoveryOffer(to: surface)
         guard ExtensionRuntime.supportStatus == 0 else {
             XCTAssertTrue(model.frontendCandidates.isEmpty)
             return
@@ -91,6 +100,27 @@ import XCTest
             XCTAssertTrue(model.frontendCandidates.isEmpty, "idle passive candidate must expire without another offer")
             XCTAssertTrue(pane.isRunning)
             XCTAssertTrue(surface.readText()?.contains("PTY_OUTPUT") == true)
+            return
+        }
+        if ending == .reattach {
+            let original = try XCTUnwrap(model.frontendCandidates.first)
+            surface.sendCommittedText("printf '\\nLOCAL-PID:%s\\n' \"$$\"\r")
+            try await until { self.pid(pane) != nil }
+            let oldProcess = try XCTUnwrap(pid(pane))
+            let replacement = try TerminalSurface(app: XCTUnwrap(model.terminalApp))
+            let session = try SessionController.localShell(
+                surface: replacement, executable: "/bin/sh", cwd: NSHomeDirectory(), kind: .shell)
+            pane.attach(surface: replacement, session: session)
+            XCTAssertTrue(model.frontendCandidates.isEmpty, "reattaching a pane must immediately remove its old candidates")
+            pane.start()
+            try await sendDiscoveryOffer(to: replacement)
+            try await until { model.frontendCandidates.contains { $0.id != original.id } }
+            let current = try XCTUnwrap(model.frontendCandidates.first)
+            XCTAssertEqual(model.frontendCandidates.count, 1)
+            XCTAssertEqual(current.sourceID, original.sourceID)
+            XCTAssertEqual(current.offer.instance, original.offer.instance)
+            try await until { Darwin.kill(oldProcess, 0) == -1 && errno == ESRCH }
+            XCTAssertTrue(pane.isRunning)
             return
         }
         if ending == .failure {

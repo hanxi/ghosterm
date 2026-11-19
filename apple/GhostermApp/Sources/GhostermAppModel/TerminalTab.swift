@@ -240,6 +240,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 装配一条已建立的会话（surface 必须在主线程创建）。
     public func attach(surface: TerminalSurface, session: SessionController) {
+        if let previous = self.session, previous !== session { previous.stop() }
         self.surface = surface
         self.session = session
         invalidateDiscovery()
