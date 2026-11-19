@@ -172,6 +172,11 @@ class PluginReleaseRemovalTest {
             val first = JSONObject(text.lineSequence().first())
             val invalid = listOf(
                 text.replaceFirst("\"schema\":1", "\"schema\":1,\"schema\":1").toByteArray(),
+                text.replaceFirst("\"schema\":1,", "").toByteArray(),
+                text.replaceFirst("\"schema\":1", "\"schema\":null").toByteArray(),
+                text.replaceFirst("\"schema\":1", "\"schema\":\"1\"").toByteArray(),
+                text.replaceFirst("\"schema\":1", "\"schema\":1.0").toByteArray(),
+                text.replaceFirst("\"schema\":1", "\"schema\":4").toByteArray(),
                 text.replaceFirst("\"born\":\"", "\"born\":\"0").toByteArray(),
                 (first.put("extra", true).toString() + "\n" + text.substringAfter('\n')).toByteArray(),
                 raw.copyOf(raw.size - 1), byteArrayOf(0xc3.toByte(), 0x28, 10),

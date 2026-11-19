@@ -380,10 +380,10 @@ internal class PluginReleaseRemoval private constructor(
                 return try { PluginReleaseSignature.declarationObject(line.toByteArray()) } catch (_: Exception) { throw Rejected(Reason.INVALID) }
             }
             val value = objectLine(lines.first())
-            val schema = value.opt("schema")
-            demand(schema is Number && schema.toString() in setOf("1", "2", "3"), Reason.INVALID)
-            val stage = if (schema.toString() == "2") PluginInstallJournal.parseReference(value.optJSONObject("stage") ?: throw Rejected(Reason.INVALID)) else null
-            val unclassified = if (schema.toString() == "3") PluginUnclassifiedDirectories.parse(value.optJSONObject("unclassified") ?: throw Rejected(Reason.INVALID)) else null
+            val schema = (value.opt("schema") as? Number)?.toString() ?: throw Rejected(Reason.INVALID)
+            demand(schema in setOf("1", "2", "3"), Reason.INVALID)
+            val stage = if (schema == "2") PluginInstallJournal.parseReference(value.optJSONObject("stage") ?: throw Rejected(Reason.INVALID)) else null
+            val unclassified = if (schema == "3") PluginUnclassifiedDirectories.parse(value.optJSONObject("unclassified") ?: throw Rejected(Reason.INVALID)) else null
             demand(keys(value) == setOf("schema", "operation", "releaseID", "tombstone", "revision", "root", "version") + (if (stage == null) emptySet<String>() else setOf("stage")) + (if (unclassified == null) emptySet<String>() else setOf("unclassified")), Reason.INVALID)
             val operation = value.opt("operation") as? String ?: throw Rejected(Reason.INVALID)
             demand(runCatching { UUID.fromString(operation).toString() == operation }.getOrDefault(false), Reason.INVALID)
