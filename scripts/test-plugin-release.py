@@ -121,6 +121,37 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
         assert checked['artifactSHA256']==sha(artifact.read_bytes()) and checked['pluginId']=='org.ghosterm.preview'
         assert signed['kind']=='release-signed' and checked['kind']=='release-verified'
     case('success',success)
+
+    def channel_revocation():
+        root_dir = work / 'cr'
+        root_dir.mkdir()
+        with agent(node, root_dir) as (root, root_endpoint):
+            root_signer = work / 'channel-signer.json'
+            root_signer.write_text(json.dumps(dict(config, prefixArguments=[
+                str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(root_endpoint)])))
+            now = int(time.time())
+
+            def channel_arguments(generation, policy_path):
+                output = work / f'channel-{generation}'
+                cli('release', 'sign-policy', '--channel', 'fixture', '--channel-root', root,
+                    '--policy', policy_path, '--generation', generation, '--issued-at', now - 5,
+                    '--expires-at', now + 600, '--signer-json', root_signer, '--out', output)
+                args = list(verify_args)
+                args[args.index('--policy') + 1] = output / 'policy.json'
+                return args + ['--channel', 'fixture', '--channel-root', root,
+                    '--policy-statement', output / 'channel-policy.json', '--policy-signature', output / 'channel-policy.sig',
+                    '--record-state', work / 'channel-state.sqlite']
+
+            original = channel_arguments(1, policy)
+            checked = cli(*original)
+            assert checked['trustSource'] == 'verified-channel-policy'
+            assert checked['channelPolicy']['generation'] == '1'
+            revoked = work / 'revoked-policy.json'
+            revoked.write_text(json.dumps(dict(trusted, revokedKeyIds=[key_id])))
+            cli(*channel_arguments(2, revoked), status=6, code='RELEASE_KEY_REVOKED')
+            cli(*original, status=6, code='CHANNEL_POLICY_ROLLBACK')
+
+    case('channel-revocation', channel_revocation)
     def official_package(name, original):
         archive = work / f'official-{name}.zip'
         release = work / f'official-{name}-release'
