@@ -6,8 +6,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require android-ssh
 : "${ANDROID_SERIAL:?Set ANDROID_SERIAL to the test device}"
 mkdir -p "$ROOT/tmp"
-WRAPPER="$(mktemp "$ROOT/tmp/android-ssh-run-XXXXXX")"
-trap 'rm -f "$WRAPPER"' EXIT
+WORK="$(mktemp -d "$ROOT/tmp/android-ssh-run-XXXXXX")"
+WRAPPER="$WORK/wrapper"
+LOG="$WORK/fixture.log"
+trap 'find "$WORK" -depth -delete' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 CHANNEL_PYTHON=python3
@@ -24,14 +26,14 @@ wrapper.write_text('#!/bin/sh\nexec '+shlex.quote(sys.argv[3])+' '+shlex.quote(s
 wrapper.chmod(0o700)
 PY
 export TMPDIR="$ROOT/tmp"
-export PYTHONPYCACHEPREFIX="$ROOT/tmp/android-python-cache"
+export PYTHONPYCACHEPREFIX="$WORK/python-cache"
 # Full: 900 s cold build + 3000 s tests + 300 s fixture setup/cleanup.
 FIXTURE_BUDGET=1800
 if [[ "${ANDROID_SSH_ALL:-0}" == 1 ]]; then FIXTURE_BUDGET=4200; fi
-gt_timeout "$FIXTURE_BUDGET" bash "$ROOT/core/tests/scripts/ssh_e2e.sh" "$WRAPPER" > "$ROOT/tmp/android-ssh-fixture.log" 2>&1 || {
-    cat "$ROOT/tmp/android-ssh-fixture.log"; exit 1;
+gt_timeout "$FIXTURE_BUDGET" bash "$ROOT/core/tests/scripts/ssh_e2e.sh" "$WRAPPER" > "$LOG" 2>&1 || {
+    cat "$LOG"; exit 1;
 }
-cat "$ROOT/tmp/android-ssh-fixture.log"
-if ! rg -q '^ANDROID SSH PASS' "$ROOT/tmp/android-ssh-fixture.log" || rg -q 'SKIP' "$ROOT/tmp/android-ssh-fixture.log"; then
+cat "$LOG"
+if ! rg -q '^ANDROID SSH PASS' "$LOG" || rg -q 'SKIP' "$LOG"; then
     echo 'Android SSH fixture did not complete the device tests' >&2; exit 1
 fi

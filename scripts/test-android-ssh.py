@@ -149,7 +149,8 @@ def main():
             try:
                 for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data),*( [queue_data['queuePeer']['port']] if queue_data else [])):
                     run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
-                logs=ROOT/'tmp/android-ssh-tests';logs.mkdir(exist_ok=True)
+                logs = Path(work) / 'android-ssh-tests'
+                logs.mkdir()
                 def build(label):
                     (logs/(label+'-build.log')).write_text(run(['bash',ROOT/'scripts/build-android.sh'],900))
                     for path in ('apk/debug/app-debug.apk','apk/androidTest/debug/app-debug-androidTest.apk'):
