@@ -15493,3 +15493,11 @@ P5 Android 前台退出新增原生终态接线变异。API 36 无窗口直连�
 同 APK Core 配置、恢复直连、APK 与源码摘要核对通过。29 项通用和 84 项
 组件同轮通过。收据 SHA256 `0a1f8a2ec733af1534e3921dcaacffcd0396e4dabdc53c666b4773bced9a65d6`。
 本轮未验其他设备或 TalkBack 实际播报，临时构件、进程和 AVD 已清理。
+
+P1 Android 新增 `mutation-check-osc52.py --platform android --headless-api 36
+--case discovery-feed`。仅在隔离副本切断 PTY 到被动观察器的接线，普通终端
+网格仍绘制标记。API 36 无窗口实际重编并对拍安装 APK，顶层有效候选丢失命中
+具名正常断言；同 APK 独立 Core 对照、恢复后目标与原件 SHA256 通过。
+JNI 摘要 `16bcbe8d2f149cf689185c8aeb2f41ff77f93a319c8d1bcb1e621dc510d0975c`。
+本轮覆盖 JS-on 本地 PTY 接线，未重跑 OSC 52 变异、JS-off 或 SSH Canvas。
+临时副本、APK 和 AVD 已清理。

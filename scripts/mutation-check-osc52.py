@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Manual OSC 52 guards: compiled assertion red / independent green / restored green + SHA256.
 
-Apple uses an isolated source copy. Android mutates this checkout and uses the
-explicitly selected test device, so avoid concurrent Android builds.
+Apple and the headless Android discovery case use isolated source copies.
+Android clipboard cases mutate this checkout and use the explicitly selected
+test device, so avoid concurrent Android builds for those cases.
 """
 import argparse
+from contextlib import nullcontext
 import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import signal
@@ -19,13 +22,26 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read'])
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed'])
+    parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
+    discovery = 'discovery-feed' in (args.case or ())
+    if discovery and (args.platform != 'android' or not args.headless_api or args.case != ['discovery-feed']):
+        parser.error('discovery-feed requires Android, --headless-api and no other case')
+    if args.headless_api and not discovery:
+        parser.error('--headless-api currently supports the discovery-feed case')
+    device = nullcontext(None)
+    if discovery:
+        spec = importlib.util.spec_from_file_location('osc52_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        device = helper.headless(args.headless_api)
     with tempfile.TemporaryDirectory(prefix='osc52-', dir=ROOT / 'tmp') as temporary:
-        verify(parser, args, Path(temporary))
+        with device as serial:
+            verify(parser, args, Path(temporary), serial)
 
 
-def verify(parser, args, work):
+def verify(parser, args, work, owned_serial=None):
     env = dict(os.environ, TMPDIR=str(work), GHOSTERM_AUTOMATION_OFFSCREEN='1')
 
     def run(command, label, environment):
@@ -69,10 +85,20 @@ def verify(parser, args, work):
                       result.returncode == 0 and 'Executed 1 test, with 0 failures' in text)
             if not ok: raise RuntimeError(f'{label}:\n{text[-12000:]}')
     else:
-        serial = env.get('ANDROID_SERIAL')
+        serial = owned_serial or env.get('ANDROID_SERIAL')
         if not serial: parser.error('ANDROID_SERIAL must designate the authorized test device')
         adb = [str(ROOT / 'build/android-toolchain/sdk/platform-tools/adb'), '-s', serial]
-        source = ROOT / 'android/bridge/src/main/cpp/session_jni.c'
+        project = ROOT
+        if owned_serial:
+            project = work / 'source'
+            for directory in ('android', 'terminal/android'):
+                shutil.copytree(ROOT / directory, project / directory,
+                    ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
+            for directory in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
+                (project / directory).symlink_to(ROOT / directory, target_is_directory=True)
+            (project / 'tmp').mkdir()
+        relative = 'android/bridge/src/main/cpp/session_jni.c'
+        source = project / relative
         tests = {
             'write': ('if (!read && *length) {', 'if (!read && *length) { /* mutation */\n        *length = 0;',
                       'fragmentedUnicodeWriteAndEmptyWrite'),
@@ -88,14 +114,45 @@ def verify(parser, args, work):
                        'visible = true; atomic_store(&s->visible, visible);',
                        'hiddenReadRejectsLateApproval'),
         }
+        if owned_serial:
+            tests = {
+                'discovery-feed': ('gt_ext_discovery_feed(s->discovery,\n                                                output,\n                                                (size_t)length,',
+                    'gt_ext_discovery_feed(s->discovery,\n                                                NULL,\n                                                0,',
+                    'discoveryIgnoresNestedOscAndPreservesLocalTerminalOutput')
+            }
+        apk_profile = None
         def build(label):
-            result = run(['bash', 'scripts/build-android.sh', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], label+'-build', env)
+            nonlocal apk_profile
+            command = ['bash', 'scripts/build-android.sh']
+            if owned_serial:
+                sdk = ROOT / 'build/android-toolchain'
+                env.update(ANDROID_HOME=str(sdk / 'sdk'), GRADLE_USER_HOME=str(sdk / 'gradle-home'),
+                    JAVA_HOME=str(sdk / 'jdk-17.0.21+9/Contents/Home'), JAVA_TOOL_OPTIONS=f'-Djava.io.tmpdir={work}')
+                command = [str(project / 'android/gradlew'), '-p', str(project / 'android'),
+                    '--offline', '--no-daemon', '--max-workers=2', '-PghostermPluginJs=true']
+            result = run([*command, ':app:assembleDebug', ':app:assembleDebugAndroidTest'], label+'-build', env)
             if result.returncode:
                 raise RuntimeError(label + ': compile failed; not an assertion red\n' + result.stdout[-12000:])
             for kind, path in [('app','debug/app-debug.apk'), ('test','androidTest/debug/app-debug-androidTest.apk')]:
-                result = run(adb + ['install', '-r', '-t', str(ROOT/'android/app/build/outputs/apk'/path)], label+'-install-'+kind, env)
+                apk = project / 'android/app/build/outputs/apk' / path
+                result = run(adb + ['install', '-r', '-t', str(apk)], label+'-install-'+kind, env)
                 if result.returncode or 'Success' not in result.stdout:
                     raise RuntimeError(label + ': install failed\n' + result.stdout[-12000:])
+                if kind == 'app' and owned_serial:
+                    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+                    if label == 'baseline':
+                        apk_profile = digest
+                    if label.endswith('-mutant') and digest == apk_profile:
+                        raise RuntimeError('discovery wire mutant did not change the production APK')
+                if owned_serial:
+                    package_id = 'com.hanxi.ghosterm' + ('.test' if kind == 'test' else '')
+                    path_result = run(adb + ['shell', 'pm', 'path', package_id], label+'-path-'+kind, env)
+                    installed = path_result.stdout.strip()
+                    if path_result.returncode or not installed.startswith('package:/data/app/') or '\n' in installed:
+                        raise RuntimeError('unexpected installed APK path')
+                    result = run(adb + ['shell', 'sha256sum', installed.removeprefix('package:')], label+'-sha-'+kind, env)
+                    if result.returncode or not result.stdout.startswith(hashlib.sha256(apk.read_bytes()).hexdigest() + ' '):
+                        raise RuntimeError('installed APK bytes differ')
         def probe(test, label, red=False):
             name = ('NativeSmokeTest#corePreservesUtf8AndLineEndings' if test == 'control' else 'TerminalOSC52Test#'+test)
             result = run(adb + ['shell','am','instrument','-w','-r','-e','class','com.hanxi.ghosterm.'+name,
@@ -106,6 +163,8 @@ def verify(parser, args, work):
                   'INSTRUMENTATION_STATUS_CODE: -2' in text and 'Process crashed' not in text) if red else (
                       result.returncode == 0 and 'OK (1 test)' in text)
             if not ok: raise RuntimeError(f'{label}:\n{text[-12000:]}')
+            if red and owned_serial and '顶层发现候选未到达，普通终端标记已绘制' not in text:
+                raise RuntimeError(f'{label}: wrong discovery assertion\n{text[-12000:]}')
     original = source.read_bytes()
     digest = hashlib.sha256(original).hexdigest()
     def interrupted(signum, frame): raise RuntimeError(f'interrupted: {signum}')
@@ -123,6 +182,8 @@ def verify(parser, args, work):
             probe('control', name+'-control')
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
+            if owned_serial:
+                assert (ROOT / relative).read_bytes() == original
             build(name+'-restored')
             probe(target, name+'-restored')
             print(f'PASS {args.platform}/{name}: assertion red / control green / restored green / SHA256 {digest}', flush=True)

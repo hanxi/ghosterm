@@ -16,10 +16,10 @@ import java.util.UUID
 /** Real local PTY and VT parser, with no clipboard contents in test output. */
 @RunWith(AndroidJUnit4::class)
 class TerminalOSC52Test {
-    private fun await(test: () -> Boolean) {
+    private fun await(message: String = "等待 OSC 52 断言超时", test: () -> Boolean) {
         val until = SystemClock.uptimeMillis() + 10_000
         do { if (test()) return; SystemClock.sleep(10) } while (SystemClock.uptimeMillis() < until)
-        fail("等待 OSC 52 断言超时")
+        fail(message)
     }
     private fun terminal(block: (LocalSession, File) -> Unit) {
         val dir = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "osc52-${UUID.randomUUID()}").apply { mkdirs() }
@@ -61,7 +61,9 @@ class TerminalOSC52Test {
             return@terminal
         }
         var observed: DiscoveryOffer? = null
-        await { observed = session.discovery().offer; observed != null }
+        await("顶层发现候选未到达，普通终端标记已绘制") {
+            observed = session.discovery().offer; observed != null
+        }
         assertEquals("/work/front", observed?.directory)
         assertEquals("1".repeat(32), observed?.instance)
         assertEquals("a".repeat(64), observed?.clientDigest)
