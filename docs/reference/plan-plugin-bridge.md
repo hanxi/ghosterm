@@ -15000,3 +15000,9 @@ Claude 仅在确认正常退出并回收后发布成功停止回执。回收进�
 测试包，发布工具整轮另有 45 项证据。初次复用 JS-off XCTest 得到
 `GT_ERR_UNSUPPORTED`，默认 Command Line Tools 的新构建缺 XCTest，切换到
 完整 Xcode 后通过。使用内存测试签名器，产物与临时构建均已清理。
+
+Android 七包专项从 `0711be0e` 生成七个签名夹具，完成 JS-on Debug 与
+instrumentation APK 构建。专用 API 36 arm64 模拟器以无窗口模式启动时，
+Emulator 37.2.13 在初始化 userdata 前报需 7372.80 MB、实际约 3600 MB；
+原配置的 2 GiB 和显式分区参数均未改变该预检结果。未进入设备断言，
+未保留试验参数，临时 AVD、签名夹具与依赖已清理。
