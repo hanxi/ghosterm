@@ -6,6 +6,22 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+abstract class GenerateQuickJsLicense : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val license: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val assets: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val output = assets.file("licenses/QuickJSNG-MIT.txt").get().asFile
+        output.parentFile.mkdirs()
+        license.get().asFile.copyTo(output, overwrite = true)
+    }
+}
+
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
 val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
 val channelProcessFixture = providers.gradleProperty("ghostermChannelProcessFixture").orNull == "true"
@@ -24,11 +40,6 @@ if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNo
         (endpoint.port == -1 || endpoint.port in 1..65535)) { "Expected an HTTPS channel directory" }
 }
 val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
-val runtimeLicenseAssets = layout.buildDirectory.dir("generated/plugin-js-license-assets")
-val copyRuntimeLicense = if (pluginJsEnabled) tasks.register<Copy>("copyRuntimeLicense") {
-    from(rootProject.file("../vendor/quickjs-ng/LICENSE")) { rename { "QuickJSNG-MIT.txt" } }
-    into(runtimeLicenseAssets.map { it.dir("licenses") })
-} else null
 fun sourceGit(vararg arguments: String): String? = try {
     val command = providers.exec {
         commandLine(listOf("git", "-C", rootProject.projectDir.parentFile.absolutePath) + arguments)
@@ -100,7 +111,6 @@ android {
         sourceSets["debug"].java.srcDir("src/channelProcessFixture/java")
     }
     if (pluginJsEnabled) {
-        sourceSets["main"].assets.srcDir(files(runtimeLicenseAssets).builtBy(copyRuntimeLicense))
         sourceSets["androidTest"].java.srcDir("src/pluginRuntimeTest/java")
         if (runtimeSdkDirectory != null) sourceSets["androidTest"].assets.srcDir(runtimeSdkDirectory)
     }
@@ -183,3 +193,14 @@ val buildProcessChannelChild = tasks.register<Exec>("buildProcessChannelChild") 
 }
 android.sourceSets.getByName("androidTest").jniLibs.srcDir(processTestLibraries)
 tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildProcessChannelChild) }
+
+if (pluginJsEnabled) {
+    androidComponents.onVariants { variant ->
+        val generateLicense = tasks.register<GenerateQuickJsLicense>(
+            "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}QuickJsLicense"
+        ) {
+            license.set(rootProject.layout.projectDirectory.file("../vendor/quickjs-ng/LICENSE"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(generateLicense, GenerateQuickJsLicense::assets)
+    }
+}
