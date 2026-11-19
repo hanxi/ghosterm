@@ -320,9 +320,10 @@ def main():
                 sdk_tools, codex, claude = (path.resolve(strict=True) for path in args.official_packages)
                 official = fixture / 'official'
                 official.mkdir()
+                expected = {f'official-{name}' for name in ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')}
                 cases = helper.exercise(ROOT, official, tools, node, public, endpoint,
-                                        sdk_tools=sdk_tools, ai_packages=(codex, claude))
-                assert sum(name.startswith('official-') for name in cases) == 7
+                                        selected=expected, sdk_tools=sdk_tools, ai_packages=(codex, claude))
+                assert set(cases) == expected
                 env['GHOSTERM_TEST_OFFICIAL_RELEASES'] = str(official)
         source = work / 'source'
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
