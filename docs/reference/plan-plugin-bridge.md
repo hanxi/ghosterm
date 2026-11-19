@@ -15816,3 +15816,8 @@ appcast 和 dev / release 元数据。该轮只验证本地夹具，未访问 Gi
 `签名: adhoc` 和 GitHub Release / Ed25519 更新口径，证明打包入口不会把
 Developer ID 或公证误判为必要条件。该轮只生成本地产物，未上传 GitHub Release，
 产物目录已清理。
+
+随后运行 `scripts/test-macos-update-install.py` 的真实 Sparkle ad-hoc 回环安装
+烟测通过。`install` 完成下载、解包、安装、退出批准和重启，`later` 保留旧版本，
+`cancel-quit` 在取消退出后保留旧版本，`bad-feed` 与 `bad-archive` 均在 Ed25519
+校验阶段拒绝。该烟测使用临时回环资产，未上传 GitHub Release，临时目录已清理。
