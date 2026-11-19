@@ -33,14 +33,15 @@ class ExtensionMixedConnectionTest {
         var result: T? = null; instrumentation.runOnMainSync { result = block() }
         @Suppress("UNCHECKED_CAST") return result as T
     }
-    private fun await(label: String, timeoutMs: Long = 20_000, predicate: () -> Boolean) {
-        val end = SystemClock.elapsedRealtime() + timeoutMs
+    private fun await(label: String, predicate: () -> Boolean) {
+        val end = SystemClock.elapsedRealtime() + 20_000
         while (!predicate() && SystemClock.elapsedRealtime() < end) SystemClock.sleep(20)
         assertTrue(label, predicate())
     }
-    private fun echo(model: ExtensionPackagesViewModel, text: String, slot: Int) {
+    private fun echo(model: ExtensionPackagesViewModel, text: String, slot: Int, stage: String = "initial") {
         val owner = checkNotNull(model.controller)
         val started = SystemClock.elapsedRealtime()
+        val label = "RPC $text/$slot:"
         // Publication has its own 10 s limit. Match the UI's outer RPC budget
         // for this call so the executor can still report a publication failure.
         val rpcTimeoutMs = if (text == "resource") 30_000 else 10_000
@@ -51,25 +52,32 @@ class ExtensionMixedConnectionTest {
             throw AssertionError("RPC admission $text/$slot: cached=${main { model.activeRuntime?.info }} observed=$observed issue=${main { model.error }}", failure)
         }
         val handle = checkNotNull(admission.handle)
-        await("RPC $text/$slot: ${main { model.error }}", timeoutMs = rpcTimeoutMs + 5_000L) {
-            runBlocking { owner.runtimeExecutorRequestResult(handle).second?.confirmed == true }
+        var observation = runBlocking { owner.runtimeExecutorRequestResult(handle) }
+        val deadline = started + rpcTimeoutMs + 5_000L
+        while (observation.first == ExtensionSession.RPCStatus.OK &&
+            observation.second?.state in setOf(ExtensionSession.RPCState.QUEUED, ExtensionSession.RPCState.PENDING) &&
+            SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(20)
+            observation = runBlocking { owner.runtimeExecutorRequestResult(handle) }
         }
-        val result = checkNotNull(runBlocking { owner.runtimeExecutorRequestResult(handle).second })
-        if (result.state != ExtensionSession.RPCState.SUCCEEDED) {
+        val (status, result) = observation
+        if (status != ExtensionSession.RPCStatus.OK ||
+            result?.state != ExtensionSession.RPCState.SUCCEEDED || !result.confirmed) {
             val elapsed = SystemClock.elapsedRealtime() - started
             val cached = main { model.activeRuntime?.info }
             val observed = runCatching { runBlocking { owner.stepRuntime().info } }
-            fail("RPC $text/$slot: ${result.outcome.toString(Charsets.UTF_8)} " +
-                "state=${result.state} elapsedMs=$elapsed cached=$cached observed=$observed")
+            throw AssertionError("$label ${result?.outcome?.toString(Charsets.UTF_8)} " +
+                "stage=$stage status=$status state=${result?.state} confirmed=${result?.confirmed} " +
+                "elapsedMs=$elapsed cached=$cached observed=$observed")
         }
         val value = JSONObject(result.outcome.toString(Charsets.UTF_8)).getJSONObject("value")
-        assertEquals("RPC $text/$slot: elapsedMs=${SystemClock.elapsedRealtime() - started}",
+        assertEquals("$label stage=$stage elapsedMs=${SystemClock.elapsedRealtime() - started}",
             text, value.getString("text"))
         assertEquals(slot, value.getInt("count"))
         assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { owner.forgetRuntimeExecutorRequest(handle) })
     }
-    private fun resource(model: ExtensionPackagesViewModel, slot: Int) {
-        echo(model, "resource", slot)
+    private fun resource(model: ExtensionPackagesViewModel, slot: Int, stage: String = "initial") {
+        echo(model, "resource", slot, stage)
         await("resource $slot: ${main { model.error }}") { main { model.receivedResources.size == 1 } }
         val received = main { model.receivedResources.single() }
         val expected = ByteArray(262144) { ((it + slot * 17) % 251).toByte() }
@@ -210,7 +218,8 @@ class ExtensionMixedConnectionTest {
             val pending = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${pending.id}").performScrollTo().performClick()
             await("online Node consent") { main { !extensions.groupSubmissionBusy && current.instances.lastOrNull()?.id == pending.id } }
-            val replacement = main { current.instances.last() }; approve(replacement); resource(replacement.model, 3)
+            val replacement = main { current.instances.last() }; approve(replacement)
+            resource(replacement.model, 3, stage = "online replacement")
             main { current.instances.toList().forEach(current::requestCloseInstance) }
             await("all closed") { main { current.instances.all { it.closed } } }
             assertFalse(main { current.closed }); assertTrue(main { current.canAdd })
@@ -219,7 +228,8 @@ class ExtensionMixedConnectionTest {
             val finalPending = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${finalPending.id}").performScrollTo().performClick()
             await("empty connection Exec consent") { main { current.instances.lastOrNull()?.id == finalPending.id } }
-            val final = main { current.instances.last() }; approve(final); resource(final.model, 0)
+            val final = main { current.instances.last() }; approve(final)
+            resource(final.model, 0, stage = "empty connection")
             ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
             assertFalse(main { final.closeRequested }); assertFalse(main { current.closed })
             ui.onNodeWithTag("plugin-close-confirm").performClick()
