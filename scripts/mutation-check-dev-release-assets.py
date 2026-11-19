@@ -59,6 +59,24 @@ def main():
                            for a in baseline['assets'] if a['name'] in other)
                 check.verify(platform, folder, baseline, baseline)
                 print(platform+'/'+label+': target red / independent files green / restored green')
+        original_info = (folder / 'BUILD-INFO.txt').read_text()
+        original_manifest = (folder / 'version.json').read_text()
+        for label, change in [
+            ('obsolete-build-info', lambda: (folder / 'BUILD-INFO.txt').write_text('签名: adhoc\n未公证的包不能直接分发给终端用户\n')),
+            ('missing-update-signature', lambda: (folder / 'version.json').write_text(json.dumps({'signature': 'adhoc', 'notarized': False}))),
+            ('wrong-apple-status', lambda: (folder / 'version.json').write_text(json.dumps({'signature': 'id', 'notarized': True, 'update_signature': 'fixture'}))),
+        ]:
+            change()
+            try:
+                check.verify('macos', folder, baseline, baseline)
+            except ValueError:
+                print('macos/'+label+': target red')
+            else:
+                raise AssertionError('macos/'+label+': expected metadata rejection')
+            (folder / 'BUILD-INFO.txt').write_text(original_info)
+            (folder / 'version.json').write_text(original_manifest)
+            check.verify('macos', folder, baseline, baseline)
+            print('macos/'+label+': restored green')
         legacy = ['Ghosterm-0.1.0-dev-arm64.zip', 'Ghosterm-macos-arm64-old.dmg']
         assert check.obsolete_macos(names+legacy+['Ghosterm-linux-arm64-dev.zip','readme.zip'])==sorted(legacy)
         assert check.obsolete_macos(names)==[]
