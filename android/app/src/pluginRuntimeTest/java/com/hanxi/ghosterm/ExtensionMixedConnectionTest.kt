@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
+import android.system.Os
 import android.system.OsConstants
 import android.os.SystemClock
 import android.os.ParcelFileDescriptor
@@ -116,6 +117,9 @@ class ExtensionMixedConnectionTest {
             JSONObject(ByteArray(size).also(input::readFully).toString(Charsets.UTF_8))
         }
         val context = instrumentation.targetContext
+        fun resourceDirectories() = context.cacheDir.listFiles().orEmpty()
+            .filter { it.isDirectory && it.name.startsWith("plugin-resources-") }.toSet()
+        val existingResourceDirectories = resourceDirectories()
         val root = File(context.cacheDir, "mixed-${UUID.randomUUID()}"); check(root.mkdir())
         val files = payload.getJSONObject("packageFiles")
         files.keys().forEach { name ->
@@ -244,10 +248,24 @@ class ExtensionMixedConnectionTest {
                         await("owned SSH transport reset not observed") { main { current.state?.info?.error?.let { it != 0 } == true } }
                         assertFalse(main { model.canInteractWithRuntime })
                         assertEquals(OsConstants.EAGAIN, leaseStatus())
-                        assertTrue(runBlocking { withContext(Dispatchers.Main) { current.close() } })
+                        val directory = (resourceDirectories() - existingResourceDirectories).single()
+                        val remaining = File(directory, "owned-cleanup-probe").apply { writeText("owned") }
+                        Os.chmod(directory.path, OsConstants.S_IRUSR or OsConstants.S_IXUSR)
+                        try {
+                            assertFalse(runBlocking { withContext(Dispatchers.Main) { current.close() } })
+                            assertTrue(main { current.cleanupPending && !current.closed && !current.canAdd })
+                            assertTrue(main { current.issue?.contains("插件资源私有目录清理失败") == true })
+                            assertEquals("owned", remaining.readText())
+                            assertEquals(0, leaseStatus())
+                        } finally {
+                            Os.chmod(directory.path, OsConstants.S_IRWXU)
+                        }
+                        ui.onNodeWithTag("plugin-group-close-${current.id}").performScrollTo().performClick()
+                        await("local connection release did not recover") { main { current.closed && !current.cleanupPending } }
                         assertTrue(main { current.state?.info?.released == true })
                         assertFalse("TCP reset must not establish remote exit", checkNotNull(main { current.state?.transport }).remoteEof)
                         assertTrue(main { current.issue?.contains("执行端退出未确认") == true })
+                        assertFalse(directory.exists())
                         assertEquals(0, leaseStatus())
                         return
                     }
