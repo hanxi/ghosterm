@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise channel publication with disposable, isolated in-memory signers."""
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
 import os
@@ -33,6 +34,9 @@ def main():
                 report = json.loads(result.stdout)
                 if expected is None:
                     assert result.returncode == 0, (report, result.stderr)
+                elif isinstance(expected, tuple):
+                    outcome = report.get('code') if result.returncode else None
+                    assert outcome in expected, (report, result.stderr)
                 else:
                     assert result.returncode != 0 and report.get('code') == expected, (report, result.stderr)
                 return report
@@ -109,6 +113,20 @@ def main():
             assert receipt['statementSHA256'] == signed_revocation['statementSHA256']
             verify(output, expected='CHANNEL_POLICY_ROLLBACK')
             assert verify(next_generation) == receipt
+
+            first, second = work / 'concurrent-a', work / 'concurrent-b'
+            sign(first, generation='4')
+            sign(second, generation='4', expires=now + 601)
+            with ThreadPoolExecutor(max_workers=2) as writers:
+                pending = [writers.submit(verify, candidate, (None, 'CHANNEL_POLICY_FORK'))
+                           for candidate in (first, second)]
+                outcomes = [future.result() for future in pending]
+            assert sum(outcome.get('code') == 'CHANNEL_POLICY_FORK' for outcome in outcomes) == 1, outcomes
+            for candidate, outcome in zip((first, second), outcomes):
+                if outcome.get('code') == 'CHANNEL_POLICY_FORK':
+                    verify(candidate, expected='CHANNEL_POLICY_FORK')
+                else:
+                    assert verify(candidate) == outcome
 
     print('CHANNEL POLICY SIGN PASS')
 
