@@ -133,7 +133,7 @@ def main():
     parser.add_argument('--remove', action='store_true', help='also exercise explicit version removal, recovery and an actual managed Runtime lease')
     parser.add_argument('--diagnose-live-version', action='store_true',
                         help='run only the live version XCTest for diagnosis; no acceptance receipt')
-    parser.add_argument('--diagnose-live-channel-revocation', action='store_true', help='run only the direct and ProxyJump channel revocation XTests')
+    parser.add_argument('--diagnose-live-channel-revocation', action='store_true', help='run the direct and ProxyJump channel revocation XTests, including revocation before consent')
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
@@ -399,9 +399,9 @@ def main():
         if args.selection_review:
             baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
             baseline_count += 26
-        revocation = 'PluginPaneFlowTests.testManagedPreviewReportsChannelRevocationUntilStopped(ThroughProxyJump)?$'
+        revocation = 'PluginPaneFlowTests.testManagedPreview(ReportsChannelRevocationUntilStopped(ThroughProxyJump)?|RejectsChannelRevocationBeforeConsent)$'
         if args.diagnose_live_channel_revocation:
-            run('live-channel-revocation', revocation, count=2, jump=True)
+            run('live-channel-revocation', revocation, count=3, jump=True)
             print('LIVE CHANNEL REVOCATION PASS', flush=True)
             return
         if args.diagnose_live_version:
@@ -415,7 +415,7 @@ def main():
         if args.remove: run('live-removal-baseline', 'PluginPaneFlowTests.testManagedPreviewRetainsVersionUntilStopped')
         if args.policy_review:
             run('live-policy-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesPolicyReviewAndExplicitDisable')
-            run('live-channel-revocation', revocation, count=2, jump=True)
+            run('live-channel-revocation', revocation, count=3, jump=True)
         if args.selection_review: run('live-selection-review-baseline', 'PluginPaneFlowTests.testManagedPreviewSurvivesSelectionReviewAndCommit')
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename

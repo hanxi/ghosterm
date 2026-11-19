@@ -544,8 +544,22 @@ class ExtensionController private constructor(private val shared: Shared, privat
         check(info.phase == ExtensionSession.Phase.CONSENT && info.consentToken == consentToken) {
             "插件授权请求已失效"
         }
-        check(current.decide(consentToken, decision) == 0) { "插件授权决定未被接收" }
         val key = checkNotNull(sessionPackageKey)
+        fun decide() {
+            check(current.decide(consentToken, decision) == 0) { "插件授权决定未被接收" }
+        }
+        if (decision == ExtensionSession.Decision.ALLOW && channelAdmission != null) {
+            val record = checkNotNull(records[key]) { "固定插件包已失效" }
+            val lease = checkNotNull(sessionVersionLease) { "固定插件版本已失效" }
+            val version = PluginReleaseCatalog.Version(ParcelFileDescriptor.dup(lease.fileDescriptor),
+                checkNotNull(record.managedReleaseID))
+            version.use {
+                withChannelAdmission(it, record) { admission ->
+                    if (admission == null) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.CHANNEL_HISTORY)
+                    decide()
+                }
+            }
+        } else decide()
         SessionState(key.id, key.digest, current.info())
     }
 

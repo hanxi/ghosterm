@@ -89,9 +89,14 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: true, versionRemoval: true, channelRevocation: true)
     }
 
+    func testManagedPreviewRejectsChannelRevocationBeforeConsent() async throws {
+        guard ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] != nil else { throw XCTSkip("requires signed version fixtures") }
+        try await runPreview(.markdown, jump: false, versionRemoval: true, channelRevocation: true, revokeBeforeConsent: true)
+    }
+
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
@@ -416,6 +421,21 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
+        if revokeBeforeConsent {
+            var policy = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(initialChannelPolicy)) as? [String: Any])
+            policy["revokedKeyIds"] = [try XCTUnwrap(managed).signature.keyID]
+            _ = try refreshChannel(2, policy: JSONSerialization.data(withJSONObject: policy))
+            try press("plugin-consent-allow")
+            guard try await until({ !model.extensionRunBusy && model.extensionRunIssue != nil }) else {
+                XCTFail("allow did not surface the revoked publisher"); return
+            }
+            XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
+            XCTAssertNil(model.extensionRun?.runtime)
+            XCTAssertTrue(model.extensionRun?.receivedResources.isEmpty == true)
+            await model.stopExtensionRun()
+            XCTAssertNil(model.extensionRun)
+            return
+        }
         try press("plugin-consent-allow")
         guard try await until({ model.extensionRun?.receivedResources.count == count && model.extensionRun?.receivedResources.first?.bytes == document }) else {
             XCTFail("Preview did not receive exact owned SSH resource: \(model.extensionRunIssue ?? "none")"); return

@@ -1949,6 +1949,11 @@ public actor ExtensionController {
                     defer { withExtendedLifetime(access.owner) {} }
                     guard let record = self.packages[packageKey], record.source == .allowed,
                           self.admitted(record, access, requireApproval: true) else { throw PluginReleaseCatalog.Failure.inactive }
+                    let channelPolicyLease = try self.authorizeChannelStart(record, access: access)
+                    defer { withExtendedLifetime(channelPolicyLease?.1) {} }
+                    if self.run.channelAdmission != nil, channelPolicyLease == nil {
+                        throw PluginDirectorySignatureVerifier.Failure.channelHistory
+                    }
                     guard info.phase == .consent, info.consentToken == consentToken,
                           try session.decide(ticket: consentToken, decision: .allow) == 0 else { throw ControllerError.sessionUnavailable }
                     return try self.sessionState(session, packageKey: packageKey)

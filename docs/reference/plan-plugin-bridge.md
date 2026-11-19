@@ -15314,3 +15314,13 @@ Android 渠道 Settings / SAF 用例新增签名策略变更竞态。先用第 1
 均保持原值，回环服务器零请求。API 36 无窗口实编测试一项通过（34.791 秒）。
 此轮未覆盖跨进程写入、待授权 Session 或既有 Runtime 的停止与释放，也未跑
 变异。临时渠道材料与 AVD 已清理。
+
+macOS 与 Android 在 Session “允许”交接处重新核验已采用的渠道版本。缓存
+目录锁覆盖验证与 Native 授权决定，撤销、缺失或失效缓存会在发出允许前报错；
+拒绝仍可直接提交。Android 复用已固定版本句柄，macOS 保留原有活动版本检查。
+macOS 离屏签名撤销三项通过，含真实 SSH 待授权撤销、仍保持 consent 且无
+Runtime/资源、显式停止与释放，以及既有直连/ProxyJump 运行中撤销对照。
+Android Debug 与测试 APK 编译通过，未跑设备端授权前撤销和变异。
+macOS 预跑的工具锁不匹配、OpenSSL 链接及命令行工具缺 XCTest 已分别纠正，
+最终使用仓库工具锁、独立 Swift Core 和完整 Xcode；上述失败不计验收。
+本轮临时构件和 SSH 夹具已清理。
