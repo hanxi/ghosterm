@@ -15588,3 +15588,10 @@ P2 Android HTML 文档切换专项。生产资源列表点击另一目录的文�
 当前目录同名 CSS 的确切字节。隔离 Debug 与测试 APK 构建通过，自有 API 36
 无窗口模拟器六项原生 HTML 测试通过，无跳过。未重跑 SAF、SSH 或变异，临时
 构件与 AVD 已清理。
+
+固定 `f8c3d1ce` 的 macOS arm64 默认发行配置离屏构建通过：QuickJS 关闭，
+从隔离源码重建 Core 并执行 SwiftPM Release。SwiftPM 报告的
+`.build/out/Products/Release/GhostermApp` 是 arm64 Mach-O，打包脚本使用的
+`.build/release/GhostermApp` 兼容路径也通过可执行检查。首轮仅编译成功，
+手工指定的旧架构目录未找到文件；第二轮以 SwiftPM 返回路径核对。未执行
+签名、打包或云端 CI，临时构件已清理。
