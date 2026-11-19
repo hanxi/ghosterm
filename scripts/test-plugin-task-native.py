@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--mutation-case', action='append', help='run only named model or view mutations after the baseline')
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     parser.add_argument('--route', action='append', choices=('local', 'direct', 'jump'))
@@ -106,7 +107,7 @@ def main():
             return text
 
         app = source / 'apple/GhostermApp'
-        def test(label, selected='PluginTaskTests', count=27, red=False):
+        def test(label, selected='PluginTaskTests', count=28, red=False):
             text = run(label, ['swift', 'test', '--package-path', app, '--filter', selected], red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text.lower()):
                 raise RuntimeError(label + ': discovery/no-skip mismatch\n' + text)
@@ -126,7 +127,14 @@ def main():
             ('late-reply', MODEL, 'generation == token && available && !Task.isCancelled', '!Task.isCancelled', 'testLateReplyCannotChangeInvalidatedTask'),
             ('caller-cancelled', MODEL, '                if cancellation == .pending {', '                if false && cancellation == .pending {', 'testCancelledCallerKeepsActionUnconfirmed'),
             ('visible-refresh', 'apple/GhostermApp/Sources/GhostermApp/PluginTaskView.swift', 'if model.canAutoRefresh { await model.load() }', 'if false { await model.load() }', 'testVisibleViewRefreshesThenStopsOnUncertainty'),
+            ('announcement-title', 'apple/GhostermApp/Sources/GhostermApp/PluginTaskView.swift',
+             'return cancellationMessage.map { "\\(title)，\\($0)" }', 'return cancellationMessage',
+             'testCancellationAnnouncementIdentifiesTheTask'),
         ]
+        if args.mutation_case:
+            if not args.mutate or set(args.mutation_case) - {case[0] for case in cases}:
+                parser.error('--mutation-case requires --mutate and known case names')
+            cases = [case for case in cases if case[0] in args.mutation_case]
         groups = []
         for label, filename, old, new, target in cases if args.mutate else []:
             path = source / filename; original = path.read_bytes()
@@ -191,7 +199,7 @@ def main():
                     ('native-outcome', APP, 'command: command, returnTerminalOutcome: true)', 'command: command, returnTerminalOutcome: false)', 'local'),
                     ('native-render', PANE, 'if let task = model.extensionTask {', 'if let task = model.extensionTask, false {', 'local'),
                 ]
-                for label, filename, old, new, route in native if args.mutate else []:
+                for label, filename, old, new, route in native if args.mutate and not args.mutation_case else []:
                     path = source / filename; original = path.read_bytes()
                     if original.count(old.encode()) != 1: raise RuntimeError('Native anchor: ' + label)
                     try:
@@ -212,7 +220,7 @@ def main():
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
-        print('NATIVE TASK PASS: 27 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual routes / ' + str(len(groups)) + ' mutations', flush=True)
+        print('NATIVE TASK PASS: 28 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual scenarios / ' + str(len(groups)) + ' mutations', flush=True)
 
 
 if __name__ == '__main__':

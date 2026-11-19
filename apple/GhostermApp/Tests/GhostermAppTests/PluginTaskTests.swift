@@ -141,6 +141,14 @@ import XCTest
         XCTAssertTrue(m.cancellation == .requested && m.snapshot?.phase == .running && !m.canCancel && m.canAutoRefresh)
         f.finish(); await m.load(); XCTAssertEqual(m.snapshot?.phase, .cancelled)
     }
+    func testCancellationAnnouncementIdentifiesTheTask() async throws {
+        let fixture = PluginTaskFixture(), model = fixture.model()
+        await model.load()
+        await model.cancel()
+        let title = try XCTUnwrap(model.descriptor?.title)
+        XCTAssertEqual(PluginTaskView(model: model).statusAnnouncement,
+                       "\(title)，取消请求已受理，仍需任务确认停止")
+    }
     func testCancelNeverRepeatsAfterUnknown() async {
         let f = PluginTaskFixture(), m = f.model(); await m.load(); f.unknownMethod = "view.task.cancel"
         await m.cancel(); await m.cancel()

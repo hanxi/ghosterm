@@ -99,7 +99,7 @@ def main():
         test('baseline', 'PluginViewsTests', VIEW_TEST_COUNT)
         test('bootstrap', 'ExtensionControllerTests.testRelayBootstrapAcceptsFourUniqueImplementedViewServices')
         test('host-profile', 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities')
-        test('legacy-table', 'PluginTableTests', 15); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 27)
+        test('legacy-table', 'PluginTableTests', 15); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 28)
         if args.mutate:
             for label, filename, old, new, selected in cases:
                 path = source / filename; before = path.read_bytes()
