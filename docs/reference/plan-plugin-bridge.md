@@ -15778,3 +15778,10 @@ P1 Android 真实 PTY 重启专项：旧 shell 停止后经生产入口创建新
 两个终端可发出相同前端实例号，列表只认新终端 UUID。关闭保留的旧终端记录
 后，新候选仍有效。QuickJS 开启的 API 36 无窗口同轮通过重启、退出及显式
 关闭三项。未重跑 SSH 或空闲到期，临时 APK 与 AVD 已清理。
+
+P1 Android 常驻 OSC 52／发现脚本新增 `--platform android --case discovery-close
+--headless-api 36`。隔离编译移除显式关闭时的候选清理后，同一主线程回合
+触发单条指定断言；同 APK Core 对照、源码恢复、设备 APK 摘要和复原复验
+均通过。SessionsViewModel SHA256
+`66b5c86121de1159cbd1cf3129eaddd8862ae1bc38bfaafd36b78d5e6435ef03`。
+只执行新增组，未重跑其他发现或剪贴板用例，临时构件和 AVD 已清理。

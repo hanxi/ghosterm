@@ -22,26 +22,29 @@ APPLE_DISCOVERY_LIFECYCLE = (
     'discovery-late-exit', 'discovery-runtime-failure',
 )
 DISCOVERY_CASES = ('discovery-feed', *APPLE_DISCOVERY_LIFECYCLE)
+ANDROID_DISCOVERY_CASES = ('discovery-feed', 'discovery-close')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', *DISCOVERY_CASES])
-    parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', *DISCOVERY_CASES, 'discovery-close'])
+    parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for Android discovery cases')
     args = parser.parse_args()
     selected = args.case or ()
-    discovery = 'discovery-feed' in selected
+    discovery = any(case in ANDROID_DISCOVERY_CASES for case in selected)
     if args.platform == 'apple':
+        if 'discovery-close' in selected:
+            parser.error('discovery-close requires Android')
         if any(case in DISCOVERY_CASES for case in selected) and not all(case in DISCOVERY_CASES for case in selected):
             parser.error('select Apple discovery cases separately from clipboard cases')
     else:
         if any(case in APPLE_DISCOVERY_LIFECYCLE for case in selected):
             parser.error('discovery lifecycle cases require Apple')
-        if discovery and (args.case != ['discovery-feed'] or not args.headless_api):
-            parser.error('Android discovery-feed runs alone and requires --headless-api')
+        if discovery and (len(selected) != 1 or not args.headless_api):
+            parser.error('Android discovery cases run individually and require --headless-api')
     if args.headless_api and (not discovery or args.platform != 'android'):
-        parser.error('--headless-api supports only Android discovery-feed')
+        parser.error('--headless-api supports only Android discovery cases')
     device = nullcontext(None)
     if args.headless_api:
         spec = importlib.util.spec_from_file_location('osc52_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
@@ -188,6 +191,17 @@ def verify(parser, args, work, owned_serial=None):
                     'gt_ext_discovery_feed(s->discovery,\n                                                NULL,\n                                                0,',
                     'discoveryIgnoresNestedOscAndPreservesLocalTerminalOutput')
             }
+        test_class = 'TerminalOSC52Test'
+        discovery_assertion = '顶层发现候选未到达，普通终端标记已绘制'
+        if args.case == ['discovery-close']:
+            relative = 'android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt'
+            source = project / relative
+            test_class = 'TerminalScreenTest'
+            discovery_assertion = 'closed terminal must immediately remove its passive candidate'
+            tests = {'discovery-close': (
+                'session.connection.close(); sessions.remove(session)\n        removeFrontendCandidates(id)',
+                'session.connection.close(); sessions.remove(session)',
+                'closingATerminalImmediatelyClearsItsPassiveCandidate')}
         apk_profile = None
         def build(label):
             nonlocal apk_profile
@@ -222,7 +236,7 @@ def verify(parser, args, work, owned_serial=None):
                     if result.returncode or not result.stdout.startswith(hashlib.sha256(apk.read_bytes()).hexdigest() + ' '):
                         raise RuntimeError('installed APK bytes differ')
         def probe(test, label, red=False):
-            name = ('NativeSmokeTest#corePreservesUtf8AndLineEndings' if test == 'control' else 'TerminalOSC52Test#'+test)
+            name = ('NativeSmokeTest#corePreservesUtf8AndLineEndings' if test == 'control' else test_class + '#' + test)
             result = run(adb + ['shell','am','instrument','-w','-r','-e','class','com.hanxi.ghosterm.'+name,
                                'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], label, env)
             text = result.stdout
@@ -231,7 +245,7 @@ def verify(parser, args, work, owned_serial=None):
                   'INSTRUMENTATION_STATUS_CODE: -2' in text and 'Process crashed' not in text) if red else (
                       result.returncode == 0 and 'OK (1 test)' in text)
             if not ok: raise RuntimeError(f'{label}:\n{text[-12000:]}')
-            if red and owned_serial and '顶层发现候选未到达，普通终端标记已绘制' not in text:
+            if red and owned_serial and discovery_assertion not in text:
                 raise RuntimeError(f'{label}: wrong discovery assertion\n{text[-12000:]}')
     def interrupted(signum, frame): raise RuntimeError(f'interrupted: {signum}')
     for sig in (signal.SIGINT, signal.SIGTERM): signal.signal(sig, interrupted)
