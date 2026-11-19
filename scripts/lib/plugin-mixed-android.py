@@ -122,7 +122,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         if start >= end:
             raise RuntimeError('no listener range outside device ephemeral range')
 
-        def actual(route, label, red=False, expected_assertion=None):
+        def actual(route, label, red=False, expected_assertion=None, active_revocation=False):
             if revocation:
                 cleared, _ = run(label + '-reset', [*adb, 'shell', 'pm', 'clear', 'com.hanxi.ghosterm'])
                 if cleared.strip() != b'Success':
@@ -164,7 +164,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     ports=target_ports, hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name,
                     pem=private.decode(), gterm=str(launcher), node=str(node), nodeVersion=node_version,
                     nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_digest,
-                    packageFiles={} if revocation else package_files, revocation=revocation,
+                    packageFiles={} if revocation else package_files, revocation=revocation, activeRevocation=active_revocation,
                     packageDigest=sha(package / 'integrity.json'))
                 class Handler(socketserver.StreamRequestHandler):
                     def handle(self):
@@ -202,6 +202,8 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         for route in selected_routes or ('direct', 'jump'):
             try:
                 actual(route, 'android-' + route)
+                if revocation:
+                    actual(route, 'android-' + route + '-active', active_revocation=True)
             except RuntimeError as failure:
                 failures.append(f'{route}: {failure}')
             else:

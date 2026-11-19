@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
+import android.system.OsConstants
 import android.os.SystemClock
 import android.os.ParcelFileDescriptor
 import android.util.Base64
@@ -192,8 +193,18 @@ class ExtensionMixedConnectionTest {
             if (revocation != null) {
                 val instance = instances.single()
                 val model = instance.model
+                val active = payload.getBoolean("activeRevocation")
+                val releaseID = runBlocking { checkNotNull(owner.installedVersions().selection).choices.values.single().releaseID }
+                val releases = File(context.filesDir, "plugin-releases")
+                fun leaseStatus() = LocalPublicationFile.directory(releases, releaseID).use { PluginInstallFiles.lock(it.fd) }
                 await("managed Session consent") {
                     main { model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT && !model.launchBusy }
+                }
+                if (active) {
+                    approve(instance)
+                    resource(model, 0, stage = "before publisher revocation")
+                    assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    ui.onNodeWithTag("plugin-channel-stop").assertDoesNotExist()
                 }
                 val materials = revocation.getJSONObject("revoked")
                 val written = checkNotNull(context.contentResolver.call(
@@ -208,6 +219,26 @@ class ExtensionMixedConnectionTest {
                 assertEquals(2uL, revoked.generation)
                 assertEquals(written.getString("statementSHA256"), revoked.statementSHA256)
                 assertEquals(1, runBlocking { owner.runningInstancesWithRevokedPublisher(revoked) })
+                if (active) {
+                    ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-channel-stop").fetchSemanticsNodes().isNotEmpty() }
+                    ui.onNodeWithTag("plugin-channel-affected").assertTextContains("1 个", substring = true)
+                    assertTrue(main { model.canInteractWithRuntime })
+                    echo(model, "still active", 0, stage = "after publisher revocation")
+                    assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    ui.onNodeWithTag("plugin-channel-stop").performScrollTo().performClick()
+                    ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-channel-refresh-status").fetchSemanticsNodes().isNotEmpty() }
+                    ui.onNodeWithTag("plugin-channel-refresh-status").assertTextContains("已向 1 个实例发出停止请求", substring = true)
+                    await("revoked Runtime did not stop") {
+                        main { !model.launchBusy && model.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED }
+                    }
+                    assertEquals(OsConstants.EAGAIN, leaseStatus())
+                    ui.onNodeWithText("释放插件资源").performScrollTo().performClick()
+                    await("revoked Runtime did not release") { main { !model.launchBusy && model.activeRuntime == null } }
+                    assertEquals(0, leaseStatus())
+                    assertEquals(0, runBlocking { owner.runningInstancesWithRevokedPublisher(revoked) })
+                    ui.waitUntil(15000) { ui.onAllNodesWithTag("plugin-channel-stop").fetchSemanticsNodes().isEmpty() }
+                    return
+                }
                 ui.onNodeWithTag("plugin-instance-${instance.id}").performScrollTo().performClick()
                 ui.onNodeWithText("允许并启动").performClick()
                 await("revoked consent did not finish") { main { !model.launchBusy } }

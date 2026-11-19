@@ -248,7 +248,7 @@ export function activate(ctx){
             receipt = dict(accepted=True, inputs=inputs, commands=commands, **report,
                 binaries={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
                 logs={path.name: sha(path) for path in logs.iterdir()},
-                scope=('owned no-window Android signed pending Session revocation, refused consent, explicit stop and release'
+                scope=('owned no-window Android cross-process revocation of signed pending Sessions and active Runtimes, explicit stop and release'
                     if revocation else 'owned no-window Android Native mixed groups; consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
             (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
             return
