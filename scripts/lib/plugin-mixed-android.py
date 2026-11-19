@@ -56,6 +56,10 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         if revocation:
             gradle += ['-PghostermPluginChannel=fixture', '-PghostermPluginChannelRoot=' + revocation['root'],
                        '-PghostermPluginChannelUrl=https://localhost.invalid/']
+            if mutate:
+                # Compare complete Kotlin outputs across rounds. Incremental
+                # recompiles can reorder metadata in otherwise unchanged classes.
+                gradle += ['-Pkotlin.incremental=false']
         app = source / 'android/app/build/outputs/apk'
         apks = [app / 'debug/app-debug.apk', app / 'androidTest/debug/app-debug-androidTest.apk']
         adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
@@ -75,12 +79,16 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 if digest != sha(apks[i]):
                     raise RuntimeError('installed APK bytes differ')
 
-        def test(label, target=TEST, red=False, extra=()):
+        def test(label, target=TEST, red=False, expected_assertion=None, extra=()):
             _, text = run(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', target, *extra, RUNNER], seconds=300)
             if red:
                 if not junit.normal_junit_assertion(text) or text.count('INSTRUMENTATION_STATUS_CODE: -2\n') != 1 or any(
                     mark in text for mark in ('Process crashed', 'AppNotIdleException', 'TimeoutException', 'INSTRUMENTATION_FAILED', 'AddressSanitizer', 'runtime error:')):
                     raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-10000:])
+                if expected_assertion:
+                    if expected_assertion not in text:
+                        raise RuntimeError(label + ': expected revocation assertion\n' + text[-10000:])
+                    return
                 publication_failed = any(mark in text for mark in (
                     'publish:failed:EXPIRED', 'publish:unknown:RESOURCE_RESULT_UNKNOWN'))
                 rpc_cancelled = 'CANCELLED' in text and 'state=UNKNOWN' in text
@@ -114,7 +122,11 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         if start >= end:
             raise RuntimeError('no listener range outside device ephemeral range')
 
-        def actual(route, label, red=False):
+        def actual(route, label, red=False, expected_assertion=None):
+            if revocation:
+                cleared, _ = run(label + '-reset', [*adb, 'shell', 'pm', 'clear', 'com.hanxi.ghosterm'])
+                if cleared.strip() != b'Success':
+                    raise RuntimeError('could not reset the owned revocation fixture')
             scratch = out / label; scratch.mkdir(); (scratch / 'stage').mkdir()
             remote_stderr = scratch / 'gterm.stderr'
             launcher = scratch / 'gterm'
@@ -165,7 +177,8 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     thread = threading.Thread(target=server.serve_forever); thread.start()
                     try:
                         fixture_port = reverse(server.server_address[1])
-                        test(label, red=red, extra=('-e', 'fixturePort', str(fixture_port), '-e', 'fixtureToken', token))
+                        test(label, red=red, expected_assertion=expected_assertion,
+                            extra=('-e', 'fixturePort', str(fixture_port), '-e', 'fixtureToken', token))
                     except RuntimeError as failure:
                         if remote_stderr.exists():
                             with remote_stderr.open('rb') as diagnostics:
@@ -188,11 +201,6 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         failures = []
         for route in selected_routes or ('direct', 'jump'):
             try:
-                if revocation:
-                    cleared, _ = run('android-' + route + '-reset',
-                        [*adb, 'shell', 'pm', 'clear', 'com.hanxi.ghosterm'])
-                    if cleared.strip() != b'Success':
-                        raise RuntimeError('could not reset the owned revocation fixture')
                 actual(route, 'android-' + route)
             except RuntimeError as failure:
                 failures.append(f'{route}: {failure}')
@@ -201,29 +209,44 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                 print('PASS Android API' + api + ' mixed ' + route, flush=True)
         if failures:
             raise RuntimeError('Android mixed route failures:\n' + '\n'.join(failures))
-        if mutate:
-            filename = 'android/app/src/main/java/com/hanxi/ghosterm/ExtensionController.kt'
-            path = source / filename; original = path.read_bytes(); anchor = b'            parent?.multiplexer?.step()\n'
-            if original.count(anchor) != 2:
-                raise RuntimeError('ambiguous copied Android parent-pump mutation')
-            objects = list((source / 'android/app/build/tmp/kotlin-classes/debug/com/hanxi/ghosterm').glob('ExtensionController*.class'))
+        recipes = [
+            ('android-consent-recheck', 'ExtensionController',
+             b'decision == ExtensionSession.Decision.ALLOW && channelAdmission != null',
+             b'decision == ExtensionSession.Decision.DENY && channelAdmission != null', 1,
+             'revoked consent must not advance the Native Session'),
+            ('android-stop-consent', 'ExtensionPackagesViewModel',
+             b'activeRuntime == null -> requestSessionStop(owner, includePendingConsent = true)',
+             b'activeRuntime == null -> requestSessionStop(owner, includePendingConsent = false)', 1,
+             'revocation stop must request cancellation of pending consent'),
+        ] if revocation else [
+            ('android-parent-pump', 'ExtensionController', b'            parent?.multiplexer?.step()\n', b'', 2, None),
+        ]
+        restored = baseline
+        for label, stem, anchor, replacement, occurrences, assertion in recipes if mutate else []:
+            filename = f'android/app/src/main/java/com/hanxi/ghosterm/{stem}.kt'
+            path = source / filename
+            original = path.read_bytes()
+            if original.count(anchor) != occurrences:
+                raise RuntimeError('ambiguous copied Android mutation: ' + label)
+            compiled = source / 'android/app/build/tmp/kotlin-classes/debug/com/hanxi/ghosterm'
+            objects = list(compiled.glob(stem + '*.class'))
             before = {str(p): sha(p) for p in objects}
             if not before: raise RuntimeError('missing compiled Android worker classes')
             try:
-                path.write_bytes(original.replace(anchor, b'') + b'\n// GT_ANDROID_MIXED_PARENT_PUMP_MUTATION\n')
-                compile_apks('android-parent-pump-build')
+                path.write_bytes(original.replace(anchor, replacement))
+                compile_apks(label + '-build')
                 if not any(p.is_file() and sha(p) != before[str(p)] for p in objects):
                     raise RuntimeError('mutated Kotlin worker did not recompile')
-                install('android-parent-pump')
-                actual('direct', 'android-parent-pump-red', red=True)
-                test('android-parent-pump-control', target=CONTROL)
+                install(label)
+                actual('direct', label + '-red', red=True, expected_assertion=assertion)
+                test(label + '-control', target=CONTROL)
             finally:
                 path.write_bytes(original)
-            restored = compile_apks('android-parent-pump-restored-build')
-            after = {str(p): sha(p) for p in objects[0].parent.glob('ExtensionController*.class')}
+            restored = compile_apks(label + '-restored-build')
+            after = {str(p): sha(p) for p in compiled.glob(stem + '*.class')}
             changed = [Path(name).name for name in sorted(before.keys() | after.keys())
                 if before.get(name) != after.get(name)]
-            (out / 'android-restoration.json').write_text(json.dumps({
+            (out / (label + '-restoration.json')).write_text(json.dumps({
                 'sourceRestored': sha(path) == inputs[filename],
                 'workerClassDifferences': changed,
                 'baselineAPKs': baseline,
@@ -232,11 +255,9 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
             if changed:
                 raise RuntimeError('restored Kotlin worker classes differ from baseline: ' + ', '.join(changed))
             if sha(path) != inputs[filename]: raise RuntimeError('Android worker source restoration mismatch')
-            install('android-parent-pump-restored')
-            actual('direct', 'android-parent-pump-restored')
-            mutations.append('android-parent-pump')
-            print('PASS Android parent-pump: compiled assertion / same APK Core / restore / classes / SHA256', flush=True)
-        else:
-            restored = baseline
+            install(label + '-restored')
+            actual('direct', label + '-restored')
+            mutations.append(label)
+            print('PASS ' + label + ': compiled assertion / same APK Core / restore / classes / SHA256', flush=True)
     return dict(routes=completed, mutations=mutations, devices=devices, actual=records, baselineAPKs=baseline, finalAPKs=restored,
         artifacts={str(p): sha(p) for p in apks})

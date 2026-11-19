@@ -204,7 +204,7 @@ class ExtensionMixedConnectionTest {
                 assertNull(main { model.activeRuntime })
                 assertTrue(main { model.receivedResources.isEmpty() })
                 val stop = runBlocking { withContext(Dispatchers.Main) { extensions.requestStopInstancesWithRevokedPublisher() } }
-                assertEquals(1, stop.requested)
+                assertEquals("revocation stop must request cancellation of pending consent", 1, stop.requested)
                 assertTrue(stop.failures.toString(), stop.failures.isEmpty())
                 await("revoked Session did not stop") {
                     main { !model.launchBusy && model.activeSession?.info?.phase in

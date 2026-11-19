@@ -66,8 +66,8 @@ def main():
     args = parser.parse_args()
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
-    if args.android_revocation and (not args.android_api or args.mutate):
-        parser.error('--android-revocation requires --android-api and runs the dedicated baseline')
+    if args.android_revocation and not args.android_api:
+        parser.error('--android-revocation requires --android-api')
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')

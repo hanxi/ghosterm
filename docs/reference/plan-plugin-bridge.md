@@ -15341,3 +15341,11 @@ Android `test-plugin-mixed-native.py --android-api 36 --android-revocation` 在�
 重置自有 AVD 上的应用数据。最终收据 SHA256
 `72d2a776faa046bbbac8400dd89347f4ba5318dbe384a75aeff44e34ab1992b9`。
 本轮未验证跨进程写入、停止故障或 Android 变异，临时构件、AVD 和 SSH 夹具已清理。
+
+Android API 36 无窗口 `--android-revocation --mutate` 的直连、两跳基线与两组
+变异同轮通过。绕过授权复核使会话由 CONSENT 错误进入 ACTIVE；排除待授权
+Session 的显式撤销停止使请求计数由 1 变成 0。每组重编后目标为正常断言红，
+同 APK Core 配置对照、恢复直连、源码 SHA256 与 Kotlin 类全量比对通过。
+首轮恢复时两个 Kotlin 嵌套类摘要漂移，未计整轮通过；复跑关闭 Kotlin 增量
+编译后收据 SHA256 为 `f15ab9ca781125d9f61503e74f125fa0ebd6c5b97e7a3fa2b9c8b0b29f1b1b41`。
+未复跑旧父通道推进变异；跨进程撤销和真实停止故障仍待验收。临时构件和 AVD 已清理。
