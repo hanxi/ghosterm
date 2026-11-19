@@ -6,6 +6,8 @@ catalogs, hosts, terminals, model calls or GUI windows are used.
 """
 import argparse
 import base64
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 import json
@@ -741,6 +743,43 @@ def clean_error(function, path, info):
     function(path)
 
 
+def exercise_official_sessions(build, cases, denied):
+    with ExitStack() as owners:
+        ready = []
+        for name, invocation, launch_env, endpoint, host_args, host_env, resource_store in cases:
+            if resource_store:
+                resource_store.mkdir(mode=0o700, exist_ok=True)
+            frontend = owners.enter_context(subprocess.Popen([build / 'gterm', *invocation],
+                env=launch_env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+            owners.callback(ipc.terminate, frontend)
+            permit = endpoint / 'permit'
+            ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
+                     f'{name}: ready for signed Host')
+            require(frontend.poll() is None, f'{name}: signed command must await Host')
+            attached_env = dict(host_env, GT_GTERM_FIXTURE_ATTACH_INSTANCE=permit.read_bytes()[8:24].hex())
+            if denied:
+                attached_env['GT_GTERM_FIXTURE_DENY'] = '1'
+            ready.append((name, endpoint, host_args, attached_env, frontend))
+        require(len({env['GT_GTERM_FIXTURE_ATTACH_INSTANCE'] for _, _, _, env, _ in ready}) == len(cases),
+                'simultaneous signed commands must have distinct instances')
+
+        def exercise(entry):
+            name, endpoint, host_args, env, frontend = entry
+            result = subprocess.run([build / 'test_gterm_stdio', *host_args], env=env,
+                                    capture_output=True, timeout=30)
+            _, _, _, host_mode, *_ = host_args
+            require(result.returncode == 0 and f'PASS stdio {host_mode}'.encode() in result.stdout,
+                    f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
+            output, diagnostics = frontend.communicate(timeout=6)
+            require(frontend.returncode == (6 if denied else 0),
+                    f'{name}: ordinary command must preserve Host decision: '
+                    f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
+            require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
+
+        with ThreadPoolExecutor(max_workers=len(ready)) as executor:
+            list(executor.map(exercise, ready))
+
+
 def install_official_candidates(build, fixtures, work):
     env = {key: value for key, value in os.environ.items() if not key.startswith(('GTERM_', 'GT_GTERM_'))}
     env['TMPDIR'] = str(work)
@@ -754,6 +793,7 @@ def install_official_candidates(build, fixtures, work):
     store.mkdir(mode=0o700)
     catalog_record = catalog / 'executor-catalog-v1'
     registered_digests = {}
+    sessions = []
     for revision, name in enumerate(names):
         previous = catalog_record.read_bytes() if catalog_record.exists() else None
         bundle = fixtures / f'official-{name}-release'
@@ -880,47 +920,28 @@ def install_official_candidates(build, fixtures, work):
                 require(not list(endpoint.iterdir()), f'{name}: rejected attachment must clean the IPC endpoint')
             finally:
                 ipc.terminate(frontend)
-        if name in ('preview', 'table', 'task', 'diff', 'views', 'ai-claude', 'ai-codex'):
-            host_arguments = [{'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page', 'views': 'views-beta',
-                               'ai-claude': 'claude-status', 'ai-codex': 'codex-thread'}.get(name)]
-            if name == 'preview':
-                site = workspace / 'site'
-                site.mkdir()
-                (site / 'index.md').write_text('# Preview runtime fixture\n')
-                (site / 'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
-                resource_store = work / 'preview-host-resources'
-                host_arguments = ['preview', workspace, resource_store]
-            policy.write_bytes(trusted)
-            for denied in (True, False):
-                if name == 'preview':
-                    resource_store.mkdir(mode=0o700, exist_ok=True)
-                with subprocess.Popen([build / 'gterm', *invocation], env=launch_env, stdin=subprocess.DEVNULL,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
-                    try:
-                        ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
-                                 f'{name}: ready for signed Host')
-                        require(frontend.poll() is None, f'{name}: signed command must await Host')
-                        instance = permit.read_bytes()[8:24].hex()
-                        host_env = dict(launch_env, GT_GTERM_FIXTURE_ATTACH=str(endpoint),
-                                        GT_GTERM_FIXTURE_ATTACH_INSTANCE=instance, GT_GTERM_FIXTURE_CLIENT_DIGEST=digest,
-                                        GT_GTERM_FIXTURE_PLUGIN_VERSION=manifest['pluginVersion'],
-                                        GT_GTERM_FIXTURE_PLUGIN_ID=manifest['id'])
-                        if denied:
-                            host_env['GT_GTERM_FIXTURE_DENY'] = '1'
-                        result = subprocess.run([build / 'test_gterm_stdio', build / 'gterm', payload, digest,
-                            *host_arguments], env=host_env, capture_output=True, timeout=30)
-                        require(result.returncode == 0 and f'PASS stdio {host_arguments[0]}'.encode() in result.stdout,
-                                f'{name}: signed Host session failed: {result.stdout!r} {result.stderr!r}')
-                        output, diagnostics = frontend.communicate(timeout=6)
-                        expected_exit = 6 if denied else 0
-                        require(frontend.returncode == expected_exit,
-                                f'{name}: ordinary command must preserve Host decision: '
-                                f'exit={frontend.returncode}, {output!r} {diagnostics!r}')
-                    finally:
-                        ipc.terminate(frontend)
-                require(not list(endpoint.iterdir()), f'{name}: signed session must clean its IPC endpoint')
-            print('PASS signed Host consent and runtime', name, flush=True)
+        host_modes = {'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page',
+                      'views': 'views-beta', 'ai-claude': 'claude-status', 'ai-codex': 'codex-thread'}
+        resource_store = None
+        if name == 'preview':
+            site = workspace / 'site'
+            site.mkdir()
+            (site / 'index.md').write_text('# Preview runtime fixture\n')
+            (site / 'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
+            resource_store = work / 'preview-host-resources'
+            mode_arguments = ['preview', workspace, resource_store]
+        else:
+            mode_arguments = [host_modes[name]]
+        policy.write_bytes(trusted)
+        host_env = dict(launch_env, GT_GTERM_FIXTURE_ATTACH=str(endpoint), GT_GTERM_FIXTURE_CLIENT_DIGEST=digest,
+                        GT_GTERM_FIXTURE_PLUGIN_VERSION=manifest['pluginVersion'], GT_GTERM_FIXTURE_PLUGIN_ID=manifest['id'])
+        sessions.append((name, invocation, launch_env, endpoint,
+                         [build / 'gterm', payload, digest, *mode_arguments], host_env, resource_store))
         print('PASS official gterm install, register and dispatch', name, flush=True)
+
+    for denied in (True, False):
+        exercise_official_sessions(build, sessions, denied)
+        print('PASS concurrent signed Hosts', 'denied' if denied else 'allowed', len(sessions), flush=True)
 
 
 def main():
