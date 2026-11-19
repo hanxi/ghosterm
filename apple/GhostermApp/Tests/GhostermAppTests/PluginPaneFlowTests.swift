@@ -220,7 +220,10 @@ final class PluginPaneFlowTests: XCTestCase {
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model, packagePicker: { completion in
             selections += 1
             if selections == 1 { completion(.failure(CocoaError(.userCancelled))) }
-            else { completion(.success([package])) }
+            else {
+                completion(.success([package]))
+                completion(.failure(CocoaError(.fileReadNoSuchFile)))
+            }
         }))
         let window = PluginTableWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 1400),
                                        styleMask: [.borderless], backing: .buffered, defer: false)
@@ -281,6 +284,7 @@ final class PluginPaneFlowTests: XCTestCase {
         try press("plugin-package-import")
         guard try await until({ node("plugin-approve-" + id) != nil }) else { XCTFail("directory selection callback did not review selected package"); return }
         XCTAssertEqual(selections, 2)
+        XCTAssertNil(node("plugin-package-issue"), "a second picker callback must not overwrite an active review")
         let digest = SHA256.hash(data: try Data(contentsOf: package.appendingPathComponent("integrity.json")))
             .map { String(format: "%02x", $0) }.joined()
         XCTAssertTrue(hasText(digest), "review must display the exact immutable package digest")

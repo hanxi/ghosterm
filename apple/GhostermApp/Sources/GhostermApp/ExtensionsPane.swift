@@ -438,10 +438,12 @@ struct ExtensionsPane: View {
     }
 
     private func selectedPackage(_ result: Result<[URL], Error>) {
+        guard !reviewingPackage else { return }
         switch result {
         case .success(let urls):
-            guard let url = urls.first, !reviewingPackage else { return }
+            guard let url = urls.first else { return }
             reviewingPackage = true
+            issue = nil
             Task {
                 defer { reviewingPackage = false }
                 await review(url)
@@ -498,7 +500,6 @@ struct ExtensionsPane: View {
 
     private func review(_ url: URL) async {
         guard let controller = model.extensionController else { return }
-        issue = nil
         do {
             let value = try await controller.review(directory: url)
             guard !entries.contains(where: { $0.id == value.id + ":" + value.digest }) else { return }
