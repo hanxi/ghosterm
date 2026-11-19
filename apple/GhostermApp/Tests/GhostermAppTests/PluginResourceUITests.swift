@@ -119,8 +119,12 @@ final class PluginResourceUITests: XCTestCase {
                             bytes: Data("<link rel='stylesheet' href='style.css'><img src='logo.png'>".utf8))
         let css = resource("css", path: "site/style.css", mime: "text/css", bytes: Data("body{color:red}".utf8))
         let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: try solidRedPNG())
-        let model = ResourceBrowserHarnessModel(resources: [main, css])
-        model.selection.reconcile([main.resourceID, css.resourceID])
+        let second = resource("second", path: "other/index.html", mime: "text/html",
+                              bytes: Data("<link rel='stylesheet' href='style.css'>".utf8))
+        let secondCSS = resource("second-css", path: "other/style.css", mime: "text/css",
+                                 bytes: Data("body{color:blue}".utf8))
+        let model = ResourceBrowserHarnessModel(resources: [main, css, second, secondCSS])
+        model.selection.reconcile(model.resources.map(\.resourceID))
         let host = NSHostingView(rootView: ResourceBrowserHarness(model: model))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 900),
                               styleMask: .borderless, backing: .buffered, defer: false)
@@ -149,6 +153,29 @@ final class PluginResourceUITests: XCTestCase {
         let after = CapturedSchemeTask(request: request); handler.webView(first, start: after)
         XCTAssertTrue(returned != nil && first.navigationDelegate == nil && after.error != nil && after.data.isEmpty,
                       "prepared attachment changes must replace and revoke the previous HTML view")
+        let prepared = try XCTUnwrap(returned)
+        let preparedHandler = try XCTUnwrap(prepared.configuration.urlSchemeHandler(
+            forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler)
+        model.selection.select(second.resourceID, available: model.resources.map(\.resourceID))
+        let replacement = try await waitForView(otherThan: prepared)
+        let selectedWebView = try XCTUnwrap(replacement)
+        let selectedHandler = try XCTUnwrap(selectedWebView.configuration.urlSchemeHandler(
+            forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler)
+        let revoked = CapturedSchemeTask(request: request)
+        preparedHandler.webView(prepared, start: revoked)
+        XCTAssertNotNil(revoked.error)
+        XCTAssertTrue(revoked.data.isEmpty)
+        XCTAssertNil(prepared.navigationDelegate)
+        let outOfScope = CapturedSchemeTask(request: request)
+        selectedHandler.webView(selectedWebView, start: outOfScope)
+        XCTAssertNotNil(outOfScope.error)
+        XCTAssertTrue(outOfScope.data.isEmpty)
+        let selectedRequest = URLRequest(url: try XCTUnwrap(
+            PluginResourceHTMLAssetResolver.documentURL(secondCSS.displayName)))
+        let allowed = CapturedSchemeTask(request: selectedRequest)
+        selectedHandler.webView(selectedWebView, start: allowed)
+        XCTAssertEqual(allowed.data, secondCSS.bytes)
+
         model.resources = []
         for _ in 0..<100 where web(host) != nil { try await Task.sleep(for: .milliseconds(25)) }
         XCTAssertNil(web(host))
