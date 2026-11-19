@@ -15754,3 +15754,11 @@ P3 Android 线程回执由 Host 解码器统一验证。API 36 无窗口的 11 �
 测试通过，确认拒绝缺失、null、数字、布尔、空白和超长值，并接受正好
 128 UTF-8 字节的多字节 ID。QuickJS Debug／测试 APK 构建通过；本轮使用
 本地 JSON 夹具，未从 SSH 注入非法回执。临时构件和 AVD 已清理。
+
+固定 `780fb7a9` 后台复验官方对话候选包。Codex 0.166.0 生成协议架构
+对拍通过，35 项协议用例包含真实 CLI 的本地 initialize 与 thread/start。
+两包以锁定开发工具在隔离目录重建后逐文件复核；Codex Executor 入口和 Claude
+14 项桥接用例通过。完整性清单 SHA256 分别为
+`6a0fc04e9936c74f91d41027b6649c05aaa50f20dbfba5eec02b2c52f0c18b0a` 和
+`c7ce14dcdb684b40dac8196c3f9f33d4ba7e2e03bf935ed2d391cb4a4fab6844`。
+本轮没有发送真实模型回合、安装或发布，临时包和日志已清理。
