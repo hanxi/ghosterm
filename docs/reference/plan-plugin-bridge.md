@@ -15501,3 +15501,11 @@ P1 Android 新增 `mutation-check-osc52.py --platform android --headless-api 36
 JNI 摘要 `16bcbe8d2f149cf689185c8aeb2f41ff77f93a319c8d1bcb1e621dc510d0975c`。
 本轮覆盖 JS-on 本地 PTY 接线，未重跑 OSC 52 变异、JS-off 或 SSH Canvas。
 临时副本、APK 和 AVD 已清理。
+
+P1 macOS `mutation-check-osc52.py --platform apple --case discovery-feed` 离屏通过。
+真实普通 PTY 同轮输出普通控制串内的候选与独立顶层候选，网格绘制通过，只保留
+真实顶层候选及所属 pane，未启动插件。移除接线输入后实际重编，普通终端标记
+出现而候选未到达，触发具名单条正常断言；独立配置对照、恢复与源码 SHA256
+`0779503d3412e9209ab7bc1340619a8a3506306e99233222ec2cd88ac56b78ac` 通过。
+首轮网格首行精确匹配失败，改用回显中不存在的分段标记后通过。本轮未跑
+JS-off、真实桌面焦点或系统剪贴板，临时副本和构件已清理。

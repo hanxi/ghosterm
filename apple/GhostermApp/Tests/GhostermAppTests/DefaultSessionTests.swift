@@ -34,6 +34,36 @@ import XCTest
         try await until { processes.allSatisfy { Darwin.kill($0, 0) == -1 && errno == ESRCH } }
         XCTAssertTrue(panes.allSatisfy { !$0.isRunning })
     }
+    func testPassiveDiscoveryKeepsOrdinaryPTYOutput() async throws {
+        _ = NSApplication.shared
+        let model = isolatedAppModel(); defer { model.disconnectForTesting() }
+        model.preferences.defaultShell = "/bin/sh"
+        model.connect(to: .localShell)
+        let pane = try XCTUnwrap(model.activePane)
+        let surface = try XCTUnwrap(pane.surface)
+        surface.sendCommittedText("stty -echo; PS1=''; printf '\\033[2J\\033[HPTY_%s' READY\r")
+        try await until { surface.readText()?.contains("PTY_READY") == true }
+        let payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+        var nested = try XCTUnwrap(Data(base64Encoded: payload))
+        nested.replaceSubrange(0..<16, with: Data(repeating: 0x22, count: 16))
+        let nestedOffer = "\\033]777;ghosterm-discovery;1;\(nested.base64EncodedString())\\007"
+        let offer = "\\033]777;ghosterm-discovery;1;\(payload)\\007"
+        surface.sendCommittedText("printf '%b%s' '\\033P\(nestedOffer)\\033\\0134\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
+        try await until { surface.readText()?.contains("PTY_OUTPUT") == true }
+        guard ExtensionRuntime.supportStatus == 0 else {
+            XCTAssertTrue(model.frontendCandidates.isEmpty)
+            return
+        }
+        let deadline = ProcessInfo.processInfo.systemUptime + 8
+        while model.frontendCandidates.isEmpty, ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(model.frontendCandidates.isEmpty, "top-level discovery must arrive after ordinary PTY output")
+        guard !model.frontendCandidates.isEmpty else { return }
+        XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)])
+        XCTAssertEqual(model.frontendCandidates.first?.sourceID, pane.id)
+        XCTAssertNil(model.extensionRun)
+    }
     func testStartupIsIdempotentAndDoesNotRestoreOldSessions() async throws {
         _ = NSApplication.shared
         let model = isolatedAppModel(); defer { model.disconnectForTesting() }

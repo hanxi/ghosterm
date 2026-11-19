@@ -26,12 +26,12 @@ def main():
     parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
     discovery = 'discovery-feed' in (args.case or ())
-    if discovery and (args.platform != 'android' or not args.headless_api or args.case != ['discovery-feed']):
-        parser.error('discovery-feed requires Android, --headless-api and no other case')
-    if args.headless_api and not discovery:
-        parser.error('--headless-api currently supports the discovery-feed case')
+    if discovery and (args.case != ['discovery-feed'] or (args.platform == 'android' and not args.headless_api)):
+        parser.error('discovery-feed runs alone and requires --headless-api on Android')
+    if args.headless_api and (not discovery or args.platform != 'android'):
+        parser.error('--headless-api supports only Android discovery-feed')
     device = nullcontext(None)
-    if discovery:
+    if args.headless_api:
         spec = importlib.util.spec_from_file_location('osc52_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
         helper = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(helper)
@@ -50,7 +50,39 @@ def verify(parser, args, work, owned_serial=None):
         (work / f'{label}.log').write_text(result.stdout)
         return result
 
-    if args.platform == 'apple':
+    if args.platform == 'apple' and args.case == ['discovery-feed']:
+        for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
+            shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
+                            ignore=shutil.ignore_patterns('.build', '.swiftpm'))
+        for directory in ('build', 'patches'):
+            (work / directory).symlink_to(ROOT / directory, target_is_directory=True)
+        (work / 'core').mkdir()
+        (work / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
+        (work / 'tmp').mkdir()
+        relative = 'apple/GhostermApp/Sources/GhostermAppModel/SessionController.swift'
+        source = work / relative
+        env.update(DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+        tests = {'discovery-feed': (
+            'try bytes.withUnsafeBytes { try observer.feed($0, now:',
+            'try Data().withUnsafeBytes { try observer.feed($0, now:', 'testPassiveDiscoveryKeepsOrdinaryPTYOutput')}
+        def build(label):
+            if label != 'baseline': return
+            directory = work / 'core/build'
+            for command in (['cmake', '-S', str(ROOT / 'core'), '-B', str(directory), '-DGHOSTERM_BUILD_TESTS=OFF',
+                             '-DGHOSTERM_WITH_PLUGIN_JS=ON', '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0'],
+                            ['cmake', '--build', str(directory), '--target', 'ghosterm_core', '-j', '8']):
+                result = run(command, 'core-' + command[1].lstrip('-'), env)
+                if result.returncode: raise RuntimeError(result.stdout[-12000:])
+        def probe(test, label, red=False):
+            name = 'HostListTests.testReadingDoesNotMutateConfig' if test == 'control' else 'DefaultSessionTests.' + test
+            result = run(['xcrun', 'swift', 'test', '--package-path', work / 'apple/GhostermApp', '--filter', name], label, env)
+            text = result.stdout
+            success = result.returncode == 0 and 'Executed 1 test, with 0 failures' in text and 'skipped' not in text.lower()
+            assertion = (result.returncode == 1 and 'Build complete!' in text and
+                         'Executed 1 test, with 1 failure (0 unexpected)' in text and
+                         'top-level discovery must arrive after ordinary PTY output' in text)
+            if not (assertion if red else success): raise RuntimeError(f'{label}:\n{text[-12000:]}')
+    elif args.platform == 'apple':
         package = work / 'apple/GhostermTerminal'
         shutil.copytree(ROOT / 'apple/GhostermTerminal', package, symlinks=True,
                         ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -182,7 +214,7 @@ def verify(parser, args, work, owned_serial=None):
             probe('control', name+'-control')
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            if owned_serial:
+            if args.case == ['discovery-feed']:
                 assert (ROOT / relative).read_bytes() == original
             build(name+'-restored')
             probe(target, name+'-restored')
