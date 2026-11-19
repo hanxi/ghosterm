@@ -33,22 +33,25 @@ class ExtensionMixedConnectionTest {
         var result: T? = null; instrumentation.runOnMainSync { result = block() }
         @Suppress("UNCHECKED_CAST") return result as T
     }
-    private fun await(label: String, predicate: () -> Boolean) {
-        val end = SystemClock.elapsedRealtime() + 20000
+    private fun await(label: String, timeoutMs: Long = 20_000, predicate: () -> Boolean) {
+        val end = SystemClock.elapsedRealtime() + timeoutMs
         while (!predicate() && SystemClock.elapsedRealtime() < end) SystemClock.sleep(20)
         assertTrue(label, predicate())
     }
     private fun echo(model: ExtensionPackagesViewModel, text: String, slot: Int) {
         val owner = checkNotNull(model.controller)
         val started = SystemClock.elapsedRealtime()
+        // Publication has its own 10 s limit. Match the UI's outer RPC budget
+        // for this call so the executor can still report a publication failure.
+        val rpcTimeoutMs = if (text == "resource") 30_000 else 10_000
         val admission = try { runBlocking { owner.requestRuntimeExecutor("fixture.echo",
-            JSONObject().put("text", text).put("count", slot).toString().toByteArray(), 10000) } }
+            JSONObject().put("text", text).put("count", slot).toString().toByteArray(), rpcTimeoutMs) } }
         catch (failure: IllegalArgumentException) {
             val observed = runCatching { runBlocking { owner.stepRuntime().info } }.getOrNull()
             throw AssertionError("RPC admission $text/$slot: cached=${main { model.activeRuntime?.info }} observed=$observed issue=${main { model.error }}", failure)
         }
         val handle = checkNotNull(admission.handle)
-        await("RPC $text/$slot: ${main { model.error }}") {
+        await("RPC $text/$slot: ${main { model.error }}", timeoutMs = rpcTimeoutMs + 5_000L) {
             runBlocking { owner.runtimeExecutorRequestResult(handle).second?.confirmed == true }
         }
         val result = checkNotNull(runBlocking { owner.runtimeExecutorRequestResult(handle).second })
@@ -60,7 +63,9 @@ class ExtensionMixedConnectionTest {
                 "state=${result.state} elapsedMs=$elapsed cached=$cached observed=$observed")
         }
         val value = JSONObject(result.outcome.toString(Charsets.UTF_8)).getJSONObject("value")
-        assertEquals(text, value.getString("text")); assertEquals(slot, value.getInt("count"))
+        assertEquals("RPC $text/$slot: elapsedMs=${SystemClock.elapsedRealtime() - started}",
+            text, value.getString("text"))
+        assertEquals(slot, value.getInt("count"))
         assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { owner.forgetRuntimeExecutorRequest(handle) })
     }
     private fun resource(model: ExtensionPackagesViewModel, slot: Int) {
