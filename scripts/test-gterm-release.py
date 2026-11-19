@@ -751,7 +751,8 @@ def install_official_candidates(build, fixtures, work):
     for name in names:
         bundle = fixtures / f'official-{name}-release'
         artifact, descriptor, signature = (bundle / member for member in ('plugin.zip', 'release.json', 'release.sig'))
-        policy = fixtures / f'official-{name}-policy.json'
+        policy = work / f'{name}-policy.json'
+        shutil.copyfile(fixtures / f'official-{name}-policy.json', policy)
         catalog, store = work / f'{name}-catalog', work / f'{name}-store'
         catalog.mkdir(mode=0o700)
         store.mkdir(mode=0o700)
@@ -779,7 +780,32 @@ def install_official_candidates(build, fixtures, work):
         require(registration.returncode == 0 and registered.get('committed') is True
                 and registered.get('publisherAuthenticated') is True,
                 f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
-        print('PASS official gterm install and register', name, flush=True)
+        manifest = json.loads(expected['plugin.json'])
+        command = manifest['commands'][0]['path']
+        if name == 'preview':
+            command = [*command, 'sample.txt']
+        endpoint = work / f'{name}-ipc'
+        endpoint.mkdir(mode=0o700)
+        launch_env = dict(env, GTERM_CATALOG=str(catalog), GTERM_ENDPOINT=str(endpoint))
+        trusted = policy.read_bytes()
+        policy.write_bytes(trusted + b'\n')
+        refused = subprocess.run([build / 'gterm', *command], env=launch_env,
+                                 capture_output=True, timeout=10)
+        require(refused.returncode == 9 and not list(endpoint.iterdir()),
+                f'{name}: changed trust must refuse before listening: {refused.stderr!r}')
+        policy.write_bytes(trusted)
+        with subprocess.Popen([build / 'gterm', *command], env=launch_env, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
+            try:
+                permit = endpoint / 'permit'
+                ipc.wait(lambda: (permit.exists() and permit.stat().st_size == 56) or frontend.poll() is not None,
+                         f'{name}: signed ordinary command')
+                if frontend.poll() is not None:
+                    output, diagnostics = frontend.communicate()
+                    raise AssertionError(f'{name}: ordinary command exited {frontend.returncode}: {output!r} {diagnostics!r}')
+            finally:
+                ipc.terminate(frontend)
+        print('PASS official gterm install, register and dispatch', name, flush=True)
 
 
 def main():
