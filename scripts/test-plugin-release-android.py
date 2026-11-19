@@ -75,6 +75,13 @@ def headless(api, work, environment):
                 port = candidate; break
         except OSError: continue
     if port is None: raise RuntimeError('No unused AVD console/ADB port pair')
+    if (image / 'data/empty_data_disk').is_file():
+        # The SDK image ships no initial userdata. Seed an isolated sparse
+        # filesystem so the emulator need not reserve its default 8 GiB.
+        data = avd / 'userdata-qemu.img'
+        with data.open('xb') as disk:
+            disk.truncate(2 * 1024**3)
+        run([sdk / 'emulator/bin64/mkfs.ext4', '-F', '-E', 'nodiscard', data], environment, 30)
     with (work / 'emulator.log').open('w+') as log:
         child = subprocess.Popen([sdk / 'emulator/emulator', '-avd', 'release', '-port', str(port),
             '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot', '-no-metrics',
