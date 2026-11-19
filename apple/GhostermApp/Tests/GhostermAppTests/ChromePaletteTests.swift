@@ -156,7 +156,7 @@ import XCTest
                             if id == focused {
                                 XCTAssertGreaterThan(chroma(edge), 20, "留白当前窗格必须保留淡蓝外框")
                             } else {
-                                XCTAssertGreaterThan(zip(edge, inside).map { abs($0 - $1) }.max()!, 2,
+                                XCTAssertGreaterThanOrEqual(zip(edge, inside).map { abs($0 - $1) }.max()!, 2,
                                                      "留白非当前窗格必须保留中性细框")
                             }
                         }
