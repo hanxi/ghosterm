@@ -811,6 +811,17 @@ def install_official_candidates(build, fixtures, work):
                     output, diagnostics = frontend.communicate()
                     raise AssertionError(f'{name}: ordinary command exited {frontend.returncode}: {output!r} {diagnostics!r}')
                 instance = permit.read_bytes()[8:24].hex()
+                inspection = subprocess.run([build / 'gterm', 'relay', '--inspect', endpoint, '--instance', instance],
+                    input=b'', capture_output=True, env=launch_env, timeout=10)
+                require(inspection.returncode == 0, f'{name}: signed foreground inspection: {inspection.stderr!r}')
+                declaration = json.loads(inspection.stdout)
+                digest = release.sha(expected['integrity.json'])
+                require(declaration['instance'] == instance and declaration['command'] == ' '.join(command)
+                        and declaration['arguments'] == arguments and declaration['executorDigest'] == digest
+                        and declaration['clientDigest'] == digest and declaration['authorizationGranted'] is False,
+                        f'{name}: inspection must bind the instance and declaration without granting authority')
+                require(frontend.poll() is None and permit.exists(),
+                        f'{name}: inspection must leave the ordinary command available for attachment')
                 policy.write_bytes(trusted + b'\n')
                 attached = subprocess.run([build / 'gterm', 'relay', '--attach', endpoint, '--instance', instance,
                     '--', ' '.join(command), *arguments], input=b'', capture_output=True, env=launch_env, timeout=10)
