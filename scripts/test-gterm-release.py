@@ -772,9 +772,16 @@ def install_official_candidates(build, fixtures, work):
                     for path in payload.rglob('*') if path.is_file()}
         require(observed == expected, f'{name}: installed payload must match signed archive')
         require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
+        profile = ['--client-digest', release.sha(expected['integrity.json'])]
+        if name in ('preview', 'ai-codex', 'ai-claude'):
+            profile.extend(['--root', 'workspace', work])
+        if name in ('ai-codex', 'ai-claude'):
+            program = 'codex' if name == 'ai-codex' else 'claude-node'
+            inert = Path('/usr/bin/false').resolve(strict=True)
+            profile.extend(['--process-program', program, inert, 'fixture-inert', release.sha(inert.read_bytes())])
         registration = subprocess.run([build / 'gterm', 'plugin', 'register-signed', '--catalog', catalog,
             '--expect-revision', '0', '--policy', policy, '--host-json', host, '--', payload.parent,
-            '--client-digest', release.sha(expected['integrity.json'])],
+            *profile],
             env=env, capture_output=True, timeout=15)
         registered = json.loads(registration.stdout)
         require(registration.returncode == 0 and registered.get('committed') is True
@@ -782,19 +789,19 @@ def install_official_candidates(build, fixtures, work):
                 f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
         manifest = json.loads(expected['plugin.json'])
         command = manifest['commands'][0]['path']
-        if name == 'preview':
-            command = [*command, 'sample.txt']
+        arguments = ['sample.txt'] if name == 'preview' else []
+        invocation = [*command, *arguments]
         endpoint = work / f'{name}-ipc'
         endpoint.mkdir(mode=0o700)
         launch_env = dict(env, GTERM_CATALOG=str(catalog), GTERM_ENDPOINT=str(endpoint))
         trusted = policy.read_bytes()
         policy.write_bytes(trusted + b'\n')
-        refused = subprocess.run([build / 'gterm', *command], env=launch_env,
+        refused = subprocess.run([build / 'gterm', *invocation], env=launch_env,
                                  capture_output=True, timeout=10)
         require(refused.returncode == 9 and not list(endpoint.iterdir()),
                 f'{name}: changed trust must refuse before listening: {refused.stderr!r}')
         policy.write_bytes(trusted)
-        with subprocess.Popen([build / 'gterm', *command], env=launch_env, stdin=subprocess.DEVNULL,
+        with subprocess.Popen([build / 'gterm', *invocation], env=launch_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE) as frontend:
             try:
                 permit = endpoint / 'permit'
@@ -803,6 +810,16 @@ def install_official_candidates(build, fixtures, work):
                 if frontend.poll() is not None:
                     output, diagnostics = frontend.communicate()
                     raise AssertionError(f'{name}: ordinary command exited {frontend.returncode}: {output!r} {diagnostics!r}')
+                instance = permit.read_bytes()[8:24].hex()
+                policy.write_bytes(trusted + b'\n')
+                attached = subprocess.run([build / 'gterm', 'relay', '--attach', endpoint, '--instance', instance,
+                    '--', ' '.join(command), *arguments], input=b'', capture_output=True, env=launch_env, timeout=10)
+                status = frontend.wait(timeout=6)
+                diagnostics = frontend.stderr.read()
+                require(status == 9 and not attached.stdout,
+                        f'{name}: changed trust must reject attachment: frontend={status}, '
+                        f'attacher={attached.returncode}, {diagnostics!r} {attached.stdout!r} {attached.stderr!r}')
+                require(not list(endpoint.iterdir()), f'{name}: rejected attachment must clean the IPC endpoint')
             finally:
                 ipc.terminate(frontend)
         print('PASS official gterm install, register and dispatch', name, flush=True)
