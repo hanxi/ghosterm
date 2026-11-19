@@ -15141,3 +15141,8 @@ app-server 夹具完成初始化和 `codex.thread.start`，真实 RPC 返回
 `thread-fixture`。七个官方包现均有签名安装、显式登记、策略复查和批准后
 业务 RPC 或资源证据。七包及既有往返同轮后台通过，临时构建和进程已清理。
 Codex 此轮为协议夹具、Claude 为状态 RPC，正式发行和真实模型组合仍待验收。
+
+签名 Views 的普通命令在真实 Host 批准和 Beta 分页后发起 `views.reopen`。
+Executor 经同一会话调用 `views.client.open`，Host 核对 beta 参数后返回
+`opened=true`，原请求收到确认。七包签名组合与既有 host-method 对照均在
+后台通过，临时文件已清理。本轮由 C Host 夹具确认协议，原生界面呈现另验。

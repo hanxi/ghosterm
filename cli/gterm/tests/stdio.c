@@ -498,7 +498,7 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "peer-digest")) {
         strcpy(c.client_digest, package_digest);
     }
-    gt_ext_rpc_method_t methods[2] = {{.method = "fixture.echo",
+    gt_ext_rpc_method_t methods[4] = {{.method = "fixture.echo",
                                        .capability = "session.rpc",
                                        .receiver = GT_EXT_EXECUTOR,
                                        .input_shape = GT_EXT_JSON_OBJECT,
@@ -520,6 +520,15 @@ int main(int argc, char **argv) {
     }
     if (claude || codex) {
         strcpy(methods[0].method, claude ? "claude.status" : "codex.thread.start");
+    }
+    bool view_reopen = false;
+    if (views) {
+        methods[2] = methods[0];
+        strcpy(methods[2].method, "views.reopen");
+        methods[3] = methods[0];
+        strcpy(methods[3].method, "views.client.open");
+        methods[3].receiver = GT_EXT_HOST;
+        method_count += 2;
     }
     bool view_read = false;
     if (!strcmp(mode, "host-method")) {
@@ -659,19 +668,25 @@ int main(int argc, char **argv) {
             }
         }
         if (info.phase == GT_EXT_SESSION_ACTIVE && !host_method_confirmed &&
-            !strcmp(mode, "host-method")) {
+            (!strcmp(mode, "host-method") || view_reopen)) {
             gt_ext_rpc_request_t request;
             gt_ext_rpc_status_t request_status =
                 gt_ext_session_take_request(session, &lease, &request);
             CHECK(request_status == GT_EXT_RPC_WAIT || request_status == GT_EXT_RPC_OK);
             if (request_status == GT_EXT_RPC_OK) {
-                CHECK(!strcmp(request.method, "fixture.ask"));
+                CHECK(!strcmp(request.method, views ? "views.client.open" : "fixture.ask"));
+                if (views) {
+                    const char beta[] = "{\"viewId\":\"beta\"}";
+                    CHECK(request.input_size == sizeof(beta) - 1 &&
+                          !memcmp(request.input, beta, sizeof(beta) - 1));
+                }
                 char outcome[GT_EXT_RPC_BODY_MAX + 1];
-                int size = snprintf(outcome,
-                                    sizeof(outcome),
-                                    "{\"kind\":\"success\",\"value\":%.*s}",
-                                    (int)request.input_size,
-                                    request.input);
+                int size =
+                    snprintf(outcome,
+                             sizeof(outcome),
+                             "{\"kind\":\"success\",\"value\":%.*s}",
+                             views ? (int)strlen("{\"opened\":true}") : (int)request.input_size,
+                             views ? "{\"opened\":true}" : request.input);
                 CHECK(size > 0 && (size_t)size < sizeof(outcome));
                 CHECK(gt_ext_session_respond(
                           session, &lease, request.ticket, outcome, (size_t)size) == GT_EXT_RPC_OK);
@@ -739,6 +754,8 @@ int main(int argc, char **argv) {
                                             : strstr(result.outcome, "Count primes") &&
                                                   strstr(result.outcome, "\"cancellable\":true"));
                     }
+                } else if (view_reopen) {
+                    valid = host_method_confirmed && strstr(result.outcome, "\"opened\":true");
                 } else if (views) {
                     valid = strstr(result.outcome, "\"viewId\":\"beta\"") &&
                             strstr(result.outcome, "\"offset\":4") &&
@@ -777,6 +794,19 @@ int main(int argc, char **argv) {
                                                  &handle) == GT_EXT_RPC_OK &&
                           handle);
                     view_read = true;
+                    continue;
+                }
+                if (views && !view_reopen) {
+                    const char input[] = "{\"viewId\":\"beta\"}";
+                    CHECK(gt_ext_session_request(session,
+                                                 &lease,
+                                                 methods[2].method,
+                                                 input,
+                                                 sizeof(input) - 1,
+                                                 5000,
+                                                 &handle) == GT_EXT_RPC_OK &&
+                          handle);
+                    view_reopen = true;
                     continue;
                 }
                 confirmed = true;

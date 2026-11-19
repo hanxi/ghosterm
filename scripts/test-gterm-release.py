@@ -781,7 +781,8 @@ def install_official_candidates(build, fixtures, work):
         if name == 'diff':
             profile.extend(['--method', 'view.diff.describe', '--method', 'view.diff.page'])
         if name == 'views':
-            profile.extend(['--method', 'beta.describe', '--method', 'beta.page'])
+            profile.extend(['--method', 'beta.describe', '--method', 'beta.page',
+                            '--method', 'views.reopen', '--host-method', 'views.client.open'])
         if name == 'ai-claude':
             profile.extend(['--method', 'claude.status'])
         if name == 'ai-codex':
