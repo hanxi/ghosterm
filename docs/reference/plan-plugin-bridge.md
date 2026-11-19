@@ -13531,7 +13531,9 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 
 固定 `7beabb40`，以同一离屏设置复验表格、差异、任务和通用视图四组。
 78 项全部通过，包括同名视图句柄经原生关闭控件按实例路由，以及任务取消和
-终态的通知文案携带任务名。未执行 VoiceOver，也未纳入工作区组。
+终态的通知文案携带任务名。单独在 `9454c6ee` 补跑离屏 `PluginWorkspaceTests`，
+10 项全部通过，覆盖焦点归还、仅关闭选中的实例、清理失败保留重试和等待标签页清理。
+两批均未执行 VoiceOver。
 
 ### P1 默认 Core 通道集中复验（2026-11-19）
 
