@@ -13512,6 +13512,14 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 场景组合收据 SHA256 `bccb03891289fda76850c3cf132e0ff56ca6104f18f3d0ff48cbf354d06113f1`。
 本轮为本机 CLI，未执行变异或平台 UI，临时产物已清理。
 
+在 `3a7890a5` 上重跑同两条入口。独立构建启用 JS 的 Core 和 33 成员 Node SDK，
+复用同一套锁定工具，76 项开发工具和 10 项多步场景全部通过，包含新增的
+原子发布冲突断言。开发工具收据 SHA256
+`14664ef8082db08269f1e48c4ead1fb3cc7dbae3fad28f53d3d7c738afdd4e21`，
+场景收据 SHA256
+`1e6468fe212a426b2e2f4e180b16a43f4f65833b2ca1254a3bb0f2109846c878`。
+本轮后台运行并清理构建副本，原生界面和变异仍按各自专项记录。
+
 ### P5 macOS 原生插件视图集中复验（2026-11-19）
 
 固定 `46c54d66`，在完整 Xcode 下以 `GHOSTERM_AUTOMATION_OFFSCREEN=1`
