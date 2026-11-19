@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
     bool table = !strcmp(mode, "table-describe");
     bool task = !strcmp(mode, "task-read");
     bool diff = !strcmp(mode, "diff-page");
+    bool claude = !strcmp(mode, "claude-status");
     bool views = !strcmp(mode, "views-beta");
     bool view = table || task || diff || views;
     const char *workspace = preview || process_config ? argv[5] : NULL;
@@ -137,6 +138,17 @@ int main(int argc, char **argv) {
                           "site/theme\\,dark.css",
                           (char *)NULL);
                 }
+            } else if (claude) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "ai claude",
+                      (char *)NULL);
             } else if (views) {
                 execl(binary,
                       binary,
@@ -439,7 +451,8 @@ int main(int argc, char **argv) {
     }
     gt_ext_channel_t *channel = NULL;
     CHECK(gt_ext_channel_open_fd(fd[0], pipes ? fd[1] : fd[0], &channel) == GT_OK);
-    gt_ext_session_config_t c = {.required_count = preview ? 2 : (process_config ? 3 : 1),
+    gt_ext_session_config_t c = {.required_count =
+                                     preview ? 2 : ((process_config || claude) ? 3 : 1),
                                  .available_count = 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
@@ -462,7 +475,7 @@ int main(int argc, char **argv) {
     strcpy(c.host_version, "0.1.0");
     strcpy(c.client_digest, client_digest);
     strcpy(c.executor_digest, package_digest);
-    if (process_config) {
+    if (process_config || claude) {
         c.available_count = 3;
         strcpy(c.required[0], "session.rpc");
         strcpy(c.required[1], "process.spawn");
@@ -503,6 +516,9 @@ int main(int argc, char **argv) {
                : diff ? "view.diff.page"
                       : "beta.page");
         method_count++;
+    }
+    if (claude) {
+        strcpy(methods[0].method, "claude.status");
     }
     bool view_read = false;
     if (!strcmp(mode, "host-method")) {
@@ -629,7 +645,7 @@ int main(int argc, char **argv) {
             }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
-                const char *input = view ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
+                const char *input = (view || claude) ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
                 CHECK(gt_ext_session_request(session,
                                              &lease,
                                              methods[0].method,
@@ -677,7 +693,11 @@ int main(int argc, char **argv) {
                 bool valid = strstr(result.outcome, "stdio") != NULL;
                 char page_input[160];
                 int page_size = 0;
-                if (views && !view_read) {
+                if (claude) {
+                    valid = strstr(result.outcome, "\"phase\":\"new\"") &&
+                            strstr(result.outcome, "\"reaped\":false") &&
+                            strstr(result.outcome, "\"exitJSON\":\"null\"");
+                } else if (views && !view_read) {
                     page_size = snprintf(
                         page_input,
                         sizeof(page_input),
@@ -817,8 +837,9 @@ int main(int argc, char **argv) {
     if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (view || !strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") ||
-        pipes || !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
+    if (view || claude || !strcmp(mode, "roundtrip") || process_config ||
+        !strcmp(mode, "dispose-error") || pipes || !strcmp(mode, "active-cancel") ||
+        !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
     }
     if (!strcmp(mode, "host-method")) {
