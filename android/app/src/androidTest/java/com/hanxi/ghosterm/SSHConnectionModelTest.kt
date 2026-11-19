@@ -81,14 +81,16 @@ class SSHConnectionModelTest {
     @Test fun preparationRechecksIncludedConfigurationAndPreservesRawBytes() {
         val directory = File(instrumentation.targetContext.cacheDir,"ssh-target-${UUID.randomUUID()}").apply { mkdirs() }
         try {
-            val include = File(directory,"included.conf").apply { writeText("Host target\n HostName first.test\n Port 2202\n IdentityFile /identity/reference\n") }
+            val include = File(directory,"included.conf").apply { writeText("Host target\n HostName first.test\n Port 2202\n IdentityFile /identity/reference\n ServerAliveInterval 45\n ServerAliveCountMax 0\n") }
             val bytes = "Include ${include.path}\n".toByteArray(); val before = bytes.copyOf()
             val first = ConfigBridge.prepareConnection(bytes,"target")
             assertEquals("first.test",first.host); assertEquals(2202,first.port); assertEquals("",first.user)
             assertEquals(listOf("/identity/reference"),first.identityFiles)
+            assertEquals(45,first.serverAliveInterval); assertEquals(0,first.serverAliveCountMax)
             include.writeText("Host target\n HostName second.test\n User other\n Port 2203\n")
             val second = ConfigBridge.prepareConnection(bytes,"target")
             assertEquals("second.test",second.host); assertEquals("other",second.user); assertEquals(2203,second.port)
+            assertEquals(0,second.serverAliveInterval); assertEquals(3,second.serverAliveCountMax)
             include.appendText(" ProxyJump gateway\n")
             assertEquals(listOf("gateway"), ConfigBridge.prepareConnection(bytes,"target").jumps.map { it.alias })
             include.appendText(" ProxyCommand false\n")

@@ -80,7 +80,8 @@ struct SSHConfiguredRoute {
             guard let port = endpoint.port ?? UInt16(exactly: resolved.port), port > 0 else { throw invalid("目标端口无效") }
             let target = SSHConnectionTarget(alias: endpoint.alias, host: resolved.hostname ?? endpoint.alias,
                 user: endpoint.user ?? resolved.user ?? NSUserName(), port: port,
-                knownHosts: knownHosts, identityPaths: resolved.identityFiles.map { ($0 as NSString).expandingTildeInPath })
+                knownHosts: knownHosts, identityPaths: resolved.identityFiles.map { ($0 as NSString).expandingTildeInPath },
+                serverAliveInterval: resolved.serverAliveInterval, serverAliveCountMax: resolved.serverAliveCountMax)
             guard !result.contains(where: { $0.host.lowercased() == target.host.lowercased() && $0.port == target.port && $0.user == target.user }) else { throw invalid("重复的连接目标") }
             result.append(target)
         }

@@ -24,12 +24,15 @@ class ProxyJumpTest {
     }
     @Test fun configurationPreservesRouteAndRejectsMalformedOrUnsupportedHops() {
         fun prepare(text: String) = ConfigBridge.prepareConnection(text.toByteArray(), "dest")
-        val route = prepare("Host dest\n HostName final.invalid\n User final\n ProxyJump via@gateway:2222,second\nHost gateway\n HostName first.invalid\n IdentityFile key-one\nHost second\n User two\n ProxyJump ignored\n")
+        val route = prepare("Host dest\n HostName final.invalid\n User final\n ProxyJump via@gateway:2222,second\n ServerAliveInterval 35\n ServerAliveCountMax 0\nHost gateway\n HostName first.invalid\n IdentityFile key-one\n ServerAliveInterval 12\n ServerAliveCountMax 5\nHost second\n User two\n ProxyJump ignored\n")
         assertEquals("final.invalid", route.host)
         assertEquals(listOf("first.invalid", "second"), route.jumps.map { it.host })
         assertEquals(listOf("via", "two"), route.jumps.map { it.user })
         assertEquals(2222, route.jumps.first().port)
         assertEquals(listOf("key-one"), route.jumps.first().identityFiles)
+        assertEquals(listOf(12, 0), route.jumps.map { it.serverAliveInterval })
+        assertEquals(listOf(5, 3), route.jumps.map { it.serverAliveCountMax })
+        assertEquals(35, route.serverAliveInterval); assertEquals(0, route.serverAliveCountMax)
         val nested = prepare("Host dest\n ProxyJump first,second\nHost first\n ProxyJump outer\n")
         assertEquals(listOf("outer", "first", "second"), nested.jumps.map { it.alias })
         assertTrue(prepare("Host dest\n ProxyJump none\n").jumps.isEmpty())

@@ -61,9 +61,9 @@ public final class SSHAuthenticator {
         var ssh: OpaquePointer?
         options.host.withCString { host in options.username.withCString { user in
             if let known = options.knownHostsPath {
-                known.withCString { path in var o = gt_ssh_opts_t(host: host, port: options.port, username: user, known_hosts_path: path, connect_timeout_ms: options.connectTimeoutMilliseconds); ssh = gt_ssh_new(&o) }
+                known.withCString { path in var o = gt_ssh_opts_t(host: host, port: options.port, username: user, known_hosts_path: path, connect_timeout_ms: options.connectTimeoutMilliseconds, server_alive_interval: options.serverAliveInterval, server_alive_count_max: options.serverAliveCountMax, server_alive_count_max_set: true); ssh = gt_ssh_new(&o) }
             } else {
-                var o = gt_ssh_opts_t(host: host, port: options.port, username: user, known_hosts_path: nil, connect_timeout_ms: options.connectTimeoutMilliseconds); ssh = gt_ssh_new(&o)
+                var o = gt_ssh_opts_t(host: host, port: options.port, username: user, known_hosts_path: nil, connect_timeout_ms: options.connectTimeoutMilliseconds, server_alive_interval: options.serverAliveInterval, server_alive_count_max: options.serverAliveCountMax, server_alive_count_max_set: true); ssh = gt_ssh_new(&o)
             }
         } }
         guard ssh != nil else { throw GhostermError.failed("无法准备 SSH 凭据") }

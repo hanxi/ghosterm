@@ -734,7 +734,7 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_prepa
     }
     size_t fields = 0;
     for (size_t i = 0; i < route.count; i++) {
-        fields += 5;
+        fields += 7;
         for (size_t j = 0; route.hosts[i]->identity_files && route.hosts[i]->identity_files[j];
              j++) {
             if (j >= 256) {
@@ -756,12 +756,15 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_prepa
         while (h->identity_files && h->identity_files[count]) {
             count++;
         }
-        char port[24], identities[24];
+        char port[24], interval[24], count_max[24], identities[24];
         snprintf(port, sizeof port, "%d", h->port);
+        snprintf(interval, sizeof interval, "%d", h->server_alive_interval);
+        snprintf(count_max, sizeof count_max, "%d", h->server_alive_count_max);
         snprintf(identities, sizeof identities, "%zu", count);
-        const char *head[] = {route.aliases[i], h->hostname, h->user, port, identities};
-        for (size_t j = 0; j < 5 + count && !(*env)->ExceptionCheck(env); j++) {
-            jbyteArray value = bytes(env, j < 5 ? head[j] : h->identity_files[j - 5]);
+        const char *head[] = {
+            route.aliases[i], h->hostname, h->user, port, interval, count_max, identities};
+        for (size_t j = 0; j < 7 + count && !(*env)->ExceptionCheck(env); j++) {
+            jbyteArray value = bytes(env, j < 7 ? head[j] : h->identity_files[j - 7]);
             if (!value) {
                 break;
             }

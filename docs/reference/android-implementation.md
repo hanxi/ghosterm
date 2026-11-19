@@ -1334,7 +1334,7 @@ Core **34 项 CTest / 73 ABI**、Apple **71/2**、JNI **19/54** 对拍通过；�
 | `HostName`、`User`、`IdentityFile` | 单个非空参数，不能包含 `%` 或 `${` 展开；仍不承诺完整路径/身份语义验证 |
 | `Port` | 单个十进制数，1–65535；非法值保留在编辑器并阻断连接，不因 Swift UInt16 转换崩溃 |
 | `ProxyJump` | `none`；实际跳板链未实现 |
-| `ServerAliveInterval` | 字面值 `0`；非零保活未接线 |
+| `ServerAliveInterval` | §9.24 当时只允许字面值 `0`；非零支持后续见 §9.215 |
 | `AddressFamily`、`StrictHostKeyChecking` | 分别只允许 `any`、`ask` |
 | `ForwardAgent`、`ForwardX11`、`Compression`、`AddKeysToAgent`、`CanonicalizeHostname`、`CheckHostIP`、`HashKnownHosts`、`GSSAPIAuthentication`、`HostbasedAuthentication`、`PermitLocalCommand` | 只允许 `no` |
 | 其他指令 | 有效已知选项、适用的未知指令均报不支持；包括转发、命令、算法和环境控制等 |
@@ -4536,7 +4536,7 @@ API 36 / arm64 / 4 KiB 页的主机配置/页面、后台服务、SSH 删除与�
 
 初始隔离 AVD 因约 6.2 GiB 剩余空间未通过约 7.2 GiB userdata 检查；仅清理本轮生成的可重建宿主 VT 编译副本后，新建 API 29 及 API 36 独立 AVD 成功，没有删除/使用已有 QA AVD 数据。首轮界面恢复等待及 ActivityScenario 对通知 intent 的跟踪失败已改成实际 Activity 生命周期观察；失败不计通过。记录在 `tmp/android-session-protection/`。Android Debug/测试 APK、未签名 Release（R8）和四模块 release lint 通过；未进行物理设备、16 KiB 页新包、Doze/锁屏长时或换网矩阵，不称完整客户端或稳定性验收。
 
-SSH 周期保活仍未实现，非零 ServerAliveInterval 仍明确拒绝；前台服务及唤醒锁不保证系统强停、Doze 或换网后 TCP 继续存在。这里的清理只移除停止终端的进程内记录，不修改主机配置；主机删除见 §9.199。
+当时 SSH 周期保活仍未实现，非零 ServerAliveInterval 仍明确拒绝；前台服务及唤醒锁不保证系统强停、Doze 或换网后 TCP 继续存在。后续接线见 §9.215。这里的清理只移除停止终端的进程内记录，不修改主机配置；主机删除见 §9.199。
 
 ### 9.199 Android 删除主机与共享 C 删除接口（2026-11-04，工作区候选）
 
@@ -4810,3 +4810,33 @@ attach 变异首轮只触发防御异常，增加路线快照断言后才记正�
 厂商网络/输入法、封闭内网/WAN、全部服务器和文件故障矩阵，不记完整客户端完成。
 文件任务从持久端点重开时仍重新读取配置；跳板 User 须写在 ssh_config 中，不继承
 先前浏览器连接中临时输入的跳板用户名。
+
+### §9.215 SSH ServerAlive 周期保活（2026-11-19）
+
+按 OpenSSH 的 `ServerAliveInterval` / `ServerAliveCountMax` 语义接入共享 SSH 路径。间隔默认
+0（关闭），非零值为 1–86400 秒；CountMax 默认 3，显式 0 表示持续探测但不因未答复探测自动断开。
+只有认证成功后才配置 libssh2 探测，首包在完整间隔后发送。锁定依赖补丁
+`0005-keepalive-replies.patch` 记录已发送但未收到 SSH global-request 回复的探测数；收到
+`REQUEST_SUCCESS` 或 `REQUEST_FAILURE` 都确认一个请求，Core 在下一次探测到期时按 CountMax
+判定是否关闭会话。
+
+Core 在交互 shell 读等待中按间隔唤醒，在 exec 读轮询中推进探测；SFTP worker 空闲等待时
+每秒检查一次，且只有启用保活才使用定时等待。配置值逐跳从 `ssh_config` 解析并传入 macOS
+SSH 目标、Android `PreparedSSH` 与 native route；Android route 新格式使用显式 marker，旧的
+三字段跳板输入仍按兼容路径解析。它不保证系统挂起、进程被强停、Doze 或网络切换后原 TCP
+连接仍可用；SFTP 长时间占有会话锁的单个操作也不会被另一个线程并发插入 keepalive。
+
+本轮验证：锁定主机 libssh2 依赖重建通过；`bash scripts/build-core.sh` 通过；
+`ctest --test-dir core/build -R 'connection_config|ssh_e2e|ssh_shell_read' --output-on-failure` 四项通过，
+包括 interval=1 / CountMax=1 时 OpenSSH 对未知 global request 的 FAILURE 回复后 shell 继续工作，
+以及 SFTP 空闲一个间隔后仍可列目录。`swift build --package-path apple/GhostermApp` 通过；
+`swift test --filter SSHConfiguredRouteTests` 未能编译 XCTest target，当前 Command Line Tools
+环境没有 XCTest 模块，不记测试通过。
+Android 锁定 native 依赖、`:bridge:externalNativeBuildDebug`、`:app:assembleDebugAndroidTest`
+及 Kotlin/AndroidTest 编译通过；Core/Apple/JNI ABI 分别为 207、204 引用 + 3 登记未用、168 引用
++ 39 延后；C 格式 297 文件检查通过。没有运行 `scripts/gate.sh`。
+
+Android 模拟器运行测试未执行：本机仅余约 2.1 GB 可用空间，API 36 arm64 模拟器要求约
+7.3 GB 才能创建 userdata 分区。CountMax 达上限后的真实丢回复断开专项也尚未运行；当前 sshd
+e2e 验证的是明确 FAILURE 回复被正确计为应答，不把这项证据说成丢包验证。后续待办是补该协议
+故障场景和可启动模拟器上的配置/多跳连接专项，然后再更新功能验收状态。

@@ -10,9 +10,13 @@ class ResolvedSSHAddress(address: ByteArray, val scope: Int = 0) {
  * timeoutMillis is the REMAINING total authentication budget after DNS.
  */
 class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
-    val knownHosts: String, addresses: List<ResolvedSSHAddress>, val timeoutMillis: Int = 60_000, jumps: List<PreparedSSH> = emptyList()) {
+    val knownHosts: String, addresses: List<ResolvedSSHAddress>, val timeoutMillis: Int = 60_000, jumps: List<PreparedSSH> = emptyList(),
+    val serverAliveInterval: Int = 0, val serverAliveCountMax: Int = 3) {
     val jumps = jumps.map { it.copy(identityFiles = it.identityFiles.toList(), jumps = emptyList()) }
-    private fun route(): Array<ByteArray> = this.jumps.flatMap { listOf(it.host, it.user, it.port.toString()) }.map { it.toByteArray(Charsets.UTF_8) }.toTypedArray()
+    private fun route(): Array<ByteArray> = (listOf("GHOSTERM_KEEPALIVE_V1") + (this.jumps + PreparedSSH("target", host, user, port, emptyList(),
+        serverAliveInterval = serverAliveInterval, serverAliveCountMax = serverAliveCountMax))
+        .flatMap { listOf(it.host, it.user, it.port.toString(), it.serverAliveInterval.toString(), it.serverAliveCountMax.toString()) })
+        .map { it.toByteArray(Charsets.UTF_8) }.toTypedArray()
     private val candidates = addresses.toList()
     constructor(host: String, port: Int, user: String, knownHosts: String,
         address: ByteArray, scope: Int = 0, timeoutMillis: Int = 60_000) :

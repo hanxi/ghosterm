@@ -122,6 +122,7 @@ public struct ResolvedHost {
     public let forwardAgent: Int
     public let compression: Int
     public let serverAliveInterval: Int
+    public let serverAliveCountMax: Int
     public let proxyJump: [String]
     public let setEnv: [String]
     public let localForward: [String]
@@ -337,13 +338,14 @@ public final class SSHConfig {
         let forwardAgent = Int(r.pointee.forward_agent)
         let compression = Int(r.pointee.compression)
         let serverAlive = Int(r.pointee.server_alive_interval)
+        let serverAliveCountMax = Int(r.pointee.server_alive_count_max)
         let proxyJump = stringArray(r.pointee.proxy_jump)
         let setEnv = stringArray(r.pointee.setenv)
         let localForward = stringArray(r.pointee.local_forward)
         return ResolvedHost(
             user: user, hostname: hostname, port: port, identityFiles: identityFiles,
             forwardAgent: forwardAgent, compression: compression,
-            serverAliveInterval: serverAlive, proxyJump: proxyJump,
+            serverAliveInterval: serverAlive, serverAliveCountMax: serverAliveCountMax, proxyJump: proxyJump,
             setEnv: setEnv, localForward: localForward
         )
     }
@@ -391,12 +393,18 @@ public struct SSHOptions {
     /// 为什么必须有：阻塞的 `connect()` 在防火墙丢包时不返回，用户点连接
     /// 之后就永远停在「连接中…」——既没失败也没超时，只能强退。
     public var connectTimeoutMilliseconds: Int32
+    public var serverAliveInterval: Int32
+    public var serverAliveCountMax: Int32
     public init(host: String, port: UInt16 = 22, username: String,
                 knownHostsPath: String? = nil,
-                connectTimeoutMilliseconds: Int32 = 0) {
+                connectTimeoutMilliseconds: Int32 = 0,
+                serverAliveInterval: Int32 = 0,
+                serverAliveCountMax: Int32 = 3) {
         self.host = host; self.port = port
         self.username = username; self.knownHostsPath = knownHostsPath
         self.connectTimeoutMilliseconds = connectTimeoutMilliseconds
+        self.serverAliveInterval = serverAliveInterval
+        self.serverAliveCountMax = serverAliveCountMax
     }
 }
 

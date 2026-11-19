@@ -75,7 +75,7 @@
 | 原生插件包元数据校验（未验收候选） | ⏳ | [插件计划第二十九批](plan-plugin-bridge.md)：固定快照上的 strict JSON / manifest / integrity / 宿主兼容候选已接；35 正常断言变异 / 17 配置拒绝、42 本机 / 41 Android C 场景通过，但逐分配失败扫描仍在 QuickJS 字节码清理时崩溃，Debug / 优化 ASan 与实际 NDK ELF 均有证据。候选未提交，不接 App，待决定先加固引擎或评估隔离 / 替代；不授予执行或来源可信，网关未实现 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
-| `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
+| `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/serveralivecountmax/identityfile/proxyjump/setenv/localforward |
 | `ssh_config` 求值（通用视图 = `ssh -G`） | ✅ | `gt_config_effective`：**42 键 × 6 host = 252 项**全表语义对拍（布尔归一化）；支持集双向校验 |
 | 求值配置用于实际 SSH 连接 | 🟡 | 共享检查返回不支持指令及来源，Apple 连接目标携带快照，SSH/SFTP/tmux 在 DNS 前拒绝；Android 主机按钮已展示拒绝原因。ProxyJump 已由两端路线层消费，普通终端/SFTP/tmux 范围见 [§9.214](android-implementation.md#9214-proxyjump-普通终端sftp-与-tmux2026-11-08)；其余高级选项仍按准入拒绝。Android 产品连接页面已有定向和历史完整设备证据，最终目标在同一 AST 上重新检查；native SSH owner 见 §9.25；当前准入档位及 Match/未知指令的保守边界见 [§9.24](android-implementation.md#924-共享连接配置准入与两端接线2026-10-30) |
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
@@ -132,7 +132,8 @@
 | Linux | full libghostty（OpenGL 4.3） | ❌ |
 | Web | libghostty-vt + 自绘（wasm） | ❌ |
 | Android | libghostty-vt + 自绘 | 🟡 | A0 已验；A2 本地 PTY→VT→Canvas 与 InputConnection 首片已交付，文本操作切片接入文本选择/复制粘贴/本地清屏；API 36 arm64 / 4 KB 页模拟器验证见实现计划 §9.14。选区边缘滚动/Ctrl 生命周期切片已验（§9.15）；Ctrl 标点、模式感知 Enter 与真实 Gboard 拼音基本路径已验（§9.16）；后续按键重复/释放与焦点归属已验（§9.17，94 项完整设备测试、18+2 组选组变异）；后续修饰键/数字键盘/组合音符及静止文本闪烁已验（§9.18–§9.19），§9.21 短时取帧与性能探针通过完整 101 项、四组性能变异及五组回归；模拟器 debug 基线与 API 29 正式包十分钟输出观察已记录（§9.137–§9.138）；真机、完整发行档/端点长负载及物理键盘/布局矩阵未完成 |
-| Android 终端后台保护 | Application 进程内 owner + specialUse 前台服务 + 可选 partial wake lock | 🟡 | 工作区候选；API 29/36 已验真实服务、通知、短时后台 IO、presenter 清理后 owner 保留和锁释放；API 36 组合 71 项通过。非零 ServerAliveInterval 仍未接，不承诺 Doze/强停/换网不断线，见 [§9.198](android-implementation.md#9198-终端交互与后台连接保护候选2026-11-04定向设备验证) |
+| SSH ServerAlive 保活 | 终端 shell/exec 读 owner 与 Core SFTP idle owner | 🟡 | 非零 `ServerAliveInterval` 与 `ServerAliveCountMax` 已接配置、Core、macOS、Android；Core SSHD 与两端构建证据见 [§9.215](android-implementation.md#9215-ssh-serveralive-周期保活2026-11-19)。Android 模拟器运行及 CountMax 丢回复专项待补；不承诺 Doze、强停或换网后 TCP 继续存在 |
+| Android 终端后台保护 | Application 进程内 owner + specialUse 前台服务 + 可选 partial wake lock | 🟡 | 工作区候选；API 29/36 已验真实服务、通知、短时后台 IO、presenter 清理后 owner 保留和锁释放；API 36 组合 71 项通过。不承诺 Doze/强停/换网不断线，见 [§9.198](android-implementation.md#9198-终端交互与后台连接保护候选2026-11-04定向设备验证) |
 | Android Kitty 图形/动画 | libghostty-vt + 系统 PNG + Canvas | 🟡 | 已接通静态、Unicode、帧传输/播放/停止/合成及隐藏停 tick；API 29 图形 21 项、API 36 图形与既有终端 50 项、十组变异通过；云端签名 R8 APK 已在 16 KB 页模拟器验证实际动画/删除，范围见[当前证据](android-implementation.md#android-kitty) |
 | Android Nerd Fonts 符号 | 内置 Symbols Nerd Font Mono + 系统等宽回退 | 🟡 | API 29 / API 36 各 15 项组合专项通过；八类图标（含补充私用区）真实 PTY→VT→Canvas 像素、ASCII 字宽、中文/Emoji 和包内许可已验；云端签名 R8 包已验 16 KB 页升级、旧文件与实际图标/CJK/Emoji 显示；完整设备与 A2 验收分开记账，见[字体记录](android-implementation.md#android-nerd-fonts) |
 | HarmonyOS | libghostty-vt + ArkUI Canvas | ❌ |

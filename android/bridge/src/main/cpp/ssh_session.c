@@ -23,6 +23,7 @@ struct gaj_ssh {
     struct {
         char *host, *user;
         uint16_t port;
+        int server_alive_interval, server_alive_count_max;
     } hops[8];
 
     size_t hop_count;
@@ -46,6 +47,24 @@ static void fail(JNIEnv *env, const char *message) {
     if (type) {
         (*env)->ThrowNew(env, type, message);
     }
+}
+
+static bool parse_bounded_decimal(const char *text, unsigned maximum, unsigned *out) {
+    if (!text || !*text || !out) {
+        return false;
+    }
+    unsigned value = 0;
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        if (*p < '0' || *p > '9' || value > maximum / 10) {
+            return false;
+        }
+        value = value * 10 + (unsigned)(*p - '0');
+        if (value > maximum) {
+            return false;
+        }
+    }
+    *out = value;
+    return true;
 }
 
 static void erase(char *value) {
@@ -137,13 +156,50 @@ gaj_ssh *gaj_ssh_new(JNIEnv *env,
         goto invalid;
     }
     jsize fields = route ? (*env)->GetArrayLength(env, route) : 0;
-    if (fields < 0 || fields > 21 || fields % 3) {
+    bool configured_route = false;
+    if (fields > 0) {
+        jbyteArray marker_array = (*env)->GetObjectArrayElement(env, route, 0);
+        char *marker = copy(env, marker_array, 64, false);
+        if (marker_array) {
+            (*env)->DeleteLocalRef(env, marker_array);
+        }
+        configured_route = marker && !strcmp(marker, "GHOSTERM_KEEPALIVE_V1");
+        free(marker);
+    }
+    if (fields < 0 || fields > 41 ||
+        (configured_route ? ((fields - 1) <= 0 || (fields - 1) % 5 != 0) : (fields % 3 != 0))) {
         fail(env, "SSH 跳板参数无效");
         goto invalid;
     }
-    s->hop_count = (size_t)fields / 3 + 1;
+    s->hop_count = configured_route ? (size_t)(fields - 1) / 5 : (size_t)fields / 3 + 1;
     for (size_t i = 0; i < s->hop_count; i++) {
-        if (i + 1 == s->hop_count) {
+        if (configured_route) {
+            char *values[5] = {0};
+            for (size_t j = 0; j < 5 && !(*env)->ExceptionCheck(env); j++) {
+                jbyteArray item = (*env)->GetObjectArrayElement(env, route, (jsize)(1 + i * 5 + j));
+                values[j] = copy(env, item, 4096, false);
+                if (item) {
+                    (*env)->DeleteLocalRef(env, item);
+                }
+            }
+            s->hops[i].host = values[0];
+            s->hops[i].user = values[1];
+            unsigned parsed_port = 0, parsed_interval = 0, parsed_count_max = 0;
+            bool valid_port =
+                parse_bounded_decimal(values[2], 65535, &parsed_port) && parsed_port > 0;
+            bool valid_interval = parse_bounded_decimal(values[3], 86400, &parsed_interval);
+            bool valid_count = parse_bounded_decimal(values[4], 2147483647u, &parsed_count_max);
+            s->hops[i].port = (uint16_t)parsed_port;
+            s->hops[i].server_alive_interval = (int)parsed_interval;
+            s->hops[i].server_alive_count_max = (int)parsed_count_max;
+            free(values[2]);
+            free(values[3]);
+            free(values[4]);
+            if (!valid_port || !valid_interval || !valid_count) {
+                fail(env, "SSH keepalive 参数无效");
+                goto invalid;
+            }
+        } else if (i + 1 == s->hop_count) {
             s->hops[i].host = strdup(s->host);
             s->hops[i].user = strdup(s->user);
             s->hops[i].port = (uint16_t)port;
@@ -174,6 +230,7 @@ gaj_ssh *gaj_ssh_new(JNIEnv *env,
                 goto invalid;
             }
             s->hops[i].port = (uint16_t)parsed;
+            s->hops[i].server_alive_count_max = 3;
         }
         if (!s->hops[i].host || !s->hops[i].user) {
             if (!(*env)->ExceptionCheck(env)) {
@@ -318,7 +375,10 @@ static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
             gt_ssh_opts_t opts = {.host = s->hops[i].host,
                                   .port = s->hops[i].port,
                                   .username = s->hops[i].user,
-                                  .known_hosts_path = s->known_hosts};
+                                  .known_hosts_path = s->known_hosts,
+                                  .server_alive_interval = s->hops[i].server_alive_interval,
+                                  .server_alive_count_max = s->hops[i].server_alive_count_max,
+                                  .server_alive_count_max_set = true};
             handles[i] = gt_ssh_new(&opts);
             if (!handles[i]) {
                 status = GT_ERR_INTERNAL;
@@ -399,10 +459,14 @@ static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
                     status = gt_ssh_route_decide(
                         s->route, response == 1 ? GT_HOSTKEY_ACCEPT : GT_HOSTKEY_REJECT);
                 } else if (!atomic_load(stop)) {
-                    gt_ssh_opts_t opts = {.host = s->hops[route.hop].host,
-                                          .port = s->hops[route.hop].port,
-                                          .username = s->hops[route.hop].user,
-                                          .known_hosts_path = s->known_hosts};
+                    gt_ssh_opts_t opts = {
+                        .host = s->hops[route.hop].host,
+                        .port = s->hops[route.hop].port,
+                        .username = s->hops[route.hop].user,
+                        .known_hosts_path = s->known_hosts,
+                        .server_alive_interval = s->hops[route.hop].server_alive_interval,
+                        .server_alive_count_max = s->hops[route.hop].server_alive_count_max,
+                        .server_alive_count_max_set = true};
                     gt_ssh_t *material = gt_ssh_new(&opts);
                     status = material ? (response == 3
                                              ? gt_ssh_auth_password(material, first)
@@ -451,8 +515,13 @@ gt_ssh_t *gaj_ssh_connect(gaj_ssh *s, atomic_bool *stop) {
     if (s->hop_count > 1) {
         return connect_route(s, stop);
     }
-    gt_ssh_opts_t opts = {
-        .host = s->host, .port = s->port, .username = s->user, .known_hosts_path = s->known_hosts};
+    gt_ssh_opts_t opts = {.host = s->hops[0].host,
+                          .port = s->hops[0].port,
+                          .username = s->hops[0].user,
+                          .known_hosts_path = s->known_hosts,
+                          .server_alive_interval = s->hops[0].server_alive_interval,
+                          .server_alive_count_max = s->hops[0].server_alive_count_max,
+                          .server_alive_count_max_set = true};
     gt_ssh_t *ssh = NULL, *result = NULL;
     gt_ssh_authenticator_t *auth = NULL;
     gt_ssh_auth_info_t info = {0};

@@ -387,7 +387,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     targets[role] = target
                     ResolvedSSHConnection(target.host,target.port,target.user,known.absolutePath,
                         addresses.map { ResolvedSSHAddress(it.address,(it as? Inet6Address)?.scopeId ?: 0) },
-                        remaining.coerceAtMost(60_000).toInt(), target.jumps)
+                        remaining.coerceAtMost(60_000).toInt(), target.jumps,
+                        target.serverAliveInterval, target.serverAliveCountMax)
                 }
             }, authenticate = { role, endpoint, connection ->
                 authenticateFileTask(id,role,endpoint,targets.getValue(role),connection,label,cancelled)
@@ -496,7 +497,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             attempt.target.copy(user = attempt.username), addresses.first(), knownHosts, attempt.extensionBootstrap!!)
                     } else withContext(Dispatchers.IO) {
                         val request = attempt.tmuxTarget?.connection(remaining.coerceAtMost(60_000).toInt()) ?: ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
-                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt(), attempt.target.jumps)
+                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt(), attempt.target.jumps,
+                            attempt.target.serverAliveInterval, attempt.target.serverAliveCountMax)
                         owned = if(attempt.tmuxReady!=null) RemoteTmuxSession(request)
                             else if(attempt.forFiles) RemoteFileSession(request)
                             else attempt.tmuxTarget?.let { RemoteSession(request,it) } ?: RemoteSession(request)

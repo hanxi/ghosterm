@@ -59,6 +59,8 @@ class RemoteTmuxSession(connection: ResolvedSSHConnection, private val budgetMil
     val peer=RemoteTmuxPeer(connection.host,connection.port,connection.user)
     private val knownHosts=connection.knownHosts
     private val jumps=connection.jumps
+    private val serverAliveInterval=connection.serverAliveInterval
+    private val serverAliveCountMax=connection.serverAliveCountMax
     private val completion=ParcelFileDescriptor.createPipe()
     private val closed=CompletableDeferred<Unit>()
     private var handle=try {
@@ -138,12 +140,14 @@ class RemoteTmuxSession(connection: ResolvedSSHConnection, private val budgetMil
         check(RemoteTmuxPeer(connection.host,connection.port,connection.user)==peer) { "后台连接身份已改变，请重新选择" }
         check(connection.jumps==jumps) { "后台连接跳板路线已改变" }
         check(connection.knownHosts==knownHosts) { "后台连接的主机信任来源已改变" }
+        check(connection.serverAliveInterval==serverAliveInterval && connection.serverAliveCountMax==serverAliveCountMax) { "后台连接保活配置已改变" }
         return connectionFor(target,connection.timeoutMillis).openTmuxTarget(handle,target.snapshot,target.index).also { snapshot=0 }
     }
     @Synchronized internal fun connectionFor(target: RemoteTmuxTarget,timeoutMillis: Int): ResolvedSSHConnection {
         check(handle!=0L && target.owner===this && snapshot==target.snapshot && snapshot>0) { "后台会话列表已过期，请刷新后重新选择" }
         require(timeoutMillis in 1..60_000)
-        return ResolvedSSHConnection(peer.host,peer.port,peer.user,knownHosts,listOf(target.address),timeoutMillis,jumps)
+        return ResolvedSSHConnection(peer.host,peer.port,peer.user,knownHosts,listOf(target.address),timeoutMillis,jumps,
+            serverAliveInterval,serverAliveCountMax)
     }
     private data class Response(val status: Int,val outcome: RemoteTmuxResult?,val server: RemoteTmuxServer?,
         val error: String,val candidates: List<RemoteTmuxCandidate>,val entries: List<RemoteTmuxEntry>)

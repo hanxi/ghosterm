@@ -55,12 +55,13 @@ object ConfigBridge {
         val route = mutableListOf<PreparedSSH>()
         var offset = 0
         while (offset < fields.size) {
-            check(fields.size - offset >= 5 && route.size < 8)
-            val count = fields[offset + 4].toInt()
-            check(count in 0..256 && fields.size - offset >= 5 + count)
+            check(fields.size - offset >= 7 && route.size < 8)
+            val count = fields[offset + 6].toInt()
+            check(count in 0..256 && fields.size - offset >= 7 + count)
             route += PreparedSSH(fields[offset], fields[offset + 1], fields[offset + 2], fields[offset + 3].toInt(),
-                fields.subList(offset + 5, offset + 5 + count).toList())
-            offset += 5 + count
+                fields.subList(offset + 7, offset + 7 + count).toList(),
+                serverAliveInterval = fields[offset + 4].toInt(), serverAliveCountMax = fields[offset + 5].toInt())
+            offset += 7 + count
         }
         check(route.isNotEmpty())
         return route.last().copy(jumps = route.dropLast(1))
@@ -82,7 +83,7 @@ data class ConnectionIssue(val keyword: String, val sourcePath: String, val sour
     val description: String get() = "$keyword（${sourcePath.ifEmpty { "当前配置" }}:$sourceLine）"
 }
 
-data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>, val jumps: List<PreparedSSH> = emptyList())
+data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>, val jumps: List<PreparedSSH> = emptyList(), val serverAliveInterval: Int = 0, val serverAliveCountMax: Int = 3)
 data class ConfigIdentityInfo(val value: String, val sourcePath: String, val sourceHeader: String,
     val sourceLine: Int, val included: Boolean, val explicitValue: Boolean, val effective: Boolean)
 data class ConfigDirectiveInfo(val keyword: String, val arguments: List<String>, val raw: String,

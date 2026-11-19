@@ -4,12 +4,14 @@ import GhostermCore
 
 final class SSHConfiguredRouteTests: XCTestCase {
     func testProxyJumpConfigurationAndOverrides() throws {
-        let config = try SSHConfig(contents: "Host dest\n HostName target.invalid\n User target-user\n IdentityFile target-key\n ProxyJump via-user@jump:2222\nHost jump\n HostName gateway.invalid\n User config-user\n Port 2200\n IdentityFile jump-key\n")
+        let config = try SSHConfig(contents: "Host dest\n HostName target.invalid\n User target-user\n IdentityFile target-key\n ProxyJump via-user@jump:2222\n ServerAliveInterval 35\n ServerAliveCountMax 0\nHost jump\n HostName gateway.invalid\n User config-user\n Port 2200\n IdentityFile jump-key\n ServerAliveInterval 12\n ServerAliveCountMax 5\n")
         let route = try SSHConfiguredRoute.resolve(config: config, aliases: ["dest"], knownHosts: "fixture-known")
         XCTAssertEqual(route.map(\.host), ["gateway.invalid", "target.invalid"])
         XCTAssertEqual(route.map(\.user), ["via-user", "target-user"])
         XCTAssertEqual(route.map(\.port), [2222, 22])
         XCTAssertTrue(route[0].identityPaths.contains("jump-key") && !route[0].identityPaths.contains("target-key"))
+        XCTAssertEqual(route.map(\.serverAliveInterval), [12, 35])
+        XCTAssertEqual(route.map(\.serverAliveCountMax), [5, 0])
     }
     func testProxyJumpNestedFirstHopAndExplicitOrder() throws {
         let config = try SSHConfig(contents: "Host dest\n ProxyJump first,second\nHost first\n ProxyJump outer\nHost second\n ProxyJump ignored\n")

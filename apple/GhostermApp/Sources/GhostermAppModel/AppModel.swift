@@ -1098,7 +1098,9 @@ public final class AppModel: ObservableObject {
             guard targets.count > 1 else { throw GhostermError.failed("SSH 跳板配置已改变，请重新连接") }
             guard let finalTarget = targets.last, finalTarget.host == target.host,
                   finalTarget.user == target.user, finalTarget.port == target.port,
-                  finalTarget.knownHosts == target.knownHosts, finalTarget.identityPaths == target.identityPaths else {
+                  finalTarget.knownHosts == target.knownHosts, finalTarget.identityPaths == target.identityPaths,
+                  finalTarget.serverAliveInterval == target.serverAliveInterval,
+                  finalTarget.serverAliveCountMax == target.serverAliveCountMax else {
                 throw GhostermError.failed("SSH 目标配置已改变，请重新连接")
             }
             return try await authenticateRoute(targets, alias: target.alias, id: id, owner: owner, opening: opening)
@@ -1118,7 +1120,9 @@ public final class AppModel: ObservableObject {
             var request: UInt64 = 0
             let generation = UUID()
             let flow = SSHAuthenticationFlow(owner: owner,
-                options: SSHOptions(host: target.host, port: target.port, username: target.user, knownHostsPath: target.knownHosts),
+                options: SSHOptions(host: target.host, port: target.port, username: target.user, knownHostsPath: target.knownHosts,
+                    serverAliveInterval: Int32(clamping: target.serverAliveInterval),
+                    serverAliveCountMax: Int32(clamping: target.serverAliveCountMax)),
                 opening: opening, configurationIssues: target.connectionIssues, prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
                 completion: { [weak self] result in
                     if case .success(let value) = result { value.connection.releaseOn(owner) }
@@ -1162,7 +1166,9 @@ public final class AppModel: ObservableObject {
             var request: UInt64 = 0
             let generation = UUID()
             let flow = SSHRouteAuthenticationFlow(owner: owner, options: targets.map {
-                SSHOptions(host: $0.host, port: $0.port, username: $0.user, knownHostsPath: $0.knownHosts)
+                SSHOptions(host: $0.host, port: $0.port, username: $0.user, knownHostsPath: $0.knownHosts,
+                    serverAliveInterval: Int32(clamping: $0.serverAliveInterval),
+                    serverAliveCountMax: Int32(clamping: $0.serverAliveCountMax))
             }, prompts: prompts, opening: opening, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request }, completion: { [weak self] result in
                 if case .success(let value) = result { value.connection.releaseOn(owner) }
                 DispatchQueue.main.async { self?.finishAuthentication(id, generation: generation) }
@@ -1201,9 +1207,12 @@ public final class AppModel: ObservableObject {
     func finishChooserAuthentication(_ id: UUID) { _ = cancelledConnects.take(id) }
     func sshTarget(for pattern: String) -> SSHConnectionTarget {
         let entry = hosts.first { $0.matchesPattern(pattern) }
+        let resolved = (try? configuredSSHRoute(for: [pattern]))?.last
         return SSHConnectionTarget(alias: pattern, host: entry?.hostname ?? pattern,
             user: entry?.user ?? NSUserName(), port: UInt16(clamping: entry?.port ?? 22),
-            knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []), connectionIssues: entry?.connectionIssues ?? [])
+            knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []), connectionIssues: entry?.connectionIssues ?? [],
+            serverAliveInterval: resolved?.serverAliveInterval ?? 0,
+            serverAliveCountMax: resolved?.serverAliveCountMax ?? 3)
     }
 
     func configuredSSHRoute(for aliases: [String]) throws -> [SSHConnectionTarget] {

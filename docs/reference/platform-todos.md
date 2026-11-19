@@ -40,7 +40,7 @@
 
 | 类型 | 待办 | 起点与交付边界 |
 |---|---|---|
-| 可实施的新能力 | SSH 周期保活 | 当前 [config.c](../../core/src/config.c) 只允许 `ServerAliveInterval=0`；前台服务/wake lock 不提供 SSH 协议保活。先定义 interval/count、无回复/取消和 owner 调度，再接共享核心及两端消费者与准入，不能仅放宽配置允许表，也不承诺换网不断线 |
+| 已实现，Android 模拟器运行证据待补 | SSH 周期保活 | 已接 `ServerAliveInterval`/`ServerAliveCountMax` 配置、Core owner 调度、libssh2 待答回复计数及 macOS/Android 路线参数；Core SSHD e2e、macOS 编译、Android native/Kotlin/AndroidTest 编译通过。当前空间不足以启动模拟器，CountMax 丢回复专项也未验证。本功能不承诺 Doze、强停或换网后 TCP 继续存在 |
 | 可立即组织的回归 | 非插件当前源码完整模拟器基线 | 最近同源完整仍为 `ae164f1` 双系统各 942 项；后续 §9.200–§9.214 的专项不替代全量。固定输入/APK/发现清单重新跑，按现有 runner 明确默认套件与关闭插件的范围，失败不算通过 |
 | 模拟器自动化 | 后台/Doze/取消/进程死亡/网络故障 | 已有终端进程 owner、前台服务和任务记录；在指定模拟器与隔离服务上验证可控制的后台、断网/延迟、取消及 SFTP/tmux 角色认证组合。网络恢复不自动重放副作用；运营商/厂商网络行为另列人工手测 |
 | 模拟器自动化 | 输入/字体/布局/性能 | 会话面板/IME、触屏、连发、Unicode/emoji 已实现；可补模拟器输入法、按键/布局、大字号、无障碍节点、挖孔/旋转和优化 Release 长负载。记录模拟器/API/页大小，不据此推定手机表现 |
@@ -81,4 +81,4 @@ Developer ID/公证需要实际证书与发行；macOS 15、真实双屏/全屏/
 
 - SFTP staged upload / 目录副作用批（2026-11-18）：新增 Core 远端随机暂存上传，成功 close 后发布；覆盖要求服务端 POSIX rename 扩展，不覆盖使用 SFTP 标准 rename，发布失败/取消报告保留的暂存路径。macOS `TransferManager` 按冲突选择传递覆盖语义。目录上传/下载展开在失败终态报告已创建目录；mkdir 回包不明为 UNKNOWN。`bash scripts/build-core.sh` 与自有 sshd `sftp_transfer_e2e` 通过；`swift build --package-path apple/GhostermApp` 通过；`swift test ... --filter TransferManagerTests` 因当前活动开发目录仅为 Command Line Tools、缺少 Xcode/XCTest 而失败，未计测试通过。Core ABI 206、Apple 203/3、JNI 167/39 对拍通过；clang-format 19.1.7 全量 297 文件检查通过；未执行 `gate.sh`。通用 staged-upload API 不被 Android 消费，已在 `android/bridge/deferred-abi.json` 登记：Android A5 采用独立受控发布执行器。
 - Curve25519/SSH 握手分配复验（2026-11-18）：以本机 sshd 运行普通非 ASan `test_ssh`，291 项通过；macOS `leaks --atExit` 报告 0 bytes leaked，但系统限制使堆检查只能读取受限进程内容；`test_sftp_submit` 的 ASan 进程不能由 `leaks` 检查。该结果没有证明所有密码后端/系统组合无泄漏，也没有触碰或更改上游依赖。
-- SSH 周期保活仍待实现：当前 libssh2 公开接口提供按调用发送 keepalive 的能力，但不公开未应答计数；目前连接读循环与 SFTP owner 也没有共用的空闲计时调度。不能因此放宽 `ServerAliveInterval` 准入或声称 `ServerAliveCountMax` 有效。后续需补可观察的回包/超时判据和两端 owner 调度后再接配置；Android 自动化仍只按模拟器验证，真机属于人工手测。
+- SSH 周期保活的实现范围与本轮证据见 [路线图 §9.215](android-implementation.md#9215-ssh-serveralive-周期保活2026-11-19)；Android 自动化只使用模拟器。
