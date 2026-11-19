@@ -465,6 +465,12 @@ final class PluginPaneFlowTests: XCTestCase {
                     PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier
                 }
             }
+            func settingsText(_ identifier: String, contains text: String) -> Bool {
+                guard let node = settingsNode(identifier) else { return false }
+                return ["accessibilityValue", "accessibilityLabel"].contains {
+                    PluginTableRendering.attribute(node, $0)?.contains(text) == true
+                }
+            }
             guard try await until({ settingsNode("plugin-installed-channel-cache") != nil }) else {
                 XCTFail("settings did not show the channel cache control"); return
             }
@@ -513,15 +519,28 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertNotNil(settingsNode("plugin-installed-channel-affected"))
             XCTAssertEqual(settings.window.alphaValue, 0)
             XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(settings.window.frame) })
+            do {
+                let lock = open(channelDirectory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+                guard lock >= 0 else { XCTFail("cannot open owned channel cache"); return }
+                defer { Darwin.close(lock) }
+                guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { XCTFail("cannot lock owned channel cache"); return }
+                XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(settingsNode("plugin-installed-channel-stop"))))
+                guard try await until({
+                    settingsText("plugin-installed-channel-notice", contains: "已确认停止 0 个实例。") &&
+                    settingsText("plugin-installed-channel-error", contains: "安装目录正由另一项操作使用")
+                }) else { XCTFail("settings did not show the channel cache lock failure"); return }
+                let stillActive = try await controller.stepRuntime()
+                XCTAssertEqual(stillActive.phase, ExtensionRuntime.Phase.active.rawValue)
+                let catalog = try await controller.installedVersions()
+                XCTAssertTrue(catalog.versions.contains { $0.releaseID == releaseID && $0.inUse == true })
+            }
+            guard try await until({ settingsNode("plugin-installed-channel-stop") != nil }) else {
+                XCTFail("settings did not restore the stop control after unlocking"); return
+            }
             let stop = try XCTUnwrap(settingsNode("plugin-installed-channel-stop"))
             XCTAssertTrue(PluginTableRendering.press(stop))
             guard try await until({
-                let notice = settingsNode("plugin-installed-channel-notice")
-                let confirmed = notice.map { node in
-                    ["accessibilityValue", "accessibilityLabel"].contains {
-                        PluginTableRendering.attribute(node, $0)?.contains("已确认停止 1 个实例。") == true
-                    }
-                } ?? false
+                let confirmed = settingsText("plugin-installed-channel-notice", contains: "已确认停止 1 个实例。")
                 return confirmed && settingsNode("plugin-installed-channel-affected") == nil &&
                     model.extensionRun == nil && !model.extensionRunBusy
             }) else {
