@@ -2,7 +2,7 @@
 """Exercise the Android channel client against an owned loopback TLS server."""
 import argparse
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack, nullcontext
 import http.server
 import importlib.util
 import json
@@ -117,6 +117,7 @@ def main():
                         help='build with a disposable channel root and exercise the offline Settings flow')
     parser.add_argument('--apks', nargs=2, type=Path, metavar=('APP_APK', 'TEST_APK'),
                         help='reuse APKs built with -PghostermPluginJs=true for the HTTPS client test')
+    parser.add_argument('--serial', help='use an explicitly authorized test device without Ghosterm installed')
     args = parser.parse_args()
     if args.apks:
         if args.settings_cache:
@@ -131,7 +132,8 @@ def main():
     with tempfile.TemporaryDirectory(dir=ROOT / 'tmp', prefix='android-channel-tls-') as path:
         work = Path(path)
         env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
-        with tls_fixture(work, env, '10.0.2.2', args.settings_cache) as (origin, cert, root):
+        host = '127.0.0.1' if args.serial else '10.0.2.2'
+        with tls_fixture(work, env, host, args.settings_cache) as (origin, cert, root):
             build = ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
                      ':app:assembleDebug', ':app:assembleDebugAndroidTest']
             if args.settings_cache:
@@ -154,11 +156,33 @@ def main():
                 output_dir = ROOT / 'android/app/build/outputs/apk'
                 apks = [output_dir / name for name in
                         ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk')]
-            device = work / 'device'
-            device.mkdir()
-            with runner.headless(36, device, env) as (adb, device_env):
-                for apk in apks:
-                    runner.run([*adb, 'install', '-r', '-t', apk], device_env)
+            if args.serial:
+                sdk = Path(env.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk')).resolve()
+                target = nullcontext(([sdk / 'platform-tools/adb', '-s', args.serial], env))
+            else:
+                device = work / 'device'
+                device.mkdir()
+                target = runner.headless(36, device, env)
+            with target as (adb, device_env), ExitStack() as cleanup:
+                packages = ('com.hanxi.ghosterm', 'com.hanxi.ghosterm.test')
+                if args.serial:
+                    aapt_tools = sorted(sdk.glob('build-tools/*/aapt'))
+                    if not aapt_tools:
+                        raise RuntimeError('Android build-tools aapt is required to verify APK identities')
+                    for package, apk in zip(packages, apks):
+                        identity = runner.run([aapt_tools[-1], 'dump', 'badging', apk], device_env).splitlines()
+                        if not identity or not identity[0].startswith(f"package: name='{package}' "):
+                            raise RuntimeError(f'Unexpected APK identity for {apk}')
+                    installed = runner.run([*adb, 'shell', 'pm', 'list', 'packages', '-u'], device_env)
+                    if any(f'package:{package}' in installed.splitlines() for package in packages):
+                        raise RuntimeError('Explicit test device already has Ghosterm or its test package')
+                    port = 'tcp:' + origin.rsplit(':', 1)[1]
+                    runner.run([*adb, 'reverse', '--no-rebind', port, port], device_env)
+                    cleanup.callback(runner.run, [*adb, 'reverse', '--remove', port], device_env)
+                for package, apk in zip(packages, apks):
+                    runner.run([*adb, 'install', '-t', apk], device_env)
+                    if args.serial:
+                        cleanup.callback(runner.run, [*adb, 'uninstall', package], device_env)
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
                     test, *extras,
                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], device_env)
