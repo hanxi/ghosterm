@@ -190,7 +190,7 @@ fi
   [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
   for suite in "${SUITES[@]}"; do
     echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
-    gt_timeout 1800 ${ENVARGS[@]+"${ENVARGS[@]}"} swift test --filter "$suite" \
+    gt_timeout 1800 env ${ENVARGS[@]+"${ENVARGS[@]}"} swift test --filter "$suite" \
       >>"$TMP/apple-app-test.log" 2>&1 || exit $?
   done
 ) || {
