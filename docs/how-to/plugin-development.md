@@ -991,8 +991,33 @@ python3 -B scripts/gterm-plugin release verify-policy \
 只代表这台验证机器的历史。签名工具保留原始策略字节，输出包括声明、64 字节
 签名和策略三个文件。发布服务以同一 HTTPS 目录提供原始文件，用目录切换或
 部署服务的批次发布避免混代。若服务短暂返回混代文件，客户端拒绝更新并保留
-此前通过验证的缓存。以最终服务 URL 下载并复验三份材料，再检查两端手动刷新
-的代次和启用结果。
+此前通过验证的缓存。把 `plugin_channel_url` 设为应用配置使用的最终 HTTPS
+目录。部署后，用同一渠道的本地验证数据库复验服务实际返回的材料：
+
+```bash
+(
+  set -eu
+  downloaded=$(mktemp -d "$PWD/tmp/plugin-channel-verify.XXXXXXXX")
+  trap 'rm -rf -- "$downloaded"' EXIT
+  for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
+    name=${entry%:*}
+    limit=${entry##*:}
+    status=$(curl --disable --silent --show-error --proto '=https' --globoff \
+      --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
+      --output "$downloaded/$name" --write-out '%{http_code}' \
+      "${plugin_channel_url%/}/$name")
+    test "$status" = 200
+    test "$(wc -c < "$downloaded/$name")" -le "$limit"
+  done
+  python3 -B scripts/gterm-plugin release verify-policy \
+    --channel "$plugin_channel" --channel-root "$plugin_root" \
+    --statement "$downloaded/channel-policy.json" \
+    --signature "$downloaded/channel-policy.sig" --policy "$downloaded/policy.json" \
+    --record-state "$plugin_verification_database"
+)
+```
+
+复验通过后，再检查两端手动刷新得到的代次和启用结果。
 
 ### 宿主配置和撤销
 
