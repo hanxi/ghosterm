@@ -14837,6 +14837,11 @@ gterm Executor QuickJS 与锁定真实 Codex CLI 完成 thread 创建、事件�
 变更状态及关闭。该轮禁止网络和 Keychain 访问，使用独立 HOME、工作区及
 临时目录，未发起模型回合。独立检出与产物已清理。
 
+固定 `38065f5b` 加测试入口修改，同摘要候选包和 gterm 在隔离检出重建。
+macOS AppModel 离屏四项通过，覆盖锁定真实 CLI 在直连与 ProxyJump 的线程
+启动、事件和停止，跳板信任拒绝，以及旧线程启动请求不能影响替代会话。
+每轮 SSH 夹具与日志使用独立临时目录。未发起真实模型回合。
+
 `test-plugin-codex-app.py` 显式启用离屏自动化，重建官方包与 gterm，用锁定
 Codex CLI 0.166.0 运行原生 AppModel 的四项真实回环 SSH 测试。直连和
 ProxyJump 建线程、跳板主机验证拒绝及旧启动不能影响替代会话均通过。

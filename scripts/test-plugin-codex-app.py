@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST = 'CodexAppModelTests.testCodex(ThreadThroughAppModelAndIsolatedSSH|StoppedThreadRequestCannotAffectReplacementSession)'
@@ -22,7 +23,7 @@ def main():
     codex = Path(shutil.which(args.codex) or args.codex).resolve(strict=True)
     selected = TEST if args.route == 'direct' else ('CodexAppModelTests.*Jump' if args.route == 'jump' else 'CodexAppModelTests')
     expected = {'direct': 2, 'jump': 2, 'both': 4}[args.route]
-    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1',
+    env = dict(os.environ, GHOSTERM_AUTOMATION_OFFSCREEN='1',
                GHOSTERM_TEST_GTERM=str(gterm),
                GHOSTERM_TEST_CODEX=str(codex), GHOSTERM_TEST_CODEX_PACKAGE=str(package),
                GHOSTERM_APP_TEST_FILTER=selected)
@@ -33,10 +34,13 @@ def main():
     env.pop('GHOSTERM_TEST_CODEX_JUMP', None)
     if args.route != 'direct':
         env['GHOSTERM_TEST_CODEX_JUMP'] = '1'
-    result = subprocess.run(['bash', 'scripts/apple-app-gate.sh'], cwd=ROOT, env=env, check=False)
-    if result.returncode:
-        raise SystemExit(result.returncode)
-    log = (ROOT / 'tmp/apple-app-test.log').read_text()
+    (ROOT / 'tmp').mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='ca-', dir=ROOT / 'tmp') as work:
+        env.update(TMPDIR=work, GHOSTERM_APP_TEST_TMP=work)
+        result = subprocess.run(['bash', 'scripts/apple-app-gate.sh'], cwd=ROOT, env=env, check=False)
+        if result.returncode:
+            raise SystemExit(result.returncode)
+        log = (Path(work) / 'apple-app-test.log').read_text()
     summary = f'Executed {expected} test' + ('s' if expected != 1 else '') + ', with 0 failures'
     if 'CodexAppModelTests' not in log or 'skipped' in log.lower() or summary not in log:
         raise SystemExit('Codex AppModel tests did not execute the selected count without skips/failures')
