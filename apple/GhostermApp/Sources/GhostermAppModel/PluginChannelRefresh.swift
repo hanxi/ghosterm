@@ -53,6 +53,7 @@ public enum PluginChannelRefresh {
         guard let directory = trust.refreshDirectory, let parts = URLComponents(url: directory, resolvingAgainstBaseURL: false),
               parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+              parts.port.map({ (1...65535).contains($0) }) ?? true,
               trust.root.count == 32 else { throw Failure.endpoint }
         async let statement = fetch("channel-policy.json", directory: directory, limit: 65_536, session: session)
         async let signature = fetch("channel-policy.sig", directory: directory, limit: 64, session: session)

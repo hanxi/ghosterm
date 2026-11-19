@@ -1557,6 +1557,7 @@ public final class AppModel: ObservableObject {
               let endpoint = fields["Directory"], let parts = URLComponents(string: endpoint),
               parts.scheme == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+              parts.port.map({ (1...65535).contains($0) }) ?? true,
               let directory = parts.url else { return nil }
         var state = supportDirectory.appendingPathComponent("PluginChannelPolicy", isDirectory: true)
         do {

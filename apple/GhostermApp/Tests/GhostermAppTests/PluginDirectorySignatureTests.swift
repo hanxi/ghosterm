@@ -193,10 +193,12 @@ final class PluginDirectorySignatureTests: XCTestCase {
         let trust = ExtensionController.ChannelTrust(channel: "test", root: root.key.publicKey.rawRepresentation,
                                                      stateDirectory: state, refreshDirectory: directory)
         let bundledFields = ["Name": "test", "Root": trust.root.base64EncodedString(), "Directory": directory.absoluteString]
-        var invalidBundle = bundledFields
-        invalidBundle["Directory"] = "https://name@channel.invalid/test/"
-        let rejectedBundle = await MainActor.run { AppModel.bundledPluginChannel(invalidBundle, supportDirectory: state) }
-        XCTAssertNil(rejectedBundle)
+        for endpoint in ["https://name@channel.invalid/test/", "https://channel.invalid:0/test/",
+                         "https://channel.invalid:65536/test/"] {
+            let invalidBundle = bundledFields.merging(["Directory": endpoint]) { _, replacement in replacement }
+            let rejectedBundle = await MainActor.run { AppModel.bundledPluginChannel(invalidBundle, supportDirectory: state) }
+            XCTAssertNil(rejectedBundle, endpoint)
+        }
         let bundled = await MainActor.run { AppModel.bundledPluginChannel(bundledFields, supportDirectory: state) }
         let channel = try XCTUnwrap(bundled)
         XCTAssertEqual(channel.root, trust.root)
