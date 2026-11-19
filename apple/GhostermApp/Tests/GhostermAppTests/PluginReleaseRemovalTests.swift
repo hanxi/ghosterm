@@ -232,10 +232,13 @@ final class PluginReleaseRemovalTests: XCTestCase {
         let protectedFile = try detached(root).appendingPathComponent("payload/nested/data.txt")
         let protectedBytes = try Data(contentsOf: protectedFile)
 
-        for token in ["null", "\"1\"", "1.0", "1e0", "4"] {
+        for token in ["1.0", "1e0", "null", "\"1\"", "4"] {
             let malformed = Data(text.replacingOccurrences(of: "\"schema\":1", with: "\"schema\":\(token)").utf8)
             try malformed.write(to: record)
-            XCTAssertThrowsError(try PluginReleaseRemoval.pendingPreview(owner: owner(root)))
+            do {
+                _ = try PluginReleaseRemoval.pendingPreview(owner: owner(root))
+                return XCTFail("invalid schema must be rejected before preview: \(token)")
+            } catch PluginReleaseRemoval.Failure.invalid {}
             XCTAssertThrowsError(try PluginReleaseRemoval.resume(owner: owner(root)))
             XCTAssertEqual(try Data(contentsOf: protectedFile), protectedBytes)
             XCTAssertEqual(try Data(contentsOf: record), malformed)
