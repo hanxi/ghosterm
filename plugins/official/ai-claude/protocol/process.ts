@@ -37,6 +37,7 @@ export class ClaudeNodeProcess {
     this.exitPromise = new Promise((resolve, reject) => { this.exitResolve = resolve; this.exitReject = reject; });
     void this.exitPromise.catch(() => {});
   }
+  get acceptedStop(): boolean { return this.stopAccepted; }
   get busy(): boolean { return this.pending !== undefined; }
   get failure(): ClaudeTransportError | undefined { return this.error; }
   get reaped(): boolean { return this.reapedValue; }

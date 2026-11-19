@@ -276,3 +276,27 @@ test("Claude exposes failed startup cleanup through the host status", async () =
     assert.equal(child.writes.length, 0);
   } finally { value.disposable.dispose(); }
 });
+
+test("Claude returns a rejected stop receipt while the child remains live", async () => {
+  const value = fixture();
+  try {
+    await read(value, await invoke(value, "start"));
+    value.child.modify = reply => {
+      value.child.eof = false;
+      value.child.exit = { state: "running" };
+      const { version, id, sequence } = reply;
+      return JSON.stringify({ version, id, sequence, ok: false, error: "ACTION_REJECTED", phase: "ready" });
+    };
+    const reply = await read(value, await invoke(value, "stop"));
+    assert.equal(reply.ok, false);
+    assert.equal(reply.error, "ACTION_REJECTED");
+    const state = await value.handlers.get("claude.status")({});
+    assert.equal(state.phase, "live");
+    assert.equal(state.reaped, false);
+    value.child.modify = reply => JSON.stringify(reply);
+    assert.equal((await read(value, await invoke(value, "poll"))).result.phase, "ready");
+    await read(value, await invoke(value, "stop"));
+    assert.equal((await value.handlers.get("claude.status")({})).reaped, true);
+    assert.equal(value.spawns, 1);
+  } finally { value.disposable.dispose(); }
+});

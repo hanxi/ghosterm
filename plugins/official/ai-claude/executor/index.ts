@@ -53,7 +53,7 @@ export function activate(context: PluginContext): Disposable {
       // Retain an actual helper receipt even if the outer RPC was cancelled.
       // Reading that observation never replays the input or changes old outcomes.
       const receipt = documents.capture(responseID, raw);
-      if (value.method === "stop") {
+      if (value.method === "stop" && child.acceptedStop) {
         const exit = await child.waitForExit();
         if (exit.state !== "exited" || exit.code !== 0 || exit.signal !== null || !child.reaped) throw new Error("Claude stop cleanup not confirmed");
       }
