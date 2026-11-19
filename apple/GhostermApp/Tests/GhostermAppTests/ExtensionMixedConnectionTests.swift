@@ -3,6 +3,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import GhostermCore
+import SwiftUI
 import XCTest
 @testable import GhostermApp
 @testable import GhostermAppModel
@@ -84,18 +85,51 @@ import XCTest
         let payload = try fixture()
         func string(_ name: String) throws -> String { try XCTUnwrap(payload[name] as? String) }
         let root = URL(fileURLWithPath: try string("scratch")), route = try string("route"), binary = try string("gterm")
+        let channel = payload["revocation"] as? [String: Any]
+        let channelDirectory = root.appendingPathComponent("channel")
+        func decode(_ source: [String: Any], _ field: String) throws -> Data {
+            try XCTUnwrap((source[field] as? String).flatMap { Data(base64Encoded: $0) })
+        }
+        let trust = try channel.map { value in
+            ExtensionController.ChannelTrust(channel: "fixture", root: try decode(value, "root"), stateDirectory: channelDirectory)
+        }
+        func refresh(_ name: String) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+            let configuration = try XCTUnwrap(channel)
+            let materials = try XCTUnwrap(configuration[name] as? [String: Any])
+            return try PluginDirectorySignatureVerifier.refreshChannelPolicy(statement: decode(materials, "statement"),
+                signature: decode(materials, "signature"), policy: decode(materials, "policy"), channel: "fixture",
+                channelRoot: decode(configuration, "root"), now: UInt64(Date().timeIntervalSince1970), stateDirectory: channelDirectory)
+        }
         let stage = root.appendingPathComponent("stage"), config = root.appendingPathComponent("config"), known = root.appendingPathComponent("known")
         let ports = try XCTUnwrap(payload["ports"] as? [Int]), keys = try XCTUnwrap(payload["hostKeys"] as? [String]), user = try string("user")
         var source = "Host mixed-target\n HostName 127.0.0.1\n Port \(ports[1])\n User \(user)\n IdentityFile /owned-in-memory\n"
         if route == "jump" { source += " ProxyJump mixed-jump\nHost mixed-jump\n HostName 127.0.0.1\n Port \(ports[0])\n User \(user)\n IdentityFile /owned-in-memory\n" }
         try Data(source.utf8).write(to: config)
         try Data(zip(ports, keys).map { "[127.0.0.1]:\($0) \($1.trimmingCharacters(in: .newlines))\n" }.joined().utf8).write(to: known)
-        let app = isolatedAppModel(configPath: config.path, knownHostsPath: known.path, pluginResourceDirectory: root.appendingPathComponent("resources"))
+        let app = isolatedAppModel(configPath: config.path, knownHostsPath: known.path,
+            pluginResourceDirectory: root.appendingPathComponent("resources"), pluginChannelTrust: trust)
         let catalog = try XCTUnwrap(app.extensionController), pem = try string("pem")
         app.sshCredentialStorage = .init(key: { path in XCTAssertNotEqual(route, "local"); XCTAssertEqual(path, "/owned-in-memory"); return pem },
             secret: { _, _ in nil }, save: { _, _, _ in XCTFail("fixture must not save credentials") }, remove: { _, _ in })
         addTeardownBlock { let done = await app.closeExtensionOwners(); XCTAssertTrue(done) }
-        let review = try await catalog.review(directory: URL(fileURLWithPath: try string("package")))
+        let review: ExtensionController.PackageReview
+        let managedReleaseID: String?
+        if channel != nil {
+            try FileManager.default.createDirectory(at: channelDirectory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+            XCTAssertEqual(try refresh("initial").generation, 1)
+            let prepared = try await catalog.prepareReleaseUsingConfiguredChannel(
+                artifact: URL(fileURLWithPath: string("artifact")), descriptor: URL(fileURLWithPath: string("descriptor")),
+                signature: URL(fileURLWithPath: string("signature")))
+            let installed = try await catalog.installPreparedRelease(id: prepared.id)
+            let selection = try await catalog.previewInstalledSelection(releaseID: installed.signature.descriptorSHA256, expectedRevision: nil)
+            _ = try await catalog.confirmInstalledSelection(id: selection.id, acknowledged: true)
+            review = installed.review
+            managedReleaseID = installed.signature.descriptorSHA256
+        } else {
+            review = try await catalog.review(directory: URL(fileURLWithPath: try string("package")))
+            managedReleaseID = nil
+        }
         let approved = try await catalog.approve(id: review.id, digest: review.digest); XCTAssertEqual(approved, 0)
         let local: ExtensionLocalLaunch? = route == "local" ? .init(executableSHA256: try string("gtermSHA256"),
             workingDirectory: root.path, temporaryDirectory: stage.path, authorized: true) : nil
@@ -114,8 +148,9 @@ import XCTest
                 sshAlias: "mixed-target", localLaunch: local, clientWorkspace: nil, temporaryDirectory: stage.path)
         }
         let disconnect = payload["disconnectOnStop"] as? Bool == true
-        let runtimes = disconnect ? ["portable"] : ["portable", "node", "exec", "portable", "node", "exec", "portable", "node"]
-        let invocations = try runtimes.enumerated().map { try invocation($0.offset, runtime: $0.element, signed: disconnect || $0.offset % 2 == 1) }
+        let single = disconnect || channel != nil
+        let runtimes = single ? ["portable"] : ["portable", "node", "exec", "portable", "node", "exec", "portable", "node"]
+        let invocations = try runtimes.enumerated().map { try invocation($0.offset, runtime: $0.element, signed: single || $0.offset % 2 == 1) }
         await app.startExtensionGroup(invocations)
         let group = try XCTUnwrap(app.extensionConnections.last)
         XCTAssertNil(group.issue); XCTAssertEqual(group.instances.count, runtimes.count)
@@ -127,6 +162,46 @@ import XCTest
         }
         try await until("mixed activation: \(group.instances.compactMap(\.extensionRunIssue))") {
             group.instances.allSatisfy { $0.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
+        }
+        if let managedReleaseID {
+            let model = try XCTUnwrap(group.instances.first)
+            guard try await resource(model, slot: 0) else { return }
+            for tab in app.tabs.tabs { tab.workspacePanes.removeAll { $0.extensionInstance === model } }
+            XCTAssertTrue(model.canInteractWithRuntime)
+            let before = try await catalog.installedVersions()
+            XCTAssertTrue(before.versions.contains { $0.releaseID == managedReleaseID && $0.inUse == true })
+            let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+            NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+            defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+            let settings = ConversationUIProbe(root: NSHostingView(rootView: ScrollView { ExtensionsPane(model: app) }))
+            defer { settings.close() }
+            func node(_ identifier: String) -> NSObject? {
+                settings.root.layoutSubtreeIfNeeded()
+                return PluginTableRendering.elements(settings.root).first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == identifier
+                }
+            }
+            XCTAssertNil(node("plugin-installed-channel-affected"))
+            let revoked = try refresh("revoked")
+            XCTAssertEqual(revoked.generation, 2)
+            let affected = try await catalog.runningInstancesWithRevokedPublisher(in: revoked)
+            XCTAssertEqual(affected, 1)
+            try await until("Settings did not observe revocation of a group-only instance") {
+                node("plugin-installed-channel-stop") != nil
+            }
+            XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(node("plugin-installed-channel-stop"))))
+            try await until("Settings did not stop and release the detached group instance") {
+                guard let notice = node("plugin-installed-channel-notice") else { return false }
+                return model.extensionRun == nil && !model.extensionRunBusy &&
+                    ["accessibilityValue", "accessibilityLabel"].contains {
+                        PluginTableRendering.attribute(notice, $0)?.contains("已确认停止 1 个实例。") == true
+                    }
+            }
+            let after = try await catalog.installedVersions()
+            XCTAssertTrue(after.versions.contains { $0.releaseID == managedReleaseID && $0.inUse == false })
+            let closed = await group.close()
+            XCTAssertTrue(closed)
+            return
         }
         if disconnect {
             let model = try XCTUnwrap(group.instances.first)

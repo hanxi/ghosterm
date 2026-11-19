@@ -64,6 +64,7 @@ def main():
     parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
     parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
     parser.add_argument('--macos-stop-disconnect', action='store_true', help='reset the owned macOS SSH route after explicit Runtime stop starts')
+    parser.add_argument('--macos-group-revocation', action='store_true', help='stop a managed macOS SSH group instance from Settings after revocation')
     args = parser.parse_args()
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
@@ -71,6 +72,8 @@ def main():
         parser.error('--android-revocation requires --android-api')
     if args.macos_stop_disconnect and (args.android_api or 'local' in (args.route or ())):
         parser.error('--macos-stop-disconnect requires macOS direct/jump routes')
+    if args.macos_group_revocation and (args.android_api or args.macos_stop_disconnect or args.mutate or 'local' in (args.route or ())):
+        parser.error('--macos-group-revocation runs the dedicated macOS direct/jump baseline')
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')
@@ -224,26 +227,27 @@ export function activate(ctx){
         if not result.get('installed') or not result.get('committed'):
             raise RuntimeError('fixture signed version was not installed and registered')
         installed = store / sha(descriptor)
-        if args.android_api:
-            revocation = None
+        revocation = None
+        if args.android_revocation or args.macos_group_revocation:
+            authority = out / 'channel-authority'
+            authority.mkdir()
+            channel_root, channel_signer = stack.enter_context(release.agent(node, authority))
+            now = int(time.time())
+            def signed_policy(generation, data):
+                statement = json.dumps(dict(schemaVersion=1, channel='fixture', generation=str(generation),
+                    issuedAt=str(now - 60), expiresAt=str(now + 1800), policySHA256=hashlib.sha256(data).hexdigest())).encode()
+                proof = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', channel_signer],
+                    input=b'ghosterm.channel-policy.v1\0' + statement, capture_output=True, check=True, timeout=5).stdout
+                return {name: base64.b64encode(value).decode() for name, value in
+                        (('statement', statement), ('signature', proof), ('policy', data))}
+            revoked = json.loads(policy.read_bytes())
+            revoked['revokedKeyIds'] = [key_id]
+            revocation = dict(root=channel_root, initial=signed_policy(1, policy.read_bytes()),
+                revoked=signed_policy(2, json.dumps(revoked).encode()))
             if args.android_revocation:
-                authority = out / 'channel-authority'
-                authority.mkdir()
-                channel_root, channel_signer = stack.enter_context(release.agent(node, authority))
-                now = int(time.time())
-                def signed_policy(generation, data):
-                    statement = json.dumps(dict(schemaVersion=1, channel='fixture', generation=str(generation),
-                        issuedAt=str(now - 60), expiresAt=str(now + 1800), policySHA256=hashlib.sha256(data).hexdigest())).encode()
-                    proof = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', channel_signer],
-                        input=b'ghosterm.channel-policy.v1\0' + statement, capture_output=True, check=True, timeout=5).stdout
-                    return {name: base64.b64encode(value).decode() for name, value in
-                            (('statement', statement), ('signature', proof), ('policy', data))}
-                revoked = json.loads(policy.read_bytes())
-                revoked['revokedKeyIds'] = [key_id]
-                revocation = dict(root=channel_root, initial=signed_policy(1, policy.read_bytes()),
-                    revoked=signed_policy(2, json.dumps(revoked).encode()), **{
-                        name: base64.b64encode(path.read_bytes()).decode() for name, path in
-                        (('artifact', artifact), ('descriptor', descriptor), ('signature', signature))})
+                revocation.update({name: base64.b64encode(path.read_bytes()).decode() for name, path in
+                    (('artifact', artifact), ('descriptor', descriptor), ('signature', signature))})
+        if args.android_api:
             backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
             report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
                 policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source, revocation)
@@ -309,6 +313,8 @@ export function activate(ctx){
                 hostKeys=[key.decode() for key in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                 gterm=str(build / 'gterm'), gtermSHA256=sha(build / 'gterm'), node=str(node), nodeVersion=node_version,
                 nodeSHA256=sha(node), sdk=str(sdk), sdkSHA256=sdk_hash.hexdigest())
+            if args.macos_group_revocation:
+                payload.update(revocation=revocation, artifact=str(artifact), descriptor=str(descriptor), signature=str(signature))
             class Handler(socketserver.StreamRequestHandler):
                 def handle(self):
                     self.connection.settimeout(5)
@@ -334,7 +340,7 @@ export function activate(ctx){
                     server.shutdown(); thread.join(5)
             if thread.is_alive() or (not assertion and ('Executed 1 test, with 0 failures' not in text or 'skipped' in text.lower())):
                 raise RuntimeError(label + ': exact discovery/no-skip evidence missing')
-        for route in args.route or (('direct', 'jump') if faults else ('local', 'direct', 'jump')):
+        for route in args.route or (('direct', 'jump') if faults or args.macos_group_revocation else ('local', 'direct', 'jump')):
             actual(route, route)
             completed.append(route)
             print('PASS mixed Native ' + route, flush=True)
@@ -389,7 +395,8 @@ export function activate(ctx){
         artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
         logs={path.name: sha(path) for path in logs.iterdir()},
         scope=('macOS App-owned SSH reset after explicit stop, local release failure and retry, remote exit unknown'
-            if args.macos_stop_disconnect else 'macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
+            if args.macos_stop_disconnect else 'macOS managed SSH group revocation and Settings stop without a workspace pane'
+            if args.macos_group_revocation else 'macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
 
 
