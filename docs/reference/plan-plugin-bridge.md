@@ -15848,3 +15848,9 @@ GitHub 资产上传。工作流 YAML 解析和 diff 检查通过，未触碰远�
 本轮连续提交后的完整离线闸门再次通过：C 核心 `-Werror` 构建成功，CTest
 612 项全绿，207 个公共 ABI 符号对拍一致，未实现入口冒烟通过，最终输出
 `GATE PASS`。测试无前台窗口，未留下临时进程或新增临时文件。
+
+新增只读脚本 `scripts/audit-public-release.py`，并实际审计公开
+`hanxi/ghosterm@dev` 的 macOS 资产。当前线上 build 148、提交
+`05aa4cd9` 的六个资产通过完整校验，`BUILD-INFO.txt` 已使用新的 GitHub
+Release/ad-hoc 文案，`version.json` 的 Ed25519 更新签名存在。P6 的线上
+macOS 资产与文案漂移项已复验为绿；脚本不上传或修改远端。
