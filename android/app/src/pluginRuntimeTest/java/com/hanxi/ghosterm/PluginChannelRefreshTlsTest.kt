@@ -67,6 +67,8 @@ class PluginChannelRefreshTlsTest {
             assertEquals(PluginReleaseSignature.Failure.CHANNEL_STATEMENT, (mixed as? PluginReleaseSignature.Rejected)?.reason)
             val missing = runCatching { refresh("missing-policy").refresh() }.exceptionOrNull()
             assertTrue(missing.toString(), missing is IllegalStateException && missing.message!!.contains("签名材料"))
+            val expired = runCatching { refresh("expired").refresh() }.exceptionOrNull()
+            assertEquals(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS, (expired as? PluginReleaseSignature.Rejected)?.reason)
             val reopened = PluginChannelPolicyStore(directory, "fixture", root)
             reopened.useCurrent(now()) { cached ->
                 assertEquals(valid.generation, cached.generation)

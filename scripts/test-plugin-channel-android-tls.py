@@ -58,15 +58,24 @@ def fixture(work, env, host, settings=False):
         sign(policy, 1 if settings else 2, bundle)
         revoked_bundle = work / 'revoked-channel'
         sign(revoked_policy, 3, revoked_bundle)
-    return cert, key, root, bundle, revoked_bundle
+        expired_statement = json.loads((revoked_bundle / 'channel-policy.json').read_bytes())
+        expired_statement.update(generation='4', expiresAt=str(now - 1))
+        expired_bytes = json.dumps(expired_statement, separators=(',', ':')).encode()
+        expired_signature = subprocess.run(
+            [node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', endpoint],
+            input=b'ghosterm.channel-policy.v1\0' + expired_bytes, env=env, capture_output=True, check=True, timeout=15,
+        ).stdout
+    return cert, key, root, bundle, revoked_bundle, (expired_bytes, expired_signature)
 
 
 @contextmanager
 def tls_fixture(work, env, host, settings=False):
-    cert, key, root, bundle, revoked_bundle = fixture(work, env, host, settings)
+    cert, key, root, bundle, revoked_bundle, expired = fixture(work, env, host, settings)
     names = ('channel-policy.json', 'channel-policy.sig', 'policy.json')
     bodies = {name: (bundle / name).read_bytes() for name in names}
     revoked_bodies = {name: (revoked_bundle / name).read_bytes() for name in names}
+    expired_bodies = dict(revoked_bodies, **{'channel-policy.json': expired[0], 'channel-policy.sig': expired[1]})
+    routes = {'revoked': revoked_bodies, 'expired': expired_bodies}
     received = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -81,7 +90,7 @@ def tls_fixture(work, env, host, settings=False):
                 self.send_header('Location', '/redirect-target/' + name)
                 self.end_headers()
                 return
-            body = (revoked_bodies if mode == 'revoked' else bodies)[name]
+            body = routes.get(mode, bodies)[name]
             if name == 'policy.json':
                 if mode == 'oversized':
                     body = b'x' * 131073
