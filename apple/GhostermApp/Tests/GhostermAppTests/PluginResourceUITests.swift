@@ -79,6 +79,21 @@ final class PluginResourceUITests: XCTestCase {
         override func stopLoading() { stops += 1 }
     }
 
+    func testAlreadyCancelledPreviewDoesNotStartDecoding() async {
+        let gate = DecodeGate()
+        let decode = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await PluginResourceDecodeTask.run {
+                await gate.recordStart()
+                return "unneeded document"
+            }
+        }
+        let result = await decode.value
+        let started = await gate.workerStarted()
+        XCTAssertNil(result)
+        XCTAssertFalse(started, "a cancelled preview must not start decoding")
+    }
+
     func testCancelledPreviewDecodeDiscardsLateResult() async {
         let gate = DecodeGate()
         let decode = Task {
@@ -517,10 +532,14 @@ final class PluginResourceUITests: XCTestCase {
         private var resultWaiter: CheckedContinuation<String, Never>?
         private var cancelledAtReturn = false
 
-        func decode() async -> String {
+        func recordStart() {
             started = true
             startWaiter?.resume()
             startWaiter = nil
+        }
+
+        func decode() async -> String {
+            recordStart()
             let value = await withCheckedContinuation { resultWaiter = $0 }
             cancelledAtReturn = Task.isCancelled
             return value
@@ -536,6 +555,7 @@ final class PluginResourceUITests: XCTestCase {
             resultWaiter = nil
         }
 
+        func workerStarted() -> Bool { started }
         func workerObservedCancellation() -> Bool { cancelledAtReturn }
     }
 }
