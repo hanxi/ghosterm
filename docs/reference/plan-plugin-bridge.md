@@ -13675,6 +13675,11 @@ macOS 原生 PTY 对照在合法候选出现前输出一条嵌在 DCS 内的候�
 子模块和完整 SDK 测试夹具，最终给 gterm 使用锁定子模块并复用已有观察器。
 并行 libssh2 改动未进入本轮构建。
 
+Android 本地 PTY 对照复用既有 native terminal 夹具，检查嵌在 DCS 中的 OSC
+仍可接续普通网格输出，但不会成为候选。同样的 OSC 放在顶层时核对候选字段。
+固定 `922e3a39` 加此用例，独立检出 Debug 和测试 APK 构建通过。
+设备未执行，临时检出及 APK 已清理。
+
 ### P1 终端 Kitty 与 OSC 专项复验（2026-11-19）
 
 固定 `6fa5cd19`。macOS 完整 Xcode 离屏执行 TerminalSurface 的语义提示、

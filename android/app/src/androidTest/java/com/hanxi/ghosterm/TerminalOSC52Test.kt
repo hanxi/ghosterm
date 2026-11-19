@@ -5,6 +5,7 @@ import android.util.Base64
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.LocalSession
+import com.hanxi.ghosterm.bridge.NativeTerminalSession.DiscoveryOffer
 import com.hanxi.ghosterm.terminal.TerminalClipboardRequest
 import org.junit.Assert.*
 import org.junit.Test
@@ -42,6 +43,23 @@ class TerminalOSC52Test {
         await { value = session.clipboardRequest(); value != null }
         return value!!
     }
+    @Test fun discoveryIgnoresNestedOscAndPreservesLocalTerminalOutput() = terminal { session, _ ->
+        val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+        val offer = "\\033]777;ghosterm-discovery;1;$payload\\007"
+        session.commit("printf '%b' '\\033P$offer\\033\\0134\\033[2J\\033[HPTY_CONTROL_MARKER'\r")
+        ready(session, "PTY_CONTROL_MARKER")
+        val nested = session.discovery()
+        assertEquals(0, nested.status)
+        assertNull("OSC nested in ordinary DCS must not become an offer", nested.offer)
+        session.commit("printf '%b' '$offer\\033[2J\\033[HPTY_CANDIDATE_MARKER'\r")
+        ready(session, "PTY_CANDIDATE_MARKER")
+        var observed: DiscoveryOffer? = null
+        await { observed = session.discovery().offer; observed != null }
+        assertEquals("/work/front", observed?.directory)
+        assertEquals("1".repeat(32), observed?.instance)
+        assertEquals("a".repeat(64), observed?.clientDigest)
+    }
+
     @Test fun fragmentedUnicodeWriteAndEmptyWrite() = terminal { s, _ ->
         val text = "终端 café\nsecond line"
         val encoded = Base64.encodeToString(text.toByteArray(), Base64.NO_WRAP)
