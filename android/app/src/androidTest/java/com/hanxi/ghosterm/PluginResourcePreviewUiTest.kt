@@ -47,7 +47,8 @@ class PluginResourcePreviewUiTest {
         val image = ExtensionResourceStore.Content(
             ExtensionResourceStore.Descriptor("e".repeat(64), "image/png", "docs/diagram.png", imageBytes.size.toLong(),
                 resourceId = "diagram-resource"), imageBytes)
-        ui.setContent { PluginResourcesPanel(listOf(markdown, image)) }
+        val resources = androidx.compose.runtime.mutableStateOf(listOf(markdown, image))
+        ui.setContent { PluginResourcesPanel(resources.value) }
         ui.waitUntil(10_000) {
             ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
         }
@@ -62,6 +63,10 @@ class PluginResourcePreviewUiTest {
         assertTrue("expected Markdown attachment pixels, got $redPixels", redPixels > 0)
         ui.onNodeWithText("[图片: outside]", substring = true).assertExists()
         ui.onNodeWithText("[图片: remote]", substring = true).assertExists()
+
+        ui.runOnIdle { resources.value = listOf(markdown) }
+        ui.onNodeWithTag("plugin-resource-markdown-inline-image").assertDoesNotExist()
+        ui.onNodeWithText("[图片: diagram]", substring = true).assertExists()
     }
 
     @Test fun markdownResourceUsesFormattedPreviewAndExplainsDisabledExternalContent() {

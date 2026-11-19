@@ -375,7 +375,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     style = MaterialTheme.typography.titleSmall)
                 Text("${resource.descriptor.mime} · ${resource.bytes.size} 字节 · SHA-256 ${resource.descriptor.sha256}",
                     Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-                PluginResourceBody(resource, resources)
+                key(resource.descriptor) {
+                    PluginResourceBody(resource, resources)
+                }
             }
         }
     }
@@ -471,12 +473,14 @@ internal data class RenderedPluginMarkdown(
             candidates.singleOrNull()?.let { ResolvedMarkdownImage(image, it) }
         }
     }
-    val bitmaps by produceState<Map<String, android.graphics.Bitmap>>(emptyMap(), resource.descriptor.sha256, resolved) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            resolved.mapNotNull { item ->
-                decodePluginResourceBitmap(item.resource.bytes)?.let { item.reference.marker to it }
-            }.toMap()
-        }
+    val bitmaps = key(resolved) {
+        produceState<Map<String, android.graphics.Bitmap>>(emptyMap()) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                resolved.mapNotNull { item ->
+                    decodePluginResourceBitmap(item.resource.bytes)?.let { item.reference.marker to it }
+                }.toMap()
+            }
+        }.value
     }
     val rendered = remember(decoded, bitmaps) {
         decoded?.let { pluginMarkdownAnnotatedString(it, bitmaps) }
