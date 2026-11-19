@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 
@@ -19,6 +20,12 @@ def main():
         names = sorted(set.union(*check.FILES.values()))
         for name in names:
             (folder / name).write_bytes(('independent ' + name).encode())
+        (folder / 'BUILD-INFO.txt').write_text(
+            '签名:        adhoc\n公证:        无（GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名）\n',
+            encoding='utf-8')
+        (folder / 'version.json').write_text(json.dumps({
+            'signature': 'adhoc', 'notarized': False, 'update_signature': 'fixture',
+        }), encoding='utf-8')
         baseline = dict(id=123, assets=[dict(id=i, name=name, size=(folder/name).stat().st_size,
             digest='sha256:' + hashlib.sha256((folder/name).read_bytes()).hexdigest()) for i, name in enumerate(names)])
         for platform in check.FILES:

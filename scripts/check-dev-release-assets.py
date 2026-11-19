@@ -51,6 +51,17 @@ def verify(platform, folder, after, before=None):
         digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
         if assets[name]['digest'] != digest or assets[name]['size'] != path.stat().st_size:
             raise ValueError('published platform asset bytes mismatch')
+    if platform == 'macos':
+        build_info = (folder / 'BUILD-INFO.txt').read_text(encoding='utf-8')
+        if 'GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名' not in build_info:
+            raise ValueError('macOS BUILD-INFO must state the GitHub Release ad-hoc update policy')
+        if '未公证的包不能直接分发给终端用户' in build_info:
+            raise ValueError('macOS BUILD-INFO contains obsolete notarization distribution wording')
+        manifest = json.loads((folder / 'version.json').read_text(encoding='utf-8'))
+        if manifest.get('signature') != 'adhoc' or manifest.get('notarized') is not False:
+            raise ValueError('macOS version.json must record adhoc and notarized=false')
+        if not isinstance(manifest.get('update_signature'), str) or not manifest['update_signature']:
+            raise ValueError('macOS version.json is missing the Ed25519 update signature')
     if before is not None:
         previous = inventory(before)
         if before['id'] is not None and before['id'] != after['id']:

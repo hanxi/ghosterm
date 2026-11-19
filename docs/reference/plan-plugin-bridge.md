@@ -15824,6 +15824,12 @@ Release 仍指向较早提交 `fa5b0044`，其历史 `BUILD-INFO.txt` 仍写着�
 不能直接分发”文案。源码打包脚本已修正，新 Release 生成时不再使用该文案。
 本轮只读线上资产，未修改或上传 Release。
 
+为防止发布元数据再次漂移，`check-dev-release-assets.py` 现会校验 macOS
+`BUILD-INFO.txt` 的 GitHub Release/ad-hoc 文案、拒绝旧公证阻塞文案，并核对
+`version.json` 的 `signature`、`notarized` 和 Ed25519 更新签名字段。同步修正
+了共享 Release 变异夹具；`mutation-check-dev-release-assets.py` 的 22 组目标
+红、对照绿、恢复绿全部通过。
+
 随后运行 `scripts/test-macos-update-install.py` 的真实 Sparkle ad-hoc 回环安装
 烟测通过。`install` 完成下载、解包、安装、退出批准和重启，`later` 保留旧版本，
 `cancel-quit` 在取消退出后保留旧版本，`bad-feed` 与 `bad-archive` 均在 Ed25519
