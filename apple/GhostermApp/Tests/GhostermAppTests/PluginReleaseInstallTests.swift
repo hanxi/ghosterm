@@ -61,10 +61,10 @@ final class PluginReleaseInstallTests: XCTestCase {
         let owner = try controller(root, channelTrust: .init(channel: channel, root: key.publicKey.rawRepresentation,
                                                               stateDirectory: stateDirectory))
         let now = UInt64(Date().timeIntervalSince1970)
-        func proof(_ generation: String, policy: Data) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
+        func proof(_ generation: String, policy: Data, expiresAt: UInt64? = nil) throws -> PluginDirectorySignatureVerifier.VerifiedChannelPolicy {
             let statement = try JSONSerialization.data(withJSONObject: [
                 "schemaVersion": 1, "channel": channel, "generation": generation,
-                "issuedAt": String(now), "expiresAt": String(now + 600), "policySHA256": hash(policy),
+                "issuedAt": String(now), "expiresAt": String(expiresAt ?? (now + 600)), "policySHA256": hash(policy),
             ])
             var message = Data("ghosterm.channel-policy.v1\0".utf8)
             message.append(statement)
@@ -136,6 +136,19 @@ final class PluginReleaseInstallTests: XCTestCase {
         } catch PluginDirectorySignatureVerifier.Failure.revokedKey {}
         let unchanged = try await owner.installedVersions()
         XCTAssertEqual(unchanged.revision, selected.catalog.revision)
+
+        let expiry = UInt64(Date().timeIntervalSince1970) + 5
+        let expiring = try await owner.prepareSignedRelease(artifact: input.appendingPathComponent("v2/r/plugin.zip"),
+            descriptor: input.appendingPathComponent("v2/r/release.json"), signature: input.appendingPathComponent("v2/r/release.sig"),
+            channelPolicy: proof("5", policy: policy, expiresAt: expiry), channelStateDirectory: stateDirectory)
+        let remaining = max(0, Double(expiry) - Date().timeIntervalSince1970)
+        try await Task.sleep(for: .seconds(remaining))
+        do {
+            _ = try await owner.installPreparedRelease(id: expiring.id)
+            XCTFail("a prepared release must not publish after its channel policy expires")
+        } catch PluginDirectorySignatureVerifier.Failure.channelFreshness {}
+        XCTAssertFalse(try names(store).contains(expiring.signature.descriptorSHA256))
+        try await owner.discardPreparedRelease(id: expiring.id)
     }
 
     func testPreparedReleaseIsPrivateAndCancelCleansIt() async throws {
