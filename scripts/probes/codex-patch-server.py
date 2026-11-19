@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import select
 import sys
+import time
 
 THREAD = 'thread-fixture'
 TURN = 'turn-fixture'
@@ -102,6 +103,13 @@ def main():
             if Path('drop-turn-reply').exists():
                 receipt('turn-received.json', {'received': True})
                 return
+            if Path('defer-turn-reply').exists():
+                receipt('turn-received.json', {'received': True})
+                deadline = time.monotonic() + 10
+                while not Path('release-turn-reply').exists():
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError('Fixture timed out waiting for the explicit turn reply release')
+                    time.sleep(0.02)
             if running or message['params']['threadId'] != THREAD:
                 raise RuntimeError('Fixture accepts one explicit turn')
             running = True

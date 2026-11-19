@@ -109,6 +109,8 @@ final class CodexPatchRPCAppTests: XCTestCase {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
         }
         let workspace = root.appendingPathComponent("workspace")
+        let editWhileSending = !useJump && !dropTurnReply && !interruptTurn && !closeExecutor
+        if editWhileSending { try Data().write(to: workspace.appendingPathComponent("defer-turn-reply")) }
         if dropTurnReply { try Data().write(to: workspace.appendingPathComponent("drop-turn-reply")) }
         if interruptTurn { try Data().write(to: workspace.appendingPathComponent("interrupt-turn")) }
         if closeExecutor { try Data().write(to: workspace.appendingPathComponent("hold-turn-reply")) }
@@ -178,6 +180,18 @@ final class CodexPatchRPCAppTests: XCTestCase {
         let previousSendIssue = model.extensionRunIssue
         model.codexMessageDraft = "exercise the isolated patch protocol fixture"
         try await press(pane, id: "plugin-codex-send")
+        if editWhileSending {
+            let receipt = workspace.appendingPathComponent("turn-received.json")
+            try await wait("Fixture did not receive the message before the draft edit") {
+                FileManager.default.fileExists(atPath: receipt.path) && model.codexCallBusy
+            }
+            model.codexMessageDraft = "draft for the next turn"
+            try Data().write(to: workspace.appendingPathComponent("release-turn-reply"))
+            try await wait("Confirmed message did not settle") {
+                !model.codexCallBusy && !model.extensionInstance.codexSendUnconfirmed
+            }
+            XCTAssertEqual(model.codexMessageDraft, "draft for the next turn")
+        }
         if closeExecutor {
             let receipt = workspace.appendingPathComponent("turn-received.json")
             try await wait("owned Executor did not receive the request") {

@@ -415,7 +415,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     fun sendCodexMessage() {
         if (!canCallCodex("codex.turn.send") || codex.threadID == null || codex.turnActive || codex.sendUnconfirmed) return
-        val text = codex.messageDraft.trim()
+        val submittedDraft = codex.messageDraft
+        val text = submittedDraft.trim()
         if (text.isEmpty() || text.toByteArray().size > 2048) return
         error = null
         codex = codex.copy(sendUnconfirmed = true)
@@ -424,7 +425,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             try {
                 val result = CodexHostEvents.decodeOutcome(requestExtensionRPC("codex.turn.send", input, returnTerminalOutcome = true))
                 check((result.opt("turnID") as? String)?.isNotBlank() == true) { "Codex 回合 ID 缺失" }
-                codex = codex.copy(messageDraft = "", sendUnconfirmed = false)
+                codex = codex.copy(
+                    messageDraft = codex.messageDraft.takeUnless { it == submittedDraft }.orEmpty(),
+                    sendUnconfirmed = false,
+                )
             } catch (failure: CodexHostEvents.ConfirmedNoEffect) {
                 codex = codex.copy(sendUnconfirmed = false)
                 throw failure

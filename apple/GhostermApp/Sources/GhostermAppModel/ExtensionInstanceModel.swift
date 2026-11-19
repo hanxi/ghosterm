@@ -452,7 +452,8 @@ import GhostermCore
         guard let run = extensionRun, canInteractWithRuntime, run.command == "ai codex", codexThreadID != nil,
               !codexTurnActive, !codexSendUnconfirmed,
               !codexCallBusy, run.methods.contains("codex.turn.send") else { return }
-        let text = codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let submittedDraft = codexMessageDraft
+        let text = submittedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         let generation = extensionRunGeneration
         codexCallBusy = true
@@ -465,7 +466,7 @@ import GhostermCore
             guard !sent.turnID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw GhostermError.failed("Codex 回合 ID 缺失")
             }
-            codexMessageDraft = ""
+            if codexMessageDraft.utf8.elementsEqual(submittedDraft.utf8) { codexMessageDraft = "" }
             codexSendUnconfirmed = false
         } catch let failure as CodexNoEffect {
             if generation == extensionRunGeneration {
