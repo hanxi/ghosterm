@@ -63,6 +63,9 @@ import XCTest
         XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)])
         XCTAssertEqual(model.frontendCandidates.first?.sourceID, pane.id)
         XCTAssertNil(model.extensionRun)
+        surface.sendCommittedText("exit\r")
+        try await until { !pane.isRunning || model.frontendCandidates.isEmpty }
+        XCTAssertTrue(model.frontendCandidates.isEmpty, "terminal exit must remove its passive discovery candidates")
     }
     func testStartupIsIdempotentAndDoesNotRestoreOldSessions() async throws {
         _ = NSApplication.shared

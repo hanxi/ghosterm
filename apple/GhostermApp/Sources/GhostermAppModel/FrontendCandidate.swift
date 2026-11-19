@@ -9,5 +9,6 @@ public struct FrontendCandidate: Identifiable, Sendable {
     public let sourceDescription: String
     public let offer: ExtensionDiscovery.Offer
     public let receivedAt: TimeInterval
-    public var expired: Bool { ProcessInfo.processInfo.systemUptime - receivedAt >= 30 }
+    var expiresAt: TimeInterval { receivedAt + 30 }
+    public var expired: Bool { ProcessInfo.processInfo.systemUptime >= expiresAt }
 }

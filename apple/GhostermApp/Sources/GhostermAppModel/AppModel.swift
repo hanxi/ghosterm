@@ -111,6 +111,7 @@ public final class AppModel: ObservableObject {
     private var pendingFrontendCandidates: [FrontendCandidate] = []
     private var pendingFrontendIssue: String?
     private var frontendUpdatePending = false
+    private var frontendExpiryTask: Task<Void, Never>?
     @Published public private(set) var localReservationEntries: [ExtensionLocalJournalEntry] = []
     @Published public private(set) var localReservationBusy = false
     @Published public private(set) var localReservationIssue: String?
@@ -1343,9 +1344,31 @@ public final class AppModel: ObservableObject {
 
     public func dismissFrontendCandidate(_ id: UUID) {
         frontendCandidates.removeAll { $0.id == id }
+        scheduleFrontendExpiry()
+    }
+
+    private func scheduleFrontendExpiry() {
+        frontendExpiryTask?.cancel()
+        frontendExpiryTask = nil
+        guard let expires = frontendCandidates.map(\.expiresAt).min() else { return }
+        let delay = max(0, expires - ProcessInfo.processInfo.systemUptime)
+        frontendExpiryTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self else { return }
+            self.frontendCandidates.removeAll { !self.frontendCandidateIsCurrent($0) }
+            self.scheduleFrontendExpiry()
+        }
     }
 
     private func wireFrontendDiscovery(_ pane: TerminalPane) {
+        pane.onDiscoveryInvalidated = { [weak self] sourceID in
+            guard let self else { return }
+            self.pendingFrontendCandidates.removeAll { $0.sourceID == sourceID }
+            if self.frontendCandidates.contains(where: { $0.sourceID == sourceID }) {
+                self.frontendCandidates.removeAll { $0.sourceID == sourceID }
+                self.scheduleFrontendExpiry()
+            }
+        }
         pane.onDiscovery = { [weak self] pane, offers, skipped, issue in
             guard let self, self.extensionController != nil,
                   let tab = self.tabs.tabs.first(where: { $0.panes.contains(where: { $0.id == pane.id }) }) else { return }
@@ -1372,6 +1395,7 @@ public final class AppModel: ObservableObject {
                 }
                 self.pendingFrontendCandidates.removeAll()
                 self.frontendCandidates = candidates
+                self.scheduleFrontendExpiry()
                 if let issue = self.pendingFrontendIssue { self.frontendDiscoveryIssue = issue; self.pendingFrontendIssue = nil }
             }
         }

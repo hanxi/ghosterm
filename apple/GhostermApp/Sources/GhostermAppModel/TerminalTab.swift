@@ -227,6 +227,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 的 tab，结构改动一律经持有者，见 `AppModel.handlePaneExit`）。
     public var onExit: ((TerminalPane) -> Void)?
     public var onDiscovery: ((TerminalPane, [ExtensionDiscovery.Offer], UInt32, String?) -> Void)?
+    var onDiscoveryInvalidated: ((UUID) -> Void)?
     public private(set) var discoveryGeneration = UUID()
 
     /// 谁建会话谁持有（UAF 教训）：pane 撑住 SessionController，
@@ -241,7 +242,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     public func attach(surface: TerminalSurface, session: SessionController) {
         self.surface = surface
         self.session = session
-        discoveryGeneration = UUID()
+        invalidateDiscovery()
         let generation = discoveryGeneration
         session.onDiscovery = { [weak self] offers, skipped, issue in
             guard let self, self.discoveryGeneration == generation, self.session != nil else { return }
@@ -265,30 +266,39 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 停会话（先置停止标志，再等读循环真的退出——见 SessionController.stop）。
     public func stop() {
-        discoveryGeneration = UUID()
+        invalidateDiscovery()
         onStop?()
         session?.stop()
         session = nil
     }
 
+    private func invalidateDiscovery() {
+        discoveryGeneration = UUID()
+        onDiscoveryInvalidated?(id)
+    }
+
     /// 会话状态变化（低频；SessionController 已 hop 回主线程）。
     func observeState() {
-        session?.onStateChange = { [weak self] state in
-            guard let self = self else { return }
+        guard let session else { return }
+        session.onStateChange = { [weak self, weak session] state in
+            guard let self, let session, self.session === session else { return }
             switch state {
             case .running: self.status = .ready
             case .idle: self.status = .connecting
             case .exited(let code):
+                self.invalidateDiscovery()
                 self.status = .exited(code: code)
                 // 程序退出：working/blocked 不再成立（done/error 留到用户看过）。
                 self.programStatus.removeEphemeral()
                 // 通知持有者：分屏里该收掉这个窗格（最后一个 → 关标签页）。
                 self.onExit?(self)
             case .exitedUnknown:
+                self.invalidateDiscovery()
                 self.status = .exitedUnknown
                 self.programStatus.removeEphemeral()
                 self.onExit?(self)
             case .failed(let message):
+                self.invalidateDiscovery()
                 self.status = .failed(message)
                 self.programStatus.removeEphemeral()
             }
