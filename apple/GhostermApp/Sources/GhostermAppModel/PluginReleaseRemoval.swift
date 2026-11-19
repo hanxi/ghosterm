@@ -374,6 +374,11 @@ final class PluginReleaseRemoval {
             guard line.count <= 16384 else { throw Failure.invalid }
             let object = try ReleaseJSON.parse(Data(line)).object(), actual = Set(object.keys)
             guard actual.subtracting(optional) == keys else { throw Failure.invalid }
+            if let schema = object["schema"] {
+                guard case .number(let version) = schema, ["1", "2", "3"].contains(version) else {
+                    throw Failure.invalid
+                }
+            }
             let stampKeys: Set<String> = ["device", "inode", "uid", "mode", "links", "size", "modified", "changed", "born"]
             for key in ["root", "version", "stamp"] where object[key] != nil {
                 guard Set(try object[key]!.object().keys) == stampKeys else { throw Failure.invalid }

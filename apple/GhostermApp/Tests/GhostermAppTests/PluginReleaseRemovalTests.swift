@@ -222,6 +222,28 @@ final class PluginReleaseRemovalTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journal(root).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(releaseID).path))
     }
+    func testRemovalJournalRejectsNoncanonicalSchemaWithoutUnlinking() throws {
+        let root = try tree()
+        try interrupted(root, at: "after-detach")
+        let record = journal(root)
+        let original = try Data(contentsOf: record)
+        let text = try XCTUnwrap(String(data: original, encoding: .utf8))
+        XCTAssertTrue(text.contains("\"schema\":1"))
+        let protectedFile = try detached(root).appendingPathComponent("payload/nested/data.txt")
+        let protectedBytes = try Data(contentsOf: protectedFile)
+
+        for token in ["null", "\"1\"", "1.0", "1e0", "4"] {
+            let malformed = Data(text.replacingOccurrences(of: "\"schema\":1", with: "\"schema\":\(token)").utf8)
+            try malformed.write(to: record)
+            XCTAssertThrowsError(try PluginReleaseRemoval.pendingPreview(owner: owner(root)))
+            XCTAssertThrowsError(try PluginReleaseRemoval.resume(owner: owner(root)))
+            XCTAssertEqual(try Data(contentsOf: protectedFile), protectedBytes)
+            XCTAssertEqual(try Data(contentsOf: record), malformed)
+        }
+        try original.write(to: record)
+        XCTAssertNotNil(try PluginReleaseRemoval.pendingPreview(owner: owner(root)))
+    }
+
     func testDuplicateAndSymlinkJournalFailClosed() throws {
         let root = try tree(); try interrupted(root, at: "after-detach")
         let original = try Data(contentsOf: journal(root))
