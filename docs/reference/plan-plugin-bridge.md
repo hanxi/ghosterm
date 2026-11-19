@@ -15669,3 +15669,10 @@ P2 Android 附件准备取消补变异。常驻 `mutation-check-android-html.py`
 对照与恢复测试通过，源码 SHA256
 `af02e5e4d69c34b652100a748b041103580da00c078ae7ccdf2d975bdba36b93` 一致。
 本轮只运行新增组的隔离等价步骤，未重跑常驻脚本的全组。临时构件与 AVD 已清理。
+
+P2 Android HTML 常驻变异脚本增加 `--headless-api`，使用自有无窗口模拟器、
+隔离 Android 源码和现有锁定依赖，同一构建目录复用基线、变异和恢复。
+默认退出清理日志与构件，显式 `--keep-work` 才保留。本轮正式入口
+`--headless-api 36 --case attachment-cancellation` 的目标红、同 APK Core
+对照、恢复与三份源摘要通过。缺 API 29 镜像的启动失败也退出并完成清理，
+未执行 API 29 设备用例或全组变异。

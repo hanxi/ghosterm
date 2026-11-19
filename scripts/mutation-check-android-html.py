@@ -5,14 +5,17 @@ Requires one normal assertion red, same-APK independent Core green, restored
 scenario green, and unchanged SHA256. Does not open any host UI window.
 """
 import argparse
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,12 +29,46 @@ spec.loader.exec_module(helper)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', action='append', dest='selected')
+    parser.add_argument('--headless-api', choices=('29', '36'), help='use an owned no-window emulator and isolated source')
+    parser.add_argument('--keep-work', action='store_true', help='retain receipts and build files under project tmp/')
     args = parser.parse_args()
     serial = os.environ.get('ANDROID_SERIAL')
-    if not serial: raise RuntimeError('Set ANDROID_SERIAL to the explicitly intended test device')
-    adb = ['adb', '-s', serial]
+    if not serial and not args.headless_api:
+        parser.error('specify --headless-api or set ANDROID_SERIAL to the intended test device')
+    with ExitStack() as cleanup:
+        temporary = dict(prefix='android-html-', dir=ROOT / 'tmp')
+        work = Path(tempfile.mkdtemp(**temporary) if args.keep_work else
+                    cleanup.enter_context(tempfile.TemporaryDirectory(**temporary)))
+        if args.keep_work:
+            print('RECEIPTS ' + str(work), flush=True)
+        project = ROOT
+        build_prefix = ['bash', ROOT / 'scripts/build-android.sh']
+        adb = 'adb'
+        if args.headless_api:
+            project = work / 'source'
+            for directory in ('android', 'terminal/android'):
+                shutil.copytree(ROOT / directory, project / directory, ignore=shutil.ignore_patterns(
+                    'build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
+            for directory in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
+                (project / directory).symlink_to(ROOT / directory, target_is_directory=True)
+            (project / 'tmp').mkdir()
+            toolchain = ROOT / 'build/android-toolchain'
+            adb = toolchain / 'sdk/platform-tools/adb'
+            build_prefix = ['env', f'JAVA_HOME={toolchain}/jdk-17.0.21+9/Contents/Home',
+                            f'ANDROID_HOME={toolchain}/sdk', f'GRADLE_USER_HOME={toolchain}/gradle-home',
+                            f'TMPDIR={work}', f'JAVA_TOOL_OPTIONS=-Djava.io.tmpdir={work} -Djava.awt.headless=true',
+                            project / 'android/gradlew', '-p', project / 'android', '--offline', '--no-daemon',
+                            '--max-workers=2']
+            spec = importlib.util.spec_from_file_location('html_owned_device', ROOT / 'scripts/test-plugin-codex-patch-android.py')
+            owned_device = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(owned_device)
+            serial = cleanup.enter_context(owned_device.headless(args.headless_api))
+        verify(args, work, project, [adb, '-s', serial], build_prefix)
+
+
+def verify(args, work, project, adb, build_prefix):
     helper.require(helper.run([*adb, 'get-state']))
-    base = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm'
+    base = project / 'android/app/src/main/java/com/hanxi/ghosterm'
     document = base / 'PluginResourceHTMLDocument.kt'
     view = base / 'PluginResourceHTMLView.kt'
     settings = base / 'SettingsContent.kt'
@@ -92,9 +129,6 @@ def main():
     cases = [c for c in cases if c[0] in selected]
     for name, _, path, before, _ in cases:
         if originals[path].decode().count(before) != 1: raise RuntimeError('Missing/ambiguous source anchor: ' + name)
-    work = ROOT / 'tmp/android-html-preview-mutations' / str(time.time_ns())
-    work.mkdir(parents=True)
-    print('RECEIPTS ' + str(work), flush=True)
     for path, data in originals.items(): (work / path.name).write_bytes(data)
     def write(path, data):
         temporary = work / ('source-' + str(time.time_ns()))
@@ -110,10 +144,10 @@ def main():
         helper.require(result); return output
     def build(label):
         # Compile the production renderer, real WebView test and independent Core control.
-        logged(label + '-build', ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
+        logged(label + '-build', [*build_prefix, '-PghostermPluginJs=true',
             ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
         for relative in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
-            logged(label + '-install-' + Path(relative).name, [*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / relative])
+            logged(label + '-install-' + Path(relative).name, [*adb, 'install', '-r', '-t', project / 'android/app/build/outputs/apk' / relative])
     def test(label, method, green):
         output = logged(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', method,
             'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
@@ -142,7 +176,10 @@ def main():
             print(name + ': compiled normal assertion RED / Core GREEN / restored GREEN / SHA256', flush=True)
     finally:
         restore()
-    for path, data in originals.items(): print(str(path.relative_to(ROOT)) + ' SHA256 ' + hashlib.sha256(data).hexdigest(), flush=True)
+    for path, data in originals.items():
+        if (ROOT / path.relative_to(project)).read_bytes() != data:
+            raise RuntimeError('Working checkout changed during mutation: ' + str(path.relative_to(project)))
+    for path, data in originals.items(): print(str(path.relative_to(project)) + ' SHA256 ' + hashlib.sha256(data).hexdigest(), flush=True)
     print('ANDROID HTML PREVIEW MUTATIONS PASS: ' + str(len(results)) + ' groups', flush=True)
 
 
