@@ -21,22 +21,30 @@ def run(label, command, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fetch", action="store_true", help="allow npm to fetch the locked test tools")
+    dependencies = parser.add_mutually_exclusive_group()
+    dependencies.add_argument("--fetch", action="store_true", help="allow npm to fetch the locked test tools")
+    dependencies.add_argument("--tools", type=Path, help="reuse preinstalled locked SDK test tools")
     args = parser.parse_args()
     tmp = ROOT / "tmp"
     tmp.mkdir(exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="codex-entry-", dir=tmp))
     try:
-        tools = work / "tools"
-        tools.mkdir()
         fixture = ROOT / "scripts/fixtures/plugin-sdk-tools"
-        for name in ("package.json", "package-lock.json"):
-            shutil.copyfile(fixture / name, tools / name)
-        install = ["npm", "ci", "--prefix", str(tools), "--ignore-scripts", "--no-audit", "--no-fund",
-                   "--cache", str(work / "npm-cache"), "--registry", "https://registry.npmjs.org"]
-        if not args.fetch:
-            install.append("--offline")
-        run("locked TypeScript install", install)
+        if args.tools:
+            tools = args.tools.resolve(strict=True)
+            for name in ("package.json", "package-lock.json"):
+                if (tools / name).read_bytes() != (fixture / name).read_bytes():
+                    parser.error(f"--tools: {name} does not match the SDK tool lock")
+        else:
+            tools = work / "tools"
+            tools.mkdir()
+            for name in ("package.json", "package-lock.json"):
+                shutil.copyfile(fixture / name, tools / name)
+            install = ["npm", "ci", "--prefix", str(tools), "--ignore-scripts", "--no-audit", "--no-fund",
+                       "--cache", str(work / "npm-cache"), "--registry", "https://registry.npmjs.org"]
+            if not args.fetch:
+                install.append("--offline")
+            run("locked TypeScript install", install)
 
         tsc = tools / "node_modules/typescript/bin/tsc"
         run("Codex Executor strict TypeScript", ["node", str(tsc), "-p",
