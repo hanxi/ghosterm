@@ -22,12 +22,13 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', choices=['apple', 'android'], required=True)
-    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed', 'discovery-expiry'])
+    parser.add_argument('--case', action='append', choices=['write', 'read', 'permission', 'cancel', 'size-write', 'size-read', 'discovery-feed', 'discovery-expiry', 'discovery-failure'])
     parser.add_argument('--headless-api', choices=['29', '36'], help='owned no-window device for discovery-feed')
     args = parser.parse_args()
-    expiry = 'discovery-expiry' in (args.case or ())
-    if expiry and (args.platform != 'apple' or args.case != ['discovery-expiry']):
-        parser.error('discovery-expiry runs alone on Apple')
+    apple_lifecycle_cases = ('discovery-expiry', 'discovery-failure')
+    if any(case in apple_lifecycle_cases for case in (args.case or ())):
+        if args.platform != 'apple' or len(args.case) != 1:
+            parser.error('discovery lifecycle cases run alone on Apple')
     discovery = 'discovery-feed' in (args.case or ())
     if discovery and (args.case != ['discovery-feed'] or (args.platform == 'android' and not args.headless_api)):
         parser.error('discovery-feed runs alone and requires --headless-api on Android')
@@ -53,7 +54,7 @@ def verify(parser, args, work, owned_serial=None):
         (work / f'{label}.log').write_text(result.stdout)
         return result
 
-    if args.platform == 'apple' and args.case in (['discovery-feed'], ['discovery-expiry']):
+    if args.platform == 'apple' and args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure']):
         for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
             shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -76,6 +77,13 @@ def verify(parser, args, work, owned_serial=None):
                 'self.frontendCandidates = candidates\n                self.scheduleFrontendExpiry()',
                 'self.frontendCandidates = candidates', 'testPassiveDiscoveryExpiresWhileTerminalIsIdle')}
             assertion_message = 'idle passive candidate must expire without another offer'
+        if args.case == ['discovery-failure']:
+            relative = 'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift'
+            source = work / relative
+            tests = {'discovery-failure': (
+                'public func markFailed(_ message: String) {\n        invalidateDiscovery()',
+                'public func markFailed(_ message: String) {', 'testPassiveDiscoveryIsClearedWhenPaneFails')}
+            assertion_message = 'failed pane must immediately remove its passive candidates'
         def build(label):
             if label != 'baseline': return
             directory = work / 'core/build'
@@ -225,7 +233,7 @@ def verify(parser, args, work, owned_serial=None):
             probe('control', name+'-control')
             source.write_bytes(original)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
-            if args.case in (['discovery-feed'], ['discovery-expiry']):
+            if args.case in (['discovery-feed'], ['discovery-expiry'], ['discovery-failure']):
                 assert (ROOT / relative).read_bytes() == original
             build(name+'-restored')
             probe(target, name+'-restored')

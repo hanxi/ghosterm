@@ -397,6 +397,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 建立失败的收尾：**保留** pane（屏幕显示失败卡片），不是把 tab
     /// 悄悄删掉——用户得看得见失败与原因（铁律 #6）。
     public func markFailed(_ message: String) {
+        invalidateDiscovery()
         session?.stop(); onStop = nil
         surface = nil
         session = nil

@@ -35,15 +35,22 @@ import XCTest
         XCTAssertTrue(panes.allSatisfy { !$0.isRunning })
     }
     func testPassiveDiscoveryKeepsOrdinaryPTYOutput() async throws {
-        try await verifyPassiveDiscovery(expiresWhileIdle: false)
+        try await verifyPassiveDiscovery(ending: .exit)
     }
 
     func testPassiveDiscoveryExpiresWhileTerminalIsIdle() async throws {
         try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
-        try await verifyPassiveDiscovery(expiresWhileIdle: true)
+        try await verifyPassiveDiscovery(ending: .idle)
     }
 
-    private func verifyPassiveDiscovery(expiresWhileIdle: Bool) async throws {
+    func testPassiveDiscoveryIsClearedWhenPaneFails() async throws {
+        try XCTSkipUnless(ExtensionRuntime.supportStatus == 0)
+        try await verifyPassiveDiscovery(ending: .failure)
+    }
+
+    private enum DiscoveryEnding { case exit, idle, failure }
+
+    private func verifyPassiveDiscovery(ending: DiscoveryEnding) async throws {
         _ = NSApplication.shared
         let model = isolatedAppModel(); defer { model.disconnectForTesting() }
         model.preferences.defaultShell = "/bin/sh"
@@ -72,7 +79,7 @@ import XCTest
         XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)])
         XCTAssertEqual(model.frontendCandidates.first?.sourceID, pane.id)
         XCTAssertNil(model.extensionRun)
-        if expiresWhileIdle {
+        if ending == .idle {
             let candidate = try XCTUnwrap(model.frontendCandidates.first)
             let clock = ProcessInfo.processInfo
             let earlyDelay = max(0, candidate.expiresAt - clock.systemUptime - 2)
@@ -84,6 +91,16 @@ import XCTest
             XCTAssertTrue(model.frontendCandidates.isEmpty, "idle passive candidate must expire without another offer")
             XCTAssertTrue(pane.isRunning)
             XCTAssertTrue(surface.readText()?.contains("PTY_OUTPUT") == true)
+            return
+        }
+        if ending == .failure {
+            pane.markFailed("Fixture connection failure")
+            XCTAssertTrue(model.frontendCandidates.isEmpty, "failed pane must immediately remove its passive candidates")
+            XCTAssertFalse(pane.isRunning)
+            XCTAssertTrue(model.tabs.tabs.contains { $0.panes.contains { $0 === pane } })
+            guard case .failed("Fixture connection failure") = pane.status else {
+                return XCTFail("pane must retain its connection error")
+            }
             return
         }
         surface.sendCommittedText("exit\r")
