@@ -14,8 +14,9 @@ def configure(path, channel, key, directory):
         return
     if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,63}', channel):
         raise ValueError('invalid GHOSTERM_PLUGIN_CHANNEL')
-    if len(base64.b64decode(key, validate=True)) != 32:
-        raise ValueError('GHOSTERM_PLUGIN_CHANNEL_ROOT must encode 32 public key bytes')
+    root = base64.b64decode(key, validate=True)
+    if len(root) != 32 or base64.b64encode(root).decode('ascii') != key:
+        raise ValueError('GHOSTERM_PLUGIN_CHANNEL_ROOT must encode 32 public key bytes in canonical Base64')
     if (any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in directory)
             or any(character in directory for character in '\\"<>^`{|}')
             or re.search(r'%(?![0-9A-Fa-f]{2})', directory)):

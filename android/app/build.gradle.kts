@@ -13,7 +13,10 @@ val pluginChannelRoot = providers.gradleProperty("ghostermPluginChannelRoot").or
 val pluginChannelUrl = providers.gradleProperty("ghostermPluginChannelUrl").orNull.orEmpty()
 if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNotEmpty() }) {
     require(pluginChannelName.matches(Regex("[a-z0-9][a-z0-9.-]{0,63}"))) { "Invalid ghostermPluginChannel" }
-    require(Base64.getDecoder().decode(pluginChannelRoot).size == 32) { "Expected a 32-byte channel root" }
+    val root = Base64.getDecoder().decode(pluginChannelRoot)
+    require(root.size == 32 && Base64.getEncoder().encodeToString(root) == pluginChannelRoot) {
+        "Expected a 32-byte channel root in canonical Base64"
+    }
     val endpoint = URI(pluginChannelUrl)
     require(endpoint.scheme == "https" && endpoint.host != null && endpoint.userInfo == null &&
         endpoint.rawFragment == null && endpoint.rawQuery == null &&
