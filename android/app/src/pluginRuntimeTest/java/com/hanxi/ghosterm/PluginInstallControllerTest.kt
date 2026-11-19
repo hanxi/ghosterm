@@ -84,6 +84,20 @@ class PluginInstallControllerTest {
             assertTrue(root.list()!!.isEmpty())
             val current = owner.inspectSignedArchive(fd, raw, sig, byteArrayOf(), store) { 150u }
             assertNotEquals(preview.channelStatementSHA256, current.channelStatementSHA256)
+            var publishing = false
+            var publicationReads = 0
+            try {
+                owner.installSignedArchive(fd, raw, sig, byteArrayOf(), current, root, checkpoint = {
+                    if (it == "before-rename") publishing = true
+                }, channelStore = store, channelClock = {
+                    if (publishing && ++publicationReads == 2) 200u else 150u
+                })
+                fail("channel expiring during publication was accepted")
+            } catch (e: PluginReleaseSignature.Rejected) {
+                assertEquals(PluginReleaseSignature.Failure.CHANNEL_FRESHNESS, e.reason)
+            }
+            assertEquals(2, publicationReads)
+            assertTrue(root.list()!!.isEmpty())
             val installed = owner.installSignedArchive(fd, raw, sig, byteArrayOf(), current, root,
                 channelStore = store, channelClock = { 150u })
             val releaseID = installed.publication.releaseID
