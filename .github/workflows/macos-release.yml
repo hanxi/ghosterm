@@ -73,8 +73,8 @@ jobs:
           import json
           from pathlib import Path
           value = json.loads(Path('dist/version.json').read_text())
-          if value.get('signature') != 'adhoc' or value.get('notarized') is not False:
-              raise SystemExit('version.json 的 Apple 签名状态不符合 GitHub Release ad-hoc 口径')
+          if value.get('signature') not in {'adhoc', 'dev', 'id'} or type(value.get('notarized')) is not bool:
+              raise SystemExit('version.json 的 Apple 签名状态不是可识别的真实档位')
           if not isinstance(value.get('update_signature'), str) or not value['update_signature']:
               raise SystemExit('version.json 缺少 Ed25519 更新签名')
           PY
