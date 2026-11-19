@@ -12,10 +12,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.URI
 import java.security.KeyStore
+import java.security.cert.CertPathValidatorException
 import java.security.cert.CertificateFactory
 import java.util.Base64
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.TrustManagerFactory
 
 @RunWith(AndroidJUnit4::class)
@@ -53,6 +55,10 @@ class PluginChannelRefreshTlsTest {
             val proof = valid.authenticate(descriptor, signature, now()).proof
             assertEquals("org.ghosterm.signature", proof.pluginID)
             assertTrue(!valid.revokesPublisher(store.rootSHA256, proof))
+            val untrusted = PluginChannelRefresh(store, directory, URI("$origin/revoked/"))
+            val handshake = runCatching { untrusted.refresh() }.exceptionOrNull()
+            assertTrue(handshake.toString(), handshake is SSLHandshakeException &&
+                generateSequence(handshake.cause) { it.cause }.any { it is CertPathValidatorException })
             val redirect = runCatching { refresh("redirect").refresh() }.exceptionOrNull()
             assertTrue(redirect.toString(), redirect is IllegalStateException && redirect.message!!.contains("签名材料"))
             val oversized = runCatching { refresh("oversized").refresh() }.exceptionOrNull()
