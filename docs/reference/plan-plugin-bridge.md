@@ -15809,3 +15809,10 @@ P6 只需验证 GitHub Release 资产获取、验签、安装与回滚，以及 
 appcast / ZIP 夹具通过，覆盖有效 Ed25519 签名、篡改拒绝、无密钥时保留空
 appcast 和 dev / release 元数据。该轮只验证本地夹具，未访问 GitHub Release
 或真实模型，临时目录已清理。
+
+在无有效 Apple 签名身份的本机执行
+`scripts/package-mac.sh --channel release --app-only --no-zip --arch arm64 --adhoc`
+成功生成 macOS release 产物。`BUILD-INFO.txt` 明确记录 `渠道: release`、
+`签名: adhoc` 和 GitHub Release / Ed25519 更新口径，证明打包入口不会把
+Developer ID 或公证误判为必要条件。该轮只生成本地产物，未上传 GitHub Release，
+产物目录已清理。
