@@ -749,18 +749,21 @@ def install_official_candidates(build, fixtures, work):
     host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1],
         runtimes=['portable-js'], capabilities=['resource.receive', 'file.readScoped', 'session.rpc',
                                                 'process.spawn', 'process.pipes'])))
-    for name in names:
+    catalog, store = work / 'catalog', work / 'store'
+    catalog.mkdir(mode=0o700)
+    store.mkdir(mode=0o700)
+    catalog_record = catalog / 'executor-catalog-v1'
+    registered_digests = {}
+    for revision, name in enumerate(names):
+        previous = catalog_record.read_bytes() if catalog_record.exists() else None
         bundle = fixtures / f'official-{name}-release'
         artifact, descriptor, signature = (bundle / member for member in ('plugin.zip', 'release.json', 'release.sig'))
         policy = work / f'{name}-policy.json'
         shutil.copyfile(fixtures / f'official-{name}-policy.json', policy)
-        catalog, store = work / f'{name}-catalog', work / f'{name}-store'
-        catalog.mkdir(mode=0o700)
-        store.mkdir(mode=0o700)
         raw = descriptor.read_bytes()
         require(json.loads(raw)['pluginId'] == f'org.ghosterm.{name}', f'{name}: signed fixture identity')
         result = subprocess.run([build / 'gterm', 'plugin', 'install', '--catalog', catalog,
-            '--expect-revision', '0', '--store', store, '--artifact', artifact, '--descriptor', descriptor,
+            '--expect-revision', str(revision), '--store', store, '--artifact', artifact, '--descriptor', descriptor,
             '--signature', signature, '--policy', policy, '--host-json', host, '--'],
             env=env, capture_output=True, timeout=15)
         report = json.loads(result.stdout)
@@ -772,7 +775,8 @@ def install_official_candidates(build, fixtures, work):
         observed = {path.relative_to(payload).as_posix(): path.read_bytes()
                     for path in payload.rglob('*') if path.is_file()}
         require(observed == expected, f'{name}: installed payload must match signed archive')
-        require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
+        current = catalog_record.read_bytes() if catalog_record.exists() else None
+        require(current == previous, f'{name}: install must leave the catalog unchanged')
         profile = ['--client-digest', release.sha(expected['integrity.json'])]
         if name == 'table':
             profile.extend(['--method', 'view.table.describe', '--method', 'view.table.page'])
@@ -808,7 +812,7 @@ def install_official_candidates(build, fixtures, work):
                 version = json.loads(lock.read_text())['codexCliVersion']
             profile.extend(['--process-program', program, executable, version, release.sha(executable.read_bytes())])
         registration = subprocess.run([build / 'gterm', 'plugin', 'register-signed', '--catalog', catalog,
-            '--expect-revision', '0', '--policy', policy, '--host-json', host, '--', payload.parent,
+            '--expect-revision', str(revision), '--policy', policy, '--host-json', host, '--', payload.parent,
             *profile],
             env=env, capture_output=True, timeout=15)
         registered = json.loads(registration.stdout)
@@ -816,6 +820,15 @@ def install_official_candidates(build, fixtures, work):
                 and registered.get('publisherAuthenticated') is True,
                 f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
         manifest = json.loads(expected['plugin.json'])
+        registered_digests[manifest['id']] = release.sha(expected['integrity.json'])
+        listing = subprocess.run([build / 'gterm', 'plugin', 'list', '--catalog', catalog],
+                                 env=env, check=True, capture_output=True, timeout=10)
+        listed = json.loads(listing.stdout)
+        entries = listed['entries']
+        require(listed['revision'] == str(revision + 1) and len(entries) == len(registered_digests)
+                and {entry['id']: entry['packageDigest'] for entry in entries} == registered_digests
+                and all(entry['source'] == 'signed-release-record' for entry in entries),
+                f'{name}: shared catalog must preserve every registered identity and digest')
         command = manifest['commands'][0]['path']
         arguments = ['site/index.md', '--assets', r'site/theme\,dark.css'] if name == 'preview' else []
         if name == 'table':
