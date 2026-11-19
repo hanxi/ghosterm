@@ -13540,6 +13540,11 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 对照和源码恢复均通过。收据 SHA256
 `55ad8b72c049887f8d29ff12d62b24f59fcdb6922a6cfe50d1a5cc353ef51a27`。
 
+固定 `b800e7c5`，任务专项在本机、回环 SSH 直连与 ProxyJump 三条路线各验证
+一次原生取消流程。28 项任务、15 项表格、15 项差异基线离屏通过。
+仅运行播报任务名变异，确认普通断言红、配置对照、编译对象变化和源码复原。
+收据 SHA256 `ef08d5612909b333a53241d1886e4dd9b01feba5b2d3d9bb15f5c6b9309afcd1`。
+
 ### P1 默认 Core 通道集中复验（2026-11-19）
 
 固定 `33d7afed`，使用完整 Xcode CLI 增量构建默认 Core（插件通道开启、插件
