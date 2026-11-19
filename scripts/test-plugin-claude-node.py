@@ -144,12 +144,23 @@ def run(command, env, *, seconds=120, assertion=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fetch', action='store_true', help='fetch the integrity-locked Node dependency closure')
+    dependencies = parser.add_mutually_exclusive_group()
+    dependencies.add_argument('--fetch', action='store_true', help='fetch the integrity-locked Node dependency closure')
+    dependencies.add_argument('--reuse-dependencies', type=Path,
+                              help='reuse a previously installed dependency tree with matching package and lock files')
     parser.add_argument('--mutate', action='store_true', help='compile isolated protection mutations')
     parser.add_argument('--real-cli', action='store_true', help='also initialize the locked native CLI without a prompt, under macOS no-network sandbox')
     args = parser.parse_args()
     if args.real_cli and sys.platform != 'darwin':
         parser.error('--real-cli requires the macOS no-network test profile; no fallback or skip is allowed')
+    existing = args.reuse_dependencies.resolve() if args.reuse_dependencies else None
+    if existing:
+        for name in ('package.json', 'package-lock.json'):
+            candidate = existing / name
+            if not candidate.is_file() or candidate.read_bytes() != (SOURCE / name).read_bytes():
+                parser.error(f'--reuse-dependencies: {name} does not match the Claude lock')
+        if not (existing / 'node_modules/typescript/bin/tsc').is_file():
+            parser.error('--reuse-dependencies requires installed dev dependencies')
     (ROOT / 'tmp').mkdir(exist_ok=True)
     inputs = [*SOURCE.rglob('*.ts'), SOURCE / 'package.json', SOURCE / 'package-lock.json', ROOT / 'scripts/test-plugin-claude-node.mjs']
     before = {str(path): sha(path) for path in inputs}
@@ -157,15 +168,18 @@ def main():
         work = Path(temporary)
         package = work / 'node'
         shutil.copytree(SOURCE, package)
-        environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
-        install = ['npm', 'ci', '--prefix', package, '--ignore-scripts', '--no-audit', '--no-fund',
-            '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
-        if not args.fetch: install.append('--offline')
-        run(install, environment, seconds=300)
+        environment = dict(os.environ, TMPDIR=str(work))
+        if existing:
+            (package / 'node_modules').symlink_to(existing / 'node_modules', target_is_directory=True)
+        else:
+            install = ['npm', 'ci', '--prefix', package, '--ignore-scripts', '--no-audit', '--no-fund',
+                '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
+            if not args.fetch: install.append('--offline')
+            run(install, environment, seconds=300)
         test_environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL') if key in os.environ}
         for key, name in (('HOME', 'home'), ('CLAUDE_CONFIG_DIR', 'config'), ('XDG_CONFIG_HOME', 'xdg')):
             directory = work / name; directory.mkdir(); test_environment[key] = str(directory)
-        test_environment.update(TMPDIR=str(ROOT / 'tmp'), GHOSTERM_CLAUDE_NODE_PACKAGE=str(package))
+        test_environment.update(TMPDIR=str(work), GHOSTERM_CLAUDE_NODE_PACKAGE=str(package))
         compiler = ['node', package / 'node_modules/typescript/bin/tsc', '-p', package / 'tsconfig.json', '--noEmitOnError']
         tests = ['node', '--test', ROOT / 'scripts/test-plugin-claude-node.mjs']
         run(compiler, environment)
