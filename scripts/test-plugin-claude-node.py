@@ -185,7 +185,7 @@ def main():
         run(compiler, environment)
         if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
         output = run(tests, test_environment, seconds=90)
-        expected = 30 if args.real_cli else 28
+        expected = 31 if args.real_cli else 29
         if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
             raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
         print(output, end='', flush=True)

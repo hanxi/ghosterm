@@ -7,7 +7,7 @@ import { EventEmitter, once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 
 const directory = resolve(process.env.GHOSTERM_CLAUDE_NODE_PACKAGE);
 const require = createRequire(join(directory, "package.json"));
@@ -19,6 +19,21 @@ const context = (id = "request-1", signal = new AbortController().signal) =>
   ({ requestId: id, toolUseID: "tool-1", signal });
 const drain = broker => { while (broker.takeEvent()) {} };
 const event = broker => { const value = broker.takeEvent(); assert(value); return value; };
+
+test("Claude Node CLI reports an unavailable SDK before reading the launch profile", () => {
+  const work = mkdtempSync(join(process.env.TMPDIR, "claude-no-sdk-"));
+  try {
+    cpSync(join(directory, "dist"), join(work, "dist"), { recursive: true });
+    writeFileSync(join(work, "package.json"), '{"type":"module"}');
+    const entry = join(work, "dist/cli.js");
+    assert.throws(() => createRequire(entry).resolve("@anthropic-ai/claude-agent-sdk"), { code: "MODULE_NOT_FOUND" });
+    const result = spawnSync(process.execPath, [entry, "--profile", join(work, "unread-profile.json")],
+      { cwd: work, env: { HOME: work, CLAUDE_CONFIG_DIR: work, TMPDIR: work }, encoding: "utf8", timeout: 10_000 });
+    assert.equal(result.status, 4);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "claude-node: DEPENDENCY_UNAVAILABLE\n");
+  } finally { rmSync(work, { recursive: true, force: true }); }
+});
 
 test("Claude Node CLI distinguishes missing executable and unsupported version without starting a session", () => {
   const work = mkdtempSync(join(process.env.TMPDIR, "claude-version-"));
