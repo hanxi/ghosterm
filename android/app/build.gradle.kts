@@ -8,6 +8,7 @@ plugins {
 }
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
 val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
+val channelProcessFixture = providers.gradleProperty("ghostermChannelProcessFixture").orNull == "true"
 val pluginChannelName = providers.gradleProperty("ghostermPluginChannel").orNull.orEmpty()
 val pluginChannelRoot = providers.gradleProperty("ghostermPluginChannelRoot").orNull.orEmpty()
 val pluginChannelUrl = providers.gradleProperty("ghostermPluginChannelUrl").orNull.orEmpty()
@@ -94,6 +95,10 @@ android {
     }
     sourceSets["main"].assets.srcDir("../../build/android-native/assets")
     sourceSets["main"].assets.srcDir(sourceAssets)
+    if (channelProcessFixture) {
+        sourceSets["debug"].manifest.srcFile("src/channelProcessFixture/AndroidManifest.xml")
+        sourceSets["debug"].java.srcDir("src/channelProcessFixture/java")
+    }
     if (pluginJsEnabled) {
         sourceSets["main"].assets.srcDir(files(runtimeLicenseAssets).builtBy(copyRuntimeLicense))
         sourceSets["androidTest"].java.srcDir("src/pluginRuntimeTest/java")

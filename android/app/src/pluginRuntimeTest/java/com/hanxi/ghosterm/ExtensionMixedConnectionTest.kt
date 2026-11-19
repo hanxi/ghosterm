@@ -1,5 +1,8 @@
 package com.hanxi.ghosterm
 
+import android.net.Uri
+import android.os.Bundle
+import android.os.Process
 import android.os.SystemClock
 import android.os.ParcelFileDescriptor
 import android.util.Base64
@@ -192,8 +195,18 @@ class ExtensionMixedConnectionTest {
                 await("managed Session consent") {
                     main { model.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT && !model.launchBusy }
                 }
-                val revoked = updatePolicy(revocation.getJSONObject("revoked"))
+                val materials = revocation.getJSONObject("revoked")
+                val written = checkNotNull(context.contentResolver.call(
+                    Uri.parse("content://${context.packageName}.test-channel-writer"), "commit", null,
+                    Bundle().apply {
+                        for (name in listOf("statement", "signature", "policy")) putByteArray(name, bytes(materials, name))
+                    }))
+                assertTrue("channel writer must run in a different process",
+                    written.getInt("pid") > 0 && written.getInt("pid") != Process.myPid())
+                assertEquals("2", written.getString("generation"))
+                val revoked = runBlocking { owner.cachedChannelPolicy(recordObservation = false) }
                 assertEquals(2uL, revoked.generation)
+                assertEquals(written.getString("statementSHA256"), revoked.statementSHA256)
                 assertEquals(1, runBlocking { owner.runningInstancesWithRevokedPublisher(revoked) })
                 ui.onNodeWithTag("plugin-instance-${instance.id}").performScrollTo().performClick()
                 ui.onNodeWithText("允许并启动").performClick()

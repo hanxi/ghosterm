@@ -55,7 +55,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
             '-Dorg.gradle.parallel=false', '-PghostermPluginJs=true']
         if revocation:
             gradle += ['-PghostermPluginChannel=fixture', '-PghostermPluginChannelRoot=' + revocation['root'],
-                       '-PghostermPluginChannelUrl=https://localhost.invalid/']
+                       '-PghostermPluginChannelUrl=https://localhost.invalid/', '-PghostermChannelProcessFixture=true']
             if mutate:
                 # Compare complete Kotlin outputs across rounds. Incremental
                 # recompiles can reorder metadata in otherwise unchanged classes.
