@@ -771,7 +771,15 @@ def install_official_candidates(build, fixtures, work):
                     for path in payload.rglob('*') if path.is_file()}
         require(observed == expected, f'{name}: installed payload must match signed archive')
         require(not (catalog / 'executor-catalog-v1').exists(), f'{name}: unrequested executor registration')
-        print('PASS official gterm install', name, flush=True)
+        registration = subprocess.run([build / 'gterm', 'plugin', 'register-signed', '--catalog', catalog,
+            '--expect-revision', '0', '--policy', policy, '--host-json', host, '--', payload.parent,
+            '--client-digest', release.sha(expected['integrity.json'])],
+            env=env, capture_output=True, timeout=15)
+        registered = json.loads(registration.stdout)
+        require(registration.returncode == 0 and registered.get('committed') is True
+                and registered.get('publisherAuthenticated') is True,
+                f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
+        print('PASS official gterm install and register', name, flush=True)
 
 
 def main():
