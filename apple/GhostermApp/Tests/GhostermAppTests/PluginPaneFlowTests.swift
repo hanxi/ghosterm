@@ -335,6 +335,11 @@ final class PluginPaneFlowTests: XCTestCase {
             if discovery {
                 model.connect(to: .localShell)
                 guard try await until({ model.activePane?.isRunning == true }) else { XCTFail("owned local PTY did not start"); return }
+                let nested = #"\033P\033]777;ghosterm-discovery;1;EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA==\007\033\0134"#
+                model.activePane?.surface?.sendCommittedText("printf '%b%s%s\\n' '\(nested)' 'PTY_' 'CONTROL_MARKER'\r")
+                guard try await until({ model.activePane?.surface?.readText()?.contains("PTY_CONTROL_MARKER") == true }) else {
+                    XCTFail("ordinary PTY output after the control string did not reach the terminal grid"); return
+                }
                 func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
                 let command = ([gterm] + (process.arguments ?? [])).map(quote).joined(separator: " ")
                 model.activePane?.surface?.sendCommittedText("GTERM_DISCOVERY_TMUX_LAYERS=0 " + command + "\r")
@@ -354,6 +359,8 @@ final class PluginPaneFlowTests: XCTestCase {
             if discovery {
                 guard try await until({ model.frontendCandidates.contains { $0.offer.instance == instance } }) else { XCTFail("real PTY hint did not reach native candidate list"); return }
                 let candidate = try XCTUnwrap(model.frontendCandidates.first { $0.offer.instance == instance })
+                XCTAssertFalse(model.frontendCandidates.contains { $0.offer.instance == String(repeating: "1", count: 32) },
+                               "a discovery sequence inside a terminal control string must not create a candidate")
                 discoveredCandidate = candidate
                 XCTAssertEqual(candidate.offer.directory, endpoint.path)
                 XCTAssertEqual(candidate.offer.clientDigest, digest)
