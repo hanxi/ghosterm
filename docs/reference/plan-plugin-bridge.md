@@ -15829,6 +15829,8 @@ Release 仍指向较早提交 `fa5b0044`，其历史 `BUILD-INFO.txt` 仍写着�
 `version.json` 的 `signature`、`notarized` 和 Ed25519 更新签名字段。同步修正
 了共享 Release 变异夹具；`mutation-check-dev-release-assets.py` 的 22 组目标
 红、对照绿、恢复绿全部通过。
+新增三组元数据变异也通过：旧 `BUILD-INFO` 文案、缺少 `update_signature`、错误
+Apple 签名状态均目标红，恢复后绿。
 
 将同一检查实际应用于公开 `dev` Release 的六个 macOS 元数据资产时，检查按
 预期拒绝线上旧包：其 `BUILD-INFO.txt` 缺少新的 GitHub Release/ad-hoc 声明，
