@@ -902,7 +902,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 }
                 if (onEnqueue != null && !attachExisting) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(groupLaunch, { groupLaunch = it }, Modifier.testTag("plugin-group-mode"))
+                        Checkbox(groupLaunch, { groupLaunch = it }, Modifier.testTag("plugin-group-mode").semantics {
+                            contentDescription = if (groupLaunch) "已选择加入待启动组" else "选择加入待启动组"
+                        })
                         Text("加入同一连接的待启动组")
                     }
                     if (groupLaunch) OutlinedTextField(groupTemporaryDirectory, { groupTemporaryDirectory = it },
@@ -954,9 +956,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 } catch (failure: IllegalArgumentException) {
                     problem = failure.message ?: "插件启动参数无效"
                 }
+            }, modifier = Modifier.semantics {
+                contentDescription = if (enqueueGroup != null) "加入待启动插件连接组" else "连接并请求插件授权"
             }) { Text(if (enqueueGroup != null) "加入待启动组" else "连接并请求授权") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.semantics {
+            contentDescription = "取消插件启动"
+        }) { Text("取消") } })
 }
 
 @Composable private fun PluginCodexPanel(extensions: ExtensionPackagesViewModel) {
