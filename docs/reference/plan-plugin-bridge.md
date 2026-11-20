@@ -15912,3 +15912,17 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
 套件中 942 项通过、98 项按夹具条件跳过；本机 PTY、回环 SSH 终端和 SFTP
 浏览下载三个必需方法均通过。WebKit 真实 CSS/PNG 绘制和刷新同轮通过，
 测试全程离屏，临时目录已清理。GitHub Actions 发布工作流另行核对。
+
+### 首个正式版本的发布闸门复验（2026-11-20）
+
+- [Android Release APK 44748424023](https://github.com/hanxi/ghosterm/actions/runs/44748424023)
+  在 `2bd3aaac` 通过平台 API、优化构建、签名和可安装性检查，并上传 APK 与诊断产物。
+  较早一轮下载锁定 Zig 依赖收到 HTTP 504。同一构建流程复跑成功，产物目前位于 Actions。
+- [macOS Release 44747032182](https://github.com/hanxi/ghosterm/actions/runs/44747032182)
+  在 `2bd3aaac` 通过此前失败的插件选择复核用例，随后在离屏测量到「外观」页留白 58 pt，
+  超过 55 pt 上限。将该页定高由 580 pt 调到 572 pt 后，本地定向测试测得 18 pt 并通过。
+- [macOS Release 44751918948](https://github.com/hanxi/ghosterm/actions/runs/44751918948)
+  在 `b74ee82f` 通过上述设置布局用例，随后在后台窗口守卫测试遇到段错误。`536633d7`
+  显式持有测试窗口至关闭结束，保留透明和禁止应用激活的断言，本地离屏定向测试通过。
+  [macOS Release 44755703820](https://github.com/hanxi/ghosterm/actions/runs/44755703820)
+  用该提交运行全量闸门。首个正式版仍待云端发布验收。
