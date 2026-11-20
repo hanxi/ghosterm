@@ -41,7 +41,11 @@ import kotlinx.coroutines.isActive
                 LinearProgressIndicator(progress = { (snapshot.completed.toULong().toDouble() / total.toULong().toDouble()).toFloat() },
                     modifier = Modifier.fillMaxWidth().semantics { contentDescription = "任务进度"; stateDescription = "${snapshot.completed} / $total" })
             }
-            snapshot.result.text?.let { SelectionContainer { Text(it, Modifier.testTag("plugin-task-result")) } }
+            snapshot.result.text?.let { result -> SelectionContainer {
+                Text(result, Modifier.testTag("plugin-task-result").semantics {
+                    contentDescription = "$title 结果：$result"
+                })
+            } }
         }
         val cancellationMessage = when (state.cancellation) {
             PluginTaskModel.Cancellation.REQUESTED ->
