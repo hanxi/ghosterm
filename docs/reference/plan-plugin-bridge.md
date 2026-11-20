@@ -15938,3 +15938,11 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   本地用真实回环 SSH 验证两窗格各自的远端进程及 SFTP 主机密钥复用。
   [macOS Release 44758446985](https://github.com/hanxi/ghosterm/actions/runs/44758446985)
   已通过 macOS 应用及终端全量闸门，后续变异与出包步骤仍需确认。
+- 该轮随后在终端 T1 变异缺少主机列表对照处失败。应用全量闸门提前遇到依赖终端网格的用例，
+  因而未运行对照。独立跑主机列表后，隔离副本确认原网格断言失败、主机列表对照通过、
+  复原后终端闸门通过。首次本地对照因下载 Sparkle 超时，复验使用同版本本机缓存。
+- [macOS Release 44765887252](https://github.com/hanxi/ghosterm/actions/runs/44765887252)
+  在对话视图点击发送处失败。测试等待 SwiftUI 控件进入可用状态后，本地两项离屏用例通过。
+  [macOS Release 44767857210](https://github.com/hanxi/ghosterm/actions/runs/44767857210)
+  复验这两项修复。另用隔离夹具向 T1 发送 INT、TERM、HUP，确认脚本按信号退出，
+  逐字节复原三份源码、删除备份，且未启动下一组变异。

@@ -35,17 +35,21 @@ restore_all() {
   # 会拿**旧备份**把源文件盖回去，把别人的新改动一起抹掉（真踩过）。
   # 文件里没有标记 = 现场已不是变异态 → 什么都别动。
   if grep -q "$MARK" "$SURF" 2>/dev/null; then
-    [ -n "$BACKUP" ] && [ -f "$BACKUP" ] && cp "$BACKUP" "$SURF" && rm -f "$BACKUP"
+    cp "$BACKUP" "$SURF" || return 1
   fi
   if grep -q "$MARK" "$SHIM" 2>/dev/null; then
-    [ -n "$SHIM_BACKUP" ] && [ -f "$SHIM_BACKUP" ] && cp "$SHIM_BACKUP" "$SHIM" && rm -f "$SHIM_BACKUP"
+    cp "$SHIM_BACKUP" "$SHIM" || return 1
   fi
   if grep -q "$MARK" "$VIEW" 2>/dev/null; then
-    [ -n "$VIEW_BACKUP" ] && [ -f "$VIEW_BACKUP" ] && cp "$VIEW_BACKUP" "$VIEW" && rm -f "$VIEW_BACKUP"
+    cp "$VIEW_BACKUP" "$VIEW" || return 1
   fi
 }
-trap 'restore_all' EXIT
-trap 'restore_all; echo "已复原（trap）"' INT TERM
+cleanup() {
+  local status=$?
+  restore_all || exit 1
+  rm -f -- "$BACKUP" "$SHIM_BACKUP" "$VIEW_BACKUP" || exit 1
+  exit "$status"
+}
 
 for f in "$SURF" "$SHIM" "$VIEW"; do
   if grep -q "$MARK" "$f" 2>/dev/null; then
@@ -53,15 +57,17 @@ for f in "$SURF" "$SHIM" "$VIEW"; do
   fi
 done
 
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 BASE_SHA="$(shasum -a 256 "$SURF" | awk '{print $1}')"
 SHIM_SHA="$(shasum -a 256 "$SHIM" | awk '{print $1}')"
 VIEW_SHA="$(shasum -a 256 "$VIEW" | awk '{print $1}')"
-BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
-cp "$SURF" "$BACKUP"
-SHIM_BACKUP="$(mktemp "$TMP/gt-mutshim-XXXXXX")"; SHIM_BACKUP="$SHIM_BACKUP.c"
-cp "$SHIM" "$SHIM_BACKUP"
-VIEW_BACKUP="$(mktemp "$TMP/gt-mutview-XXXXXX")"; VIEW_BACKUP="$VIEW_BACKUP.swift"
-cp "$VIEW" "$VIEW_BACKUP"
+BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")" && cp "$SURF" "$BACKUP" || exit 1
+SHIM_BACKUP="$(mktemp "$TMP/gt-mutshim-XXXXXX")" && cp "$SHIM" "$SHIM_BACKUP" || exit 1
+VIEW_BACKUP="$(mktemp "$TMP/gt-mutview-XXXXXX")" && cp "$VIEW" "$VIEW_BACKUP" || exit 1
 
 run_terminal() { ( cd "$ROOT" && bash scripts/terminal-gate.sh >/dev/null 2>&1 ); }
 run_host_list() {
@@ -82,7 +88,7 @@ mutate() { # $1=标签 $2=目标文件；变异脚本本体从 heredoc 走 stdin
   # 判据都毫无意义（实测漂过一次：期望红却拿到别处的红，看着像有牙）。
   # 所以立刻复原并红掉整条套件，而不是继续跑。
   if ! python3 - "$2"; then
-    restore_all
+    restore_all || exit 1
     echo "  ✗ $1 的变异锚点没对上——实现改了，判据必须跟着改（不许拿未变异的现场跑判据）" >&2
     echo
     echo "mutation-check-terminal: $PASS passed, $((FAIL + 1)) failed"
@@ -122,11 +128,8 @@ fi
 # 这是我们**自己**的边界逻辑（0002 的 C 报告 → Swift 值）。它坏了，OSC 7501
 # 的断言必须变红；而只查 title/msg 的 base64 用例应仍绿 —— 双断言。
 echo "== T2：ProgramStatusReport 抄写时丢掉 app =="
-# T1 的变异必须先复原，否则 T2 的现场会带着 T1（feed 被短路）——那样报告
-# 根本到不了回调，红就没指向性了（实测踩过）。复原后重新备份再变异。
-restore_all
-BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
-cp "$SURF" "$BACKUP"
+# T1 必须先复原，才能让 T2 的报告走到回调。
+restore_all || exit 1
 mutate "T2" "$SURF" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
@@ -172,11 +175,8 @@ if grep -q "testColorSchemeSwitchReachesExistingSurface.*failed" "$T3LOG" 2>/dev
 else
   echo "  ✗ 无法确认红有指向性（见 ${T3LOG}）"; FAIL=$((FAIL+1))
 fi
-# T3 的变异必须复原（否则 T4 现场带着 T3，红就没指向性），且复原会**删掉备份**，
-# 故这里重新备份 shim 再变异——与 T2 同一手法。
-restore_all
-SHIM_BACKUP="$(mktemp "$TMP/gt-mutshim-XXXXXX")"; SHIM_BACKUP="$SHIM_BACKUP.c"
-cp "$SHIM" "$SHIM_BACKUP"
+# 先复原 T3，再单独检查 T4。
+restore_all || exit 1
 
 # ---- T4：砍掉 reload_config 动作处理（条件状态变了却不重下发） ----
 # 另一半：即使逐个 surface 报了，libghostty 也只是把「该重读配置」当动作丢回
@@ -198,16 +198,12 @@ if grep -q "testColorSchemeSwitchReachesExistingSurface.*failed" "$T4LOG" 2>/dev
 else
   echo "  ✗ 无法确认红有指向性（见 ${T4LOG}）"; FAIL=$((FAIL+1))
 fi
-restore_all
+restore_all || exit 1
 
 # ---- T5：输入法预编辑不下发（用户看不到正在打什么） ----
 # 组合串必须经 preedit 进引擎做内联显示。观测口径是 libghostty 自己的
 # `ime_point` 宽度（按预编辑串算）；不下发就恒 0。
 echo "== T5：setPreedit 不下发（组合串看不到） =="
-# T4 的 restore_all 已删掉 SURF 备份；重新备份再变异（否则没得复原，实测踩过）。
-restore_all
-BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
-cp "$SURF" "$BACKUP"
 mutate "T5" "$SURF" <<'PY_T5'
 import sys
 p=sys.argv[1]; s=open(p).read()
@@ -236,9 +232,7 @@ fi
 # 提交必须走键入语义；错走粘贴语义时，开了 bracketed paste 的程序会把中文
 # 当成一次粘贴（`ESC[200~ … ESC[201~`），断言因此变红。
 echo "== T6：提交走成粘贴语义 =="
-restore_all
-BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
-cp "$SURF" "$BACKUP"
+restore_all || exit 1
 mutate "T6" "$SURF" <<'PY_T6'
 import sys
 p=sys.argv[1]; s=open(p).read()
@@ -285,7 +279,7 @@ else
   echo "  ✗ 无法确认红有指向性（见 ${T7LOG}）"; FAIL=$((FAIL+1))
   grep -E "MarkedText|KeyDown" "$T7LOG" 2>/dev/null | tail -6 | sed 's/^/      /'
 fi
-restore_all
+restore_all || exit 1
 
 # ---- T8：sendCommittedText 丢掉控制字符（#14451 吞键事故的形态） ----
 # 上游 Ghostty discussion #14451：切输入法后的第一个键被 keyDown 里
@@ -296,9 +290,6 @@ restore_all
 # （testCommittedControlCharReachesTransport）必须变红，且中文提交用例
 # 仍绿（中文字符 ≥ 0x20，不受影响——红有指向性）。
 echo "== T8：提交文本丢掉控制字符 =="
-restore_all
-BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
-cp "$SURF" "$BACKUP"
 mutate "T8" "$SURF" <<'PY_T8'
 import sys
 p=sys.argv[1]; s=open(p).read()
@@ -319,10 +310,9 @@ else
   echo "  ✗ 无法确认红有指向性（见 ${T8LOG}）"; FAIL=$((FAIL+1))
   grep -E "CommittedControl|CommittedChinese" "$T8LOG" 2>/dev/null | tail -6 | sed 's/^/      /'
 fi
-restore_all
 
 echo "== 回滚复绿 =="
-restore_all
+restore_all || exit 1
 now="$(shasum -a 256 "$SURF" | awk '{print $1}')"
 shim_now="$(shasum -a 256 "$SHIM" | awk '{print $1}')"
 view_now="$(shasum -a 256 "$VIEW" | awk '{print $1}')"
@@ -334,7 +324,6 @@ else
 fi
 expect green "回滚后 terminal-gate" run_terminal
 
-trap - INT TERM
 echo
 echo "mutation-check-terminal: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
