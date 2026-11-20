@@ -15905,5 +15905,5 @@ GitHub Actions 的其余全量变异和正式版本发布仍待复验。
 P2 随后在 API 29 / API 36 无窗口模拟器调用 WebView 的正式终止接口，实际退出
 本轮测试预览的渲染进程。两个设备均收到原生退出通知，预览关闭且附件读取返回
 403，同对 QuickJS 构建 APK 各通过 HTML 预览组 13 项。模拟器均以 0 退出并清理。
-API 29 另用 `mutation-check-android-html.py --headless-api 29 --baseline-only`
-通过 19 项联合测试，包含真实 WebView 绘制、切换、退出和附件撤销，安装 APK 摘要对拍一致。
+API 29 / 36 另用 `mutation-check-android-html.py --headless-api <API> --baseline-only`
+各通过 19 项联合测试，包含真实 WebView 绘制、切换、退出和附件撤销，各轮安装 APK 摘要与本轮产物一致。
