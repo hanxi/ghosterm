@@ -80,8 +80,19 @@ jobs:
           if value.get('channel') != 'release' or value.get('git_commit') != os.environ['GITHUB_SHA']:
               raise SystemExit('version.json 的渠道或构建提交与本轮不一致')
           version = value.get('version')
-          if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', version):
+          if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
               raise SystemExit('version.json 版本号无效')
+          dist = Path('dist')
+          dmgs, zips = list(dist.glob('*.dmg')), list(dist.glob('*.zip'))
+          if len(dmgs) != 1 or len(zips) != 1:
+              raise SystemExit('正式发布需要唯一的 DMG 和 ZIP')
+          expected = {dmgs[0].name, zips[0].name, 'BUILD-INFO.txt'}
+          rows = [line.split(None, 1) for line in (dist / 'SHA256SUMS').read_text().splitlines()]
+          if len(rows) != len(expected) or any(len(row) != 2 for row in rows):
+              raise SystemExit('SHA256SUMS 条目数量或格式不正确')
+          checksums = {name: digest for digest, name in rows}
+          if set(checksums) != expected or checksums != value.get('sha256'):
+              raise SystemExit('SHA256SUMS 与更新清单或本轮产物不一致')
           if value.get('signature') not in {'adhoc', 'dev', 'id'} or type(value.get('notarized')) is not bool:
               raise SystemExit('version.json 的 Apple 签名状态不是可识别的真实档位')
           if not isinstance(value.get('update_signature'), str) or not value['update_signature']:
