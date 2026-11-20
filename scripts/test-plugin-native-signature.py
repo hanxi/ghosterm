@@ -321,8 +321,12 @@ def main():
     for label, filename, old, _, _ in recipes:
         assert originals[filename].count(old.encode()) == 1, label
     commands, groups = [], []
-    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
-    with tempfile.TemporaryDirectory(prefix='ns-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    env = dict(os.environ, TMPDIR=str(work_tmp), TMP=str(work_tmp), TEMP=str(work_tmp),
+               GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+    with tempfile.TemporaryDirectory(prefix='ns-', dir=work_tmp) as temporary:
         work = Path(temporary)
         fixture = work / 'fixture'; fixture.mkdir()
         with helper.agent(node, work) as (public, endpoint):
