@@ -15977,3 +15977,9 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
 - [macOS Release 44802060546](https://github.com/hanxi/ghosterm/actions/runs/44802060546)
   在 `b5ba2e35` 云端通过四组默认入口变异、独立对照与 SHA256 复原。随后 SSH 认证 ABI
   闸门链接到了系统 libssh2，缺少 Ghosterm 补丁符号。最新候选包含已经本地验收的 `88be7d86` 链接修复。
+- [macOS Release 44806436423](https://github.com/hanxi/ghosterm/actions/runs/44806436423)
+  在 `debd65a5` 全部通过，包括 SSH 认证、tmux、DMG/ZIP 打包、无证书更新、
+  独立 Ed25519 签名及一键安装变异。下载的六份 Actions 产物已核对 SHA256、
+  构建收据、ZIP 内应用版本、渠道和 appcast 的清单字段。独立复验 ZIP 的 Ed25519 签名、
+  应用的 ad-hoc 签名和 DMG 自带校验和均通过。临时下载及解包已清理。
+  发布标签尚未指向该提交，当前产物仍位于 Actions。
