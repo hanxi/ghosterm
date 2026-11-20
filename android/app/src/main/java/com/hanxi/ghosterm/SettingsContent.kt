@@ -360,13 +360,17 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         if (selectedResourceId !in resourceIds) selectedResourceId = resourceIds.first()
     }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("plugin-resources"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("收到的预览资源", style = MaterialTheme.typography.titleSmall)
+        Text("收到的预览资源", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics {
+            contentDescription = "收到的预览资源，共 ${resources.size} 项"
+        })
         GhostermGroup(Modifier.fillMaxWidth().testTag("plugin-resource-list")) {
             resources.forEach { resource ->
                 val selected = resource.descriptor.resourceId == selectedResourceId
                 TextButton(
                     onClick = { selectedResourceId = resource.descriptor.resourceId },
-                    modifier = Modifier.fillMaxWidth().testTag("plugin-resource-select-${resource.descriptor.resourceId}"),
+                    modifier = Modifier.fillMaxWidth().testTag("plugin-resource-select-${resource.descriptor.resourceId}").semantics {
+                        contentDescription = "${if (selected) "当前" else "选择"}资源 ${resource.descriptor.displayName}"
+                    },
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text("${if (selected) "✓ " else ""}${resource.descriptor.displayName}",
@@ -377,7 +381,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         }
         resources.singleOrNull { it.descriptor.resourceId == selectedResourceId }?.let { resource ->
             GhostermGroup(Modifier.fillMaxWidth().testTag("plugin-resource-${resource.descriptor.resourceId}")) {
-                Text(resource.descriptor.displayName, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                Text(resource.descriptor.displayName, Modifier.padding(horizontal = 16.dp, vertical = 6.dp).semantics {
+                    contentDescription = "资源 ${resource.descriptor.displayName}"
+                },
                     style = MaterialTheme.typography.titleSmall)
                 Text("${resource.descriptor.mime} · ${resource.bytes.size} 字节 · SHA-256 ${resource.descriptor.sha256}",
                     Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
