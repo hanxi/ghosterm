@@ -188,6 +188,14 @@ fi
   done < <(gt_timeout 300 swift test --list-tests 2>/dev/null |
     sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u)
   [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
+  # AppKit view tests can inherit a stale SwiftPM/XCTest process state after
+  # the conversation model suite on the hosted runner. Run that independent
+  # UI suite first while retaining every suite in the serial pass.
+  for index in "${!SUITES[@]}"; do
+    if [ "${SUITES[$index]}" = "GhostermAppTests.ClaudeConversationViewTests" ]; then
+      first="${SUITES[0]}"; SUITES[0]="${SUITES[$index]}"; SUITES[$index]="$first"; break
+    fi
+  done
   for suite in "${SUITES[@]}"; do
     echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
     gt_timeout 1800 env ${ENVARGS[@]+"${ENVARGS[@]}"} swift test --filter "$suite" \
