@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require android-ssh
 : "${ANDROID_SERIAL:?Set ANDROID_SERIAL to the test device}"
 mkdir -p "$ROOT/tmp"
-WORK="$(mktemp -d "$ROOT/tmp/android-ssh-run-XXXXXX")"
+FIXTURE_TMP="$(cd "${TMPDIR:-$ROOT/tmp}" 2>/dev/null && pwd -P || true)"
+case "$FIXTURE_TMP" in "$ROOT/tmp"|"$ROOT/tmp/"*) ;; *) FIXTURE_TMP="$ROOT/tmp" ;; esac
+WORK="$(mktemp -d "$FIXTURE_TMP/as-XXXXXX")"
 WRAPPER="$WORK/wrapper"
 LOG="$WORK/fixture.log"
 trap 'find "$WORK" -depth -delete' EXIT
@@ -25,7 +27,8 @@ root,wrapper=map(pathlib.Path,sys.argv[1:3])
 wrapper.write_text('#!/bin/sh\nexec '+shlex.quote(sys.argv[3])+' '+shlex.quote(str(root/'scripts/test-android-ssh.py'))+' "$@"\n')
 wrapper.chmod(0o700)
 PY
-export TMPDIR="$ROOT/tmp"
+export TMPDIR="$FIXTURE_TMP" TMP="$FIXTURE_TMP" TEMP="$FIXTURE_TMP"
+export GHOSTERM_TEST_SSH_TMP="$FIXTURE_TMP"
 export PYTHONPYCACHEPREFIX="$WORK/python-cache"
 # Full: 900 s cold build + 3000 s tests + 300 s fixture setup/cleanup.
 FIXTURE_BUDGET=1800

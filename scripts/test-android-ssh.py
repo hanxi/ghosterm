@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Private test fixture over adb loopback. Secrets only travel in memory to the test process."""
 import hmac,json,os,secrets,socketserver,subprocess,sys,threading,importlib.util,signal,shlex
+from contextlib import ExitStack
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -124,8 +125,19 @@ def main():
     tmux_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(tmux_fixture)
     tmux_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_TMUX_MUTATE')=='1' or os.environ.get('ANDROID_MOUSE_MUTATE')=='1' or
                 'Tmux' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
-    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data, tmux_fixture.fixture(ROOT,work,tmux_tests,locale) as tmux_data:
+    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data, tmux_fixture.fixture(ROOT,work,tmux_tests,locale) as tmux_data, ExitStack() as stack:
         token=secrets.token_hex(32)
+        requested_tests=[name.rsplit('.',1)[-1] for name in os.environ.get('ANDROID_SSH_TEST_CLASS','').split(',')]
+        all_tests=os.environ.get('ANDROID_SSH_ALL')=='1'
+        reset_case='SSHProductTest#directSshResetClearsPassiveDiscoveryBeforeExpiry'
+        reset_tests=all_tests or 'SSHProductTest' in requested_tests or reset_case in requested_tests
+        reset_only=not all_tests and requested_tests==[reset_case]
+        proxy=None
+        if reset_tests:
+            spec=importlib.util.spec_from_file_location('ssh_fault_proxy',ROOT/'scripts/lib/tmux-fault-proxy.py')
+            faults=importlib.util.module_from_spec(spec);spec.loader.exec_module(faults)
+            proxy=faults.SSHFaultProxy('127.0.0.1',port,work)
+            stack.callback(proxy.close)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
             clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
@@ -137,18 +149,39 @@ def main():
                 supplied=self.rfile.readline(128).strip().decode('ascii',errors='ignore')
                 if hmac.compare_digest(supplied,token):
                     value=json.loads(payload)
+                    if proxy: value['resetPort']=reset_port
                     if tmux_tests:
                         journal=Path(value['tmux']['createLog'])
                         value['tmux']['createAttempts']=len(journal.read_bytes().splitlines()) if journal.exists() else 0
                     self.wfile.write(json.dumps(value).encode()+b'\n')
+                elif proxy and hmac.compare_digest(supplied,token+':reset'):
+                    if proxy.fault('reset'): self.wfile.write(b'OK\n')
         with socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler) as server:
             server.daemon_threads=True
-            fixture_port=server.server_address[1]
-            worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+            fixture_host_port=server.server_address[1]
+            host_ports=(port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data),*( [queue_data['queuePeer']['port']] if queue_data else []))
             mappings=[]
+            worker=None
+            def reverse_owned(host_port):
+                # Avoid adb's tcp:0 alias and guest listeners using a host port.
+                for _ in range(32):
+                    device_port=20000+secrets.randbelow(12000)
+                    if device_port in host_ports: continue
+                    result=subprocess.run([*adb,'reverse','--no-rebind',f'tcp:{device_port}',f'tcp:{host_port}'],
+                                          capture_output=True,text=True,timeout=15)
+                    if not result.returncode:
+                        mappings.append(device_port)
+                        return device_port
+                    if not any(message in result.stderr for message in ('Address already in use','cannot rebind existing socket')):
+                        raise RuntimeError('Unable to create owned ADB reverse mapping: '+result.stderr)
+                raise RuntimeError('No free device port for owned ADB reverse mapping')
             try:
-                for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data),*( [queue_data['queuePeer']['port']] if queue_data else [])):
-                    run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
+                fixture_port=reverse_owned(fixture_host_port)
+                if proxy: reset_port=reverse_owned(proxy.port)
+                if not reset_only:
+                    for value in host_ports:
+                        run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
+                worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
                 logs = Path(work) / 'android-ssh-tests'
                 logs.mkdir()
                 def build(label):
@@ -205,7 +238,8 @@ def main():
                         print(output,flush=True)
                         raise
                     print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
-                (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                device_log=Path(os.environ.get('GHOSTERM_TEST_SSH_TMP',ROOT/'tmp'))/'android-a3-ssh-device.log'
+                device_log.write_text(output)
                 if os.environ.get('ANDROID_SESSION_MANAGEMENT_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('session_management_mutations',ROOT/'scripts/mutation-check-android-session-management.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -407,7 +441,8 @@ def main():
                         finally: cleanup_dns_rules(adb,rule_prefix)
                 finally:
                     for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])
-                    server.shutdown();worker.join()
+                    if worker:
+                        server.shutdown();worker.join()
 if __name__=='__main__':
     def interrupt(signum,frame):raise KeyboardInterrupt(signum)
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,interrupt)

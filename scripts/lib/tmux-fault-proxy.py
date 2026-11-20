@@ -10,12 +10,14 @@ class SSHFaultProxy:
         self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
     def fault(self, mode):
         with self.lock:
+            affected = len(self.links)
             for link in list(self.links):
                 link[2]='normal' if mode=='resume' else mode
                 if mode=='reset':
                     for sock in link[:2]:
                         try:sock.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0));sock.close()
                         except OSError:pass
+            return affected
     def relay(self, link):
         left,right=link[:2]
         # One bounded queue in each direction. Backpressure must pause IO,

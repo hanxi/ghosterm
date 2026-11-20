@@ -45,9 +45,9 @@ class SSHProductTest {
         identity = vault.import("Test ${UUID.randomUUID()}",fixture.getString("pem").toByteArray())
         load()
     }
-    private fun load(user: String = fixture.getString("user"), extra: String = "") {
+    private fun load(user: String = fixture.getString("user"), extra: String = "", port: Int = fixture.getInt("port")) {
         config.parentFile!!.mkdirs()
-        config.writeText("Host $alias\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n" + if(user.isEmpty()) extra else " User $user\n$extra")
+        config.writeText("Host $alias\n HostName 127.0.0.1\n Port $port\n" + if(user.isEmpty()) extra else " User $user\n$extra")
         ui.runOnIdle { hosts().reload() }
         ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text == config.readText() }
     }
@@ -112,6 +112,38 @@ class SSHProductTest {
             assertNotSame(old.connection, sessions().active!!.connection)
             assertEquals(stoppedState, old.state)
             assertTrue(old.connection.frame(-1)!!.let { f -> (0 until f.rows).any { f.line(it).contains("STOPPED_SSH_PROOF") } })
+        }
+    }
+
+    @Test fun directSshResetClearsPassiveDiscoveryBeforeExpiry() {
+        load(port = fixture.getInt("resetPort"))
+        open()
+        val id = login()
+        val offer = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+        ui.runOnIdle {
+            terminal().commitText("stty -echo; PS1=''; printf '\\033]777;ghosterm-discovery;1;$offer\\007\\033[2J\\033[HSSH_%s' CANDIDATE_READY\r")
+        }
+        ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "SSH_CANDIDATE_READY" }
+        val candidate = if (BuildConfig.PLUGIN_JS_ENABLED) {
+            ui.waitUntil(5_000) { ui.runOnIdle { sessions().frontendCandidates.any { it.sourceID == id } } }
+            ui.runOnIdle { sessions().frontendCandidates.single { it.sourceID == id } }
+        } else {
+            ui.runOnIdle { assertTrue(sessions().frontendCandidates.isEmpty()) }
+            null
+        }
+        resetSSHFixtureConnection()
+        ui.waitUntil(10_000) { sessions().active?.state?.terminal == true }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        try {
+            ui.waitUntil(4_000) { ui.runOnIdle { sessions().frontendCandidates.isEmpty() } }
+        } catch (failure: ComposeTimeoutException) {
+            fail("SSH reset must clear discovery for the stopped terminal")
+        }
+        ui.runOnIdle {
+            assertEquals(id, sessions().active?.id)
+            val error = sessions().active?.state?.error
+            assertTrue("Expected a terminal read failure after reset: $error", error?.startsWith("终端读取失败") == true)
+            if (candidate != null) assertFalse("candidate must clear before expiry", candidate.expired)
         }
     }
 

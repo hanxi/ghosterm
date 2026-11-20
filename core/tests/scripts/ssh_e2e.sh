@@ -7,7 +7,11 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_TEST_SSH_TMP:-$ROOT/tmp}"
+case "$TMP" in
+  "$ROOT/tmp"|"$ROOT/tmp/"*) ;;
+  *) echo "SSH fixture temp must be under project tmp" >&2; exit 1 ;;
+esac
 mkdir -p "$TMP"
 BIN="${1:?需要 test_ssh 可执行}"
 SSHD="${SSHD:-/usr/sbin/sshd}"
