@@ -45,10 +45,10 @@ def run(command, seconds=120):
 
 
 @contextmanager
-def headless(api):
+def headless(api, scratch=None):
     """Own the AVD, process group and crash configuration; never open a desktop window."""
     sdk = ROOT / 'build/android-toolchain/sdk'
-    with tempfile.TemporaryDirectory(prefix='codex-headless-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='codex-headless-', dir=scratch or ROOT / 'tmp') as temporary:
         work = Path(temporary)
         for name in ('home', 'user', 'avds', 'emulator', 'crash'):
             (work / name).mkdir()

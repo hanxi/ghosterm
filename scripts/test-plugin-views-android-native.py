@@ -113,14 +113,18 @@ def main():
     routes = load('task_routes', 'scripts/test-plugin-route.py')
     logs = receipt.parent / (receipt.stem + '-logs'); logs.mkdir(parents=True, exist_ok=False)
     commands, groups, devices, records = [], [], [], []
-    with tempfile.TemporaryDirectory(prefix='ad-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='ad-', dir=scratch) as temporary:
         work = Path(temporary); source = work / 'h'
         for folder in ('android', 'terminal/android'):
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
         for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1', JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp') + ' -Djava.awt.headless=true',
+        env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work), GHOSTERM_AUTOMATION_OFFSCREEN='1',
+            JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(work) + ' -Djava.awt.headless=true',
             JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'),
             ANDROID_HOME=str(ROOT / 'build/android-toolchain/sdk'),
             GRADLE_USER_HOME=str(ROOT / 'build/android-toolchain/gradle-home'))
@@ -166,7 +170,7 @@ def main():
             route_root = work / 'r'; route_root.mkdir()
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
                 for api_index, api in enumerate(args.api or ('29', '36')):
-                    with helper.headless(api) as serial:
+                    with helper.headless(api, scratch=work) as serial:
                         adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
                         def install(label):
                             for index, path in enumerate(apks):
