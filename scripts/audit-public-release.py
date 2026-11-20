@@ -6,7 +6,6 @@ import importlib.util
 import json
 import os
 import re
-import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -17,6 +16,19 @@ CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 FORMAL_MACOS = {'Ghosterm-macos-arm64-release.dmg', 'Ghosterm-macos-arm64-release.zip',
                 'SHA256SUMS', 'BUILD-INFO.txt', 'version.json', 'appcast.xml'}
+
+
+def download_asset(url, path, size):
+    with urllib.request.urlopen(url, timeout=120) as response, path.open('xb') as output:
+        remaining = size
+        while remaining:
+            block = response.read(min(remaining, 1024 * 1024))
+            if not block:
+                raise ValueError('download ended before published asset size: ' + path.name)
+            output.write(block)
+            remaining -= len(block)
+        if response.read(1):
+            raise ValueError('download exceeds published asset size: ' + path.name)
 
 
 def verify_formal_macos(folder, assets, version, commit):
@@ -78,12 +90,14 @@ def main():
     requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
     scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
     names = FORMAL_MACOS if formal else CHECK.FILES[args.platform]
+    inventory = CHECK.inventory(assets)
+    if not names <= inventory.keys():
+        raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:
         folder = Path(value)
         base = f'https://github.com/{args.repository}/releases/download/{args.tag}/'
         for name in sorted(names):
-            with urllib.request.urlopen(base + name, timeout=120) as response, (folder / name).open('wb') as output:
-                shutil.copyfileobj(response, output, length=1024 * 1024)
+            download_asset(base + name, folder / name, inventory[name]['size'])
         if formal:
             verify_formal_macos(folder, assets, formal[1], commit)
         else:
