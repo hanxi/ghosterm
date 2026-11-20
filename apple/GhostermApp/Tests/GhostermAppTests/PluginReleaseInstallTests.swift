@@ -335,6 +335,38 @@ final class PluginReleaseInstallTests: XCTestCase {
         try next.discard()
     }
 
+    func testPermissionRetryRestoresSourceModeForSuccessAndConflict() throws {
+        let id = String(repeating: "a", count: 64)
+        for conflict in [false, true] {
+            let root = try directory().appendingPathComponent("store")
+            var attempts: [mode_t] = []
+            let stage = try PluginReleaseStage(directory: root, renameExclusive: { parent, source, target in
+                var status = stat()
+                guard fstatat(parent, source, &status, AT_SYMLINK_NOFOLLOW) == 0 else { return -1 }
+                attempts.append(status.st_mode & 0o777)
+                if attempts.count == 1 { errno = EACCES; return -1 }
+                return renameatx_np(parent, source, parent, target, UInt32(RENAME_EXCL))
+            })
+            try stage.write(Data([42]), path: "payload/file")
+            let target = root.appendingPathComponent(id)
+            let source = root.appendingPathComponent(stage.name)
+            if conflict {
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+                let sentinel = target.appendingPathComponent("existing")
+                try Data([7]).write(to: sentinel)
+                XCTAssertThrowsError(try stage.publish(id: id)) { XCTAssertEqual($0 as? PluginReleaseStage.Failure, .conflict) }
+                XCTAssertEqual(try Data(contentsOf: sentinel), Data([7]))
+            } else {
+                XCTAssertTrue(try stage.publish(id: id).durabilityConfirmed)
+                XCTAssertEqual(try Data(contentsOf: target.appendingPathComponent("payload/file")), Data([42]))
+            }
+            XCTAssertEqual(attempts, [0o500, 0o700])
+            let restored = try FileManager.default.attributesOfItem(atPath: (conflict ? source : target).path)
+            XCTAssertEqual(restored[.posixPermissions] as? NSNumber, NSNumber(value: 0o500))
+            if conflict { try stage.discard() }
+        }
+    }
+
     func testPublishedButUnsyncedParentIsExplicitlyUnknown() throws {
         let root = try directory().appendingPathComponent("store")
         let stage = try PluginReleaseStage(directory: root, parentSync: { _ in -1 })

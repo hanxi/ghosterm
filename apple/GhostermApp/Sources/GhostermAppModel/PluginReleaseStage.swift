@@ -46,14 +46,19 @@ final class PluginReleaseStage {
     private(set) var maintenanceIssue: String?
     private let parentSync: (Int32) -> Int32
     private let checkpoint: (String) throws -> Void
+    private let renameExclusive: (Int32, String, String) -> Int32
     var payloadURL: URL { rootURL.appendingPathComponent(name + "/payload", isDirectory: true) }
 
-    init(directory: URL, parentSync: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in }) throws {
+    init(directory: URL, parentSync: @escaping (Int32) -> Int32 = { fsync($0) }, checkpoint: @escaping (String) throws -> Void = { _ in },
+         renameExclusive: @escaping (Int32, String, String) -> Int32 = {
+             renameatx_np($0, $1, $0, $2, UInt32(RENAME_EXCL))
+         }) throws {
         guard directory.isFileURL, directory.path.hasPrefix("/"), directory.path.utf8.count <= 3500,
               !directory.path.utf8.contains(0) else { throw Failure.root }
         rootURL = directory
         self.parentSync = parentSync
         self.checkpoint = checkpoint
+        self.renameExclusive = renameExclusive
         name = ".prepare-" + UUID().uuidString.lowercased()
         // The application owns this dedicated root; only its final component is
         // created here. Do not silently create a chain through an unknown root.
@@ -186,14 +191,14 @@ final class PluginReleaseStage {
         }
         try checkpoint("before-publication-rename")
         try beforeRename?()
-        var result = renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL))
+        var result = renameExclusive(parent, name, id)
         var code = result == 0 ? 0 : errno
         if code == EACCES {
             // Some macOS volumes require the source directory to be writable.
             // Keep the parent lock held and leave descendant modes untouched.
             try validate()
             guard fchmod(root, 0o700) == 0 else { throw PublicationFailure(code: errno) }
-            result = renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL))
+            result = renameExclusive(parent, name, id)
             code = result == 0 ? 0 : errno
             if result == 0 { published = true; name = id }
             guard fchmod(root, 0o500) == 0, fsync(root) == 0 else { throw PublicationFailure(code: errno) }
