@@ -2,7 +2,9 @@ package com.hanxi.ghosterm
 
 import android.graphics.Bitmap
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Descriptor
@@ -12,6 +14,8 @@ import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 internal fun htmlFixture(path: String, mime: String, bytes: ByteArray, id: String = path): Content =
     Content(Descriptor(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) },
@@ -201,6 +205,43 @@ class PluginResourceHTMLTest {
                 assertEquals(403, statusWhenReported)
             } finally { owner.close() }
         }
+    }
+
+    @SdkSuppress(minSdkVersion = 29)
+    @Test fun actualRendererTerminationRevokesAttachments() {
+        val document = doc()
+        val css = htmlFixture("docs/theme.css", "text/css", "body{color:blue}".toByteArray())
+        val snapshot = checkNotNull(PluginResourceHTMLDocument.capture(document, listOf(document, css)))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val reported = CountDownLatch(1)
+        var issue: String? = null
+        lateinit var owner: PluginResourceHTMLCoordinator
+        lateinit var view: WebView
+        instrumentation.runOnMainSync {
+            owner = PluginResourceHTMLCoordinator(snapshot) {
+                issue = it
+                reported.countDown()
+            }
+            view = owner.create(instrumentation.targetContext, 0, 0, 100)
+            owner.load()
+        }
+        try {
+            var terminated = false
+            val deadline = android.os.SystemClock.elapsedRealtime() + 5_000
+            while (!terminated && android.os.SystemClock.elapsedRealtime() < deadline) {
+                instrumentation.runOnMainSync {
+                    if (!owner.closed) terminated = view.webViewRenderProcess?.terminate() == true
+                }
+                if (!terminated) Thread.sleep(25)
+            }
+            assertTrue("WebView did not terminate its renderer", terminated)
+            assertTrue("WebView did not report renderer termination", reported.await(5, TimeUnit.SECONDS))
+            assertEquals("HTML 预览进程已退出，可查看源码。", issue)
+            assertTrue(owner.closed)
+            val attachment = URI(owner.documentURL).resolve("theme.css").toString()
+            val response = owner.intercept(attachment, "GET", false)
+            response.data.use { assertEquals(403, response.statusCode) }
+        } finally { instrumentation.runOnMainSync { owner.close() } }
     }
 
     @Test fun syntheticOriginServesOnlyMappedGetSubresourcesAndCloseRevokesIt() {
