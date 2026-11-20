@@ -3,7 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "${ROOT}/tmp"
-BUILD_DIR="$(mktemp -d "${ROOT}/tmp/plugin-html-webkit-probe.XXXXXX")"
+SCRATCH="$(cd "${TMPDIR:-${ROOT}/tmp}" 2>/dev/null && pwd -P || true)"
+case "${SCRATCH}" in
+  "${ROOT}/tmp"|"${ROOT}/tmp/"*) ;;
+  *) SCRATCH="${ROOT}/tmp" ;;
+esac
+BUILD_DIR="$(mktemp -d "${SCRATCH}/plugin-html-webkit-probe.XXXXXX")"
 mkdir -p "${BUILD_DIR}/tool-tmp"
 cleanup() {
   python3 - "${BUILD_DIR}" <<'PY'
