@@ -17,6 +17,7 @@ struct ExtensionsPane: View {
     @State private var importing = false
     @FocusState private var importButtonFocused: Bool
     @State private var restoreImportFocus = false
+    @State private var pendingPackagePicker: UUID?
     @State private var entries: [Entry] = []
     @State private var issue: String?
     @State private var launchIssues: [String: String] = [:]
@@ -114,14 +115,23 @@ struct ExtensionsPane: View {
                 Text("插件包").font(DS.Font.labelEmphasis)
                 Spacer()
                 Button(reviewingPackage ? "正在审查插件包…" : "选择文件夹…") {
-                    if let packagePicker { packagePicker(selectedPackage) }
+                    guard !importing, pendingPackagePicker == nil, !reviewingPackage else { return }
+                    if let packagePicker {
+                        let request = UUID()
+                        pendingPackagePicker = request
+                        packagePicker { result in
+                            guard pendingPackagePicker == request else { return }
+                            pendingPackagePicker = nil
+                            selectedPackage(result)
+                        }
+                    }
                     else {
                         restoreImportFocus = importButtonFocused
                         importButtonFocused = false
                         importing = true
                     }
                 }
-                    .disabled(model.extensionController == nil || reviewingPackage)
+                    .disabled(model.extensionController == nil || reviewingPackage || pendingPackagePicker != nil)
                     .focused($importButtonFocused)
                     .accessibilityIdentifier("plugin-package-import")
             }
@@ -394,7 +404,11 @@ struct ExtensionsPane: View {
         } message: {
             Text("将停止此连接的全部插件实例并释放资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。")
         }
-        .onDisappear { inspection?.task.cancel() }
+        .onDisappear {
+            inspection?.task.cancel()
+            pendingPackagePicker = nil
+            restoreImportFocus = false
+        }
     }
 
     private func foregroundInspection(_ binding: Binding<Entry>) -> some View {
