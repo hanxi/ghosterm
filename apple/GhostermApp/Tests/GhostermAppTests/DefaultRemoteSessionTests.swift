@@ -31,20 +31,24 @@ import XCTest
         try await until { original.status == .ready || original.status.isFailed }
         XCTAssertEqual(original.status, .ready)
         XCTAssertTrue(original.isRunning)
-        original.surface?.sendCommittedText("printf 'ORDINARY-SSH:%s\\n' \"$$\"\r")
-        func process(_ pane: TerminalPane) -> Int32? {
-            pane.surface?.readText()?.components(separatedBy: .newlines).compactMap { line in
-                let value = line.trimmingCharacters(in: .whitespaces)
-                return value.hasPrefix("ORDINARY-SSH:") ? Int32(value.dropFirst(13)) : nil
-            }.first
+        let terminal = try TerminalApp.shared()
+        func requestProcess(_ pane: TerminalPane) {
+            pane.surface?.sendCommandLine("printf 'ORDINARY-%s:%s\\n' SSH \"$$\"")
         }
+        func process(_ pane: TerminalPane) -> Int32? {
+            terminal.tick()
+            guard let text = pane.surface?.readText(),
+                  let range = text.range(of: "ORDINARY-SSH:[0-9]+", options: .regularExpression) else { return nil }
+            return Int32(text[range].dropFirst("ORDINARY-SSH:".count))
+        }
+        requestProcess(original)
         try await until { process(original) != nil }
         let originalPID = process(original)
         model.splitActiveTab(axis: .horizontal)
         guard let next = model.activePane else { return XCTFail("missing SSH split") }
         try await until { next.status == .ready || next.status.isFailed }
         XCTAssertEqual(next.status, .ready)
-        next.surface?.sendCommittedText("printf 'ORDINARY-SSH:%s\\n' \"$$\"\r")
+        requestProcess(next)
         try await until { process(next) != nil }
         XCTAssertNotEqual(process(next), originalPID); XCTAssertEqual(process(original), originalPID)
         model.openSFTP(for: "ordinary")
