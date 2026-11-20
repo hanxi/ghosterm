@@ -23,12 +23,12 @@
 # 回滚后比对起跑前记录的 sha256。
 # 写脚本注意：`$var` 后面紧跟全角字符时 bash 会把多字节字节吃进变量名，
 # 故本脚本一律写 `${var}`。
-set -uo pipefail
+set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/scripts/lib/gt-timeout.sh"
 gt_timeout_require mutation-check-tabs
 
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_TABS_TEST_TMP:-$ROOT/tmp}"
 # 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
 # CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
 # 函数，所以这份日志永远是「刚那一次」的输出。
@@ -93,6 +93,21 @@ run_other() {  # 指向性对照：设置生效那批（与标签页结构无关
   ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >"$RUN_LOG" 2>&1 )
 }
 
+expect_assertion_red() {
+  local label="$1" selection="$2" test="${2##*/}" status=0
+  ( cd "$PKG" && gt_timeout 300 swift test --build-system native --filter "$selection" >"$RUN_LOG" 2>&1 ) || status=$?
+  if [ "$status" -eq 1 ] &&
+     grep -Eq "error: .*\b${test}\b.*XCTAssert" "$RUN_LOG" &&
+     grep -Eq 'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)' "$RUN_LOG"; then
+    echo "  ✓ ${label} → ${test} 断言 red"
+    PASS=$((PASS+1))
+  else
+    echo "  ✗ ${label} → 未得到 ${test} 的正常断言失败（退出码 ${status}）"
+    tail -30 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1))
+  fi
+}
+
 expect() { # ${1}=期望 red|green ${2}=描述 ${3}=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
@@ -123,19 +138,17 @@ echo "== T1：关闭标签页不再先停会话 =="
 python3 - "$TABS" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = """    public func close(_ tab: TerminalTab) {
-        willClose?(tab)   // 取消在途连接（见 willClose 说明），必须在 stop 之前
+old = """        willClose?(tab)   // 取消在途连接（见 willClose 说明），必须在 stop 之前
         tab.stop()
         remove(tab)
     }"""
-new = """    public func close(_ tab: TerminalTab) {
-        willClose?(tab)
+new = """        willClose?(tab)
         remove(tab) /* GT_MUTATION_MARK：不停会话 */
     }"""
 assert old in s, "T1 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "T1 关闭标签页后会话还在跑（泄漏）" run_tabs
+expect_assertion_red "T1 关闭标签页后会话还在跑（泄漏）" TabManagerTests/testCloseStopsTheSession
 expect green "T1 指向性（设置生效不受影响）" run_other
 rollback
 
@@ -274,12 +287,12 @@ echo "== T11：退出不看有没有作业（直接放行） =="
 python3 - "$APPMODEL" <<'PY5'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "    public func shouldTerminate() -> Bool {\n        !TransferManager.shared.hasActive"
-new = "    public func shouldTerminate() -> Bool {\n        if true { return true } /* GT_MUTATION_MARK：退出不拦 */\n        return !TransferManager.shared.hasActive"
+old = "        return !TransferManager.shared.hasActive && !tabs.tabs.contains { tab in"
+new = "        return true /* GT_MUTATION_MARK：退出不拦 */\n" + old
 assert old in s, "T11 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY5
-expect red "T11 有前台作业也直接退出（不拦）" run_tabs
+expect_assertion_red "T11 有前台作业也直接退出（不拦）" TabManagerTests/testShouldTerminateBlocksWhenSomethingWouldDie
 expect green "T11 指向性（设置生效不受影响）" run_other
 rollback
 
@@ -303,20 +316,12 @@ echo "== T13：⌘T 写死本地（不继承当前类型） =="
 python3 - "$APPMODEL" <<'PY7'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = """        switch kind {
-        case .localShell:
-            // 本地：顺带继承当前目录（同一个 shell 常在同一处继续开新的）。
-            connect(to: .localShell, cwd: tabs.activeTab?.activePane?.currentDirectory)
-        case .ssh(let t): connect(to: .host(t.pattern))
-        case .sftp(let t): openSFTP(for: t.pattern)
-        case .localFiles: openLocalFiles(newTab: true)
-        }"""
-new = """        connect(to: .localShell) /* GT_MUTATION_MARK：写死本地，不继承 */
-        _ = kind"""
+old = "        case .ssh(let t): connect(to: .host(t.pattern))"
+new = "        case .ssh: connect(to: .localShell) /* GT_MUTATION_MARK：SSH 新标签改开本地 */"
 assert old in s, "T13 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY7
-expect red "T13 ⌘T 不继承（ssh 标签页上却开本地）" run_tabs
+expect_assertion_red "T13 ⌘T 不继承（ssh 标签页上却开本地）" NewTabMenuTests/testNewTabInheritsSSHHost
 expect green "T13 指向性（设置生效不受影响）" run_other
 rollback
 

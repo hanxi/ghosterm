@@ -225,15 +225,15 @@ final class TabManagerTests: XCTestCase {
         // 临时值时会崩在 xev 的 mach 通知上）。
         let app = try TerminalApp.shared()
         let surface = try TerminalSurface(app: app)
-        let session = try SessionController.localShell(surface: surface, kind: .shell) /* 模拟生产：起用户的交互 shell */
+        let session = try SessionController.localShell(surface: surface, executable: "/bin/sleep",
+                                                       argv: ["60"], kind: .direct)
+        defer { session.stop() }
         let pane = TerminalPane()
         pane.attach(surface: surface, session: session)
         pane.start()
         let tab = TerminalTab(kind: .localShell, pane: pane)
         let m = TabManager()
         m.add(tab)
-        XCTAssertTrue(pane.isRunning, "起点：窗格持有会话")
-
         XCTAssertTrue(pane.isRunning, "起点：窗格持有会话")
         m.close(tab)
         XCTAssertTrue(m.tabs.isEmpty, "标签页应被移除")
@@ -497,7 +497,8 @@ final class NewTabMenuTests: XCTestCase {
     func testNewTabInheritsSSHHost() throws {
         let cfg = try writeConfig("""
         Host web
-          HostName 10.0.0.5
+          HostName 127.0.0.1
+          Port 1
           User ops
         """)
         let model = isolatedAppModel(configPath: cfg,
