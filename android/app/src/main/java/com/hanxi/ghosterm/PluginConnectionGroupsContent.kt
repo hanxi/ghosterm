@@ -158,13 +158,19 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                         }) { Text(closeLabel) }
                 }
             }
+            val groupCloseLabel = when {
+                group.closed -> "已关闭连接"
+                group.closingInProgress -> "正在关闭连接…"
+                group.cleanupPending -> "重试关闭连接"
+                else -> "停止并关闭连接"
+            }
             TextButton(onClick = {
                 if (group.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group)
                 else group.requestClose()
-            }, enabled = !group.closed,
+            }, enabled = !group.closed && !group.closingInProgress,
                 modifier = Modifier.testTag("plugin-group-close-${group.id}").semantics {
-                    contentDescription = if (group.closed) "连接组已关闭" else "停止并关闭连接组 ${group.title}"
-                }) { Text(if (group.closed) "已关闭连接" else "停止并关闭连接") }
+                    contentDescription = "$groupCloseLabel，${group.title}"
+                }) { Text(groupCloseLabel) }
         }
     }
 }

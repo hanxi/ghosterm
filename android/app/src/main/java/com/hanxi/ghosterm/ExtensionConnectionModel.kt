@@ -65,6 +65,8 @@ internal class ExtensionConnectionModel(private val application: Application,
     private var launchJob: Job? = null
     private var monitor: Job? = null
     private var closing by mutableStateOf(false)
+    var closingInProgress by mutableStateOf(false)
+        private set
     val closeNeedsConfirmation get() = !closed && !closing &&
         (busy || instances.any { it.closeNeedsConfirmation })
     fun canCloseInstance(instance: Instance) = !closing && !busy && !instance.closed && !instance.releasing
@@ -80,6 +82,9 @@ internal class ExtensionConnectionModel(private val application: Application,
     private var attempt: SSHAttempt? = null
     private var sessions: SessionsViewModel? = null
     private val cleanup = Mutex()
+    private val closeOperation = Mutex()
+    private var finishRequested = false
+    private var finishConfirmed = false
 
     private suspend fun awaitConsent(starting: List<Instance>) {
         val ready = withTimeoutOrNull(60_000) {
@@ -243,7 +248,9 @@ internal class ExtensionConnectionModel(private val application: Application,
         closing = true; launchJob?.cancel(); monitor?.cancel()
         instances.forEach { it.store.clear() }
     }
-    fun requestClose() { scope.launch { close() } }
+    fun requestClose() { scope.launch {
+        if (!closed && !closingInProgress) close()
+    } }
     fun requestCloseInstance(instance: Instance) { scope.launch {
         if (!canCloseInstance(instance) || instances.none { it === instance }) return@launch
         try { closeInstance(instance) }
@@ -263,11 +270,17 @@ internal class ExtensionConnectionModel(private val application: Application,
             instance.releasing = false
         }
     }
-    suspend fun close(): Boolean {
+    suspend fun close(): Boolean = closeOperation.withLock {
+        if (closed) return@withLock true
+        closingInProgress = true
         closing = true; monitor?.cancel(); monitor = null
-        val job = launchJob
-        if (job != null && job !== currentCoroutineContext()[Job]) { job.cancel(); job.join() }
-        return withContext(NonCancellable) { release() }
+        try {
+            val job = launchJob
+            if (job != null && job !== currentCoroutineContext()[Job]) { job.cancel(); job.join() }
+            withContext(NonCancellable) { release() }
+        } finally {
+            closingInProgress = false
+        }
     }
     private suspend fun release(): Boolean = cleanup.withLock {
         if (closed) return@withLock true
@@ -278,10 +291,16 @@ internal class ExtensionConnectionModel(private val application: Application,
             }
             var released = true
             instances.forEach { try { closeInstance(it) } catch (_: Exception) { released = false } }
-            if (released && nativeReady) {
-                try { check(JSONObject(controller.manageMultiplex("finish")).opt("released") == true) }
-                catch (failure: Exception) { issue = "连接关闭结果未确认：${failure.message}"; controller.stopMultiplexConnection() }
-            } else controller.stopMultiplexConnection()
+            if (released && nativeReady && !finishRequested) {
+                finishRequested = true
+                try {
+                    check(JSONObject(controller.manageMultiplex("finish")).opt("released") == true)
+                    finishConfirmed = true
+                } catch (failure: Exception) {
+                    issue = "连接关闭结果未确认：${failure.message}"
+                }
+            }
+            if (!finishConfirmed) controller.stopMultiplexConnection()
             instances.filter { !it.closed }.forEach { closeInstance(it) }
             // Retain owners and expose retry if any logical/physical close still drains.
             controller.close()
