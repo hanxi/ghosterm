@@ -68,7 +68,7 @@ import kotlinx.coroutines.isActive
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { model.load() }, enabled = model.available && !state.busy,
                 modifier = Modifier.testTag("plugin-task-read").semantics {
-                    contentDescription = "读取$title状态"
+                    contentDescription = "读取${title}状态"
                 }) { Text("读取任务状态") }
             TextButton(onClick = { model.cancel() }, enabled = model.canCancel,
                 modifier = Modifier.testTag("plugin-task-cancel").semantics {
