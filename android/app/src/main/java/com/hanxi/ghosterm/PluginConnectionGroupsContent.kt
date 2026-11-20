@@ -72,21 +72,28 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 model.connectionGroups.filter { it.canAdd && it.acceptsConfiguration(invocation) }.forEach { group ->
                     TextButton(onClick = { model.addToConnection(group, invocation) },
                         enabled = !connectionsBusy && !model.groupSubmissionBusy,
-                        modifier = Modifier.testTag("plugin-add-${group.id}-${invocation.id}")) {
+                        modifier = Modifier.testTag("plugin-add-${group.id}-${invocation.id}").semantics {
+                            contentDescription = "添加到现有连接 ${group.title}，目标 ${group.targetDescription}"
+                        }) {
                         Text("添加到现有连接：${group.title} · ${group.targetDescription}")
                     }
                 }
                 TextButton(onClick = { model.removePendingGroupItem(invocation) },
-                    enabled = !connectionsBusy && !model.groupSubmissionBusy) { Text("移除此项") }
+                    enabled = !connectionsBusy && !model.groupSubmissionBusy,
+                    modifier = Modifier.semantics { contentDescription = "移除待启动项" }) { Text("移除此项") }
             }
         }
         TextButton(onClick = onLaunchGroup,
             enabled = !connectionsBusy && !model.groupSubmissionBusy && model.connectionGroups.none { it.busy },
-            modifier = Modifier.testTag("plugin-group-launch")) { Text("连接并启动整组") }
+            modifier = Modifier.testTag("plugin-group-launch").semantics {
+                contentDescription = "连接并启动插件实例组"
+            }) { Text("连接并启动整组") }
         if (model.groupSubmissionBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
     if (model.connectionGroups.isNotEmpty()) {
-        TextButton(onClick = { model.selectGroupInstance(null) }, Modifier.testTag("plugin-instance-default")) { Text("查看原单实例入口") }
+        TextButton(onClick = { model.selectGroupInstance(null) }, Modifier.testTag("plugin-instance-default").semantics {
+            contentDescription = "查看原单实例入口"
+        }) { Text("查看原单实例入口") }
     }
     model.connectionGroups.forEach { group ->
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
