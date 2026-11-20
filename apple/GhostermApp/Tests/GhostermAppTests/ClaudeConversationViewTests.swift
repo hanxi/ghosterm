@@ -16,8 +16,18 @@ final class ClaudeConversationViewTests: XCTestCase {
     }
 
     private func press(_ id: String, in probe: ConversationUIProbe) async throws {
-        try await wait { self.control(id, in: probe) != nil }
+        try await wait {
+            guard let node = self.control(id, in: probe) else { return false }
+            return self.isEnabled(node) == true
+        }
         XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(control(id, in: probe))), id)
+    }
+
+    private func isEnabled(_ node: NSObject) -> Bool? {
+        let selector = NSSelectorFromString("isAccessibilityEnabled")
+        guard node.responds(to: selector), let implementation = node.method(for: selector) else { return nil }
+        typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Enabled.self)(node, selector)
     }
 
     private func wait(_ predicate: @escaping () -> Bool) async throws {
@@ -56,11 +66,7 @@ final class ClaudeConversationViewTests: XCTestCase {
         fixture.prompt(questions: [ClaudeChatFixture.question("Choose a format")]); try await wait { model.pending.count == 1 }
         let submit = "plugin-claude-approval-allow"
         try await wait { self.control(submit, in: probe) != nil }
-        let button = try XCTUnwrap(control(submit, in: probe))
-        let selector = NSSelectorFromString("isAccessibilityEnabled")
-        let implementation = try XCTUnwrap(button.method(for: selector))
-        typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
-        XCTAssertFalse(unsafeBitCast(implementation, to: Enabled.self)(button, selector))
+        XCTAssertEqual(isEnabled(try XCTUnwrap(control(submit, in: probe))), false)
         XCTAssertFalse(fixture.calls.contains { $0.method == "answer" }, "An untouched question must not submit a default answer")
         try await press("plugin-claude-question-0-option-0", in: probe)
         try await press(submit, in: probe)
