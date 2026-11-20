@@ -126,7 +126,9 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 if (group.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group)
                 else group.requestClose()
             }, enabled = !group.closed,
-                modifier = Modifier.testTag("plugin-group-close-${group.id}")) { Text(if (group.closed) "已关闭连接" else "停止并关闭连接") }
+                modifier = Modifier.testTag("plugin-group-close-${group.id}").semantics {
+                    contentDescription = if (group.closed) "连接组已关闭" else "停止并关闭连接组 ${group.title}"
+                }) { Text(if (group.closed) "已关闭连接" else "停止并关闭连接") }
         }
     }
 }
