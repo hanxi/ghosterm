@@ -799,15 +799,21 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     }
                     Text("检查只读取当前声明，不启动插件或批准附着。填入后须重新确认连接与已有范围。", style = MaterialTheme.typography.bodySmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(scopedFiles, { scopedFiles = it }, Modifier.testTag("plugin-ipc-files"))
+                        Checkbox(scopedFiles, { scopedFiles = it }, Modifier.testTag("plugin-ipc-files").semantics {
+                            contentDescription = if (scopedFiles) "已允许前台实例读取指定资源根" else "允许前台实例读取指定资源根"
+                        })
                         Text("允许沿用此实例已选工作区的只读文件范围", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(remoteProcesses, { remoteProcesses = it }, Modifier.testTag("plugin-ipc-processes"))
+                        Checkbox(remoteProcesses, { remoteProcesses = it }, Modifier.testTag("plugin-ipc-processes").semantics {
+                            contentDescription = if (remoteProcesses) "已允许前台实例使用远端业务进程" else "允许前台实例使用远端业务进程"
+                        })
                         Text("允许沿用此实例已有的远端业务进程范围", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(attachmentAllowed, { attachmentAllowed = it }, Modifier.testTag("plugin-ipc-allow"))
+                        Checkbox(attachmentAllowed, { attachmentAllowed = it }, Modifier.testTag("plugin-ipc-allow").semantics {
+                            contentDescription = if (attachmentAllowed) "已允许附着前台实例" else "允许附着前台实例"
+                        })
                         Text("明确连接此主机上的该前台实例", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("请核对前台显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置；失效或不匹配将报错。", style = MaterialTheme.typography.bodySmall)
@@ -838,7 +844,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                             modifier = Modifier.testTag("plugin-node-sdk-sha256"), label = { Text("Host SDK catalog SHA-256") })
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(executionAllowed, { executionAllowed = it }, Modifier.testTag("plugin-execution-allow"))
+                        Checkbox(executionAllowed, { executionAllowed = it }, Modifier.testTag("plugin-execution-allow").semantics {
+                            contentDescription = if (executionAllowed) "已允许执行端运行" else "允许执行端运行"
+                        })
                         Text("允许本次 Executor 以远端登录用户身份运行进程", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("请只运行可信包。Node 和 Host SDK 须预先准备，远端会核对版本及摘要；Exec 使用包内匹配系统与架构的入口。修改配置须重新允许；不会自动安装或切换运行档。",
@@ -849,7 +857,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Text("填写所选 Executor manifest 中的准确 variant ID。留空时由执行端检查候选是否唯一；不匹配、缺依赖或多候选均报错，不会切换运行档。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(useReleaseEvidence, { useReleaseEvidence = it }, Modifier.testTag("plugin-executor-release-mode"))
+                        Checkbox(useReleaseEvidence, { useReleaseEvidence = it }, Modifier.testTag("plugin-executor-release-mode").semantics {
+                            contentDescription = if (useReleaseEvidence) "已选择签名发布证据模式" else "选择签名发布证据模式"
+                        })
                     Text("核验执行端已安装版本的签名", style = MaterialTheme.typography.bodySmall)
                 }
                 if (useReleaseEvidence) {
@@ -860,7 +870,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     OutlinedTextField(releasePolicySHA256, { releasePolicySHA256 = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-executor-release-policy-sha256"), label = { Text("策略 SHA-256") })
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(releaseEvidenceAllowed, { releaseEvidenceAllowed = it }, Modifier.testTag("plugin-executor-release-allow"))
+                        Checkbox(releaseEvidenceAllowed, { releaseEvidenceAllowed = it }, Modifier.testTag("plugin-executor-release-allow").semantics {
+                            contentDescription = if (releaseEvidenceAllowed) "已允许使用签名发布证据" else "允许使用签名发布证据"
+                        })
                         Text("允许本次使用以上执行端策略核验签名版本", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("填写执行机器上已有的位置与独立核对的策略摘要。执行端会核对签名、发布者、版本、包摘要和策略；不支持或不匹配会报错，校验失败不会回退开发目录。Client 来源批准与 Session 授权仍须单独完成。",
@@ -876,7 +888,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     OutlinedTextField(clientDirectory, { clientDirectory = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-client-workspace"), label = { Text("Native 本机只读资源目录（可选）") })
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(clientAllowed, { clientAllowed = it }, Modifier.testTag("plugin-client-workspace-allow"))
+                        Checkbox(clientAllowed, { clientAllowed = it }, Modifier.testTag("plugin-client-workspace-allow").semantics {
+                            contentDescription = if (clientAllowed) "已允许 Native Host 发布本机资源" else "允许 Native Host 发布本机资源"
+                        })
                         Text("允许本次 Native Host 发布资源（单文件最多 256 KiB）", style = MaterialTheme.typography.bodySmall)
                     }
                     Text("目录须为本 App 可访问的普通目录，不是 SAF URI。仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。",
