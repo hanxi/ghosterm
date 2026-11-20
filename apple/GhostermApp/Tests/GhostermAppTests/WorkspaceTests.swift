@@ -148,7 +148,20 @@ import XCTest
         tab.toggleWorkspaceZoom(local.id); update()
         XCTAssertEqual(original.frame, siblingFrame)
     }
-    func testEndpointRoutingRejectsStaleSourceAndDoesNotUseTargetBackend() throws {
+    private func waitForTransferStarts(_ manager: TransferManager, count: Int) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 3
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if manager.jobs.count == count && manager.jobs.allSatisfy({ $0.coreJob != 0 }) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw TransferStartTimeout(expectedCount: count)
+    }
+
+    private struct TransferStartTimeout: Error {
+        let expectedCount: Int
+    }
+
+    func testEndpointRoutingRejectsStaleSourceAndDoesNotUseTargetBackend() async throws {
         let tab = TerminalTab(kind: .localFiles)
         let a = WorkspaceBackend(), b = WorkspaceBackend()
         let local = WorkspaceFilePane(remote: false, panel: FilesPanelModel(backend: LocalFileBackend()))
@@ -159,6 +172,7 @@ import XCTest
         let drag = WorkspaceFileDrag(paneID: remoteA.id, endpointID: remoteA.endpointID,
                                      entries: [.init(path: "/a", name: "a", isDirectory: false), .init(path: "/b", name: "b", isDirectory: false)])
         XCTAssertTrue(WorkspaceFileRouter.perform(drag, onto: local, directory: workspaceTestTmp, in: tab, manager: manager))
+        try await waitForTransferStarts(manager, count: 2)
         XCTAssertEqual(a.downloads, ["/a", "/b"])
         XCTAssertTrue(b.downloads.isEmpty)
         XCTAssertFalse(WorkspaceFileRouter.perform(drag, onto: remoteB, directory: "/", in: tab, manager: manager))
@@ -166,13 +180,16 @@ import XCTest
         XCTAssertFalse(WorkspaceFileRouter.perform(drag, onto: local, directory: workspaceTestTmp, in: tab, manager: manager))
         XCTAssertEqual(manager.jobs.count, 2)
     }
-    func testRetryNeverBorrowsAnotherEndpoint() {
+    func testRetryNeverBorrowsAnotherEndpoint() async throws {
         let manager = TransferManager(pump: CoreEventPump()), a = WorkspaceBackend(), b = WorkspaceBackend()
         manager.enqueueDownload(a, remote: "/a", local: workspaceTestTmp + "retry-a", name: "a", isDirectory: false)
+        try await waitForTransferStarts(manager, count: 1)
         let id = manager.jobs[0].coreJob
         manager.handle(CoreEvent(kind: .jobDone, sessionID: 0, jobID: id, code: 1, message: "fail"))
         manager.enqueueDownload(b, remote: "/b", local: workspaceTestTmp + "retry-b", name: "b", isDirectory: false)
         manager.retry(manager.jobs[0])
+        try await waitForTransferStarts(manager, count: 2)
+        XCTAssertNotEqual(manager.jobs[0].coreJob, id)
         XCTAssertEqual(a.downloads, ["/a", "/a"])
         XCTAssertEqual(b.downloads, ["/b"])
     }
