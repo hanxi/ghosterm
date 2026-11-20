@@ -34,6 +34,12 @@ private final class MenuClipboardBytes: @unchecked Sendable {
 // Preserve NSTextView selection insertion while supplying the fixture pasteboard.
 private final class MenuClipboardTextView: NSTextView {
     var clipboard: NSPasteboard?
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(NSText.paste(_:)) {
+            return isEditable && clipboard?.string(forType: .string) != nil
+        }
+        return super.validateUserInterfaceItem(item)
+    }
     override func paste(_ sender: Any?) {
         guard let clipboard else { return }
         _ = readSelection(from: clipboard)
@@ -130,9 +136,13 @@ private final class MenuClipboardTextView: NSTextView {
         container.addSubview(editor); window.makeFirstResponder(editor)
         let third = paste("EDITOR_ONLY", window: window, clipboard: clipboard)
         _ = pump([app]) { editor.string == "EDITOR_ONLY" }
-        XCTAssertTrue(first && second && third && window.firstResponder === editor && editor.string == "EDITOR_ONLY"
-            && bytesA.snapshot == Data("PANE_A".utf8) && bytesB.snapshot == Data("PANE_B".utf8),
-            "standard text editing and focused panes must share the unchanged responder-chain menu")
+        XCTAssertTrue(first, "Paste must dispatch for pane A")
+        XCTAssertTrue(second, "Paste must dispatch for pane B")
+        XCTAssertTrue(third, "Paste must dispatch for the text editor")
+        XCTAssertTrue(window.firstResponder === editor, "The editor must retain first responder")
+        XCTAssertEqual(editor.string, "EDITOR_ONLY")
+        XCTAssertEqual(bytesA.snapshot, Data("PANE_A".utf8))
+        XCTAssertEqual(bytesB.snapshot, Data("PANE_B".utf8))
     }
     func testProcessMenuPasteReachesTheRealLocalPTY() throws {
         let restoreWindowContext = ClipboardMenuWindowContext.install(); defer { restoreWindowContext() }
