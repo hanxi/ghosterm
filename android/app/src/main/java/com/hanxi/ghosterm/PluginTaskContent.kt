@@ -53,7 +53,10 @@ import kotlinx.coroutines.isActive
         cancellationMessage?.let {
             Text(it, statusSemantics("plugin-task-cancel-status", it))
         }
-        if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading"))
+        if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading").semantics {
+            contentDescription = "$title 正在读取"
+            liveRegion = LiveRegionMode.Polite
+        })
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { model.load() }, enabled = model.available && !state.busy,
                 modifier = Modifier.testTag("plugin-task-read").semantics {
