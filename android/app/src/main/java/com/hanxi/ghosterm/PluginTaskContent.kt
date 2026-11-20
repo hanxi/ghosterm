@@ -55,8 +55,14 @@ import kotlinx.coroutines.isActive
         }
         if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading"))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { model.load() }, enabled = model.available && !state.busy, modifier = Modifier.testTag("plugin-task-read")) { Text("读取任务状态") }
-            TextButton(onClick = { model.cancel() }, enabled = model.canCancel, modifier = Modifier.testTag("plugin-task-cancel")) { Text("取消任务") }
+            TextButton(onClick = { model.load() }, enabled = model.available && !state.busy,
+                modifier = Modifier.testTag("plugin-task-read").semantics {
+                    contentDescription = "读取$title状态"
+                }) { Text("读取任务状态") }
+            TextButton(onClick = { model.cancel() }, enabled = model.canCancel,
+                modifier = Modifier.testTag("plugin-task-cancel").semantics {
+                    contentDescription = "取消$title"
+                }) { Text("取消任务") }
         }
     }
 }
