@@ -203,7 +203,7 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         run([*selected, 'shell', 'run-as', 'com.hanxi.ghosterm', 'chmod', '700', directory], environment)
         classes += ',com.hanxi.ghosterm.PluginRemovalHardlinkTest'; count += 1
         fixture_arguments = ['-e', 'removalHardlinkRoot', directory]
-    receipt = ROOT / 'tmp/android-release-conformance' / (str(time.time_ns()) + '.log')
+    receipt = Path(build_environment.get('TMPDIR', ROOT / 'tmp')) / 'android-release-conformance' / (str(time.time_ns()) + '.log')
     receipt.parent.mkdir(parents=True, exist_ok=True)
     try:
         output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', classes, *fixture_arguments,
@@ -341,8 +341,11 @@ def main():
         args.install = True
     if args.install: args.archive_ui = True
     if args.archive_ui: args.archive = True; args.signature_ui = True
-    (ROOT / 'tmp').mkdir(exist_ok=True)
-    environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
+    project_tmp = ROOT / 'tmp'
+    project_tmp.mkdir(exist_ok=True)
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp.resolve()) else project_tmp
+    environment = dict(os.environ, TMPDIR=str(work_tmp), TMP=str(work_tmp), TEMP=str(work_tmp))
     if args.headless_api is not None:
         headless_dependencies(args.headless_api, environment)
     # Explicit enabled build also includes the real Controller/Core snapshot test.
@@ -351,7 +354,7 @@ def main():
     if args.android:
         execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
     else:
-        with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=ROOT / 'tmp') as directory:
+        with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=work_tmp) as directory:
             with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
                 execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
                 if args.official_release_directory:

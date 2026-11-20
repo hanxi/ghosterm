@@ -2,8 +2,13 @@
 # Build native dependencies and APK with a pinned Gradle wrapper.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-mkdir -p "$ROOT/tmp/android-build"
-export TMPDIR="$ROOT/tmp/android-build"
+BUILD_TMP="$(cd "${TMPDIR:-$ROOT/tmp}" 2>/dev/null && pwd -P || true)"
+case "$BUILD_TMP" in
+  "$ROOT/tmp/"*) ;;
+  *) BUILD_TMP="$ROOT/tmp/android-build" ;;
+esac
+mkdir -p "$BUILD_TMP"
+export TMPDIR="$BUILD_TMP" TMP="$BUILD_TMP" TEMP="$BUILD_TMP"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$TMPDIR"
 export ANDROID_HOME="${ANDROID_HOME:-$ROOT/build/android-toolchain/sdk}"
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$ROOT/build/android-toolchain/gradle-home}"
