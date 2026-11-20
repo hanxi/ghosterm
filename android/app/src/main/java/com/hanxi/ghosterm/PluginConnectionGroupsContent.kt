@@ -18,7 +18,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
@@ -126,11 +128,13 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
             group.issue?.let { issue ->
                 Text(issue, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics {
                     contentDescription = "连接组错误：$issue"
+                    liveRegion = LiveRegionMode.Polite
                 })
             }
             if (group.cleanupPending) Text("连接或资源仍待释放，请重试关闭。", color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.semantics {
                     contentDescription = "连接组仍有资源待释放，请重试关闭"
+                    liveRegion = LiveRegionMode.Polite
                 })
             group.instances.forEachIndexed { index, instance ->
                 Row {

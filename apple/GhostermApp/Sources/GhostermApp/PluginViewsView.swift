@@ -15,6 +15,7 @@ struct PluginViewsView: View {
                 PluginRegisteredView(item: item, manager: model, focusedHandle: $focusedHandle)
             }
         }.accessibilityIdentifier("plugin-views")
+            .announcePluginStatus(model.issue)
             .onChange(of: model.items.map(\.id)) { ids in
                 if let focusedHandle, !ids.contains(focusedHandle) { self.focusedHandle = ids.first }
             }
@@ -47,6 +48,7 @@ private struct PluginRegisteredView: View {
         }.padding(12).overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.3)))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("plugin-registered-view-" + item.id)
+            .announcePluginStatus(item.closeIssue)
     }
 }
 
