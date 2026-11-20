@@ -70,6 +70,28 @@ final class PluginResourceUITests: XCTestCase {
     }
 
     @MainActor
+    func testHTMLRendererExitReportsOnceAndRevokesResources() async throws {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: try solidRedPNG())
+        let prepared = try await snapshot(main, resources: [main, image])
+        let task = CapturedSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png"))))
+        var reports = 0
+        let owner = PluginResourceHTMLCoordinator(snapshot: prepared) { reports += 1 }
+        let web = HTMLLoadSpy(frame: .zero, configuration: PluginResourceHTMLWebViewConfiguration.make(schemeHandler: owner.schemeHandler))
+        web.navigationDelegate = owner
+        owner.update(snapshot: prepared, in: web)
+        owner.webViewWebContentProcessDidTerminate(web)
+        owner.webViewWebContentProcessDidTerminate(web)
+        owner.schemeHandler.webView(web, start: task)
+        XCTAssertEqual(reports, 1)
+        XCTAssertEqual(web.stops, 1)
+        XCTAssertNil(web.navigationDelegate)
+        XCTAssertNotNil(task.error)
+        XCTAssertTrue(task.data.isEmpty)
+    }
+
+    @MainActor
     private final class HTMLLoadSpy: WKWebView {
         var documents: [String] = []
         var stops = 0

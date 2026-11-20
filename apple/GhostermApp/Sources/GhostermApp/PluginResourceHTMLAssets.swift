@@ -164,10 +164,13 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
     private var closed = false
     private var resourceFingerprint: Data?
     private var baseURL: URL?
+    private var navigation: WKNavigation?
+    private var onFailure: (() -> Void)?
     let schemeHandler: PluginResourceHTMLSchemeHandler
 
-    init(snapshot: PluginResourceHTMLSnapshot) {
+    init(snapshot: PluginResourceHTMLSnapshot, onFailure: (() -> Void)? = nil) {
         schemeHandler = PluginResourceHTMLSchemeHandler(snapshot: snapshot)
+        self.onFailure = onFailure
         super.init()
     }
 
@@ -178,7 +181,7 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
         resourceFingerprint = snapshot.fingerprint
         schemeHandler.update(snapshot: snapshot)
         baseURL = target
-        webView.loadHTMLString(snapshot.document, baseURL: target)
+        navigation = webView.loadHTMLString(snapshot.document, baseURL: target)
     }
 
     func close(in webView: WKWebView) {
@@ -190,6 +193,28 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
         schemeHandler.close()
         resourceFingerprint = nil
         baseURL = nil
+        navigation = nil
+        onFailure = nil
+    }
+
+    private func fail(in webView: WKWebView) {
+        guard !closed else { return }
+        let report = onFailure
+        close(in: webView)
+        report?()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard let navigation, navigation === self.navigation else { return }
+        fail(in: webView)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        self.webView(webView, didFail: navigation, withError: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        fail(in: webView)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,

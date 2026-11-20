@@ -974,15 +974,21 @@ private struct PluginResourceHTMLPreview: View {
     let resources: [ExtensionController.ReceivedResource]
     @State private var snapshot: PluginResourceHTMLSnapshot?
     @State private var completed: [PluginResourceHTMLSnapshot.Input]?
+    @State private var failed: Data?
 
     var body: some View {
         let identity = PluginResourceHTMLSnapshot.identity(document: resource, resources: resources)
         Group {
             if let snapshot, snapshot.inputs == identity {
                 VStack(alignment: .leading, spacing: 6) {
-                    PluginResourceHTMLWebView(snapshot: snapshot)
-                        .id(snapshot.fingerprint)
-                        .frame(minHeight: 180, maxHeight: 420)
+                    if failed == snapshot.fingerprint {
+                        Text("HTML 预览加载失败。")
+                            .font(DS.Font.caption).foregroundStyle(.secondary)
+                    } else {
+                        PluginResourceHTMLWebView(snapshot: snapshot) { failed = snapshot.fingerprint }
+                            .id(snapshot.fingerprint)
+                            .frame(minHeight: 180, maxHeight: 420)
+                    }
                     if snapshot.resolver.omittedAttachments {
                         Text("部分 HTML 附件未通过校验或超过预览预算。")
                             .font(DS.Font.caption).foregroundStyle(.secondary)
@@ -998,6 +1004,7 @@ private struct PluginResourceHTMLPreview: View {
         .task(id: identity) {
             snapshot = nil
             completed = nil
+            failed = nil
             let prepared = await PluginResourceHTMLSnapshot.prepare(document: resource, resources: resources)
             guard !Task.isCancelled else { return }
             snapshot = prepared
@@ -1008,9 +1015,10 @@ private struct PluginResourceHTMLPreview: View {
 
 private struct PluginResourceHTMLWebView: NSViewRepresentable {
     let snapshot: PluginResourceHTMLSnapshot
+    let onFailure: () -> Void
 
     func makeCoordinator() -> PluginResourceHTMLCoordinator {
-        PluginResourceHTMLCoordinator(snapshot: snapshot)
+        PluginResourceHTMLCoordinator(snapshot: snapshot, onFailure: onFailure)
     }
 
     func makeNSView(context: Context) -> WKWebView {

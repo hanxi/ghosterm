@@ -256,7 +256,7 @@ def main():
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
-        run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=28)
+        run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=30)
         for recipe in cases if args.mutate else []:
             label, old, new, expected, *selected_case = recipe
             if args.mutation_case and label not in args.mutation_case:
