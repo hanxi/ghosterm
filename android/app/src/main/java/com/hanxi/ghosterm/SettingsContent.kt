@@ -386,7 +386,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 },
                     style = MaterialTheme.typography.titleSmall)
                 Text("${resource.descriptor.mime} · ${resource.bytes.size} 字节 · SHA-256 ${resource.descriptor.sha256}",
-                    Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                    Modifier.padding(horizontal = 16.dp).semantics {
+                        contentDescription = "类型 ${resource.descriptor.mime}，${resource.bytes.size} 字节，摘要 ${resource.descriptor.sha256}"
+                    }, style = MaterialTheme.typography.bodySmall)
                 key(resource.descriptor) {
                     PluginResourceBody(resource, resources)
                 }
