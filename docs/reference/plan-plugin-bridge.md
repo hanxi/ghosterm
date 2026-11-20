@@ -15907,3 +15907,8 @@ P2 随后在 API 29 / API 36 无窗口模拟器调用 WebView 的正式终止接
 403，同对 QuickJS 构建 APK 各通过 HTML 预览组 13 项。模拟器均以 0 退出并清理。
 API 29 / 36 另用 `mutation-check-android-html.py --headless-api <API> --baseline-only`
 各通过 19 项联合测试，包含真实 WebView 绘制、切换、退出和附件撤销，各轮安装 APK 摘要与本轮产物一致。
+
+macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 个 XCTest
+套件中 942 项通过、98 项按夹具条件跳过；本机 PTY、回环 SSH 终端和 SFTP
+浏览下载三个必需方法均通过。WebKit 真实 CSS/PNG 绘制和刷新同轮通过，
+测试全程离屏，临时目录已清理。GitHub Actions 发布工作流另行核对。
