@@ -100,6 +100,31 @@ class PluginArchiveDraftTest {
             check(model); assertNotNull(main { model.receipt })
         } finally { gate.complete(Unit); main { model.close() }; scope.cancel(); releaseProvider() }
     }
+    @Test fun withdrawingTrustDuringArchiveCaptureKeepsTheSelectedMaterial() = runBlocking {
+        val scope = scope()
+        val gate = CompletableDeferred<Unit>()
+        val value = captured()
+        val model = PluginArchiveReviewModel(scope, { gate.await(); value },
+            { _, _ -> PluginSignatureDocument(ByteArray(64)) }, { _, _, _, _ -> receipt() })
+        try {
+            for (kind in PluginArchiveMaterial.entries.filter { it != PluginArchiveMaterial.ARCHIVE }) choose(model, kind)
+            main {
+                model.trustPolicy(true)
+                model.completePick(model.beginPick(PluginArchiveMaterial.ARCHIVE)!!, uri)
+                assertTrue(model.busy)
+                model.trustPolicy(false)
+            }
+            gate.complete(Unit)
+            idle(model)
+            main {
+                assertSame(value, model.archive)
+                assertNull(model.receipt)
+                assertFalse(model.canInspect)
+                model.trustPolicy(true)
+                assertTrue(model.canInspect)
+            }
+        } finally { gate.complete(Unit); main { model.close() }; value.close(); scope.cancel(); releaseProvider() }
+    }
     @Test fun wrongCancelledAndClosedPickerResultsCannotPopulateAnotherDraft() = runBlocking {
         val scope = scope(); val first = model(scope); val second = model(scope)
         try {
