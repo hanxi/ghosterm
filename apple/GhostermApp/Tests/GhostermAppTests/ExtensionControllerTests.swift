@@ -742,6 +742,7 @@ final class ExtensionControllerTests: XCTestCase {
                     let request = VNRecognizeTextRequest()
                     request.recognitionLevel = .accurate
                     request.usesLanguageCorrection = false
+                    request.preferCPUForOffscreenTest()
                     try VNImageRequestHandler(cgImage: image).perform([request])
                     recognizedPreview = (request.results ?? [])
                         .compactMap { $0.topCandidates(1).first?.string }

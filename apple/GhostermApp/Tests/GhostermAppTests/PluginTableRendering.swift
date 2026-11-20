@@ -53,7 +53,25 @@ enum PluginTableRendering {
         bitmap.size = view.bounds.size; view.cacheDisplay(in: view.bounds, to: bitmap)
         let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false; request.recognitionLanguages = ["en-US"]
+        request.preferCPUForOffscreenTest()
         try VNImageRequestHandler(cgImage: bitmap.cgImage!).perform([request])
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    }
+}
+
+extension VNRecognizeTextRequest {
+    func preferCPUForOffscreenTest() {
+        // Avoid initializing a virtual GPU for hosted offscreen OCR.
+        if #available(macOS 14.0, *), let stages = try? supportedComputeStageDevices {
+            for (stage, devices) in stages {
+                let cpu = devices.first { device in
+                    if case .cpu = device { return true }
+                    return false
+                }
+                if let cpu { setComputeDevice(cpu, for: stage) }
+            }
+        } else {
+            usesCPUOnly = true
+        }
     }
 }

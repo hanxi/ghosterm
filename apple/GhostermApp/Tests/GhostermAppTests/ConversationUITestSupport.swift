@@ -95,6 +95,7 @@ final class ConversationUIProbe {
         request.usesLanguageCorrection = false
         request.recognitionLanguages = ["zh-Hans", "en-US"]
         request.customWords = [label]
+        request.preferCPUForOffscreenTest()
         try VNImageRequestHandler(cgImage: image).perform([request])
         let matches = (request.results ?? []).compactMap { labelBox($0, label: label) }
             .sorted { $0.midY > $1.midY }
@@ -108,6 +109,7 @@ final class ConversationUIProbe {
                 let local = VNRecognizeTextRequest()
                 local.recognitionLevel = .accurate; local.minimumTextHeight = 0.002
                 local.usesLanguageCorrection = false; local.recognitionLanguages = ["zh-Hans", "en-US"]; local.customWords = [label]
+                local.preferCPUForOffscreenTest()
                 try VNImageRequestHandler(cgImage: tile).perform([local])
                 for box in (local.results ?? []).compactMap({ labelBox($0, label: label) }) {
                     let x = box.midX * root.bounds.width
