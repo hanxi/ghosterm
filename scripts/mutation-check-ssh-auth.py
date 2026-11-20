@@ -24,14 +24,17 @@ def main():
   rc,sdk=run(['xcrun','--sdk','macosx','--show-sdk-path'])
   if rc:raise RuntimeError('Xcode SDK unavailable')
   os.environ['SDKROOT']=sdk.strip()
- rc,flags=run(['pkg-config','--cflags','--libs','libssh2'])
- if rc:raise RuntimeError('libssh2 development flags required')
+ ssh2=ROOT/'build/host-native'
+ rc,out=run([sys.executable,ROOT/'core/cmake/verify-ssh2.py','--root',ROOT,'--prefix',ssh2])
+ if rc:raise RuntimeError('verified patched libssh2 required: '+out)
+ library=ssh2/'lib'/('libssh2.dylib' if sys.platform=='darwin' else 'libssh2.so')
+ flags=['-I'+str(ssh2/'include'),library,'-Wl,-rpath,'+str(library.parent)]
  def restore():
   copy.write_bytes(original)
   if hashlib.sha256(copy.read_bytes()).digest()!=digest or SOURCE.read_bytes()!=original:raise RuntimeError('session ABI SHA256 rollback failed')
  def build():
   for source,name in [('test_ssh_auth_bridge.c','bridge'),('test_config.c','control')]:
-   rc,out=run([*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra','-Werror','-Icore/include','-Icore/src','-DGT_TEST_TMP_DIR='+json.dumps(str(ROOT/'tmp')),ROOT/'core/tests'/source,copy,ROOT/'core/build/libghosterm_core.a',*shlex.split(flags),'-pthread','-o',WORK/name])
+   rc,out=run([*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra','-Werror','-Icore/include','-Icore/src','-DGT_TEST_TMP_DIR='+json.dumps(str(ROOT/'tmp')),ROOT/'core/tests'/source,copy,ROOT/'core/build/libghosterm_core.a',*flags,'-pthread','-o',WORK/name])
    if rc:raise RuntimeError('session ABI compilation failed: '+out)
  def probe(name,red=False):
   rc,out=run([WORK/name,ROOT/'core/tests/fixtures'])
