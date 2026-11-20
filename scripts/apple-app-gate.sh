@@ -198,7 +198,9 @@ fi
   done
   for suite in "${SUITES[@]}"; do
     echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
-    gt_timeout 1800 env ${ENVARGS[@]+"${ENVARGS[@]}"} swift test --filter "$suite" \
+    # SSH / ProxyJump e2e is covered by apple-gate.sh above. Keep the full
+    # App UI/model suite offline so its fixtures cannot inherit remote owners.
+    gt_timeout 1800 env GHOSTERM_AUTOMATION_OFFSCREEN=1 swift test --filter "$suite" \
       >>"$TMP/apple-app-test.log" 2>&1 || exit $?
   done
 ) || {
