@@ -77,12 +77,14 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         private set
     internal val pendingGroup = androidx.compose.runtime.mutableStateListOf<ExtensionGroupInvocation>()
     private var selectedGroupInstanceId by mutableStateOf<java.util.UUID?>(null)
-    internal val selectedGroupInstance: ExtensionPackagesViewModel?
+    internal val selectedGroupEntry: ExtensionConnectionModel.Instance?
         get() {
             val id = selectedGroupInstanceId ?: return null
             return connectionGroups.asSequence().flatMap { it.instances.asSequence() }
-                .firstOrNull { it.id == id }?.model
+                .firstOrNull { it.id == id }
         }
+    internal val selectedGroupInstance: ExtensionPackagesViewModel?
+        get() = selectedGroupEntry?.model
     internal fun selectGroupInstance(instance: ExtensionPackagesViewModel?) {
         selectedGroupInstanceId = if (instance == null) null else
             connectionGroups.asSequence().flatMap { it.instances.asSequence() }

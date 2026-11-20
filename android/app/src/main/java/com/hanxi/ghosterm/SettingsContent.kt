@@ -293,8 +293,16 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         }
                     }
                     PluginConnectionGroupsContent(extensions, connectionsBusy, onLaunchPluginGroup)
-                    val instance = extensions.selectedGroupInstance ?: extensions
-                    key(instance) { PluginActiveInstanceContent(instance) }
+                    val selected = extensions.selectedGroupEntry
+                    val instance = selected?.model ?: extensions
+                    key(instance) {
+                        when {
+                            selected?.closed == true -> Text("插件实例已关闭")
+                            selected?.releaseFailed == true -> Text("插件实例仍有资源待释放，请在实例列表重试关闭。")
+                            selected?.closeRequested == true -> Text("正在关闭插件实例…")
+                            else -> PluginActiveInstanceContent(instance)
+                        }
+                    }
 
                 }
             }
@@ -314,8 +322,11 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             launchSelection = null
         })
     }
-    val selectedInstance = extensions.selectedGroupInstance ?: extensions
-    selectedInstance.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
+    val selected = extensions.selectedGroupEntry
+    val selectedInstance = selected?.model ?: extensions
+    selectedInstance.activeSession?.takeIf {
+        selected?.closeRequested != true && it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT
+    }?.let { active ->
         key(selectedInstance) {
             PluginConsentDialog(active, selectedInstance.launchBusy, selectedInstance::decideConsent)
         }
