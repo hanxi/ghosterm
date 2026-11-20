@@ -28,15 +28,20 @@ spec.loader.exec_module(helper)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', action='append', dest='selected')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--case', action='append', dest='selected')
+    selection.add_argument('--baseline-only', action='store_true', help='run both complete HTML preview test classes without mutations')
     parser.add_argument('--headless-api', choices=('29', '36'), help='use an owned no-window emulator and isolated source')
     parser.add_argument('--keep-work', action='store_true', help='retain receipts and build files under project tmp/')
     args = parser.parse_args()
     serial = os.environ.get('ANDROID_SERIAL')
     if not serial and not args.headless_api:
         parser.error('specify --headless-api or set ANDROID_SERIAL to the intended test device')
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
     with ExitStack() as cleanup:
-        temporary = dict(prefix='android-html-', dir=ROOT / 'tmp')
+        temporary = dict(prefix='android-html-', dir=scratch)
         work = Path(tempfile.mkdtemp(**temporary) if args.keep_work else
                     cleanup.enter_context(tempfile.TemporaryDirectory(**temporary)))
         if args.keep_work:
@@ -62,7 +67,7 @@ def main():
             spec = importlib.util.spec_from_file_location('html_owned_device', ROOT / 'scripts/test-plugin-codex-patch-android.py')
             owned_device = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(owned_device)
-            serial = cleanup.enter_context(owned_device.headless(args.headless_api))
+            serial = cleanup.enter_context(owned_device.headless(args.headless_api, scratch=work))
         verify(args, work, project, [adb, '-s', serial], build_prefix)
 
 
@@ -124,7 +129,7 @@ def verify(args, work, project, adb, build_prefix):
          'utf8(output.copyOf(count))?.removePrefix("/")',
          'utf8(output.copyOf(count))?.let { java.net.URLDecoder.decode(it, "UTF-8") }?.removePrefix("/")'),
     ]
-    selected = args.selected or [case[0] for case in cases]
+    selected = [] if args.baseline_only else (args.selected or [case[0] for case in cases])
     if len(selected) != len(set(selected)) or set(selected) - {c[0] for c in cases}: raise RuntimeError('Unknown or duplicate case')
     cases = [c for c in cases if c[0] in selected]
     for name, _, path, before, _ in cases:
@@ -166,12 +171,13 @@ def verify(args, work, project, adb, build_prefix):
             digests[package_id] = digest
         return digests
 
-    def test(label, method, green):
+    def test(label, method, green, count=1):
         output = logged(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', method,
             'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
         if 'INSTRUMENTATION_STATUS_CODE: -4' in output or 'assumption failed:' in output:
             raise RuntimeError('Skipped instead of executed:\n' + output)
-        good = ('OK (1 test)' in output and 'FAILURES' not in output) if green else (
+        expected = f'OK ({count} test{"s" if count != 1 else ""})'
+        good = (expected in output and 'FAILURES' not in output) if green else (
             bool(re.search(r'Tests run: 1,\s+Failures: 1', output)) and
             any(t in output for t in ['java.lang.AssertionError', 'org.junit.ComparisonFailure']) and
             'Process crashed' not in output and 'INSTRUMENTATION_FAILED' not in output)
@@ -179,11 +185,16 @@ def verify(args, work, project, adb, build_prefix):
             # One selected JUnit method must fail by a normal assertion, never
             # compilation, process death, sanitizer, setup or runner failure.
             good = good and method.split('#')[1] in output
-        if not good or 'INSTRUMENTATION_STATUS: numtests=1' not in output: raise RuntimeError('Not accepted assertion result:\n' + output)
+        if not good or f'INSTRUMENTATION_STATUS: numtests={count}\n' not in output:
+            raise RuntimeError('Not accepted assertion result:\n' + output)
     control = 'com.hanxi.ghosterm.NativeSmokeTest#corePreservesUtf8AndLineEndings'
     results = []
     try:
         baseline = build('baseline')
+        if args.baseline_only:
+            test('html-preview-baseline', model[:-1] + ',' + native[:-1], True, count=19)
+            print('ANDROID HTML PREVIEW BASELINE PASS: 19 tests', flush=True)
+            return
         for index, target in enumerate(dict.fromkeys(c[1] for c in cases)): test('baseline-' + str(index), target, True)
         for name, target, path, before, after in cases:
             write(path, (originals[path].decode().replace(before, after) + '\n// ' + MARK + '\n').encode())
