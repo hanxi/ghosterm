@@ -52,7 +52,9 @@ private fun PluginSignatureInputs(controller: ExtensionController, review: Exten
             OutlinedButton(onClick = {
                 model.beginPick(kind)
             }, enabled = !model.busy && model.pending == null,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-signature-pick-${kind.name}")) {
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-signature-pick-${kind.name}").semantics {
+                    contentDescription = "选择${kind.label}"
+                }) {
                 Text("选择${kind.label}")
             }
             model.documents[kind]?.let { document ->
@@ -70,7 +72,9 @@ private fun PluginSignatureInputs(controller: ExtensionController, review: Exten
             Text("我已独立核对并信任此渠道策略快照", style = MaterialTheme.typography.bodyMedium)
         }
         Button(onClick = model::checkSignature, enabled = model.canVerify,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-signature-verify")) {
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-signature-verify").semantics {
+                contentDescription = "核对目录包签名"
+            }) {
             Text(if (model.busy) "正在读取或核对…" else "核对目录包签名")
         }
         if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
