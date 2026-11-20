@@ -203,19 +203,31 @@ jobs:
       # Apple 端的四层证据（绑定对拍 / 本地 PTY / SSH e2e / 终端 UX）+ 每个断言组配一份
       # 变异验证。CI 与本地跑的是同一批脚本，本地绿而 CI 红时先怀疑环境。
       # 注意：**须在 libghostty 构建之后**——apple-app-gate 依赖 xcframework。
-      - name: Apple 端闸门 + 变异验证（full）
+      - name: Apple Core 闸门（full）
         if: inputs.gates == 'full'
         run: |
           set -euo pipefail
-          # 这条 step 只在 gates=full 时跑，跑的就是「Apple 端证据真验过」——
-          # 没有 swift 工具链时不许 SKIP 成绿（那样这一整步等于没跑）。
           command -v swift >/dev/null 2>&1 || {
             echo "缺 swift 工具链，无法跑 Apple 端闸门（本步不许降级为 SKIP）" >&2; exit 1; }
           export GHOSTERM_AUTOMATION_OFFSCREEN=1
           export TMPDIR="$PWD/tmp"
           GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-gate.sh
+
+      - name: macOS 应用及终端闸门（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          export GHOSTERM_AUTOMATION_OFFSCREEN=1
+          export TMPDIR="$PWD/tmp"
           GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
+
+      - name: Apple 端变异验证（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          export GHOSTERM_AUTOMATION_OFFSCREEN=1
+          export TMPDIR="$PWD/tmp"
           bash scripts/mutation-check-terminal.sh
           bash scripts/mutation-check-transport.sh
           bash scripts/mutation-check-tabs.sh
