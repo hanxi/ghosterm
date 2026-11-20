@@ -51,6 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: 取产物
         uses: actions/download-artifact@v4
@@ -69,21 +70,39 @@ jobs:
           if grep -Fq '未公证的包不能直接分发给终端用户' dist/BUILD-INFO.txt; then
             echo "BUILD-INFO 仍含过时的公证阻塞文案" >&2; exit 1
           fi
-          python3 - <<'PY'
+          VERSION="$(python3 - <<'PY'
           import json
+          import os
+          import re
           from pathlib import Path
           value = json.loads(Path('dist/version.json').read_text())
+          if value.get('channel') != 'release' or value.get('git_commit') != os.environ['GITHUB_SHA']:
+              raise SystemExit('version.json 的渠道或构建提交与本轮不一致')
+          version = value.get('version')
+          if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', version):
+              raise SystemExit('version.json 版本号无效')
           if value.get('signature') not in {'adhoc', 'dev', 'id'} or type(value.get('notarized')) is not bool:
               raise SystemExit('version.json 的 Apple 签名状态不是可识别的真实档位')
           if not isinstance(value.get('update_signature'), str) or not value['update_signature']:
               raise SystemExit('version.json 缺少 Ed25519 更新签名')
+          print(version)
           PY
-          TAG="${GITHUB_REF_NAME}"
-          case "$TAG" in
-            v*) ;;
-            *) TAG="v$(sed -n 's/^版本: *\([^ ]*\).*/\1/p' dist/BUILD-INFO.txt)" ;;
-          esac
+          )"
+          TAG="v${VERSION}"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF" != "refs/tags/$TAG" ]]; then
+            echo "版本清单与触发标签不一致" >&2; exit 1
+          fi
+          TAG_COMMIT="$(gh api "repos/$GH_REPO/commits/refs/tags/$TAG" --jq .sha)"
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "发布标签 $TAG 与本轮构建提交不一致" >&2; exit 1
+          fi
           NOTES="$(cat dist/BUILD-INFO.txt)"
-          gh release create "$TAG" --draft --title "Ghosterm $TAG" --notes "$NOTES" \
-            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml \
-          || gh release upload "$TAG" --clobber dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml
+          ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
+          if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$DRAFT" != true ]]; then
+              echo "发布 $TAG 已公开，拒绝覆盖资产" >&2; exit 1
+            fi
+            gh release upload "$TAG" --clobber "${ASSETS[@]}"
+          else
+            gh release create "$TAG" --verify-tag --draft --title "Ghosterm $TAG" --notes "$NOTES" "${ASSETS[@]}"
+          fi
