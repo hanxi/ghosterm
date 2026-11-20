@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.compose.ui.text.buildAnnotatedString
@@ -272,7 +274,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                                 if (entry.decision == "已批准（本进程）") {
                                     TextButton(onClick = { launchSelection = entry to command },
                                         enabled = !extensions.launchBusy && !connectionsBusy,
-                                        modifier = Modifier.padding(start = 8.dp).testTag("plugin-launch-${command.path}")) {
+                                        modifier = Modifier.padding(start = 8.dp).testTag("plugin-launch-${command.path}").semantics {
+                                            contentDescription = "启动插件命令 ${command.path}，${command.title}"
+                                        }) {
                                         Text("启动此命令…")
                                     }
                                 }
@@ -280,8 +284,10 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                             Text(entry.decision, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.labelMedium)
                             Text("能力授权 ${if (entry.review.authorizationGranted) "已授予" else "未授予"}；来源批准不会授予能力。", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall, color=MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.End) {
-                                TextButton(onClick={ extensions.decide(entry, false) }, enabled=!extensions.busy) { Text("拒绝") }
-                                TextButton(onClick={ extensions.decide(entry, true) }, enabled=!extensions.busy) { Text("批准此摘要") }
+                                TextButton(onClick={ extensions.decide(entry, false) }, enabled=!extensions.busy,
+                                    modifier = Modifier.semantics { contentDescription = "拒绝插件摘要 ${entry.review.id}" }) { Text("拒绝") }
+                                TextButton(onClick={ extensions.decide(entry, true) }, enabled=!extensions.busy,
+                                    modifier = Modifier.semantics { contentDescription = "批准插件摘要 ${entry.review.id}" }) { Text("批准此摘要") }
                             }
                         }
                         }
