@@ -15967,3 +15967,10 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   二十九组，目标、对照、复原及源码摘要核对均通过。Swift 隔离构建复用同版本 Sparkle 缓存，
   所有测试目录已清理。对应 [macOS Release 44802748311](https://github.com/hanxi/ghosterm/actions/runs/44802748311)
   的全量闸门和实际发布仍需确认。
+- 44802748311 在目录上传取消专项暴露实际竞态：目录扫描成功回调可能覆盖已经接受的取消。
+  `03f899b1` 在接收扫描结果时保留取消结果，已创建目录仍按实际副作用记账。离屏 TransferManager
+  24 项通过；`9d8b98e6` 补已创建远端目录且尚未提交文件的确定性回归，两项取消专项通过。
+- `debd65a5` 缩短 tmux 界面隔离夹具的 socket 文件名，修复深路径基线超长问题。
+  同版本 Sparkle 缓存下，离屏隔离副本 17 组界面变异全部通过目标、对照、复原及源码摘要核对，
+  包含真实 tmux socket 长路径变异。临时目录已清理。
+  [macOS Release 44806436423](https://github.com/hanxi/ghosterm/actions/runs/44806436423) 仍在云端复验。
