@@ -986,8 +986,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     problem = failure.message ?: "插件启动参数无效"
                 }
             }, modifier = Modifier.semantics {
-                contentDescription = if (enqueueGroup != null) "加入待启动插件连接组" else "连接并请求插件授权"
-            }) { Text(if (enqueueGroup != null) "加入待启动组" else "连接并请求授权") }
+                contentDescription = when {
+                    submissionBusy -> "正在提交插件启动请求"
+                    enqueueGroup != null -> "加入待启动插件连接组"
+                    else -> "连接并请求插件授权"
+                }
+            }) { Text(when {
+                submissionBusy -> "正在提交…"
+                enqueueGroup != null -> "加入待启动组"
+                else -> "连接并请求授权"
+            }) }
         },
         dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.semantics {
             contentDescription = "取消插件启动"
