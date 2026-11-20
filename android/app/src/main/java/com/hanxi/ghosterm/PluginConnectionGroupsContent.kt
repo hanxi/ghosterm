@@ -55,12 +55,18 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 contentDescription = "取消关闭操作"
             }) { Text("取消") } })
     if (model.pendingGroup.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("待启动连接组（${model.pendingGroup.size}/8）", style = MaterialTheme.typography.titleSmall)
+        Text("待启动连接组（${model.pendingGroup.size}/8）", style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.semantics {
+                contentDescription = "待启动连接组，${model.pendingGroup.size} 项，共八项上限"
+            })
         model.pendingGroup.toList().forEach { invocation ->
             val launch = invocation.launch; val request = launch.request
             Column(Modifier.fillMaxWidth().padding(8.dp)) {
                 SelectionContainer { Column {
-                    Text("${invocation.alias} · ${launch.entry.review.id} · ${launch.command.path}")
+                    Text("${invocation.alias} · ${launch.entry.review.id} · ${launch.command.path}",
+                        modifier = Modifier.semantics {
+                            contentDescription = "待启动项 ${invocation.alias}，插件 ${launch.entry.review.id}，命令 ${launch.command.path}"
+                        })
                     Text("gterm：${request.executable}\nExecutor：${request.executorDirectory}\n临时根目录：${invocation.temporaryDirectory}")
                     Text("Client：${request.clientDigest}\nExecutor：${request.executorDigest}")
                     Text("参数：${JSONArray(request.arguments)}\n只读根：${request.workspaceRootDirectory ?: "无"}")
