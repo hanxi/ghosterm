@@ -2226,7 +2226,11 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
     if (!sh) {
         return GT_TRANSPORT_READ_ERROR;
     }
-    ssh_flush_wtail(sh); /* 读是尾队列的泵：没有它，排队的输入只能等下一次写 */
+    /* The read loop also pumps queued input. Surface a fatal write before
+     * another channel read can overwrite its error or report a timeout. */
+    if (ssh_flush_wtail(sh) != GT_OK) {
+        return GT_TRANSPORT_READ_ERROR;
+    }
     int effective_timeout = timeout_ms;
     if (sh->ssh->server_alive_interval > 0 && timeout_ms != 0) {
         int keepalive_wait = sh->ssh->server_alive_interval * 1000;

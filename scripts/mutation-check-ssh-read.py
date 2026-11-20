@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile shell-read mutants: confirmed EOF, genuine resets and final output."""
+"""Compile shell-read mutants for EOF, resets, final output and queued writes."""
 from pathlib import Path
 import hashlib,json,os,signal,subprocess
 ROOT=Path(__file__).resolve().parents[1]
@@ -24,8 +24,10 @@ def main():
    '    if (n == 0 && libssh2_channel_eof(sh->chan)) {\n','confirmed'),
   ('reset','    if (libssh2_channel_eof(sh->chan)) {\n',
    '    if (libssh2_channel_eof(sh->chan) || n == LIBSSH2_ERROR_SOCKET_RECV) {\n','reset'),
-  ('tail','    libssh2_session_set_timeout(sh->sess, previous_timeout);\n    if (n > 0) {\n',
-   '    libssh2_session_set_timeout(sh->sess, previous_timeout);\n    if (n > 0 && !libssh2_channel_eof(sh->chan)) {\n','tail'),
+  ('tail','    if (ssh_keepalive_tick_session(sh->ssh, sh->sess) != GT_OK) {\n        return GT_TRANSPORT_READ_ERROR;\n    }\n    if (n > 0) {\n',
+   '    if (ssh_keepalive_tick_session(sh->ssh, sh->sess) != GT_OK) {\n        return GT_TRANSPORT_READ_ERROR;\n    }\n    if (n > 0 && !libssh2_channel_eof(sh->chan)) {\n','tail'),
+  ('queued-write','    if (ssh_flush_wtail(sh) != GT_OK) {\n        return GT_TRANSPORT_READ_ERROR;\n    }\n',
+   '    ssh_flush_wtail(sh);\n','queued-write'),
  ]
  results=[]
  try:

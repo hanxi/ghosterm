@@ -1,9 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
-/* Compile the real SSH implementation with only libssh2's read boundary
+/* Compile the real SSH implementation with libssh2's I/O boundary
  * substituted. The negative-read/confirmed-EOF case was observed on real
  * libssh2; no public ABI or production testing hooks are added. */
 #define libssh2_channel_read_ex test_channel_read_ex
+#define libssh2_channel_write_ex test_channel_write_ex
 #define libssh2_channel_eof test_channel_eof
 #define libssh2_session_get_timeout test_get_timeout
 #define libssh2_session_set_timeout test_set_timeout
@@ -21,13 +22,23 @@
 static ssize_t result;
 static int eof, eof_calls, blocking = 1;
 static long timeout = 777;
+static ssize_t write_result;
+static unsigned read_calls, write_calls;
 
 ssize_t test_channel_read_ex(LIBSSH2_CHANNEL *channel, int stream, char *buffer, size_t size) {
     CHECK(channel && stream == 0 && size >= 4);
+    read_calls++;
     if (result > 0) {
         memcpy(buffer, "tail", 4);
     }
     return result;
+}
+
+ssize_t
+test_channel_write_ex(LIBSSH2_CHANNEL *channel, int stream, const char *buffer, size_t size) {
+    CHECK(channel && stream == 0 && size == 4 && !memcmp(buffer, "keys", 4));
+    write_calls++;
+    return write_result;
 }
 
 int test_channel_eof(LIBSSH2_CHANNEL *channel) {
@@ -89,10 +100,34 @@ static void check(ssize_t read_result, int confirmed_eof, int expected, int poll
     }
 }
 
+static void check_queued_write(void) {
+    ssh_shell_t shell = {0};
+    gt_ssh_t ssh = {0};
+    shell.ssh = &ssh;
+    shell.sess = (LIBSSH2_SESSION *)&shell;
+    shell.chan = (LIBSSH2_CHANNEL *)&shell;
+    unsigned char output[8] = {0};
+    result = LIBSSH2_ERROR_TIMEOUT;
+    eof = 0;
+    read_calls = write_calls = 0;
+    write_result = LIBSSH2_ERROR_EAGAIN;
+    CHECK(gt__ssh_shell_write(&shell, (const uint8_t *)"keys", 4) == GT_OK);
+    CHECK(shell.wtail_len == 4 && write_calls == 1);
+    CHECK(gt__ssh_shell_read(&shell, output, sizeof output, 20) == GT_TRANSPORT_READ_TIMEOUT);
+    CHECK(shell.wtail_len == 4 && read_calls == 1);
+
+    write_result = LIBSSH2_ERROR_SOCKET_SEND;
+    int read_status = gt__ssh_shell_read(&shell, output, sizeof output, 20);
+    free(shell.wtail);
+    CHECK(read_status == GT_TRANSPORT_READ_ERROR);
+    CHECK(strstr(gt_last_error(), "ssh_shell write:"));
+    CHECK(read_calls == 1 && timeout == 777 && blocking == 1);
+}
+
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "all";
     CHECK(!strcmp(mode, "all") || !strcmp(mode, "tail") || !strcmp(mode, "confirmed") ||
-          !strcmp(mode, "reset") || !strcmp(mode, "idle"));
+          !strcmp(mode, "reset") || !strcmp(mode, "idle") || !strcmp(mode, "queued-write"));
     if (!strcmp(mode, "all") || !strcmp(mode, "tail")) {
         check(4, 1, 4, 0);
     }
@@ -108,6 +143,9 @@ int main(int argc, char **argv) {
         check(0, 0, GT_TRANSPORT_READ_TIMEOUT, 0);
         check(LIBSSH2_ERROR_TIMEOUT, 0, GT_TRANSPORT_READ_TIMEOUT, 0);
         check(LIBSSH2_ERROR_EAGAIN, 0, GT_TRANSPORT_READ_TIMEOUT, 1);
+    }
+    if (!strcmp(mode, "all") || !strcmp(mode, "queued-write")) {
+        check_queued_write();
     }
     puts("SSH shell read boundary PASS");
     return 0;
