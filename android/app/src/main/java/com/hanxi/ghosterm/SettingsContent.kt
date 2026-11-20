@@ -727,7 +727,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 if (hostAliases.isEmpty()) Text("当前没有可用的 SSH 主机配置。", color = MaterialTheme.colorScheme.error)
                 else {
                     Box {
-                        OutlinedButton(onClick = { hostMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { hostMenu = true }, modifier = Modifier.fillMaxWidth().semantics {
+                            contentDescription = if (selectedHost.isBlank()) "选择 SSH 主机" else "当前 SSH 主机：$selectedHost，打开选择菜单"
+                        }) {
                             Text(if (selectedHost.isBlank()) "选择 SSH 主机" else selectedHost)
                         }
                         DropdownMenu(expanded = hostMenu, onDismissRequest = { hostMenu = false }) {
