@@ -11,7 +11,7 @@ if grep -qF "$MARK" "$ROOT/$SOURCE"; then echo '残留变异标记，拒绝起�
 WORK="$(mktemp -d "$ROOT/tmp/default-entry-XXXXXX")"
 BASE_SHA="$(shasum -a 256 "$ROOT/$SOURCE" | awk '{print $1}')"
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-export TMPDIR="$ROOT/tmp"
+export TMPDIR="$WORK" GHOSTERM_AUTOMATION_OFFSCREEN=1
 python3 - "$ROOT" "$WORK" <<'PY'
 import shutil, sys
 from pathlib import Path
@@ -40,19 +40,31 @@ trap restore EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 probe() {
-  local expected=$1 filter=$2 log=$3 rc=0
+  local expected=$1 filter=$2 log=$3 test="${2##*/}" rc=0
   gt_timeout 240 xcrun swift test --package-path "$WORK/apple/GhostermApp" --filter "$filter" >"$log" 2>&1 || rc=$?
   if [ "$expected" = green ]; then
-    if [ "$rc" = 0 ] && grep -Eq 'Executed [1-9][0-9]* tests?, with 0 failures' "$log"; then return; fi
+    if [ "$rc" = 0 ] && grep -Eq "Test Case .* ${test}\\]' passed" "$log" &&
+       grep -Eq 'Executed 1 test, with 0 failures' "$log"; then return; fi
   else
-    if [ "$rc" = 1 ] && grep -qF 'Build complete!' "$log" && grep -Eq 'XCTAssert|: failed - ' "$log" \
+    if [ "$rc" = 1 ] && grep -Eq "error: .* ${test}\\].*(XCTAssert|: failed - )" "$log" &&
+       grep -Eq 'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)' "$log" \
        && ! grep -Eq 'unexpected signal|Program crashed|error: emit-module|error: fatalError' "$log"; then return; fi
   fi
   cat "$log" >&2; echo "判据不符：期望 ${expected}，退出码 ${rc}" >&2; return 1
 }
-probe green DefaultSessionTests "$WORK/baseline.log"
-probe green HostListTests.testReadingDoesNotMutateConfig "$WORK/control.log"
+local_test=DefaultSessionTests/testOrdinaryLocalSessionsHaveIndependentPTYsAndCloseStopsProcesses
+startup_test=DefaultSessionTests/testStartupIsIdempotentAndDoesNotRestoreOldSessions
+split_test=DefaultSessionTests/testDefaultSplitInheritsDirectoryAndKeepsOriginalTask
+control_test=HostListTests/testReadingDoesNotMutateConfig
+for target in "$local_test" "$startup_test" "$split_test" "$control_test"; do
+  probe green "$target" "$WORK/baseline-${target##*/}.log"
+done
 for scenario in local startup cwd confirm; do
+  case "$scenario" in
+    local) target="$local_test" ;;
+    startup) target="$startup_test" ;;
+    cwd|confirm) target="$split_test" ;;
+  esac
   restore
   python3 - "$WORK/$SOURCE" "$scenario" "$MARK" <<'PY'
 from pathlib import Path
@@ -69,10 +81,12 @@ old, new = specs[scenario]
 assert text.count(old) == 1, ('mutation anchor drift', scenario)
 p.write_text(text.replace(old, new) + '\n// ' + mark + '\n')
 PY
-  probe red DefaultSessionTests "$WORK/$scenario-red.log"
-  probe green HostListTests.testReadingDoesNotMutateConfig "$WORK/$scenario-control.log"
+  probe red "$target" "$WORK/$scenario-red.log"
+  probe green "$control_test" "$WORK/$scenario-control.log"
   echo "PASS default-entry/${scenario}：目标红、同变异对照绿"
 done
 restore
-probe green DefaultSessionTests "$WORK/restored.log"
+for target in "$local_test" "$startup_test" "$split_test"; do
+  probe green "$target" "$WORK/restored-${target##*/}.log"
+done
 echo "PASS default-entry：4 组变异与 SHA256 回滚；日志 ${WORK}"
