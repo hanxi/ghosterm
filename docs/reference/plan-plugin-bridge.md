@@ -15928,6 +15928,9 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   用该提交运行全量闸门。首个正式版仍待云端发布验收。
 - [Android Release APK 44756264697](https://github.com/hanxi/ghosterm/actions/runs/44756264697)
   在 `536633d7` 通过优化构建、签名和可安装性检查，上传同提交 APK。
+  从 Actions 下载的 APK 为 8,968,117 字节，`SHA256SUMS` 与实际文件相符，
+  外部 `build-info.json` 的大小、摘要与随包的 clean 源码收据均已对拍。
+  SHA-256 为 `ae59620b4015331d21aca064a4cbb4e3b2a4ae4cd6b67ddde752a56feca4e7c3`。
   同提交的 macOS 工作流 44755703820 在普通 SSH 用例读取远端进程标记时超时。
 - `e3b605a1` 给 SSH 原窗格和分屏显式设置离屏网格尺寸，并在首个阶段超时时终止。
   本地用真实回环 SSH 验证两窗格各自的远端进程及 SFTP 主机密钥复用。
