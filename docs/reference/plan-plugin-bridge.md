@@ -14055,6 +14055,12 @@ Native 字节回包、SDK 复制引用三组全部通过，实际编译调用从
 `b480f6fcce8d8bdf6af3a4069fbc61b76deef166c7dc5ecdaf829e935fc540d5`。
 本轮临时目录已清理。
 
+P5 Android API 29 无窗口复验：重建官方 views 候选与启用 QuickJS/SSH 的
+gterm，`test-plugin-views-android-native.py --api 29 --attach --attach-loss`
+通过通用视图 30 项、表格 23 项、差异 27 项、任务 34 项。直连与两跳
+ProxyJump 各通过真实前台附着及进程退出，共四项。测试对拍安装 APK 和
+运行器输入，临时构件与 AVD 已清理。TalkBack 实际播报仍待验收。
+
 ### P6 渠道策略候选声明本地验签（2026-11-19）
 
 固定 `42eb4a77` 加本批开发工具。 `gterm-plugin release verify-policy` 接受显式
