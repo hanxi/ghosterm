@@ -62,6 +62,12 @@ internal class ExtensionConnectionModel(private val application: Application,
         private set
     var state: ExtensionController.MultiplexState? by mutableStateOf(null)
         private set
+    var observationFailed by mutableStateOf(false)
+        private set
+    val transportEnded get() = state?.let {
+        it.transport.remoteEof || it.transport.error != 0 ||
+            it.info.error != 0 || it.info.stopping || it.info.released
+    } == true
     private var launchJob: Job? = null
     private var monitor: Job? = null
     private var closing by mutableStateOf(false)
@@ -78,7 +84,7 @@ internal class ExtensionConnectionModel(private val application: Application,
         private set
     val canAdd get() = nativeReady && !closed && !closing && !busy && !cleanupPending &&
         instances.none { it.releasing || it.releaseFailed } &&
-        (state?.info?.error ?: 0) == 0 && instances.count { !it.closed } < 8
+        !observationFailed && !transportEnded && instances.count { !it.closed } < 8
     private var attempt: SSHAttempt? = null
     private var sessions: SessionsViewModel? = null
     private val cleanup = Mutex()
@@ -150,11 +156,17 @@ internal class ExtensionConnectionModel(private val application: Application,
                 try {
                     while (!closed) {
                         state = controller.stepMultiplexConnection()
-                        if (state?.info?.error != 0) issue = "共享连接结束或发生错误，请检查各实例结果"
+                        if (transportEnded) {
+                            issue = "共享连接已结束，请检查各实例结果。再次启动需要新建连接。"
+                            break
+                        }
                         delay(100)
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (failure: Exception) { issue = "共享连接状态查不出来：${failure.message}" }
+                catch (failure: Exception) {
+                    observationFailed = true
+                    issue = "共享连接当前状态未知：${failure.message}"
+                }
             }
             return true
         } catch (failure: Exception) {
@@ -210,6 +222,7 @@ internal class ExtensionConnectionModel(private val application: Application,
                 scopes.remove(instance.id)
             }
             instances.removeAll { it.closed }
+            check(!closing && !observationFailed && !transportEnded) { "共享连接已结束或状态未知，请新建连接" }
             check(instances.size < 8 && nextEpoch != ULong.MAX_VALUE)
             val scope = ExtensionController.MultiplexScope(hex(invocation.id), nextEpoch++)
             val owner = withContext(NonCancellable) {

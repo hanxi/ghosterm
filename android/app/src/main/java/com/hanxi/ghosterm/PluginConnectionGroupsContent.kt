@@ -121,7 +121,8 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 modifier = Modifier.semantics {
                     contentDescription = "连接组正在处理请求"
                 })
-            if (!group.closed) Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
+            if (!group.closed && !group.transportEnded && !group.observationFailed && !group.closingInProgress)
+                Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
             group.issue?.let { issue ->
                 Text(issue, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics {
                     contentDescription = "连接组错误：$issue"
