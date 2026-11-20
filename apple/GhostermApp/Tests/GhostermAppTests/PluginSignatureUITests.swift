@@ -27,9 +27,14 @@ final class PluginSignatureUITests: XCTestCase {
             .failure(CocoaError(.fileReadNoPermission)),
             .success([root.appendingPathComponent("p")])
         ]
+        var previousCompletion: ((Result<[URL], Error>) -> Void)?
+        defer { previousCompletion = nil }
         let pane = NSHostingView(rootView: ScrollView {
             ExtensionsPane(model: model, packagePicker: { completion in
                 guard !choices.isEmpty else { XCTFail("Unexpected package picker request"); return }
+                // A previous chooser can finish while its successor is open.
+                previousCompletion?(.failure(CocoaError(.fileReadNoPermission)))
+                previousCompletion = completion
                 completion(choices.removeFirst())
             })
         })
@@ -64,6 +69,8 @@ final class PluginSignatureUITests: XCTestCase {
         XCTAssertEqual(choices.count, 2)
         XCTAssertNil(node("plugin-signature-disclosure"))
         XCTAssertNil(node("plugin-package-issue"))
+        previousCompletion?(.failure(CocoaError(.fileReadNoPermission)))
+        XCTAssertNil(node("plugin-package-issue"), "A completed chooser cannot report a second result")
         try press("plugin-package-import")
         guard try await until({ node("plugin-package-issue") != nil }) else { XCTFail("picker failure missing"); return }
         XCTAssertNil(node("plugin-signature-disclosure"))
