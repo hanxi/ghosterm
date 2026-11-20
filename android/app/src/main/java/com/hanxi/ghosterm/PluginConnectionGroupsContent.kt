@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -109,7 +110,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
             contentDescription = "查看原单实例入口"
         }) { Text("查看原单实例入口") }
     }
-    model.connectionGroups.forEach { group ->
+    for (group in model.connectionGroups) key(group.id) {
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("连接组：${group.title.ifEmpty { "正在准备" }} · ${group.state?.info?.instances ?: group.instances.size} 实例",
                 modifier = Modifier.semantics {
@@ -136,7 +137,7 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                     contentDescription = "连接组仍有资源待释放，请重试关闭"
                     liveRegion = LiveRegionMode.Polite
                 })
-            group.instances.forEachIndexed { index, instance ->
+            for ((index, instance) in group.instances.withIndex()) key(instance.id) {
                 Row {
                     val phase = instance.model.activeRuntime?.info?.phase?.toString()
                         ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
