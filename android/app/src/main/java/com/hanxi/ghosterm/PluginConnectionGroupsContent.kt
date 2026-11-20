@@ -110,7 +110,9 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                         if (instance.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group, instance)
                         else group.requestCloseInstance(instance)
                     }, enabled = !instance.closed && !group.busy,
-                        modifier = Modifier.testTag("plugin-instance-close-${instance.id}")) { Text("关闭") }
+                        modifier = Modifier.testTag("plugin-instance-close-${instance.id}").semantics {
+                            contentDescription = "关闭实例 ${index + 1}，${instance.title}"
+                        }) { Text("关闭") }
                 }
             }
             TextButton(onClick = {
