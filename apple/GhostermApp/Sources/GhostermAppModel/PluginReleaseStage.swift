@@ -17,6 +17,10 @@ final class PluginReleaseStage {
             }
         }
     }
+    struct PublicationFailure: LocalizedError {
+        let code: Int32
+        var errorDescription: String? { "发布目录重命名失败（errno \(code)）。" }
+    }
     let rootURL: URL
     private(set) var name: String
     private var parent: Int32 = -1, root: Int32 = -1
@@ -183,7 +187,9 @@ final class PluginReleaseStage {
         try checkpoint("before-publication-rename")
         try beforeRename?()
         guard renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL)) == 0 else {
-            throw errno == EEXIST ? Failure.conflict : Failure.io
+            let code = errno
+            if code == EEXIST { throw Failure.conflict }
+            throw PublicationFailure(code: code)
         }
         published = true
         name = id
