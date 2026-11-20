@@ -5,10 +5,12 @@ import hashlib
 import importlib.util
 import json
 import os
+import plistlib
 import re
 import tempfile
 import urllib.request
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +51,22 @@ def verify_formal_macos(folder, assets, version, commit, base):
     if not isinstance(manifest.get('update_signature'), str) or not manifest['update_signature']:
         raise ValueError('manifest is missing the update signature')
     zip_name = 'Ghosterm-macos-arm64-release.zip'
+    with zipfile.ZipFile(folder / zip_name) as archive:
+        info = plistlib.loads(archive.read('Ghosterm.app/Contents/Info.plist'))
+        receipt = archive.read('Ghosterm.app/Contents/Resources/BUILD-INFO.txt')
+    if receipt != (folder / 'BUILD-INFO.txt').read_bytes():
+        raise ValueError('published build receipt differs from the receipt inside the update ZIP')
+    source = re.search(r'^源码:[ \t]*git ([0-9a-f]{7,40})[ \t]*$', receipt.decode('utf-8'), re.M)
+    if source is None or not commit.startswith(source[1]):
+        raise ValueError('update ZIP has a dirty or mismatched source receipt')
+    for field in ('update_version', 'min_macos'):
+        if not isinstance(manifest.get(field), str) or not manifest[field]:
+            raise ValueError('missing application metadata: ' + field)
+    if (info.get('GhostermUpdateChannel'), info.get('CFBundleShortVersionString'),
+        info.get('CFBundleVersion'), info.get('LSMinimumSystemVersion')) != (
+        'release', version, manifest.get('update_version'), manifest.get('min_macos')
+    ):
+        raise ValueError('application metadata differs from the published release manifest')
     items = ET.parse(folder / 'appcast.xml').findall('./channel/item')
     if len(items) != 1 or manifest.get('download_base') != base:
         raise ValueError('formal appcast must describe one release at the tag URL')
