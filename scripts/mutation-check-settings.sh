@@ -11,12 +11,12 @@
 #
 # 纪律（AGENTS.md）：起跑前扫残留标记（命中 exit 2）；trap INT TERM 复原；
 # 回滚后比对起跑前记录的 sha256。
-set -uo pipefail
+set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/scripts/lib/gt-timeout.sh"
 gt_timeout_require mutation-check-settings
 
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_SETTINGS_TEST_TMP:-$ROOT/tmp}"
 # 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
 # CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
 # 函数，所以这份日志永远是「刚那一次」的输出。
@@ -84,6 +84,21 @@ run_other() { # 指向性：另一组断言（标签页结构）在同样变异�
   ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >"$RUN_LOG" 2>&1 )
 }
 
+expect_assertion_red() {
+  local label="$1" test="$2" status=0
+  ( cd "$PKG" && gt_timeout 300 swift test --filter "TerminalConfigTests/$test" >"$RUN_LOG" 2>&1 ) || status=$?
+  if [ "$status" -eq 1 ] &&
+     grep -Eq "error: .* ${test}\\] .*XCTAssert" "$RUN_LOG" &&
+     grep -Eq 'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)' "$RUN_LOG"; then
+    echo "  ✓ ${label} → ${test} 断言 red"
+    PASS=$((PASS+1))
+  else
+    echo "  ✗ ${label} → 未得到 ${test} 的正常断言失败（退出码 ${status}）"
+    tail -25 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1))
+  fi
+}
+
 expect() { # $1=期望 red|green  $2=描述  $3=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "$actual" = "$1" ]; then echo "  ✓ $2 → $actual"; PASS=$((PASS+1))
@@ -115,12 +130,27 @@ echo "== S1：配置诊断不检查（坏配置被当成有效） =="
 python3 - "$SHIM" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "    uint32_t n = ghostty_config_diagnostics_count(config);"
-new = "    uint32_t n = 0; /* GT_MUTATION_MARK */"
-assert old in s, "S1 锚点缺失"
+old = """        ghostty_config_free(config);
+        return NULL;
+    }
+    return config;
+}
+
+static ghostty_config_t load_config"""
+new = """        ghostty_config_free(config);
+        config = ghostty_config_new(); /* GT_MUTATION_MARK：无效配置静默回落成默认值 */
+        if (config) {
+            ghostty_config_finalize(config);
+        }
+    }
+    return config;
+}
+
+static ghostty_config_t load_config"""
+assert s.count(old) == 1, "S1 锚点缺失或不唯一"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "S1 无效配置不再显式失败" run_tests
+expect_assertion_red "S1 无效配置不再显式失败" testInvalidConfigFailsExplicitly
 expect green "S1 指向性（标签页结构不受影响）" run_other
 rollback
 
@@ -129,12 +159,12 @@ echo "== S2：reload_config 不把新配置交给 app =="
 python3 - "$SHIM" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "  ghostty_app_update_config(a->app, fresh);"
-new = "  /* GT_MUTATION_MARK：设置改了引擎不知道 */"
-assert old in s, "S2 锚点缺失"
+old = "    if (!update(app->app, candidate->config)) {"
+new = "    if (false) { /* GT_MUTATION_MARK：接收候选但未更新引擎 */"
+assert s.count(old) == 1, "S2 锚点缺失或不唯一"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "S2 重载配置不再生效" run_tests
+expect_assertion_red "S2 重载配置不再生效" testReloadConfigAppliesToExistingSurface
 rollback
 
 # ---- S3：注释行被当普通行（用户笔记被吃掉） ----
@@ -148,17 +178,14 @@ echo "== S3：注释掉的同名键被当成目标键 =="
 python3 - "$SETTINGS" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old_skip = '                if trimmed.hasPrefix("#") || trimmed.isEmpty {'
-new_skip = '                if trimmed.isEmpty { /* GT_MUTATION_MARK */'
-old_name = '                let name = parts[0].trimmingCharacters(in: .whitespaces).lowercased()'
-new_name = ('                let name = parts[0].trimmingCharacters('
-            'in: CharacterSet(charactersIn: " \\t#")).lowercased() /* GT_MUTATION_MARK */')
-assert old_skip in s, "S3(a) 锚点缺失"
-assert old_name in s, "S3(b) 锚点缺失"
-s = s.replace(old_skip, new_skip, 1).replace(old_name, new_name, 1)
-open(p, 'w').write(s)
+old = '''                guard !line.hasPrefix("#"), let equal = line.firstIndex(of: "=") else { return false }
+                return line[..<equal].trimmingCharacters(in: .whitespaces).lowercased() == key.lowercased()'''
+new = '''                guard let equal = line.firstIndex(of: "=") else { return false }
+                return line[..<equal].trimmingCharacters(in: CharacterSet(charactersIn: " \\t#")).lowercased() == key.lowercased() /* GT_MUTATION_MARK */'''
+assert s.count(old) == 1, "S3 锚点缺失或不唯一"
+open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "S3 注释掉的同名键被改写" run_tests
+expect_assertion_red "S3 注释掉的同名键被改写" testMergingLeavesCommentedKeysAlone
 rollback
 
 # ---- S4：写侧不检测外部修改 ----
@@ -166,12 +193,14 @@ echo "== S4：写回不检测外部修改 =="
 python3 - "$SETTINGS" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "        if isExternallyModified() {\n            throw SettingsStoreError.conflict(\"mtime/size 与加载时不一致\")\n        }"
-new = "        if false { /* GT_MUTATION_MARK */\n            throw SettingsStoreError.conflict(\"mtime/size 与加载时不一致\")\n        }"
-assert old in s, "S4 锚点缺失"
+old = "            try transaction.save(text)"
+new = ('''            transaction = ConfigStore(path: terminalConfigPath, operations: operations,
+                                      backupName: URL(fileURLWithPath: terminalConfigPath).lastPathComponent + ".bak") /* GT_MUTATION_MARK：用磁盘新快照替代编辑快照 */
+''' + old)
+assert s.count(old) == 1, "S4 锚点缺失或不唯一"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "S4 外部编辑被静默覆盖" run_tests
+expect_assertion_red "S4 外部编辑被静默覆盖" testSaveBacksUpAndDetectsExternalEdit
 rollback
 
 # ---- S5：主题列表排序方向写反 ----
