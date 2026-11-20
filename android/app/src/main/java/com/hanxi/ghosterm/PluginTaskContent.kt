@@ -32,11 +32,15 @@ import kotlinx.coroutines.isActive
         state.snapshot?.let { snapshot ->
             if (state.issue != null) Text("以下为上次读取的任务状态", style = MaterialTheme.typography.bodySmall)
             Text(snapshot.phase.label, statusSemantics("plugin-task-phase", snapshot.phase.label))
-            SelectionContainer { Text(snapshot.message, Modifier.testTag("plugin-task-message")) }
+            SelectionContainer { Text(snapshot.message, Modifier.testTag("plugin-task-message").semantics {
+                contentDescription = "$title 消息：${snapshot.message}"
+            }) }
             val total = snapshot.total
             val count = if (total == null) "${snapshot.completed} · 总量未知 · ${state.descriptor?.unit.orEmpty()}"
                 else "${snapshot.completed} / $total · ${state.descriptor?.unit.orEmpty()}"
-            SelectionContainer { Text(count, Modifier.testTag("plugin-task-count")) }
+            SelectionContainer { Text(count, Modifier.testTag("plugin-task-count").semantics {
+                contentDescription = "$title 进度：$count"
+            }) }
             if (total != null && total.toULong() > 0uL) {
                 LinearProgressIndicator(progress = { (snapshot.completed.toULong().toDouble() / total.toULong().toDouble()).toFloat() },
                     modifier = Modifier.fillMaxWidth().semantics { contentDescription = "任务进度"; stateDescription = "${snapshot.completed} / $total" })
