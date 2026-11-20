@@ -29,7 +29,7 @@ import XCTest
         let command = quote(binary) + " -f " + quote(config.path) + " \"$@\""
         let script = delayCreate ? "#!/bin/sh\ncase \"$*\" in *new-session*) \(command); sleep 30; exit;; esac\nexec \(command)\n" : "#!/bin/sh\nexec \(command)\n"
         try script.write(to: wrapper, atomically: true, encoding: .utf8); try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
-        let socket = root.appendingPathComponent("socket").path
+        let socket = root.appendingPathComponent("s").path
         XCTAssertLessThan(socket.utf8.count, 104, "tmux fixture exceeds macOS sockaddr_un: \(socket)")
         addTeardownBlock {
             let process = Process(); process.executableURL = URL(fileURLWithPath: binary)
