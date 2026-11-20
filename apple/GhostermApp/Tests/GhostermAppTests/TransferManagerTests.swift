@@ -29,11 +29,13 @@ final class FakeTransferBackend: TransferBackend {
     var walkGate: DispatchSemaphore?
     var existenceStarted: DispatchSemaphore?
     var existenceGate: DispatchSemaphore?
+    var onMkdir: (() -> Void)?
 
     func list(_ path: String) throws -> [FileEntry] { walkEntries }
     func mkdir(_ path: String, mode: UInt32) throws {
         if let mkdirError { throw mkdirError }
         existingRemote.insert(path)
+        onMkdir?()
     }
     func remove(_ path: String, recursive: Bool) throws {}
     func rename(_ from: String, _ to: String) throws { moved.append((from, to)) }
@@ -504,6 +506,36 @@ final class TransferManagerTests: XCTestCase {
         gate.signal()
         XCTAssertTrue(waitForJob(manager, id: job.id) { $0.status == .cancelled })
         XCTAssertEqual(manager.jobs.last?.status, .cancelled, "迟到的展开回调不得覆盖取消态")
+    }
+
+    func testCancellationAfterRemoteMkdirKeepsSideEffectAndDoesNotSubmitFiles() throws {
+        let dir = workspaceTestTmp + "cancel-transfer-\(UUID())"
+        let source = URL(fileURLWithPath: dir, isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: source) }
+        try Data([1]).write(to: source.appendingPathComponent("payload"))
+
+        let backend = FakeTransferBackend(), manager = makeManager()
+        let created = DispatchSemaphore(value: 0), gate = DispatchSemaphore(value: 0)
+        backend.onMkdir = {
+            created.signal()
+            _ = gate.wait(timeout: .now() + 5)
+        }
+        var finished: TransferManager.Status?
+        manager.enqueueUpload(backend, local: dir, remote: "/partial", name: "partial", isDirectory: true,
+                              onFinish: { finished = $0 })
+        let job = try XCTUnwrap(manager.jobs.last)
+        XCTAssertEqual(created.wait(timeout: .now() + 2), .success)
+        manager.cancel(job)
+        gate.signal()
+
+        XCTAssertTrue(waitForJob(manager, id: job.id) { $0.status.isTerminal })
+        guard case .partial(let summary) = finished else {
+            return XCTFail("取消时已创建的远端目录必须记为部分完成")
+        }
+        XCTAssertTrue(summary.contains("已创建并保留目录 1 项"))
+        XCTAssertTrue(backend.existingRemote.contains("/partial"))
+        XCTAssertTrue(backend.submittedUploads.isEmpty)
     }
 
     func testDirectoryFailureCallsCompletionAndDoesNotPretendSuccess() throws {
