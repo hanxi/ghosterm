@@ -188,7 +188,7 @@ fi
   done < <(gt_timeout 300 swift test --list-tests 2>/dev/null |
     sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u)
   [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
-  TEST_BUNDLE="$(find .build -type d -name 'GhostermAppTests.xctest' -print -quit)"
+  TEST_BUNDLE="$(find .build -name 'GhostermAppTests.xctest' -print -quit)"
   [ -d "$TEST_BUNDLE" ] || { echo "apple-app-gate: 测试包不存在: $TEST_BUNDLE" >&2; exit 1; }
   # AppKit view tests can inherit a stale SwiftPM/XCTest process state after
   # the conversation model suite on the hosted runner. Run that independent
