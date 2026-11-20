@@ -1,7 +1,9 @@
 package com.hanxi.ghosterm
 
 import android.graphics.Bitmap
+import android.webkit.RenderProcessGoneDetail
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Descriptor
 import org.junit.Assert.*
@@ -169,6 +171,36 @@ class PluginResourceHTMLTest {
         for (path in listOf("%C0%AF.css", "%E0%80%AF.css", "%ED%A0%80.css", "%F4%90%80%80.css", "%00.css"))
             assertEquals(403, owner.intercept("https://$host/docs/$path", "GET", false).statusCode)
         owner.close()
+    }
+
+    @Test fun rendererExitRevokesAttachmentsBeforeReportingOnce() {
+        val document = doc()
+        val css = htmlFixture("docs/theme.css", "text/css", "body{color:blue}".toByteArray())
+        val snapshot = checkNotNull(PluginResourceHTMLDocument.capture(document, listOf(document, css)))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            var reports = 0
+            var statusWhenReported: Int? = null
+            lateinit var owner: PluginResourceHTMLCoordinator
+            owner = PluginResourceHTMLCoordinator(snapshot) {
+                reports++
+                val url = URI(owner.documentURL).resolve("theme.css").toString()
+                val response = owner.intercept(url, "GET", false)
+                response.data.use { statusWhenReported = response.statusCode }
+            }
+            try {
+                val view = owner.create(instrumentation.targetContext, 0, 0, 100)
+                val exit = object : RenderProcessGoneDetail() {
+                    override fun didCrash() = true
+                    override fun rendererPriorityAtExit() = 0
+                }
+                assertTrue(owner.client.onRenderProcessGone(view, exit))
+                assertTrue(owner.client.onRenderProcessGone(view, exit))
+                assertTrue(owner.closed)
+                assertEquals(1, reports)
+                assertEquals(403, statusWhenReported)
+            } finally { owner.close() }
+        }
     }
 
     @Test fun syntheticOriginServesOnlyMappedGetSubresourcesAndCloseRevokesIt() {
