@@ -741,11 +741,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(attachExisting, { attachExisting = it; useReleaseEvidence = false; executorVariantID = "" }, Modifier.testTag("plugin-ipc-mode"))
+                    Checkbox(attachExisting, { attachExisting = it; useReleaseEvidence = false; executorVariantID = "" },
+                        Modifier.testTag("plugin-ipc-mode").semantics {
+                            contentDescription = if (attachExisting) "已选择连接已有前台 gterm 实例" else "选择连接已有前台 gterm 实例"
+                        })
                     Text("连接已有前台 gterm 实例")
                 }
                 frontendCandidates.filter { it.offer.clientDigest == entry.review.digest }.forEach { candidate ->
-                    TextButton(modifier = Modifier.testTag("plugin-discovery-use-${candidate.id}"), onClick = {
+                    TextButton(modifier = Modifier.testTag("plugin-discovery-use-${candidate.id}").semantics {
+                        contentDescription = "使用终端候选位置：${candidate.sourceDescription}"
+                    }, onClick = {
                         if (!validateFrontend(candidate)) problem = "候选提示已过期或来源已停止，请重新运行前台命令。"
                         else {
                             selectedHost = ""
