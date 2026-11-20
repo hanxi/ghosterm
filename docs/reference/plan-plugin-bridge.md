@@ -15878,3 +15878,8 @@ P2 Android 签名 ZIP 导入统一验收：`scripts/test-plugin-release-android.
 签名材料与 ZIP 捕获、审查、渠道信任撤回和迟到结果释放。两个 arm64 / 4 KiB
 无窗口设备安装的 App 与测试 APK 摘要分别一致，模拟器均以 0 退出并清理。
 本轮不含安装后目录维护、真机输入法或 macOS 系统选择器验收。
+
+macOS 插件包导入与安装离屏复验：当前源码使用独立 QuickJS Core 构建和锁定
+工具生成的签名夹具，`test-plugin-native-signature.py --install` 共 33 项通过。
+覆盖目录选择回调成功、空选择与错误、签名确认和安装，未操作真实桌面系统选择器。
+SwiftPM 初轮下载 Sparkle 超时，复验使用本机同版本缓存，临时目录已清理。
