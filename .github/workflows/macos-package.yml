@@ -61,7 +61,7 @@ jobs:
   mac-package:
     name: Package macOS app（${{ inputs.channel }}）
     runs-on: macos-15
-    # full 轨要跑九份 Apple 变异 + 一份打包变异（后者自己就要出四次包）。
+    # full 轨包含 Apple、打包和安装脚本变异，打包验证本身会多次出包。
     # Apple 闸门在 macOS runner 上可能超过两小时，不能让 job 超时取消正式发布。
     timeout-minutes: 360
     env:
@@ -222,29 +222,64 @@ jobs:
           GHOSTERM_APPLE_GATE_MODE=required bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
 
-      - name: Apple 端变异验证（full）
+      - name: Apple 变异 · 终端、Transport 与标签页（full）
         if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
         run: |
           set -euo pipefail
-          export GHOSTERM_AUTOMATION_OFFSCREEN=1
-          export TMPDIR="$PWD/tmp"
           bash scripts/mutation-check-terminal.sh
           bash scripts/mutation-check-transport.sh
           bash scripts/mutation-check-tabs.sh
+
+      - name: Apple 变异 · 标签栏、侧栏与设置（full）
+        if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+        run: |
+          set -euo pipefail
           python3 scripts/mutation-check-tab-chrome.py
           bash scripts/mutation-check-sidebar-hover.sh
           bash scripts/mutation-check-chrome.sh
           bash scripts/mutation-check-settings.sh
+
+      - name: Apple 变异 · 渲染与焦点（full）
+        if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+        run: |
+          set -euo pipefail
           bash scripts/mutation-check-pixel.sh
           bash scripts/mutation-check-focus.sh
           bash scripts/mutation-check-split-dim.sh
           bash scripts/mutation-check-occlusion.sh
+
+      - name: Apple 变异 · 更新与默认入口（full）
+        if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+        run: |
+          set -euo pipefail
           bash scripts/mutation-check-app-update.sh
           bash scripts/mutation-check-default-entry.sh
+
+      - name: Apple 变异 · SSH 认证（full）
+        if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+        run: |
+          set -euo pipefail
           python3 scripts/mutation-check-ssh-auth.py
           python3 scripts/mutation-check-ssh-credentials.py
           bash scripts/mutation-check-auth.sh | tee tmp/ci-auth-mutations.log
           if grep -q SKIP tmp/ci-auth-mutations.log; then exit 1; fi
+
+      - name: Apple 变异 · tmux（full）
+        if: inputs.gates == 'full'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+        run: |
+          set -euo pipefail
           python3 scripts/mutation-check-tmux.py
           python3 scripts/mutation-check-tmux-ui.py
 
