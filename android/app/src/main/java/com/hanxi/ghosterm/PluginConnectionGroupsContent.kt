@@ -18,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 
@@ -97,7 +99,9 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 Row {
                     TextButton(onClick = { model.selectGroupInstance(instance.model) },
                         enabled = !group.busy || model.selectedGroupInstance === instance.model,
-                        modifier = Modifier.weight(1f).testTag("plugin-instance-${instance.id}")) {
+                        modifier = Modifier.weight(1f).testTag("plugin-instance-${instance.id}").semantics {
+                            contentDescription = "${if (model.selectedGroupInstance === instance.model) "当前" else "选择"}实例 ${index + 1}，${instance.title}"
+                        }) {
                         val phase = instance.model.activeRuntime?.info?.phase?.toString()
                             ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
                         Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · ${if (instance.closed) "已关闭" else phase}")
