@@ -210,13 +210,15 @@ echo "== 3/3 GhostermApp 构建 + 测试 =="
   done
   for suite in "${SUITES[@]}"; do
     echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
-    # SSH / ProxyJump e2e is covered by apple-gate.sh above. Keep the full
-    # App UI/model suite offline so its fixtures cannot inherit remote owners.
+    # Discard inherited endpoints. Tests that need SSH or a plugin runtime
+    # receive only this invocation's fixture settings.
     gt_timeout 1800 env \
       -u GHOSTERM_SSH_HOST -u GHOSTERM_SSH_PORT -u GHOSTERM_SSH_USER \
       -u GHOSTERM_SSH_KEY -u GHOSTERM_SSH_KNOWN_HOSTS \
       -u GHOSTERM_SSH_JUMP_HOST -u GHOSTERM_SSH_JUMP_PORT \
       -u GHOSTERM_TEST_GTERM -u GHOSTERM_CORE_TEST_PLUGIN_JS \
+      -u GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE -u GHOSTERM_HTML_PROBE_CAPTURE \
+      ${ENVARGS[@]+"${ENVARGS[@]}"} \
       GHOSTERM_AUTOMATION_OFFSCREEN=1 xcrun xctest -XCTest "$suite" "$TEST_BUNDLE" \
       >>"$TMP/apple-app-test.log" 2>&1 || {
         status=$?
