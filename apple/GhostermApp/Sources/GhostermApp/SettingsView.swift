@@ -78,7 +78,7 @@ struct SettingsView: View {
         var height: CGFloat {
             switch self {
             case .general: return 320
-            case .appearance: return 580
+            case .appearance: return 572
             case .keyboard: return 640
             case .configuration: return 590
             case .extensions: return 275

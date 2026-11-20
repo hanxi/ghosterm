@@ -17,7 +17,7 @@ CASES=[
  ('default-preview-honesty',FONTS,'name: "默认 · JetBrains Mono", previewName: nil','name: "默认 · JetBrains Mono", previewName: "Menlo"','testCatalogKeepsEngineDefaultAndOneBundledFaceAndFiltersActualMonospacedFonts'),
  ('saved-font-choice',MODEL,'TerminalFontSelection.replacing(in: terminalConfigText, family: family)','TerminalFontSelection.replacing(in: terminalConfigText, family: nil)','testPickerPreviewIsDraftUntilApplyAndSearchKeepsSelection'),
  ('live-engine-route',MODEL,'try replaceTerminalConfig(TerminalFontSelection.replacing(in: terminalConfigText, family: family))','try settings.saveTerminalConfig(TerminalFontSelection.replacing(in: terminalConfigText, family: family))','testFontChangeRepaintsExistingSurfaceWithoutReplacingTheShell'),
- ('appearance-height','Sources/GhostermApp/SettingsView.swift','case .appearance: return 580','case .appearance: return 640','SettingsUITests/testPaneHeightsMatchContent'),
+ ('appearance-height','Sources/GhostermApp/SettingsView.swift','case .appearance: return 572','case .appearance: return 640','SettingsUITests/testPaneHeightsMatchContent'),
  ('keyboard-height','Sources/GhostermApp/SettingsView.swift','case .keyboard: return 640','case .keyboard: return 420','SettingsUITests/testPaneHeightsMatchContent'),
 ]
 def main():
