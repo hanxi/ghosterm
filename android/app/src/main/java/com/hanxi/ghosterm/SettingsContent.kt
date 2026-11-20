@@ -791,6 +791,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                                 if (isActive && capturedKey == currentInspectionKey) problem = "前台检查失败：${failure.message ?: failure.javaClass.simpleName}"
                             } finally { inspectionBusy = false }
                         }
+                    }, modifier = Modifier.semantics {
+                        contentDescription = if (inspectionBusy) "正在检查前台实例" else "检查此位置的前台实例"
                     }) { Text(if (inspectionBusy) "正在检查前台实例…" else "检查此位置的前台实例") }
                     declaration?.let { value ->
                         SelectionContainer { Text("当前声明：${value.command} · ${value.runtime}\nExecutor：${value.executorDigest}\nClient：${value.clientDigest}\n参数：${org.json.JSONArray(value.arguments)}\nExecutor RPC：${value.methods.joinToString()}\nHost RPC：${value.hostMethods.joinToString()}\nClient 服务：${value.clientCapabilities.joinToString()}",
