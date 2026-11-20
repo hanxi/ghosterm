@@ -12,7 +12,8 @@ def execute(root,build,test):
     screen=root/'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
     layout=root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionLayout.kt'
     config=root/'android/bridge/src/main/cpp/config_jni.c'
-    originals={p:p.read_bytes() for p in (vault,model,dialog,screen,layout,config)}
+    session=root/'android/bridge/src/main/cpp/session_jni.c'
+    originals={p:p.read_bytes() for p in (vault,model,dialog,screen,layout,config,session)}
     hashes={p:hashlib.sha256(data).digest() for p,data in originals.items()}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual product mutation')
     def v(method):return 'IdentityVaultTest#'+method
@@ -45,6 +46,14 @@ def execute(root,build,test):
        p('configuredKeyKeepsCredentialStagesInlineAndCreatesOneShell'),1),
     ]
     cases += [
+      ('write-diagnostic',session,
+       '    snprintf(reason, sizeof(reason), "终端输入失败，连接已停止：%.170s", gt_last_error());',
+       '    snprintf(reason, sizeof(reason), "%s", "终端输入失败，连接已停止");',
+       p('directSshRetainsTransportWriteFailure'),1),
+      ('write-overwrite',session,
+       '            if (atomic_load(&s->stop)) {\n                break;\n            }\n            if (!ok) {',
+       '            if (!ok) {',
+       p('directSshRetainsTransportWriteFailure'),1),
       ('task-automatic-progress',model,'publishAuthentication(attempt,auth,listed)\n                        val state',
        'attempt.auth = auth; attempt.message = auth.description\n                        val state',
        'RemoteFileTasksProductTest#rememberedBrowserIdentityAuthenticatesIndependentTaskWithoutSelectingAgain',1),
@@ -77,6 +86,9 @@ def execute(root,build,test):
             if ('INSTRUMENTATION_STATUS: numtests=1' not in output or 'Tests run: 1,  Failures: 1' not in output or
                 'Process crashed' in output or 'INSTRUMENTATION_FAILED' in output):
                 print(output,flush=True);raise RuntimeError('Expected one normal SSH product assertion')
+            if label in ('product-write-diagnostic','product-write-overwrite') and (
+                'java.lang.AssertionError: Expected the original SSH write error:' not in output):
+                print(output,flush=True);raise RuntimeError('Expected the missing SSH write diagnostic assertion')
             test(label+'-control','com.hanxi.ghosterm.ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig',True)
             path.write_bytes(originals[path]);assert hashlib.sha256(path.read_bytes()).digest()==hashes[path]
             build(label+'-restored');test(label+'-restored','com.hanxi.ghosterm.'+method,True)

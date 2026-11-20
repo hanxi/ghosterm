@@ -131,8 +131,13 @@ def main():
         all_tests=os.environ.get('ANDROID_SSH_ALL')=='1'
         fault_cases={'SSHProductTest#directSshResetClearsPassiveDiscoveryBeforeExpiry',
                      'SSHProductTest#directSshRetainsTransportWriteFailure'}
-        fault_tests=all_tests or 'SSHProductTest' in requested_tests or bool(fault_cases.intersection(requested_tests))
-        fault_only=not all_tests and bool(requested_tests) and fault_cases.issuperset(requested_tests)
+        product_mutations=os.environ.get('ANDROID_SSH_PRODUCT_MUTATE')=='1'
+        product_cases=set(os.environ.get('ANDROID_SSH_PRODUCT_CASES','').split(',')) - {''}
+        write_mutations={'write-diagnostic','write-overwrite'}
+        needs_fault=product_mutations and (not product_cases or bool(product_cases & write_mutations))
+        fault_tests=all_tests or needs_fault or 'SSHProductTest' in requested_tests or bool(fault_cases.intersection(requested_tests))
+        other_mutations=product_mutations and (not product_cases or not product_cases <= write_mutations)
+        fault_only=not all_tests and not other_mutations and fault_cases.issuperset(requested_tests)
         proxy=None
         if fault_tests:
             spec=importlib.util.spec_from_file_location('ssh_fault_proxy',ROOT/'scripts/lib/tmux-fault-proxy.py')
