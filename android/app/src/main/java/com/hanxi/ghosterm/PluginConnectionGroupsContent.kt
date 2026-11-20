@@ -98,7 +98,9 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
             modifier = Modifier.testTag("plugin-group-launch").semantics {
                 contentDescription = "连接并启动插件实例组"
             }) { Text("连接并启动整组") }
-        if (model.groupSubmissionBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (model.groupSubmissionBusy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics {
+            contentDescription = "正在处理插件连接组"
+        })
     }
     if (model.connectionGroups.isNotEmpty()) {
         TextButton(onClick = { model.selectGroupInstance(null) }, Modifier.testTag("plugin-instance-default").semantics {
