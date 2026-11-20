@@ -774,7 +774,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         modifier = Modifier.testTag("plugin-ipc-directory"), label = { Text("远端私有 IPC 目录") })
                     OutlinedTextField(ipcInstance, { ipcInstance = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-ipc-instance"), label = { Text("前台显示的 32 位实例标识") })
-                    TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases, modifier = Modifier.testTag("plugin-ipc-inspect"), onClick = {
+                    TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases, onClick = {
                         if (inspectionBusy || submissionBusy || selectedHost !in hostAliases || !attachExisting) return@TextButton
                         val capturedKey = inspectionKey
                         val host = selectedHost
@@ -791,7 +791,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                                 if (isActive && capturedKey == currentInspectionKey) problem = "前台检查失败：${failure.message ?: failure.javaClass.simpleName}"
                             } finally { inspectionBusy = false }
                         }
-                    }, modifier = Modifier.semantics {
+                    }, modifier = Modifier.testTag("plugin-ipc-inspect").semantics {
                         contentDescription = if (inspectionBusy) "正在检查前台实例" else "检查此位置的前台实例"
                     }) { Text(if (inspectionBusy) "正在检查前台实例…" else "检查此位置的前台实例") }
                     declaration?.let { value ->
@@ -945,6 +945,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         },
         confirmButton = {
             TextButton(enabled = !inspectionBusy && !submissionBusy && selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
+                if (inspectionBusy || submissionBusy || selectedHost !in hostAliases) return@TextButton
+                problem = null
                 try {
                     val execution = if (attachExisting || runtimeChoice == "Portable JS") null else {
                         val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
@@ -967,7 +969,6 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }
                     }
-                    if (submissionBusy) return@TextButton
                     val alias = selectedHost
                     val temporary = groupTemporaryDirectory
                     submissionBusy = true
