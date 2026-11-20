@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,7 @@ CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 FORMAL_MACOS = {'Ghosterm-macos-arm64-release.dmg', 'Ghosterm-macos-arm64-release.zip',
                 'SHA256SUMS', 'BUILD-INFO.txt', 'version.json', 'appcast.xml'}
+SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 
 
 def download_asset(url, path, size):
@@ -31,7 +33,7 @@ def download_asset(url, path, size):
             raise ValueError('download exceeds published asset size: ' + path.name)
 
 
-def verify_formal_macos(folder, assets, version, commit):
+def verify_formal_macos(folder, assets, version, commit, base):
     inventory = CHECK.inventory(assets)
     if set(inventory) != FORMAL_MACOS:
         raise ValueError('unexpected formal macOS asset inventory')
@@ -46,6 +48,20 @@ def verify_formal_macos(folder, assets, version, commit):
         raise ValueError('manifest does not match the formal release tag')
     if not isinstance(manifest.get('update_signature'), str) or not manifest['update_signature']:
         raise ValueError('manifest is missing the update signature')
+    zip_name = 'Ghosterm-macos-arm64-release.zip'
+    items = ET.parse(folder / 'appcast.xml').findall('./channel/item')
+    if len(items) != 1 or manifest.get('download_base') != base:
+        raise ValueError('formal appcast must describe one release at the tag URL')
+    item = items[0]
+    enclosure = item.find('enclosure')
+    if enclosure is None or (
+        item.findtext(SPARKLE + 'shortVersionString'), item.findtext(SPARKLE + 'version'),
+        enclosure.get('url'), enclosure.get('length'), enclosure.get(SPARKLE + 'edSignature')
+    ) != (
+        version, manifest.get('update_version'), base + '/' + zip_name,
+        str(inventory[zip_name]['size']), manifest['update_signature']
+    ):
+        raise ValueError('formal appcast does not match the published update ZIP')
     expected = FORMAL_MACOS - {'SHA256SUMS', 'version.json', 'appcast.xml'}
     rows = [line.split(None, 1) for line in (folder / 'SHA256SUMS').read_text().splitlines()]
     if len(rows) != len(expected) or any(len(row) != 2 for row in rows):
@@ -95,11 +111,11 @@ def main():
         raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:
         folder = Path(value)
-        base = f'https://github.com/{args.repository}/releases/download/{args.tag}/'
+        base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
         for name in sorted(names):
-            download_asset(base + name, folder / name, inventory[name]['size'])
+            download_asset(base + '/' + name, folder / name, inventory[name]['size'])
         if formal:
-            verify_formal_macos(folder, assets, formal[1], commit)
+            verify_formal_macos(folder, assets, formal[1], commit, base)
         else:
             CHECK.verify(args.platform, folder, assets)
     print(f'PUBLIC RELEASE PASS: {args.repository}@{args.tag} ({args.platform})')
