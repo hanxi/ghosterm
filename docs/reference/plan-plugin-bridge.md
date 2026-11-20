@@ -15974,3 +15974,6 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   同版本 Sparkle 缓存下，离屏隔离副本 17 组界面变异全部通过目标、对照、复原及源码摘要核对，
   包含真实 tmux socket 长路径变异。临时目录已清理。
   [macOS Release 44806436423](https://github.com/hanxi/ghosterm/actions/runs/44806436423) 仍在云端复验。
+- [macOS Release 44802060546](https://github.com/hanxi/ghosterm/actions/runs/44802060546)
+  在 `b5ba2e35` 云端通过四组默认入口变异、独立对照与 SHA256 复原。随后 SSH 认证 ABI
+  闸门链接到了系统 libssh2，缺少 Ghosterm 补丁符号。最新候选包含已经本地验收的 `88be7d86` 链接修复。
