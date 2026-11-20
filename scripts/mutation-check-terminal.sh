@@ -14,7 +14,7 @@
 # `TerminalSurfaceTests.testColorSchemeSwitchReachesExistingSurface`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_TERMINAL_TEST_TMP:-$ROOT/tmp}"
 SURF="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"
 SHIM="$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
 VIEW="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift"
@@ -64,7 +64,10 @@ VIEW_BACKUP="$(mktemp "$TMP/gt-mutview-XXXXXX")"; VIEW_BACKUP="$VIEW_BACKUP.swif
 cp "$VIEW" "$VIEW_BACKUP"
 
 run_terminal() { ( cd "$ROOT" && bash scripts/terminal-gate.sh >/dev/null 2>&1 ); }
-run_app()      { ( cd "$ROOT" && bash scripts/apple-app-gate.sh >/dev/null 2>&1 ); }
+run_host_list() {
+  GHOSTERM_APP_TEST_TMP="$TMP" GHOSTERM_APP_TEST_FILTER=HostListTests \
+    bash "$ROOT/scripts/apple-app-gate.sh" >/dev/null 2>&1
+}
 
 expect() { # $1=期望 $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi
@@ -105,15 +108,14 @@ open(p,'w').write(s.replace(old,new,1))
 PY
 expect red "T1 feed 被短路" run_terminal
 
-# 双断言：同一变异下 app 闸门里**不依赖网格**的用例（主机列表）仍绿，
-# 证明「红」落在网格断言上，不是整个闸门崩了。
-# 注意：app 闸门失败时会退出，故直接看它落盘的测试日志，不看退出码。
-( cd "$ROOT" && bash scripts/apple-app-gate.sh >/dev/null 2>&1 || true )
-APP_LOG="$TMP/apple-app-test.log"
-if grep -q "HostListTests.*passed" "$APP_LOG" 2>/dev/null; then
+# 单独运行主机列表对照，避免全量应用闸门先遇到依赖网格的用例而退出。
+if grep -Eq 'error: .*testOutputReachesGhosttyGrid.*XCTAssert' "$TMP/terminal-test.log" \
+   && run_host_list \
+   && grep -Eq 'Test Case .*HostListTests.*passed' "$TMP/apple-app-test.log"; then
   echo "  ✓ 同一变异下主机列表用例仍绿（红落在网格断言上）"; PASS=$((PASS+1))
 else
-  echo "  ✗ 无法确认红有指向性（见 ${APP_LOG}）"; FAIL=$((FAIL+1))
+  echo "  ✗ 无法确认网格断言红与主机列表对照绿（见 ${TMP}/terminal-test.log 和 ${TMP}/apple-app-test.log）"
+  FAIL=$((FAIL+1))
 fi
 
 # ---- T2：C→Swift 抄写改坏（app 丢掉） ----

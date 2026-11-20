@@ -7,7 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$ROOT/apple/GhostermTerminal"
-TMP="$ROOT/tmp"
+TMP="${GHOSTERM_TERMINAL_TEST_TMP:-$ROOT/tmp}"
 mkdir -p "$TMP"
 
 XCFW="$ROOT/build/GhosttyKit.xcframework/macos-arm64"
