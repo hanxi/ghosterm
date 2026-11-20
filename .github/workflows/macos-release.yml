@@ -65,6 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f dist/BUILD-INFO.txt && test -f dist/version.json
+          (cd dist && sha256sum --check --strict SHA256SUMS)
           grep -Fq 'GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名' dist/BUILD-INFO.txt || {
             echo "BUILD-INFO 缺少 GitHub Release/ad-hoc 更新口径" >&2; exit 1; }
           if grep -Fq '未公证的包不能直接分发给终端用户' dist/BUILD-INFO.txt; then

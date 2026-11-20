@@ -247,7 +247,7 @@ jobs:
           set -euo pipefail
           if [ -z "${P12_BASE64:-}" ]; then
             echo "mode=adhoc" >> "$GITHUB_OUTPUT"
-            echo "没有 MACOS_CERTIFICATE_P12_BASE64 → 走 ad-hoc 签名（产物未签名/未公证，仅内测）"
+            echo "未配置 Developer ID 证书，使用 ad-hoc 签名。GitHub Release 更新使用独立 Ed25519 签名。"
             exit 0
           fi
           KC="$RUNNER_TEMP/build.keychain-db"
