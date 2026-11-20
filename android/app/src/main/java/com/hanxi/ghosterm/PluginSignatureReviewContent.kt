@@ -18,7 +18,9 @@ import androidx.compose.ui.unit.dp
 internal fun PluginSignatureReviewContent(controller: ExtensionController?, review: ExtensionController.Review) {
     var expanded by remember(review.id, review.digest) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("plugin-signature-disclosure")) {
+        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("plugin-signature-disclosure").semantics {
+            contentDescription = if (expanded) "收起目录包签名核对" else "展开目录包签名核对"
+        }) {
             Text(if (expanded) "收起目录包签名" else "核对目录包发布签名…")
         }
         if (expanded && controller != null) PluginSignatureInputs(controller, review)
@@ -69,7 +71,10 @@ private fun PluginSignatureInputs(controller: ExtensionController, review: Exten
             .toggleable(model.trustedPolicy, enabled = PluginSignatureMaterial.POLICY in model.documents,
                 role = Role.Checkbox, onValueChange = model::trustPolicy)) {
             Checkbox(model.trustedPolicy, onCheckedChange = null)
-            Text("我已独立核对并信任此渠道策略快照", style = MaterialTheme.typography.bodyMedium)
+            Text("我已独立核对并信任此渠道策略快照", style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics {
+                    contentDescription = if (model.trustedPolicy) "已信任渠道策略快照" else "未信任渠道策略快照"
+                })
         }
         Button(onClick = model::checkSignature, enabled = model.canVerify,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("plugin-signature-verify").semantics {
@@ -80,13 +85,17 @@ private fun PluginSignatureInputs(controller: ExtensionController, review: Exten
         if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         model.receipt?.let { proof ->
             Text("签名已核对：${proof.publisher} · 渠道 ${proof.channel}（本次策略快照）",
-                Modifier.testTag("plugin-signature-verified"), style = MaterialTheme.typography.bodyMedium)
+                Modifier.testTag("plugin-signature-verified").semantics {
+                    contentDescription = "签名核对成功，发布者 ${proof.publisher}，渠道 ${proof.channel}"
+                }, style = MaterialTheme.typography.bodyMedium)
             SelectionContainer {
                 Text("密钥 SHA-256：${proof.keyID}\n策略 SHA-256：${proof.policySHA256}\n目录包 SHA-256：${proof.packageSHA256}",
                     style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
         }
-        model.issue?.let { Text(it, Modifier.testTag("plugin-signature-issue"), color = MaterialTheme.colorScheme.error) }
+        model.issue?.let { issue -> Text(issue, Modifier.testTag("plugin-signature-issue").semantics {
+            contentDescription = "签名核对错误：$issue"
+        }, color = MaterialTheme.colorScheme.error) }
         Text("本次仅核对目录包和所选策略快照。未检查 ZIP，未安装。来源批准和 Session 授权需单独确认。",
             style = MaterialTheme.typography.bodySmall)
     }
