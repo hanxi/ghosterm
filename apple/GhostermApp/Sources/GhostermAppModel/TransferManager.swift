@@ -373,6 +373,13 @@ public final class TransferManager: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, let i = self.jobs.firstIndex(where: { $0.id == parentID }),
                           !self.jobs[i].status.isTerminal else { return }
+                    if cancellation.cancelled {
+                        let retained = direction == .download
+                            ? max(0, createdDirectories.count - 1) : createdDirectories.count
+                        self.finish(i, status: retained == 0 ? .cancelled
+                            : .partial("目录传输已取消；已创建并保留目录 \(retained) 项"))
+                        return
+                    }
                     if self.jobs[i].status != .paused { self.jobs[i].status = .running }
                     self.jobs[i].total = files.reduce(0) { $0 + $1.2 }
                     if files.isEmpty {

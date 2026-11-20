@@ -27,6 +27,8 @@ final class FakeTransferBackend: TransferBackend {
     var stagedUploadOverwrite: [Bool] = []
     var walkStarted: DispatchSemaphore?
     var walkGate: DispatchSemaphore?
+    var existenceStarted: DispatchSemaphore?
+    var existenceGate: DispatchSemaphore?
 
     func list(_ path: String) throws -> [FileEntry] { walkEntries }
     func mkdir(_ path: String, mode: UInt32) throws {
@@ -44,6 +46,8 @@ final class FakeTransferBackend: TransferBackend {
     }
     func exists(_ path: String) -> Bool { existingRemote.contains(path) }
     func checkedExists(_ path: String) throws -> Bool {
+        existenceStarted?.signal()
+        _ = existenceGate?.wait(timeout: .now() + 5)
         if let existenceError { throw existenceError }
         return exists(path)
     }
@@ -488,10 +492,17 @@ final class TransferManagerTests: XCTestCase {
         while finished == nil && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         XCTAssertEqual(finished, .done, "空目录创建成功也必须通知完成")
         XCTAssertEqual(manager.jobs.first?.status, .done)
+        let started = DispatchSemaphore(value: 0), gate = DispatchSemaphore(value: 0)
+        b.existingRemote.insert("/cancelled")
+        b.existenceStarted = started
+        b.existenceGate = gate
         manager.enqueueUpload(b, local: dir, remote: "/cancelled", name: "cancelled", isDirectory: true)
-        manager.cancel(manager.jobs.last!)
+        let job = try XCTUnwrap(manager.jobs.last)
+        XCTAssertEqual(started.wait(timeout: .now() + 2), .success)
+        manager.cancel(job)
         XCTAssertEqual(manager.jobs.last?.status, .cancelling)
-        XCTAssertTrue(waitForJob(manager, id: manager.jobs.last!.id) { $0.status == .cancelled })
+        gate.signal()
+        XCTAssertTrue(waitForJob(manager, id: job.id) { $0.status == .cancelled })
         XCTAssertEqual(manager.jobs.last?.status, .cancelled, "迟到的展开回调不得覆盖取消态")
     }
 
