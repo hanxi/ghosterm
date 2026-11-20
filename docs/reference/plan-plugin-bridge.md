@@ -15926,3 +15926,10 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   显式持有测试窗口至关闭结束，保留透明和禁止应用激活的断言，本地离屏定向测试通过。
   [macOS Release 44755703820](https://github.com/hanxi/ghosterm/actions/runs/44755703820)
   用该提交运行全量闸门。首个正式版仍待云端发布验收。
+- [Android Release APK 44756264697](https://github.com/hanxi/ghosterm/actions/runs/44756264697)
+  在 `536633d7` 通过优化构建、签名和可安装性检查，上传同提交 APK。
+  同提交的 macOS 工作流 44755703820 在普通 SSH 用例读取远端进程标记时超时。
+- `e3b605a1` 给 SSH 原窗格和分屏显式设置离屏网格尺寸，并在首个阶段超时时终止。
+  本地用真实回环 SSH 验证两窗格各自的远端进程及 SFTP 主机密钥复用。
+  [macOS Release 44758446985](https://github.com/hanxi/ghosterm/actions/runs/44758446985)
+  已通过 macOS 应用及终端全量闸门，后续变异与出包步骤仍需确认。
