@@ -135,7 +135,10 @@ final class PluginSelectionReviewTests: XCTestCase {
     func testReplacedCandidateCannotReuseIdenticalSelectionAndDescriptor() throws {
         let f = try fixture(), next = try f.add(version: "0.2.0"), ticket = try f.preview(next)
         let selection = f.files.installed.appendingPathComponent(PluginReleaseCatalog.selectionName), bytes = try Data(contentsOf: selection)
-        try FileManager.default.moveItem(at: f.files.installed.appendingPathComponent(next), to: f.files.installed.appendingPathComponent("old"))
+        let original = f.files.installed.appendingPathComponent(next), moved = f.files.installed.appendingPathComponent("old")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: original.path)
+        try FileManager.default.moveItem(at: original, to: moved)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: moved.path)
         _ = try f.add(version: "0.2.0"); try bytes.write(to: selection)
         XCTAssertThrowsError(try f.validate(ticket))
     }
