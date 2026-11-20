@@ -45,19 +45,22 @@ def main():
             parser.error('Android discovery cases run individually and require --headless-api')
     if args.headless_api and (not discovery or args.platform != 'android'):
         parser.error('--headless-api supports only Android discovery cases')
+    scratch = Path(os.environ.get('TMPDIR', ROOT / 'tmp')).resolve()
+    if not scratch.is_relative_to(ROOT / 'tmp') or not scratch.is_dir():
+        scratch = ROOT / 'tmp'
     device = nullcontext(None)
     if args.headless_api:
         spec = importlib.util.spec_from_file_location('osc52_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
         helper = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(helper)
-        device = helper.headless(args.headless_api)
-    with tempfile.TemporaryDirectory(prefix='osc52-', dir=ROOT / 'tmp') as temporary:
+        device = helper.headless(args.headless_api, scratch=scratch)
+    with tempfile.TemporaryDirectory(prefix='osc52-', dir=scratch) as temporary:
         with device as serial:
             verify(parser, args, Path(temporary), serial)
 
 
 def verify(parser, args, work, owned_serial=None):
-    env = dict(os.environ, TMPDIR=str(work), GHOSTERM_AUTOMATION_OFFSCREEN='1')
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work), GHOSTERM_AUTOMATION_OFFSCREEN='1')
 
     def run(command, label, environment):
         result = subprocess.run(command, cwd=ROOT, env=environment, text=True, stdout=subprocess.PIPE,
