@@ -80,7 +80,7 @@ struct SettingsView: View {
             case .general: return 320
             case .appearance: return 580
             case .keyboard: return 640
-            case .configuration: return 520
+            case .configuration: return 590
             case .extensions: return 275
             }
         }
@@ -114,7 +114,7 @@ struct SettingsView: View {
         .frame(height: pane.height)
     }
 
-    private var paneBody: some View {
+    var paneBody: some View {
         Group {
             switch pane {
             case .general: GeneralPane(model: model)

@@ -531,11 +531,23 @@ final class SettingsUITests: XCTestCase {
     /// 漂 ≈28pt）。按 40 会在老系统上常红，而这条真正要拦的是「删了一行
     /// 没收高度」（当年 145pt）：一行约 40~55pt，任何环境都还在 55 之外。
     /// 每页留白都打出来（`留白 外观=…`），对不上表时能看见是谁漂了多少。
+    /// 配置文件页含嵌套滚动和编辑控件，直接测完整内容的理想高度。
     @MainActor
     func testPaneHeightsMatchContent() throws {
         let model = try makeModel()
         for pane in SettingsView.Pane.allCases {
             let view = SettingsView(model: model, initialPane: pane)
+            if pane == .configuration {
+                // Measure the full stack, including content below the scroll viewport.
+                let content = NSHostingView(rootView: view.paneBody
+                    .frame(width: DS.settingsWidth).fixedSize(horizontal: false, vertical: true))
+                let height = content.fittingSize.height
+                let gap = pane.height - height + DS.Padding.l
+                print("留白 \(pane.rawValue)=\(gap)pt 内容高=\(height)")
+                XCTAssertGreaterThanOrEqual(gap, 2, "配置文件页的默认视口必须容纳内容")
+                XCTAssertLessThanOrEqual(gap, 55, "配置文件页的默认视口底部留白过多")
+                continue
+            }
             let host = NSHostingView(rootView: view)
             host.frame = NSRect(x: 0, y: 0, width: DS.settingsWidth, height: 0)
             host.layoutSubtreeIfNeeded()
