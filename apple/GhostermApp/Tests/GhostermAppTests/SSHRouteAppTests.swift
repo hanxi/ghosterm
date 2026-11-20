@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhostermCore
+import GhostermTerminal
 import XCTest
 @testable import GhostermAppModel
 
@@ -108,6 +109,32 @@ final class SSHRouteAppTests: XCTestCase {
         let knownPath = directory.appendingPathComponent("known_hosts").path
         if ["pty-idle", "cancel"].contains(mode) { hostkeys = "" }
         try hostkeys.write(toFile: knownPath, atomically: true, encoding: .utf8)
+        if mode == "write-reset" {
+            let port = try XCTUnwrap(ports.first)
+            XCTAssertEqual(ports.count, 1)
+            let ssh = try SSHSession(.init(host: "127.0.0.1", port: port, username: user, knownHostsPath: knownPath))
+            try ssh.authenticate(privateKeyPEM: pem)
+            try ssh.connect()
+            let surface = try TerminalSurface(app: TerminalApp.shared())
+            surface.setSize(width: 640, height: 400)
+            let session = try SessionController.sshShell(session: ssh, surface: surface)
+            let pane = TerminalPane()
+            pane.attach(surface: surface, session: session)
+            defer { pane.stop() }
+
+            // Start the controller after the reset, so its first transport
+            // operation is the queued input and no read can race the write.
+            surface.sendCommandLine("printf 'SSH_WRITE_%s' FIXTURE")
+            try resetFixture(known)
+            pane.start()
+            guard wait({ pane.status.isFailed }), case .failed(let message) = pane.status else {
+                return XCTFail("Queued terminal input did not report a failure after SSH reset: \(pane.status)")
+            }
+            XCTAssertTrue(message.contains("ssh_shell write:"), "Expected a write error, received: \(message)")
+            XCTAssertTrue(pane.surface === surface)
+            print("SSH JUMP IO PASS")
+            return
+        }
         var text = ""
         for (index, port) in ports.enumerated() {
             text += "Host \(index == ports.count - 1 ? "destination" : "jump\(index)")\n HostName 127.0.0.1\n User \(user)\n Port \(port)\n IdentityFile /fixture/identity-\(index)\n"
@@ -265,10 +292,7 @@ final class SSHRouteAppTests: XCTestCase {
                     return XCTFail("Ordinary SSH pane did not publish its discovery candidate")
                 }
                 let candidate = try XCTUnwrap(model.frontendCandidates.first { $0.sourceID == pane.id })
-                let fixture = URL(fileURLWithPath: known).deletingLastPathComponent()
-                try Data().write(to: fixture.appendingPathComponent("fault-reset"), options: .atomic)
-                let ack = fixture.appendingPathComponent("fault-done")
-                XCTAssertTrue(wait({ (try? String(contentsOf: ack, encoding: .utf8)) == "reset" }))
+                try resetFixture(known)
                 guard wait({ pane.status.isFailed }) else {
                     return XCTFail("SSH transport reset did not report failure: \(pane.status)")
                 }
@@ -291,5 +315,13 @@ final class SSHRouteAppTests: XCTestCase {
         else { XCTAssertTrue(interaction.hosts.isEmpty) }
         XCTAssertEqual(try String(contentsOfFile: config, encoding: .utf8), text)
         print("SSH JUMP IO PASS")
+    }
+
+    @MainActor private func resetFixture(_ knownHostsPath: String) throws {
+        let fixture = URL(fileURLWithPath: knownHostsPath).deletingLastPathComponent()
+        try Data().write(to: fixture.appendingPathComponent("fault-reset"), options: .atomic)
+        let ack = fixture.appendingPathComponent("fault-done")
+        try XCTUnwrap(wait({ (try? String(contentsOf: ack, encoding: .utf8)) == "reset" }) ? true : nil,
+                      "Owned SSH proxy did not acknowledge the reset")
     }
 }

@@ -5,18 +5,23 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--discovery-reset', type=Path, metavar='JS_ENABLED_XCTEST',
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--discovery-reset', type=Path, metavar='JS_ENABLED_XCTEST',
                         help='run only the direct SSH reset regression with a prebuilt JS-enabled suite')
+    modes.add_argument('--write-reset', type=Path, metavar='XCTEST',
+                       help='run only the direct SSH write failure regression with a prebuilt suite')
     args = parser.parse_args()
-    if args.discovery_reset:
+    bundle = args.discovery_reset or args.write_reset
+    if bundle:
+        case = 'discovery-reset' if args.discovery_reset else 'write-reset'
         with tempfile.TemporaryDirectory(prefix='route-reset-', dir=os.environ['TMPDIR']) as folder:
             test = ['xcrun', 'xctest', '-XCTest',
                     'GhostermAppTests.SSHRouteAppTests/testConfiguredRouteProducts',
-                    str(args.discovery_reset.resolve(strict=True))]
+                    str(bundle.resolve(strict=True))]
             wrapper = Path(folder) / 'fixture'
             write_fixture(wrapper, test)
             subprocess.run([sys.executable, str(ROOT/'scripts/test-ssh-jump.py'),
-                            '--binary', str(wrapper), '--case', 'discovery-reset', '--hops', '1'],
+                            '--binary', str(wrapper), '--case', case, '--hops', '1'],
                            cwd=ROOT, env={**os.environ, 'TMPDIR': folder, 'TMP': folder, 'TEMP': folder,
                                           'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}, check=True)
         return

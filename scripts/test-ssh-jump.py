@@ -13,16 +13,17 @@ def load(name, file):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error', 'discovery-reset'], action='append')
+    reset_cases = {'discovery-reset', 'write-reset'}
+    parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error', *sorted(reset_cases)], action='append')
     parser.add_argument('--hops', type=int, choices=[1, 2, 3], action='append')
     parser.add_argument('--public-route-owner', action='store_true')
     parser.add_argument('--route-owner', action='store_true')
     parser.add_argument('--expect-assertion', action='store_true')
     args = parser.parse_args(); binary = args.binary.resolve(strict=True)
-    reset = args.case == ['discovery-reset']
-    if 1 in (args.hops or []) or 'discovery-reset' in (args.case or []):
+    reset = len(args.case or []) == 1 and args.case[0] in reset_cases
+    if 1 in (args.hops or []) or reset_cases.intersection(args.case or []):
         if not reset or args.hops != [1]:
-            parser.error('discovery-reset requires exactly one direct loopback hop and no other cases')
+            parser.error('reset tests require exactly one direct loopback hop and no other cases')
     if args.expect_assertion and (not args.case or len(args.case) != 1 or not args.hops or len(args.hops) != 1): parser.error('assertion mode requires exactly one hop count and case')
     sources = [ROOT/'core/src/ssh.c', ROOT/'core/src/sftp.c', ROOT/'core/tests/test_ssh_jump.c', Path(__file__).resolve()] + [ROOT/'scripts'/name for name in ['test-plugin-route.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py']]
     if reset:
