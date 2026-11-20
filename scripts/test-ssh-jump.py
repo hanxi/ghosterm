@@ -13,18 +13,24 @@ def load(name, file):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error'], action='append')
-    parser.add_argument('--hops', type=int, choices=[2, 3], action='append')
+    parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error', 'discovery-reset'], action='append')
+    parser.add_argument('--hops', type=int, choices=[1, 2, 3], action='append')
     parser.add_argument('--public-route-owner', action='store_true')
     parser.add_argument('--route-owner', action='store_true')
     parser.add_argument('--expect-assertion', action='store_true')
     args = parser.parse_args(); binary = args.binary.resolve(strict=True)
+    reset = args.case == ['discovery-reset']
+    if 1 in (args.hops or []) or 'discovery-reset' in (args.case or []):
+        if not reset or args.hops != [1]:
+            parser.error('discovery-reset requires exactly one direct loopback hop and no other cases')
     if args.expect_assertion and (not args.case or len(args.case) != 1 or not args.hops or len(args.hops) != 1): parser.error('assertion mode requires exactly one hop count and case')
     sources = [ROOT/'core/src/ssh.c', ROOT/'core/src/sftp.c', ROOT/'core/tests/test_ssh_jump.c', Path(__file__).resolve()] + [ROOT/'scripts'/name for name in ['test-plugin-route.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py']]
+    if reset:
+        sources.append(ROOT/'scripts/lib/tmux-fault-proxy.py')
     sources += [ROOT/'core/CMakeLists.txt'] + [p for folder in ['core/src', 'core/include'] for p in (ROOT/folder).rglob('*') if p.is_file()]
     hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
-    work = Path(tempfile.mkdtemp(prefix='sj-', dir=ROOT/'tmp')); logs = work/'logs'; logs.mkdir()
+    work = Path(tempfile.mkdtemp(prefix='sj-', dir=os.environ['TMPDIR'] if reset else ROOT/'tmp')); logs = work/'logs'; logs.mkdir()
     routes = load('jump_routes', 'test-plugin-route.py')
     helpers = load('jump_keys', 'test-plugin-ssh.py'); streams = load('jump_streams', 'test-plugin-ssh-stream.py')
     private, public = streams.memory_identity(); results = []
@@ -34,6 +40,11 @@ def main():
         for count in args.hops or [2, 3]:
             folder = work/str(count); folder.mkdir()
             ports, known, _ = stack.enter_context(routes.chain(folder, count, public, keys, agent, 'echo', sftp=True))
+            if reset:
+                proxy = load('jump_reset_proxy', 'lib/tmux-fault-proxy.py').SSHFaultProxy('127.0.0.1', ports[0], folder)
+                stack.callback(proxy.close)
+                known.write_text(known.read_text().replace(f']:{ports[0]} ', f']:{proxy.port} '))
+                ports = [proxy.port]
             tmux = shutil.which('tmux')
             if 'tmux' in (args.case or []):
                 require = helpers.require if hasattr(helpers, 'require') else routes.require
@@ -48,7 +59,7 @@ def main():
                 command = [str(binary), case, str(fixture), str(known), pwd.getpwuid(os.getuid()).pw_name, *map(str, ports)]
                 try:
                     result = subprocess.run(command, input=private, capture_output=True, timeout=30,
-                                            env={**{k:v for k,v in os.environ.items() if k not in ['GT_TEST_ROUTE_OWNER','GT_TEST_PUBLIC_ROUTE_OWNER']}, **({'GT_TEST_ROUTE_OWNER':'1'} if args.route_owner else {}), **({'GT_TEST_PUBLIC_ROUTE_OWNER':'1'} if args.public_route_owner else {}), 'TMPDIR': str(work)})
+                                            env={**{k:v for k,v in os.environ.items() if k not in ['GT_TEST_ROUTE_OWNER','GT_TEST_PUBLIC_ROUTE_OWNER']}, **({'GT_TEST_ROUTE_OWNER':'1'} if args.route_owner else {}), **({'GT_TEST_PUBLIC_ROUTE_OWNER':'1'} if args.public_route_owner else {}), 'TMPDIR': str(work), 'TMP': str(work), 'TEMP': str(work)})
                 except subprocess.TimeoutExpired as error:
                     (logs/(label+'.log')).write_bytes((error.stdout or b'')+(error.stderr or b''))
                     raise

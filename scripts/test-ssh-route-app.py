@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
 """Headless Ordinary terminal and SFTP routes through owned loopback SSH chains, memory keys."""
-import hashlib, json, os, shutil, subprocess, sys, tempfile
+import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--discovery-reset', type=Path, metavar='JS_ENABLED_XCTEST',
+                        help='run only the direct SSH reset regression with a prebuilt JS-enabled suite')
+    args = parser.parse_args()
+    if args.discovery_reset:
+        with tempfile.TemporaryDirectory(prefix='route-reset-', dir=os.environ['TMPDIR']) as folder:
+            test = ['xcrun', 'xctest', '-XCTest',
+                    'GhostermAppTests.SSHRouteAppTests/testConfiguredRouteProducts',
+                    str(args.discovery_reset.resolve(strict=True))]
+            wrapper = Path(folder) / 'fixture'
+            write_fixture(wrapper, test)
+            subprocess.run([sys.executable, str(ROOT/'scripts/test-ssh-jump.py'),
+                            '--binary', str(wrapper), '--case', 'discovery-reset', '--hops', '1'],
+                           cwd=ROOT, env={**os.environ, 'TMPDIR': folder, 'TMP': folder, 'TEMP': folder,
+                                          'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}, check=True)
+        return
     work=Path(tempfile.mkdtemp(prefix='ra-',dir=ROOT/'tmp')); logs=work/'logs';logs.mkdir()
     env={**os.environ,'TMPDIR':str(work),'DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer','GHOSTERM_AUTOMATION_OFFSCREEN':'1'}
     sources=[p for folder in ['apple/GhostermCore/Sources','apple/GhostermCore/Tests','apple/GhostermApp/Sources','apple/GhostermApp/Tests','core/src','core/include'] for p in (ROOT/folder).rglob('*') if p.is_file()]
@@ -27,8 +43,7 @@ def main():
         assert result.returncode==0 and 'with 0 failures' in output and 'Executed 0 tests' not in output and 'skipped' not in output,(label,logs)
     test=['xcrun','xctest','-XCTest','GhostermAppTests.SSHRouteAppTests/testConfiguredRouteProducts',str(bundles[0])]
     wrapper=work/'fixture'
-    wrapper.write_text('#!'+sys.executable+'\nimport os,sys\ncommand='+repr(test)+'\nos.environ.update(GHOSTERM_ROUTE_MODE=sys.argv[1],GHOSTERM_ROUTE_KNOWN=sys.argv[3],GHOSTERM_ROUTE_USER=sys.argv[4],GHOSTERM_ROUTE_PORTS=",".join(sys.argv[5:]))\nos.execvpe(command[0],command,os.environ)\n')
-    wrapper.chmod(0o700)
+    write_fixture(wrapper, test)
     with (logs/'test.log').open('w') as log:
         subprocess.run([sys.executable,str(ROOT/'scripts/test-ssh-jump.py'),'--binary',str(wrapper),'--case','tmux','--case','pty','--case','sftp','--case','pty-echo','--case','pty-idle','--case','cancel','--case','open-cancel','--case','read-wait-error','--case','pty-cancel','--case','wait-error'],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
     receipts=[line.removeprefix('SSH JUMP IO PASS: ') for line in (logs/'test.log').read_text().splitlines() if line.startswith('SSH JUMP IO PASS: ')]
@@ -42,4 +57,8 @@ def main():
         if child.is_dir():shutil.rmtree(child)
         else:child.unlink()
     print('APP ROUTE PASS: '+str(logs))
+def write_fixture(wrapper, test):
+    wrapper.write_text('#!'+sys.executable+'\nimport os,sys\ncommand='+repr(test)+'\nos.environ.update(GHOSTERM_ROUTE_MODE=sys.argv[1],GHOSTERM_ROUTE_KNOWN=sys.argv[3],GHOSTERM_ROUTE_USER=sys.argv[4],GHOSTERM_ROUTE_PORTS=",".join(sys.argv[5:]))\nos.execvpe(command[0],command,os.environ)\n')
+    wrapper.chmod(0o700)
+
 if __name__=='__main__':main()

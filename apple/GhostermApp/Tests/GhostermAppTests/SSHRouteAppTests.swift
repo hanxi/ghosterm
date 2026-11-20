@@ -95,6 +95,10 @@ final class SSHRouteAppTests: XCTestCase {
         guard let raw = env["GHOSTERM_ROUTE_PORTS"], let known = env["GHOSTERM_ROUTE_KNOWN"],
               let user = env["GHOSTERM_ROUTE_USER"], let mode = env["GHOSTERM_ROUTE_MODE"] else { throw XCTSkip("Owned route fixture required") }
         let ports = raw.split(separator: ",").compactMap { UInt16($0) }
+        if mode == "discovery-reset" {
+            XCTAssertEqual(ExtensionRuntime.supportStatus, 0, "discovery reset requires the JS-enabled core")
+            guard ExtensionRuntime.supportStatus == 0 else { return }
+        }
         let pem = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         let directory = sessionTestDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -107,7 +111,7 @@ final class SSHRouteAppTests: XCTestCase {
         var text = ""
         for (index, port) in ports.enumerated() {
             text += "Host \(index == ports.count - 1 ? "destination" : "jump\(index)")\n HostName 127.0.0.1\n User \(user)\n Port \(port)\n IdentityFile /fixture/identity-\(index)\n"
-            if index == ports.count - 1 { text += " ProxyJump " + (mode == "pty-cancel" ? "none" : (0..<index).map { "jump\($0)" }.joined(separator: ",")) + "\n" }
+            if index > 0, index == ports.count - 1 { text += " ProxyJump " + (mode == "pty-cancel" ? "none" : (0..<index).map { "jump\($0)" }.joined(separator: ",")) + "\n" }
         }
         let config = directory.appendingPathComponent("config").path
         try text.write(toFile: config, atomically: true, encoding: .utf8)
@@ -254,6 +258,25 @@ final class SSHRouteAppTests: XCTestCase {
             surface.setSize(width: 640, height: 400)
             surface.sendCommandLine("printf 'ROUTE_%s\\n' PRODUCT")
             XCTAssertTrue(wait({ surface.readText()?.contains("ROUTE_PRODUCT") == true }), "Terminal stream did not reach the final hop")
+            if mode == "discovery-reset" {
+                let offer = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+                surface.sendCommandLine("printf '\\033]777;ghosterm-discovery;1;\(offer)\\007'")
+                guard wait({ model.frontendCandidates.contains { $0.sourceID == pane.id } }) else {
+                    return XCTFail("Ordinary SSH pane did not publish its discovery candidate")
+                }
+                let candidate = try XCTUnwrap(model.frontendCandidates.first { $0.sourceID == pane.id })
+                let fixture = URL(fileURLWithPath: known).deletingLastPathComponent()
+                try Data().write(to: fixture.appendingPathComponent("fault-reset"), options: .atomic)
+                let ack = fixture.appendingPathComponent("fault-done")
+                XCTAssertTrue(wait({ (try? String(contentsOf: ack, encoding: .utf8)) == "reset" }))
+                guard wait({ pane.status.isFailed }) else {
+                    return XCTFail("SSH transport reset did not report failure: \(pane.status)")
+                }
+                XCTAssertTrue(model.tabs.tabs.contains { $0.panes.contains { $0 === pane } })
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime, candidate.expiresAt)
+                XCTAssertTrue(model.frontendCandidates.isEmpty, "SSH transport reset must clear discovery before expiry")
+                XCTAssertNil(model.extensionRun)
+            }
             if mode == "pty-echo" {
                 model.openFilesPanel(for: tab)
                 guard wait({ tab.filesPanel != nil || tab.filesPanelError != nil }), let panel = tab.filesPanel else { return XCTFail("Independent panel failed: \(tab.filesPanelError ?? "timeout")") }
