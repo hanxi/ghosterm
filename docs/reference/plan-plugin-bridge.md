@@ -15958,3 +15958,12 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
 - [macOS Release 44778771960](https://github.com/hanxi/ghosterm/actions/runs/44778771960)
   在 `fb138008` 通过标签页变异的全部 37 项检查，随后因文件窗格变异锚点匹配两处而退出。
   后续候选包含 `ca0ccb32`，已将该锚点限定在文件窗格。
+- [macOS Release 44780661585](https://github.com/hanxi/ghosterm/actions/runs/44780661585)
+  在 `ca0ccb32` 云端通过标签栏 77 组、侧栏两组、窗口样式、设置、像素、焦点、
+  分屏、遮挡及应用更新变异。默认入口因统计包含按条件跳过的插件用例而失败。
+  `b5ba2e35` 精确核对三个普通终端用例，本地离屏四组变异及复原全部通过。
+- `88be7d86` 将 SSH 认证 ABI 变异链接到收据校验过的锁定 libssh2。本地隔离同一源码
+  复验 SSH 认证 ABI 八组、平台凭据六组、真实环回 SSH 产品认证十一组和 tmux 全部
+  二十九组，目标、对照、复原及源码摘要核对均通过。Swift 隔离构建复用同版本 Sparkle 缓存，
+  所有测试目录已清理。对应 [macOS Release 44802748311](https://github.com/hanxi/ghosterm/actions/runs/44802748311)
+  的全量闸门和实际发布仍需确认。
