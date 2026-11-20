@@ -276,7 +276,8 @@ PANES = [
      "PaneActionsTests/testFilePaneUsesTheSamePreviewAndNativeActions", PANE_HOVER,
      "文件分屏后键盘必须交给新文件列表"),
     ("文件按钮保留键盘", "Sources/GhostermApp/WorkspaceView.swift",
-     "!(window.firstResponder is PaneActionButton),", "true,",
+     "window.isKeyWindow, !(window.firstResponder is PaneActionButton), let tab,",
+     "window.isKeyWindow, let tab,",
      "PaneActionsTests/testFilePaneUsesTheSamePreviewAndNativeActions", PANE_HOVER,
      "文件刷新不得抢走非当前窗格按钮的键盘"),
 ]
