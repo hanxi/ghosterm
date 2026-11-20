@@ -117,6 +117,10 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 modifier = Modifier.semantics {
                     contentDescription = "连接实际目标：${group.targetDescription}"
                 })
+            if (group.busy) Text("连接组正在处理请求…", style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.semantics {
+                    contentDescription = "连接组正在处理请求"
+                })
             if (!group.closed) Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
             group.issue?.let { issue ->
                 Text(issue, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics {
@@ -129,14 +133,23 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 })
             group.instances.forEachIndexed { index, instance ->
                 Row {
+                    val phase = instance.model.activeRuntime?.info?.phase?.toString()
+                        ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
                     TextButton(onClick = { model.selectGroupInstance(instance.model) },
                         enabled = !group.busy || model.selectedGroupInstance === instance.model,
                         modifier = Modifier.weight(1f).testTag("plugin-instance-${instance.id}").semantics {
-                            contentDescription = "${if (model.selectedGroupInstance === instance.model) "当前" else "选择"}实例 ${index + 1}，${instance.title}"
+                            val state = when {
+                                instance.closed -> "已关闭"
+                                instance.closeRequested -> "正在关闭"
+                                else -> phase
+                            }
+                            contentDescription = "${if (model.selectedGroupInstance === instance.model) "当前" else "选择"}实例 ${index + 1}，${instance.title}，状态 $state"
                         }) {
-                        val phase = instance.model.activeRuntime?.info?.phase?.toString()
-                            ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
-                        Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · ${if (instance.closed) "已关闭" else phase}")
+                        Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · ${when {
+                            instance.closed -> "已关闭"
+                            instance.closeRequested -> "正在关闭"
+                            else -> phase
+                        }}")
                     }
                     TextButton(onClick = {
                         if (instance.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group, instance)
