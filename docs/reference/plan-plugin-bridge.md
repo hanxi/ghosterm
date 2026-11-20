@@ -979,7 +979,7 @@ ExtensionPlatformServices
 | P2 | 原生包 78 份夹具、Runtime 22 组及资源生命周期 27 组变异通过。macOS 离屏导入回调、原生资源预览和工作区焦点通过。Android API 36 五项真实 SAF / 两跳预览通过，涵盖 Markdown、HTML、Unicode 路径与键盘返回。两端已验 HTML 切换撤销旧预览、后台取消；Android 另验 Markdown 附件移除与设备 APK 摘要。 | macOS 系统选择器实际交互及关闭后的焦点、Android 其它设备与输入法、两端平台包与运行时生命周期故障矩阵。 |
 | P3 | 本机隔离项目已有真实 Codex 账号的对话及文件审批证据。两端直连和 ProxyJump 原生补丁审批、发送期间草稿隔离经独立协议夹具通过。锁定 CLI 已验建线程和关闭；macOS 原生直连与 ProxyJump 已用隔离 app-server 验证中断、回执丢失及 SSH 执行通道关闭。 | 联合验证真实后端的两端启动与批准、中断、断线结果未知，以及 tmux 切 pane 和外部客户端切换。 |
 | P4 | 两端 Portable、Node、Exec 混合运行及资源专项通过。Claude 真实 CLI 禁网启停、Node 29 项及 34 组变异、两端回环 SSH 原生工具与问题审批和超时保留回执通过。两端成功回执保留新草稿及变异专项通过；官方候选包已重建并核对。此前真实 Claude 请求在所选服务 TLS 阶段中断。 | 可达且已授权的真实 Claude 后端问答、工具批准，以及实际模型回合的取消、退出和进程树预算。 |
-| P5 | 开发工具 76 项和场景 10 项通过。两端有控件语义、跨实例同句柄隔离及运行失效后晚到关闭回执证据。macOS 本机、直连、两跳及 Android API 36 直连、两跳通过真实前台进程退出和视图失效专项。两端终态失效接线均有独立变异。 | 两端读屏实际播报、其它设备档的前台退出及剩余原生接线矩阵。 |
+| P5 | 开发工具 76 项和场景 10 项通过。两端有控件语义、跨实例同句柄隔离及运行失效后晚到关闭回执证据。macOS 本机、直连、两跳及 Android API 29 / 36 直连、两跳通过真实前台进程退出和视图失效专项。两端终态失效接线均有独立变异。 | 两端读屏实际播报、真机前台退出及剩余原生接线矩阵。 |
 | P6 | 两端各安装并核对七个签名候选包。回环 HTTPS 覆盖系统 TLS 拒绝、签名、过期、撤销及旧代拒绝。macOS 和 Android API 36 分轮覆盖独立进程策略写入、缓存锁冲突、停止后 SSH 断线及本机释放失败。macOS arm64 实验包本地 ad-hoc 校验通过；Android 开启与关闭 QuickJS 的 Release APK 已核对许可切换。Android API 29 已验跨进程撤销及锁冲突；macOS 另验从设置页停止已脱离展示的活动连接组。项目分发渠道确定为 GitHub Release，macOS 采用自签 ad-hoc 包，不把 Developer ID 或公证作为发布前置条件；应用内更新继续使用独立 Ed25519 签名链。公开 `dev` Release 的 macOS / Android 资产、appcast、ZIP、清单、摘要和固定 URL 已通过只读审计。macOS、Android API29、Android API36 的更新信任链轮换、撤销和失败缓存保留专项均已通过。 | 其余设备、完整磁盘故障及正式版本矩阵待验。 |
 
 证据口径按后文分批记录。交付范围和各项通过条件以本节各阶段及共同验收闸门为准。
@@ -14055,12 +14055,6 @@ Native 字节回包、SDK 复制引用三组全部通过，实际编译调用从
 `b480f6fcce8d8bdf6af3a4069fbc61b76deef166c7dc5ecdaf829e935fc540d5`。
 本轮临时目录已清理。
 
-P5 Android API 29 无窗口复验：重建官方 views 候选与启用 QuickJS/SSH 的
-gterm，`test-plugin-views-android-native.py --api 29 --attach --attach-loss`
-通过通用视图 30 项、表格 23 项、差异 27 项、任务 34 项。直连与两跳
-ProxyJump 各通过真实前台附着及进程退出，共四项。测试对拍安装 APK 和
-运行器输入，临时构件与 AVD 已清理。TalkBack 实际播报仍待验收。
-
 ### P6 渠道策略候选声明本地验签（2026-11-19）
 
 固定 `42eb4a77` 加本批开发工具。 `gterm-plugin release verify-policy` 接受显式
@@ -15499,6 +15493,12 @@ P5 Android 前台退出新增原生终态接线变异。API 36 无窗口直连�
 同 APK Core 配置、恢复直连、APK 与源码摘要核对通过。29 项通用和 84 项
 组件同轮通过。收据 SHA256 `0a1f8a2ec733af1534e3921dcaacffcd0396e4dabdc53c666b4773bced9a65d6`。
 本轮未验其他设备或 TalkBack 实际播报，临时构件、进程和 AVD 已清理。
+
+P5 Android API 29 无窗口复验：重建官方 views 候选与启用 QuickJS/SSH 的
+gterm，`test-plugin-views-android-native.py --api 29 --attach --attach-loss`
+通过通用视图 30 项、表格 23 项、差异 27 项、任务 34 项。直连与两跳
+ProxyJump 各通过真实前台附着及进程退出，共四项。测试对拍安装 APK 和
+运行器输入，临时构件与 AVD 已清理。TalkBack 实际播报仍待验收。
 
 P1 Android 新增 `mutation-check-osc52.py --platform android --headless-api 36
 --case discovery-feed`。仅在隔离副本切断 PTY 到被动观察器的接线，普通终端
