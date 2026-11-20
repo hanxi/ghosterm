@@ -106,8 +106,15 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                     contentDescription = "连接实际目标：${group.targetDescription}"
                 })
             if (!group.closed) Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
-            group.issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (group.cleanupPending) Text("连接或资源仍待释放，请重试关闭。", color = MaterialTheme.colorScheme.error)
+            group.issue?.let { issue ->
+                Text(issue, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics {
+                    contentDescription = "连接组错误：$issue"
+                })
+            }
+            if (group.cleanupPending) Text("连接或资源仍待释放，请重试关闭。", color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics {
+                    contentDescription = "连接组仍有资源待释放，请重试关闭"
+                })
             group.instances.forEachIndexed { index, instance ->
                 Row {
                     TextButton(onClick = { model.selectGroupInstance(instance.model) },
