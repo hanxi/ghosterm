@@ -1209,7 +1209,9 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     }
     extensions.activeRuntime?.let { active ->
         Text((if (extensions.runtimeStateIsUnknown) "Runtime 最后观测（当前状态未知）：" else "Runtime：") + "${active.info.phase} · ${active.command} · steps ${active.info.steps}",
-            Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
+            Modifier.padding(top = 4.dp).testTag("plugin-runtime-state").semantics {
+                contentDescription = "${if (extensions.runtimeStateIsUnknown) "Runtime 状态未知，最后观测" else "Runtime 当前状态"}：${active.info.phase}，命令 ${active.command}"
+            }, style = MaterialTheme.typography.bodySmall)
         if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED ||
             active.info.sessionEnd != com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE ||
             active.info.sessionError != 0 || active.info.cleanupError != 0) {
@@ -1227,19 +1229,23 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
-            TextButton(onClick = extensions::stopRuntime, enabled = !extensions.launchBusy) { Text("停止插件") }
+            TextButton(onClick = extensions::stopRuntime, enabled = !extensions.launchBusy,
+                modifier = Modifier.semantics { contentDescription = "停止插件 Runtime" }) { Text("停止插件") }
         } else {
-            TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件资源") }
+            TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy,
+                modifier = Modifier.semantics { contentDescription = "释放插件 Runtime 资源" }) { Text("释放插件资源") }
         }
     }
     if (extensions.activeRuntime == null && (extensions.activeSession?.info?.phase ==
             com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED || extensions.activeSession?.info?.phase ==
             com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED)) {
-        TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件 Session") }
+        TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy,
+            modifier = Modifier.semantics { contentDescription = "释放已结束的插件 Session" }) { Text("释放插件 Session") }
     }
     if (extensions.activeRuntime == null && extensions.activeSession?.info?.phase ==
         com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ACTIVE) {
-        TextButton(onClick = extensions::stopSession, enabled = !extensions.launchBusy) { Text("停止插件 Session") }
+        TextButton(onClick = extensions::stopSession, enabled = !extensions.launchBusy,
+            modifier = Modifier.semantics { contentDescription = "停止活动插件 Session" }) { Text("停止插件 Session") }
     }
 
 }
