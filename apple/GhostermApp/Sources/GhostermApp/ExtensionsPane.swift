@@ -15,6 +15,8 @@ struct ExtensionsPane: View {
     // completion; selecting a directory never approves or activates a package.
     var packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)? = nil
     @State private var importing = false
+    @FocusState private var importButtonFocused: Bool
+    @State private var restoreImportFocus = false
     @State private var entries: [Entry] = []
     @State private var issue: String?
     @State private var launchIssues: [String: String] = [:]
@@ -113,9 +115,14 @@ struct ExtensionsPane: View {
                 Spacer()
                 Button(reviewingPackage ? "正在审查插件包…" : "选择文件夹…") {
                     if let packagePicker { packagePicker(selectedPackage) }
-                    else { importing = true }
+                    else {
+                        restoreImportFocus = importButtonFocused
+                        importButtonFocused = false
+                        importing = true
+                    }
                 }
                     .disabled(model.extensionController == nil || reviewingPackage)
+                    .focused($importButtonFocused)
                     .accessibilityIdentifier("plugin-package-import")
             }
 
@@ -369,6 +376,12 @@ struct ExtensionsPane: View {
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
                       onCompletion: selectedPackage)
+        .onChange(of: importing) { isPresented in
+            if !isPresented, restoreImportFocus {
+                restoreImportFocus = false
+                if !reviewingPackage { importButtonFocused = true }
+            }
+        }
         .confirmationDialog("停止并关闭插件连接？", isPresented: Binding(
             get: { connectionToClose.map { !$0.closed } ?? false },
             set: { if !$0 { connectionToClose = nil } }), titleVisibility: .visible) {
