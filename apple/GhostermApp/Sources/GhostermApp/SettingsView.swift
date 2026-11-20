@@ -80,7 +80,7 @@ struct SettingsView: View {
             case .general: return 320
             case .appearance: return 580
             case .keyboard: return 640
-            case .configuration: return 445
+            case .configuration: return 520
             case .extensions: return 275
             }
         }
