@@ -23,8 +23,14 @@ final class HostEditorUITests: XCTestCase {
         defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         let view = NSHostingView(rootView: HostEditorSheet(model: model, alias: "demo", isNew: false))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 590, height: 740), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         window.contentView = view; TestWindows.presentOffscreen(window)
-        defer { window.orderOut(nil); window.contentView = nil }
+        defer {
+            window.makeFirstResponder(nil)
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+        }
         for _ in 0..<100 {
             view.layoutSubtreeIfNeeded()
             if node(view, "host-editor-alias") != nil { break }
