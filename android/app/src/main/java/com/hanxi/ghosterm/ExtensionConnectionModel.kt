@@ -42,6 +42,10 @@ internal class ExtensionConnectionModel(private val application: Application,
             internal set
         var closeRequested by mutableStateOf(false)
             internal set
+        var releasing by mutableStateOf(false)
+            internal set
+        var releaseFailed by mutableStateOf(false)
+            internal set
         internal val cleanup = Mutex()
         val closeNeedsConfirmation get() = !closed && !closeRequested
     }
@@ -63,6 +67,7 @@ internal class ExtensionConnectionModel(private val application: Application,
     private var closing by mutableStateOf(false)
     val closeNeedsConfirmation get() = !closed && !closing &&
         (busy || instances.any { it.closeNeedsConfirmation })
+    fun canCloseInstance(instance: Instance) = !closing && !busy && !instance.closed && !instance.releasing
     private var nativeReady = false
     private var origin: ExtensionGroupInvocation? = null
     private var nextEpoch = 1uL
@@ -70,6 +75,7 @@ internal class ExtensionConnectionModel(private val application: Application,
     var targetDescription by mutableStateOf("")
         private set
     val canAdd get() = nativeReady && !closed && !closing && !busy && !cleanupPending &&
+        instances.none { it.releasing || it.releaseFailed } &&
         (state?.info?.error ?: 0) == 0 && instances.count { !it.closed } < 8
     private var attempt: SSHAttempt? = null
     private var sessions: SessionsViewModel? = null
@@ -239,16 +245,23 @@ internal class ExtensionConnectionModel(private val application: Application,
     }
     fun requestClose() { scope.launch { close() } }
     fun requestCloseInstance(instance: Instance) { scope.launch {
-        if (instances.none { it === instance }) return@launch
+        if (!canCloseInstance(instance) || instances.none { it === instance }) return@launch
         try { closeInstance(instance) }
-        catch (failure: Exception) { issue = "实例释放失败：${failure.message}"; cleanupPending = true }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* The instance retains its retry state. */ }
     } }
     private suspend fun closeInstance(instance: Instance) = instance.cleanup.withLock {
         if (instance.closed) return@withLock
         instance.closeRequested = true
-        instance.store.clear() // Cancels its UI/RPC pumps before Native owner teardown.
-        instance.model.closeInstance()
-        instance.closed = true
+        instance.releasing = true
+        try {
+            instance.store.clear() // Cancels its UI/RPC pumps before Native owner teardown.
+            instance.model.closeInstance()
+            instance.closed = true
+        } finally {
+            instance.releaseFailed = !instance.closed
+            instance.releasing = false
+        }
     }
     suspend fun close(): Boolean {
         closing = true; monitor?.cancel(); monitor = null

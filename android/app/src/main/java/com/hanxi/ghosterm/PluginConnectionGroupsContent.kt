@@ -135,29 +135,27 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 Row {
                     val phase = instance.model.activeRuntime?.info?.phase?.toString()
                         ?: instance.model.activeSession?.info?.phase?.toString() ?: "准备中"
+                    val status = when {
+                        instance.closed -> "已关闭"
+                        instance.releasing -> "正在关闭"
+                        instance.releaseFailed -> "释放失败，可重试"
+                        else -> phase
+                    }
+                    val closeLabel = if (instance.releaseFailed) "重试关闭" else "关闭"
                     TextButton(onClick = { model.selectGroupInstance(instance.model) },
                         enabled = !group.busy || model.selectedGroupInstance === instance.model,
                         modifier = Modifier.weight(1f).testTag("plugin-instance-${instance.id}").semantics {
-                            val state = when {
-                                instance.closed -> "已关闭"
-                                instance.closeRequested -> "正在关闭"
-                                else -> phase
-                            }
-                            contentDescription = "${if (model.selectedGroupInstance === instance.model) "当前" else "选择"}实例 ${index + 1}，${instance.title}，状态 $state"
+                            contentDescription = "${if (model.selectedGroupInstance === instance.model) "当前" else "选择"}实例 ${index + 1}，${instance.title}，状态 $status"
                         }) {
-                        Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · ${when {
-                            instance.closed -> "已关闭"
-                            instance.closeRequested -> "正在关闭"
-                            else -> phase
-                        }}")
+                        Text("${if (model.selectedGroupInstance === instance.model) "当前 · " else ""}${index + 1}. ${instance.title} · $status")
                     }
                     TextButton(onClick = {
                         if (instance.closeNeedsConfirmation) closeRequest = PluginCloseRequest(group, instance)
                         else group.requestCloseInstance(instance)
-                    }, enabled = !instance.closed && !group.busy,
+                    }, enabled = group.canCloseInstance(instance),
                         modifier = Modifier.testTag("plugin-instance-close-${instance.id}").semantics {
-                            contentDescription = "关闭实例 ${index + 1}，${instance.title}"
-                        }) { Text("关闭") }
+                            contentDescription = "${closeLabel}实例 ${index + 1}，${instance.title}"
+                        }) { Text(closeLabel) }
                 }
             }
             TextButton(onClick = {
