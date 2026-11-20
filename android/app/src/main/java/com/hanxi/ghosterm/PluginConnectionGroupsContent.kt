@@ -97,7 +97,10 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
     }
     model.connectionGroups.forEach { group ->
         Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("连接组：${group.title.ifEmpty { "正在准备" }} · ${group.state?.info?.instances ?: group.instances.size} 实例")
+            Text("连接组：${group.title.ifEmpty { "正在准备" }} · ${group.state?.info?.instances ?: group.instances.size} 实例",
+                modifier = Modifier.semantics {
+                    contentDescription = "连接组 ${group.title.ifEmpty { "正在准备" }}，${group.state?.info?.instances ?: group.instances.size} 个实例"
+                })
             Text("此连接实际目标：${group.targetDescription}", style = MaterialTheme.typography.bodySmall)
             if (!group.closed) Text("关闭全部实例后连接仍保持，可从待启动项继续添加。更换目标请新建连接。", style = MaterialTheme.typography.bodySmall)
             group.issue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
