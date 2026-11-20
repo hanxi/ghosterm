@@ -149,7 +149,9 @@ static bool write_input(void *context, const uint8_t *bytes, size_t length) {
     if (gt_transport_write(s->transport, bytes, length) == GT_OK) {
         return true;
     }
-    failed(s, "终端输入失败，连接已停止");
+    char reason[256];
+    snprintf(reason, sizeof(reason), "终端输入失败，连接已停止：%.170s", gt_last_error());
+    failed(s, reason);
     return false;
 }
 
@@ -392,6 +394,10 @@ static void *owner(void *context) {
                 ok = false;
             }
             free(cmd);
+            /* A surface callback can already have recorded a transport failure. */
+            if (atomic_load(&s->stop)) {
+                break;
+            }
             if (!ok) {
                 failed(s, "终端输入或按键编码失败");
                 break;

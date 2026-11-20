@@ -115,35 +115,74 @@ class SSHProductTest {
         }
     }
 
-    @Test fun directSshResetClearsPassiveDiscoveryBeforeExpiry() {
-        load(port = fixture.getInt("resetPort"))
-        open()
-        val id = login()
+    private fun observeDiscoveryCandidate(id: UUID): FrontendCandidate? {
         val offer = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
         ui.runOnIdle {
             terminal().commitText("stty -echo; PS1=''; printf '\\033]777;ghosterm-discovery;1;$offer\\007\\033[2J\\033[HSSH_%s' CANDIDATE_READY\r")
         }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "SSH_CANDIDATE_READY" }
-        val candidate = if (BuildConfig.PLUGIN_JS_ENABLED) {
+        return if (BuildConfig.PLUGIN_JS_ENABLED) {
             ui.waitUntil(5_000) { ui.runOnIdle { sessions().frontendCandidates.any { it.sourceID == id } } }
             ui.runOnIdle { sessions().frontendCandidates.single { it.sourceID == id } }
         } else {
             ui.runOnIdle { assertTrue(sessions().frontendCandidates.isEmpty()) }
             null
         }
-        resetSSHFixtureConnection()
-        ui.waitUntil(10_000) { sessions().active?.state?.terminal == true }
-        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+    }
+
+    private fun awaitDiscoveryCleanup(candidate: FrontendCandidate?) {
         try {
             ui.waitUntil(4_000) { ui.runOnIdle { sessions().frontendCandidates.isEmpty() } }
         } catch (failure: ComposeTimeoutException) {
-            fail("SSH reset must clear discovery for the stopped terminal")
+            fail("SSH failure must clear discovery for the stopped terminal")
         }
+        if (candidate != null) assertFalse("candidate must clear before expiry", candidate.expired)
+    }
+
+    @Test fun directSshResetClearsPassiveDiscoveryBeforeExpiry() {
+        load(port = fixture.getInt("resetPort"))
+        open()
+        val id = login()
+        val candidate = observeDiscoveryCandidate(id)
+        resetSSHFixtureConnection()
+        ui.waitUntil(10_000) { sessions().active?.state?.terminal == true }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        awaitDiscoveryCleanup(candidate)
         ui.runOnIdle {
             assertEquals(id, sessions().active?.id)
             val error = sessions().active?.state?.error
             assertTrue("Expected a terminal read failure after reset: $error", error?.startsWith("终端读取失败") == true)
-            if (candidate != null) assertFalse("candidate must clear before expiry", candidate.expired)
+        }
+    }
+
+    @Test fun directSshRetainsTransportWriteFailure() {
+        load(port = fixture.getInt("resetPort"))
+        open()
+        val id = login()
+        val session = sessions().active!!
+        val candidate = observeDiscoveryCandidate(id)
+        pauseSSHFixtureConnection()
+
+        // Keep each input below the JNI queue budget. The isolated proxy stops
+        // forwarding, so the Core's SSH tail eventually rejects further input.
+        val chunk = "x".repeat(512 * 1024)
+        val deadline = android.os.SystemClock.elapsedRealtime() + 8_000
+        while (!session.connection.state().terminal && android.os.SystemClock.elapsedRealtime() < deadline) {
+            try {
+                session.connection.commit(chunk)
+            } catch (failure: IllegalStateException) {
+                if (session.connection.state().terminal) break
+                if (failure.message != "终端输入队列已满，请稍后重试") throw failure
+            }
+            Thread.sleep(120)
+        }
+        ui.waitUntil(10_000) { sessions().active?.state?.terminal == true }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        awaitDiscoveryCleanup(candidate)
+        ui.runOnIdle {
+            assertEquals(id, sessions().active?.id)
+            val error = sessions().active?.state?.error
+            assertTrue("Expected the original SSH write error: $error", error?.contains("ssh_shell write:") == true)
         }
     }
 

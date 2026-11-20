@@ -11,6 +11,10 @@ internal fun resetSSHFixtureConnection() {
     check(sshFixtureRequest(":reset") == "OK") { "Fixture did not reset an active SSH link" }
 }
 
+internal fun pauseSSHFixtureConnection() {
+    check(sshFixtureRequest(":blackhole") == "OK") { "Fixture did not pause an active SSH link" }
+}
+
 private fun sshFixtureRequest(suffix: String = ""): String {
     val args = InstrumentationRegistry.getArguments()
     val port = requireNotNull(args.getString("fixturePort")) { "Run scripts/test-android-ssh.sh" }.toInt()

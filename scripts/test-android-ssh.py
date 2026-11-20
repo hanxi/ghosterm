@@ -129,11 +129,12 @@ def main():
         token=secrets.token_hex(32)
         requested_tests=[name.rsplit('.',1)[-1] for name in os.environ.get('ANDROID_SSH_TEST_CLASS','').split(',')]
         all_tests=os.environ.get('ANDROID_SSH_ALL')=='1'
-        reset_case='SSHProductTest#directSshResetClearsPassiveDiscoveryBeforeExpiry'
-        reset_tests=all_tests or 'SSHProductTest' in requested_tests or reset_case in requested_tests
-        reset_only=not all_tests and requested_tests==[reset_case]
+        fault_cases={'SSHProductTest#directSshResetClearsPassiveDiscoveryBeforeExpiry',
+                     'SSHProductTest#directSshRetainsTransportWriteFailure'}
+        fault_tests=all_tests or 'SSHProductTest' in requested_tests or bool(fault_cases.intersection(requested_tests))
+        fault_only=not all_tests and bool(requested_tests) and fault_cases.issuperset(requested_tests)
         proxy=None
-        if reset_tests:
+        if fault_tests:
             spec=importlib.util.spec_from_file_location('ssh_fault_proxy',ROOT/'scripts/lib/tmux-fault-proxy.py')
             faults=importlib.util.module_from_spec(spec);spec.loader.exec_module(faults)
             proxy=faults.SSHFaultProxy('127.0.0.1',port,work)
@@ -156,6 +157,8 @@ def main():
                     self.wfile.write(json.dumps(value).encode()+b'\n')
                 elif proxy and hmac.compare_digest(supplied,token+':reset'):
                     if proxy.fault('reset'): self.wfile.write(b'OK\n')
+                elif proxy and hmac.compare_digest(supplied,token+':blackhole'):
+                    if proxy.fault('blackhole'): self.wfile.write(b'OK\n')
         with socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler) as server:
             server.daemon_threads=True
             fixture_host_port=server.server_address[1]
@@ -178,7 +181,7 @@ def main():
             try:
                 fixture_port=reverse_owned(fixture_host_port)
                 if proxy: reset_port=reverse_owned(proxy.port)
-                if not reset_only:
+                if not fault_only:
                     for value in host_ports:
                         run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
                 worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
