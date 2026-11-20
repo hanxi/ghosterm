@@ -201,13 +201,18 @@ internal class ExtensionConnectionModel(private val application: Application,
             instances.removeAll { it.closed }
             check(instances.size < 8 && nextEpoch != ULong.MAX_VALUE)
             val scope = ExtensionController.MultiplexScope(hex(invocation.id), nextEpoch++)
-            val owner = withContext(NonCancellable) { controller.openMultiplexInstance(scope) }; child = owner
+            val owner = withContext(NonCancellable) {
+                controller.openMultiplexInstance(scope).also { child = it }
+            }
+            val model = createInstance(owner, invocation)
+            scopes[invocation.id] = scope
+            val instance = instances.last()
+            added = instance
+            // Keep the scope even if the peer's admission reply is lost.
+            // A later explicit retry must first observe its release.
             val input = JSONObject().put("instance", scope.instance).put("epoch", scope.epoch.toString()).put("profile", profile).toString()
             check(JSONObject(controller.manageMultiplex("open", input)).opt("admitted") == true) { "新增实例准入未确认" }
             currentCoroutineContext().ensureActive()
-            val model = createInstance(owner, invocation); scopes[invocation.id] = scope
-            val instance = instances.last()
-            added = instance
             model.startMultiplexInstance(invocation.launch, first.alias, "此连接的在线实例 · " + targetDescription)
             awaitConsent(listOf(instance))
             currentCoroutineContext().ensureActive()
