@@ -15955,3 +15955,6 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   模拟名称损坏。上述本地结果不计为云端全量通过。
 - [macOS Release 44782356919](https://github.com/hanxi/ghosterm/actions/runs/44782356919)
   合并复验已确认的修复。18 份 Apple 变异按原顺序分为六个 Actions 步骤，离屏执行。
+- [macOS Release 44778771960](https://github.com/hanxi/ghosterm/actions/runs/44778771960)
+  在 `fb138008` 通过标签页变异的全部 37 项检查，随后因文件窗格变异锚点匹配两处而退出。
+  后续候选包含 `ca0ccb32`，已将该锚点限定在文件窗格。
