@@ -100,8 +100,16 @@ final class LocalTemporaryDirectoryTests: XCTestCase {
     func testEntryLimitRetainsOwner() throws {
         let (_, owner) = try fixture(); try fill(owner.directory, count: 16385)
         var code: Int32?
-        do { try finish(owner) } catch { code = (error as? ExtensionLocalTemporaryDirectory.Failure)?.code }
-        XCTAssertTrue(code == EFBIG && owner.observation.phase == .retained)
+        do {
+            // 64 entries per step, allowing for the two directory markers.
+            for _ in 0..<257 {
+                if try owner.closeStep() { break }
+            }
+        } catch {
+            code = (error as? ExtensionLocalTemporaryDirectory.Failure)?.code
+        }
+        XCTAssertEqual(code, EFBIG)
+        XCTAssertEqual(owner.observation.phase, .retained)
     }
     func testSealedDirectoryIsMadeWritableBeforeCleanup() throws {
         let (_, owner) = try fixture(), fm = FileManager.default
