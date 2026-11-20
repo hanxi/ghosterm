@@ -110,7 +110,7 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
     sleep 0.1
   done
   if [ "$ready" = 1 ]; then
-    ENVARGS=(env GHOSTERM_SSH_HOST=127.0.0.1
+    ENVARGS=(GHOSTERM_SSH_HOST=127.0.0.1
              GHOSTERM_SSH_PORT="$PORT"
              GHOSTERM_SSH_USER="$(id -un)"
              GHOSTERM_SSH_KEY="$WORK/clientkey"
