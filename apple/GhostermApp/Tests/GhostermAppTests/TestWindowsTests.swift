@@ -12,6 +12,8 @@ final class TestWindowsTests: XCTestCase {
                              styleMask: [.titled], backing: .buffered, defer: false)
         let second = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 180, height: 120),
                              styleMask: [.titled, .utilityWindow], backing: .buffered, defer: false)
+        first.isReleasedWhenClosed = false
+        second.isReleasedWhenClosed = false
         defer { first.close(); second.close() }
 
         first.orderFrontRegardless()
