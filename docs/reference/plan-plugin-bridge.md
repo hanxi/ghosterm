@@ -15872,3 +15872,9 @@ API 36 无窗口 AVD，真实安装测试 APK 并运行同一 TLS 夹具，1 项
 `system-images;android-29;google_apis;arm64-v8a`，并扩展脚本 `--api 29`。
 API29 无窗口 AVD 的 `PluginChannelRefreshTlsTest` 真实安装运行通过，进程
 退出码 0。API29 / API36 / macOS 三档更新信任链证据已齐。
+
+P2 Android 签名 ZIP 导入统一验收：`scripts/test-plugin-release-android.py
+--headless-api 29 --archive-ui` 与 API 36 同档各通过 112 项，涵盖实际 SAF、
+签名材料与 ZIP 捕获、审查、渠道信任撤回和迟到结果释放。两个 arm64 / 4 KiB
+无窗口设备安装的 App 与测试 APK 摘要分别一致，模拟器均以 0 退出并清理。
+本轮不含安装后目录维护、真机输入法或 macOS 系统选择器验收。
