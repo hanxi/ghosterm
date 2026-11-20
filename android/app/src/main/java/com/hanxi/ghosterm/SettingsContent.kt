@@ -293,7 +293,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         }
                     }
                     PluginConnectionGroupsContent(extensions, connectionsBusy, onLaunchPluginGroup)
-                    PluginActiveInstanceContent(extensions.selectedGroupInstance ?: extensions)
+                    val instance = extensions.selectedGroupInstance ?: extensions
+                    key(instance) { PluginActiveInstanceContent(instance) }
 
                 }
             }
@@ -315,7 +316,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     }
     val selectedInstance = extensions.selectedGroupInstance ?: extensions
     selectedInstance.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
-        PluginConsentDialog(active, selectedInstance.launchBusy, selectedInstance::decideConsent)
+        key(selectedInstance) {
+            PluginConsentDialog(active, selectedInstance.launchBusy, selectedInstance::decideConsent)
+        }
     }
     when {
         model.resetConfirmation -> AlertDialog(onDismissRequest = model::cancelReset,

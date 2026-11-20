@@ -76,9 +76,18 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     internal var groupSubmissionBusy by mutableStateOf(false)
         private set
     internal val pendingGroup = androidx.compose.runtime.mutableStateListOf<ExtensionGroupInvocation>()
-    internal var selectedGroupInstance: ExtensionPackagesViewModel? by mutableStateOf(null)
-        private set
-    internal fun selectGroupInstance(instance: ExtensionPackagesViewModel?) { selectedGroupInstance = instance }
+    private var selectedGroupInstanceId by mutableStateOf<java.util.UUID?>(null)
+    internal val selectedGroupInstance: ExtensionPackagesViewModel?
+        get() {
+            val id = selectedGroupInstanceId ?: return null
+            return connectionGroups.asSequence().flatMap { it.instances.asSequence() }
+                .firstOrNull { it.id == id }?.model
+        }
+    internal fun selectGroupInstance(instance: ExtensionPackagesViewModel?) {
+        selectedGroupInstanceId = if (instance == null) null else
+            connectionGroups.asSequence().flatMap { it.instances.asSequence() }
+                .firstOrNull { it.model === instance }?.id
+    }
 
     val runtimeAvailable get() = controller != null
     var busy by mutableStateOf(false)
@@ -371,7 +380,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 connectionGroups.add(group)
                 if (group.start(snapshot, target, sessions)) {
                     pendingGroup.removeAll(snapshot.toSet())
-                    if (selectedGroupInstance == null) selectedGroupInstance = group.instances.firstOrNull()?.model
+                    if (selectedGroupInstance == null) selectedGroupInstanceId = group.instances.firstOrNull()?.id
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = "连接组启动失败：${failure.message}" }
@@ -391,7 +400,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                 val instance = connection.add(invocation)
                 if (instance != null) {
                     pendingGroup.remove(invocation)
-                    selectedGroupInstance = instance.model
+                    selectedGroupInstanceId = instance.id
                 }
             } finally {
                 groupSubmissionBusy = false
