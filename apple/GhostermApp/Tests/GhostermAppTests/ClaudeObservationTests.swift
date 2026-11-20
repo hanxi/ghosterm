@@ -251,20 +251,35 @@ final class ClaudeObservationConversationTests: XCTestCase {
         XCTAssertTrue(model.issue == original && model.observationIssue != nil && model.phase == .unknown && model.observation == nil)
     }
     func testRenderedObservationButtonShowsCompleteReadonlyReceiptWithoutResend() async throws {
+        TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         let fixture = ClaudeObservationFixture(), client = ClaudeRPCClient(rpc: { try await fixture.rpc($0, $1) })
         let model = ClaudeConversation(request: { try await client.request(method: $0, parameters: $1) }, observe: { try await client.observe() })
         model.draft = "原输入保持未知"
         await model.start()
         let probe = ConversationUIProbe(root: NSHostingView(rootView: ClaudeConversationView(model: model).padding().background(Color(nsColor: .windowBackgroundColor))))
         defer { model.invalidate(); client.invalidate(); probe.close() }
-        try await probe.press("查看未确认操作回包")
+        func control(_ id: String) -> NSObject? {
+            probe.root.layoutSubtreeIfNeeded()
+            return PluginTableRendering.elements(probe.root).first {
+                PluginTableRendering.attribute($0, "accessibilityIdentifier") == id
+            }
+        }
+        try await wait { control("plugin-claude-observe") != nil }
+        XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(control("plugin-claude-observe"))))
         do { try await wait { model.observation != nil } }
         catch { XCTFail("Claude rendered observation must read the retained receipt"); return }
         try await wait { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-observed-response" } }
         let text = try XCTUnwrap(probe.textViews().first { $0.identifier?.rawValue == "plugin-claude-observed-response" })
         XCTAssertTrue(text.string.utf8.elementsEqual(String(decoding: fixture.body, as: UTF8.self).utf8))
         XCTAssertTrue(text.isSelectable && !text.isEditable)
-        try await probe.press("发送")
+        let send = try XCTUnwrap(control("plugin-claude-send"))
+        let selector = NSSelectorFromString("isAccessibilityEnabled")
+        let implementation = try XCTUnwrap(send.method(for: selector))
+        typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
+        XCTAssertFalse(unsafeBitCast(implementation, to: Enabled.self)(send, selector))
         XCTAssertTrue(model.phase == .unknown && fixture.calls.filter { $0 == "claude.call" }.count == 1, "Rendered observation cannot resend an unknown action")
     }
 }
