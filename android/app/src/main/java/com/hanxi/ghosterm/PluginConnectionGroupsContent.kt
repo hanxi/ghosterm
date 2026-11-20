@@ -47,9 +47,13 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                 if (instance == null) selected.group.requestClose()
                 else if (selected.group.instances.any { it === instance && !it.closed }) selected.group.requestCloseInstance(instance)
             }
-        }, modifier = Modifier.testTag("plugin-close-confirm")) { Text("停止并关闭") } },
+        }, modifier = Modifier.testTag("plugin-close-confirm").semantics {
+            contentDescription = "确认停止并关闭${if (selected.instance == null) "连接组" else "实例"}"
+        }) { Text("停止并关闭") } },
         dismissButton = { TextButton(onClick = { closeRequest = null },
-            modifier = Modifier.testTag("plugin-close-cancel")) { Text("取消") } })
+            modifier = Modifier.testTag("plugin-close-cancel").semantics {
+                contentDescription = "取消关闭操作"
+            }) { Text("取消") } })
     if (model.pendingGroup.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("待启动连接组（${model.pendingGroup.size}/8）", style = MaterialTheme.typography.titleSmall)
         model.pendingGroup.toList().forEach { invocation ->
