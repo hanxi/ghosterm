@@ -160,7 +160,7 @@ def execute(selected, environment, mutate, build_environment, signature_ui=False
         count += 23
     if archive_ui:
         classes += ',com.hanxi.ghosterm.PluginArchiveCaptureTest,com.hanxi.ghosterm.PluginArchiveDraftTest,com.hanxi.ghosterm.PluginReleaseDeclarationsTest,com.hanxi.ghosterm.PluginArchivePreviewTest,com.hanxi.ghosterm.PluginArchiveReviewUITest'
-        count += 25
+        count += 26
     if install:
         classes += ',com.hanxi.ghosterm.PluginReleaseStageTest,com.hanxi.ghosterm.PluginInstallFilesTest,com.hanxi.ghosterm.PluginInstallDraftTest,com.hanxi.ghosterm.PluginInstallControllerTest,com.hanxi.ghosterm.PluginInstallUITest'
         count += 38
