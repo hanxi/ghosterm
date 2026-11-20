@@ -200,7 +200,12 @@ fi
     echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
     # SSH / ProxyJump e2e is covered by apple-gate.sh above. Keep the full
     # App UI/model suite offline so its fixtures cannot inherit remote owners.
-    gt_timeout 1800 env GHOSTERM_AUTOMATION_OFFSCREEN=1 swift test --filter "$suite" \
+    gt_timeout 1800 env \
+      -u GHOSTERM_SSH_HOST -u GHOSTERM_SSH_PORT -u GHOSTERM_SSH_USER \
+      -u GHOSTERM_SSH_KEY -u GHOSTERM_SSH_KNOWN_HOSTS \
+      -u GHOSTERM_SSH_JUMP_HOST -u GHOSTERM_SSH_JUMP_PORT \
+      -u GHOSTERM_TEST_GTERM -u GHOSTERM_CORE_TEST_PLUGIN_JS \
+      GHOSTERM_AUTOMATION_OFFSCREEN=1 swift test --filter "$suite" \
       >>"$TMP/apple-app-test.log" 2>&1 || exit $?
   done
 ) || {
