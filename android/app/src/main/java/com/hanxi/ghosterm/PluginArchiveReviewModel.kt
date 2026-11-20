@@ -63,22 +63,21 @@ internal class PluginArchiveReviewModel(
         if (closed || pending !== request) return
         pending = null
         if (uri == null) return
-        val generation = epoch
         busy = true
         operation = scope.launch {
             try {
                 if (request.kind == PluginArchiveMaterial.ARCHIVE) {
                     val value = capture(uri)
-                    if (!closed && generation === epoch) archive = value else value.close()
+                    if (!closed) archive = value else value.close()
                 } else {
                     val kind = request.kind.signatureKind!!
                     val value = read(uri, kind)
-                    if (!closed && generation === epoch) documents = documents + (kind to value)
+                    if (!closed) documents = documents + (kind to value)
                 }
             } catch (_: TimeoutCancellationException) {
-                if (!closed && generation === epoch) issue = "读取所选材料超时，请重新选择。"
+                if (!closed) issue = "读取所选材料超时，请重新选择。"
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Throwable) { if (!closed && generation === epoch) issue = message(failure) }
+            catch (failure: Throwable) { if (!closed) issue = message(failure) }
             finally { busy = false }
         }
     }
