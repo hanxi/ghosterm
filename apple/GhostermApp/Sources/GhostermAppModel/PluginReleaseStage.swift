@@ -186,11 +186,20 @@ final class PluginReleaseStage {
         }
         try checkpoint("before-publication-rename")
         try beforeRename?()
-        guard renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL)) == 0 else {
-            let code = errno
-            if code == EEXIST { throw Failure.conflict }
-            throw PublicationFailure(code: code)
+        var result = renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL))
+        var code = result == 0 ? 0 : errno
+        if code == EACCES {
+            // Some macOS volumes require the source directory to be writable.
+            // Keep the parent lock held and leave descendant modes untouched.
+            try validate()
+            guard fchmod(root, 0o700) == 0 else { throw PublicationFailure(code: errno) }
+            result = renameatx_np(parent, name, parent, id, UInt32(RENAME_EXCL))
+            code = result == 0 ? 0 : errno
+            if result == 0 { published = true; name = id }
+            guard fchmod(root, 0o500) == 0, fsync(root) == 0 else { throw PublicationFailure(code: errno) }
         }
+        if code == EEXIST { throw Failure.conflict }
+        guard result == 0 else { throw PublicationFailure(code: code) }
         published = true
         name = id
         try checkpoint("after-publication-rename")

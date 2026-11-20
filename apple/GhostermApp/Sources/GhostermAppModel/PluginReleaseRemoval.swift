@@ -203,7 +203,17 @@ final class PluginReleaseRemoval {
         let absent = members.count - current.count
         if !alreadyDetached {
             guard try Self.namedStamp(root, header.originalName)?.sameObject(header.version) == true else { throw Failure.changed }
-            guard renameatx_np(root, header.originalName, root, header.tombstone, UInt32(RENAME_EXCL)) == 0 else { throw Failure.io }
+            var detached = renameatx_np(root, header.originalName, root, header.tombstone, UInt32(RENAME_EXCL))
+            if detached != 0, errno == EACCES {
+                var current = stat()
+                guard fstat(version.fd, &current) == 0, Stamp(current).sameObject(header.version),
+                      try Self.namedStamp(root, header.originalName)?.sameObject(header.version) == true else { throw Failure.changed }
+                let mode = current.st_mode & 0o7777
+                guard fchmod(version.fd, mode | 0o200) == 0 else { throw Failure.io }
+                detached = renameatx_np(root, header.originalName, root, header.tombstone, UInt32(RENAME_EXCL))
+                guard fchmod(version.fd, mode) == 0, fsync(version.fd) == 0 else { throw Failure.io }
+            }
+            guard detached == 0 else { throw Failure.io }
         }
         guard synchronize(root) == 0 else { return result(0, absent, false, false) }
         try checkpoint("after-detach")
