@@ -170,10 +170,6 @@ else
 fi
 
 echo "== 3/3 GhostermApp 构建 + 测试 =="
-SWIFT_TEST_ARGS=()
-if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
-  SWIFT_TEST_ARGS+=(--filter "$GHOSTERM_APP_TEST_FILTER")
-fi
 # Run each test class in a fresh serial xctest process. A single full-package
 # process can retain AppKit/WebKit state after all assertions pass and never
 # exit, while `--parallel` lets shared UserDefaults fixtures race each other.
@@ -183,10 +179,23 @@ fi
   cd "$PKG"
   : >"$TMP/apple-app-test.log"
   SUITES=()
+  if ! DISCOVERED_TESTS=$(gt_timeout 300 swift test --list-tests 2>>"$TMP/apple-app-test.log"); then
+    echo "apple-app-gate: Swift 测试发现失败" >&2
+    exit 1
+  fi
   while IFS= read -r suite; do
-    [ -n "$suite" ] && SUITES+=("$suite")
-  done < <(gt_timeout 300 swift test --list-tests 2>/dev/null |
-    sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u)
+    if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
+      if [[ "$suite" =~ $GHOSTERM_APP_TEST_FILTER || "${suite/\//.}" =~ $GHOSTERM_APP_TEST_FILTER ]]; then
+        SUITES+=("$suite")
+      fi
+    elif [ -n "$suite" ]; then
+      SUITES+=("$suite")
+    fi
+  done < <(if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
+      printf '%s\n' "$DISCOVERED_TESTS" | sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+/[A-Za-z0-9_]+)$#\1#p'
+    else
+      printf '%s\n' "$DISCOVERED_TESTS" | sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u
+    fi)
   [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
   swift build --build-tests --enable-xctest --enable-swift-testing >/dev/null
   TEST_BUNDLE="$(find .build -name '*.xctest' -print -quit)"
@@ -209,7 +218,12 @@ fi
       -u GHOSTERM_SSH_JUMP_HOST -u GHOSTERM_SSH_JUMP_PORT \
       -u GHOSTERM_TEST_GTERM -u GHOSTERM_CORE_TEST_PLUGIN_JS \
       GHOSTERM_AUTOMATION_OFFSCREEN=1 xcrun xctest -XCTest "$suite" "$TEST_BUNDLE" \
-      >>"$TMP/apple-app-test.log" 2>&1 || exit $?
+      >>"$TMP/apple-app-test.log" 2>&1 || {
+        status=$?
+        echo "apple-app-gate: XCTest $suite 退出码 $status" >&2
+        tail -12 "$TMP/apple-app-test.log" >&2
+        exit "$status"
+      }
   done
 ) || {
   echo "apple-app-gate: swift test 失败" >&2
