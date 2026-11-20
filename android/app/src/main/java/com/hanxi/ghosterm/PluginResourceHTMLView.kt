@@ -147,7 +147,10 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
     }
 
     private fun fail(message: String) {
-        if (!closed) { issue?.invoke(message); close() }
+        if (closed) return
+        val report = issue
+        close()
+        report?.invoke(message)
     }
 
     fun close() {
@@ -209,6 +212,7 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
                         else AndroidView(factory = { context ->
                             try { owner.create(context, fg, bg, zoom) }
                             catch (_: RuntimeException) {
+                                owner.close()
                                 failure = "此设备暂时无法打开 HTML 预览，可查看源码。"
                                 FrameLayout(context)
                             }
