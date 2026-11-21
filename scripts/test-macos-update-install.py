@@ -29,9 +29,13 @@ def main():
     parser.add_argument('--case', choices=['install', 'later', 'cancel-quit', 'bad-feed', 'bad-archive'], action='append')
     args = parser.parse_args()
     cases = args.case or ['install', 'later', 'cancel-quit', 'bad-feed', 'bad-archive']
-    with tempfile.TemporaryDirectory(prefix='update-install-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    project_tmp.mkdir(exist_ok=True)
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='update-install-', dir=work_tmp) as temporary:
         work = Path(temporary)
-        env = dict(os.environ, TMPDIR=str(work))
+        env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work))
         keys = json.loads(subprocess.check_output(['swift', '-e', '''
 import CryptoKit
 import Foundation
