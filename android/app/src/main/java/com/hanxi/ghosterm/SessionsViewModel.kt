@@ -95,6 +95,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     settings: AppSettings? = (application as? GhostermApplication)?.settings) : AndroidViewModel(application) {
     private var extensionController: ExtensionController? = null
     private var extensionCleanup: (suspend () -> Unit)? = null
+    private var retiringExtensionAttempt: Job? = null
 
     /** The root AppModel supplies the same process-screen owner used by plugin
      * review, so SSH attempts and package review share one native worker. */
@@ -324,7 +325,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     internal fun connectExtensionBootstrap(target: PreparedSSH, bootstrap: String,
         controller: ExtensionController? = extensionController,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
-        if (connecting != null) return null
+        if (connecting != null || retiringExtensionAttempt?.isCompleted == false) return null
+        retiringExtensionAttempt = null
         val owner = controller ?: return null
         if (!BuildConfig.PLUGIN_JS_ENABLED) return null
         val attempt = SSHAttempt(target).also {
@@ -622,6 +624,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     }
     fun cancelConnection(id: UUID) {
         val attempt = connecting?.takeIf { it.id == id } ?: return
+        // The cancelled job still owns its worker cleanup until its finally block returns.
+        if (attempt.extensionOwner != null) retiringExtensionAttempt = attempt.job
         connecting = null; attempt.taskCancelled?.invoke(); attempt.credentialJob?.cancel()
         attempt.extensionOwner?.requestStopSSHChannel()
         attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
