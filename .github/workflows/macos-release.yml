@@ -141,14 +141,16 @@ jobs:
               echo "发布 $TAG 已公开，拒绝覆盖资产" >&2; exit 1
             fi
             gh release upload "$TAG" --clobber "${ASSETS[@]}"
+            gh release edit "$TAG" --notes "$NOTES"
           else
             gh release create "$TAG" --verify-tag --draft --title "Ghosterm $TAG" --notes "$NOTES" "${ASSETS[@]}"
           fi
           mkdir -p tmp
           VERIFIED="$(mktemp -d "$PWD/tmp/formal-release-XXXXXX")"
           trap 'rm -rf -- "$VERIFIED"' EXIT
-          gh release view "$TAG" --json isDraft,assets > "$VERIFIED/inventory.json"
-          jq -e '.isDraft == true' "$VERIFIED/inventory.json" >/dev/null
+          gh release view "$TAG" --json isDraft,assets,body > "$VERIFIED/inventory.json"
+          jq -e --arg notes "$NOTES" '.isDraft == true and .body == $notes' \
+            "$VERIFIED/inventory.json" >/dev/null
           expected=()
           downloads=()
           for asset in "${ASSETS[@]}"; do
