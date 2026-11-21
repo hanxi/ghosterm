@@ -17,6 +17,7 @@
 #   --out DIR          产物目录（默认 <repo>/dist）
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
 #   --experimental-plugin-js  本地 dev ad-hoc 包启用插件运行时；须显式指定 --out
+#   --plugin-js        发行包启用插件运行时；须配置插件渠道及根公钥和 HTTPS 目录
 #   --app-only         跳过 DMG（ZIP 仍默认生成）
 #   --no-zip           不出 .zip
 #   --adhoc            ad-hoc 签名（默认）
@@ -64,6 +65,7 @@ PACKAGE_CHANNEL="dev"
 OUT="$ROOT/dist"
 EXPLICIT_OUT=0
 EXPERIMENTAL_PLUGIN_JS=0
+RELEASE_PLUGIN_JS=0
 ARCH="$(uname -m)"
 APP_ONLY=0
 MAKE_ZIP=1
@@ -82,6 +84,7 @@ while [ $# -gt 0 ]; do
     --build) BUILD_NUMBER="${2:?--build 需要值}"; shift 2 ;;
     --out) OUT="${2:?--out 需要目录}"; EXPLICIT_OUT=1; shift 2 ;;
     --experimental-plugin-js) EXPERIMENTAL_PLUGIN_JS=1; shift ;;
+    --plugin-js) RELEASE_PLUGIN_JS=1; shift ;;
     --arch) ARCH="${2:?--arch 需要值}"; shift 2 ;;
     --app-only) APP_ONLY=1; shift ;;
     --no-zip) MAKE_ZIP=0; shift ;;
@@ -108,9 +111,15 @@ note() { echo "   $*"; }
 case "$PACKAGE_CHANNEL" in dev|release) ;; *) fail "未知打包渠道：${PACKAGE_CHANNEL}（只接受 dev/release）" ;; esac
 
 if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then
+  [ "$RELEASE_PLUGIN_JS" -eq 0 ] || fail "--experimental-plugin-js 与 --plugin-js 互斥"
   [ "$EXPLICIT_OUT" -eq 1 ] && [ "$PACKAGE_CHANNEL" = dev ] && [ "$SIGN_MODE" = adhoc ] && [ -z "$NOTARIZE_PROFILE" ] \
     || fail "--experimental-plugin-js 须用于显式 --out 的本地 dev ad-hoc 包"
 fi
+if [ "$RELEASE_PLUGIN_JS" -eq 1 ]; then
+  [ -n "${GHOSTERM_PLUGIN_CHANNEL:-}" ] && [ -n "${GHOSTERM_PLUGIN_CHANNEL_ROOT:-}" ] &&
+    [ -n "${GHOSTERM_PLUGIN_CHANNEL_URL:-}" ] || fail "--plugin-js 需要完整的插件渠道配置"
+fi
+PLUGIN_JS=$((EXPERIMENTAL_PLUGIN_JS + RELEASE_PLUGIN_JS))
 
 # 签名档位要按**证书本身的类**记账，不能拿「钥匙串里有这串名字」当「有 Developer ID」。
 # 免费个人账号签出来的是 `Apple Development: …`：不能公证（Apple 侧也拒），Gatekeeper
@@ -196,8 +205,7 @@ GHOSTTY_LIB="$XCFW/macos-${ARCH}/libghostty-internal.a"
 note "GhosttyKit ${ARCH} 切片 $(du -h "$GHOSTTY_LIB" | awk '{print $1}')"
 
 # ------------------------------------------------------------------ 2. C 核心
-# 普通发行包固定关闭实验插件运行时及对应的 Swift 静态链接。
-export GHOSTERM_BUILD_PLUGIN_JS="$EXPERIMENTAL_PLUGIN_JS" GHOSTERM_CORE_TEST_PLUGIN_JS="$EXPERIMENTAL_PLUGIN_JS"
+export GHOSTERM_BUILD_PLUGIN_JS="$PLUGIN_JS" GHOSTERM_CORE_TEST_PLUGIN_JS="$PLUGIN_JS"
 step "2/9 构建 C 核心"
 bash "$ROOT/scripts/build-core.sh" || fail "core 构建失败"
 note "core/build/libghosterm_core.a"
@@ -230,7 +238,7 @@ ditto "$SPARKLE_FRAMEWORK" "$FW/Sparkle.framework"
 # distributions re-sign every nested component with their own identity below.
 cp "$ROOT/apple/GhostermApp/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 chmod 644 "$APP/Contents/Resources/Sparkle-LICENSE.txt"
-if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then
+if [ "$PLUGIN_JS" -eq 1 ]; then
   cp "$ROOT/vendor/quickjs-ng/LICENSE" "$APP/Contents/Resources/QuickJSNG-MIT.txt"
   chmod 644 "$APP/Contents/Resources/QuickJSNG-MIT.txt"
 fi
@@ -353,6 +361,7 @@ BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "构建时刻:    ${BUILD_STAMP}"
   echo "架构:        ${ARCH}"
   if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then echo "插件运行时:  experimental QuickJS-NG"; fi
+  if [ "$RELEASE_PLUGIN_JS" -eq 1 ]; then echo "插件运行时:  QuickJS-NG"; fi
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
   echo "签名:        ${SIGN_MODE}${SIGN_ID:+ ${SIGN_ID}}"
   echo "公证:        ${NOTARIZE_PROFILE:-无（GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名）}"

@@ -15164,6 +15164,14 @@ Android Release 工作流增加显式启用入口。非 PR 构建可用仓库变
 两档的 APK 路径和 QuickJS 许可证检查通过，工作流 YAML 与 Bash 步骤语法通过。
 本轮未配置仓库变量、触发云端发行或验证正式渠道。
 
+macOS 共享出包工作流增加 `MACOS_PLUGIN_JS=true` 入口，适用于非 PR 构建。
+工作流检出锁定的 QuickJS-NG 并调用 `package-mac.sh --plugin-js`。发行模式要求
+三项渠道配置，沿用 GitHub Release 标准资产名，包内保留独立 Sparkle 更新公钥。
+本机用测试公钥与测试地址完成 arm64 正式渠道形态的 ad-hoc DMG/ZIP 出包，
+通过缺配置提前失败、包内渠道及更新公钥、QuickJS 许可证、DMG 挂载签名与
+离屏启动、SHA256SUMS 检查。测试包记录为 dirty 本地来源；没有生成正式 appcast、
+触发云端发行或部署渠道。打包挂载及临时目录已核实清理。
+
 在 `c9e13509` 上从源码重建七个官方候选，运行完整发布工具基线 45 项并通过。
 覆盖确定性 ZIP、发布者授权、撤销、归档完整性及签名中断清理。收据 SHA256
 `c7e31660df821ec2aba29eaf1b1cb70a6494494562591004e08e5e47d42ba17e`。

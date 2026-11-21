@@ -331,6 +331,7 @@ jobs:
       - name: 出包（dmg + zip + 校验和）
         env:
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
+          MACOS_PLUGIN_JS: ${{ github.event_name != 'pull_request' && vars.MACOS_PLUGIN_JS == 'true' && 'true' || 'false' }}
           GHOSTERM_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
           GHOSTERM_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
@@ -341,6 +342,10 @@ jobs:
           set -euo pipefail
           ARGS=(--out dist --build "$GITHUB_RUN_NUMBER" --channel "$INPUT_CHANNEL")
           if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
+          if [ "$MACOS_PLUGIN_JS" = true ]; then
+            git submodule update --init --depth 1 vendor/quickjs-ng
+            ARGS+=(--plugin-js)
+          fi
           if [ "${INPUT_CHANNEL}" = "release" ] && [ "${SIGN_MODE:-adhoc}" = "developer-id" ]; then
             ARGS+=(--sign "$SIGN_IDENTITY")
             if [ -n "${NOTARY_PROFILE:-}" ]; then ARGS+=(--notarize "$NOTARY_PROFILE"); fi
