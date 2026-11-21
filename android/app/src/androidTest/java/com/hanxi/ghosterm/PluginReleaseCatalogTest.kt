@@ -30,7 +30,8 @@ class PluginReleaseCatalogTest {
                         if (phase == "file-chunk" && ++chunks == 2) throw ErrnoException("write", OsConstants.ENOSPC)
                     })
                 }.exceptionOrNull()
-                assertEquals(OsConstants.ENOSPC, (failure as? ErrnoException)?.errno)
+                assertEquals("A channel write must stop on its prepublication error",
+                    OsConstants.ENOSPC, (failure as? ErrnoException)?.errno)
                 assertArrayEquals("Unpublished channel data must leave the verified record intact",
                     previous, it.readChannelRecord(name))
                 assertFalse(root.list().orEmpty().any { entry -> entry.startsWith(".selection-") })

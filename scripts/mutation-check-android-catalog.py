@@ -97,6 +97,12 @@ def main():
          'published = true', 'published = false'),
         ('publication-durability', store + 'parentSyncAndReceiptFailuresKeepPublishedSelection', catalog,
          'checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.isSuccess', 'checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.let { true }'),
+        ('channel-before-publish', store + 'channelRecordKeepsOldBytesUntilPublicationAndReportsUncertainSync', catalog,
+         'writeRecord(name, raw, previous == null, checkpoint, parentSync)',
+         'writeRecord(name, raw, previous == null, {}, parentSync)'),
+        ('channel-parent-sync', store + 'channelRecordKeepsOldBytesUntilPublicationAndReportsUncertainSync', catalog,
+         'writeRecord(name, raw, previous == null, checkpoint, parentSync)',
+         'writeRecord(name, raw, previous == null, checkpoint, { Os.fsync(it) })'),
         ('record-unknown', store + 'corruptSelectionRemainsUnknownAndCannotBeSilentlyReplaced', catalog,
          'selected.getOrNull()', 'selected.getOrElse { Selection(null, emptyMap()) }'),
         ('record-json', store + 'corruptSelectionRemainsUnknownAndCannotBeSilentlyReplaced', catalog,
@@ -141,7 +147,10 @@ def main():
     cases = [c for c in cases if c[0] in selected]
     for name, _, path, before, _ in cases:
         if originals[path].decode().count(before) != 1: raise RuntimeError('Missing/ambiguous source anchor: ' + name)
-    work = ROOT / 'tmp/android-catalog-mutations' / str(time.time_ns())
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    work = scratch / 'android-catalog-mutations' / str(time.time_ns())
     work.mkdir(parents=True)
     print('RECEIPTS ' + str(work), flush=True)
     for path, data in originals.items(): (work / path.name).write_bytes(data)
@@ -176,6 +185,8 @@ def main():
             'page-refresh-target': 'plugin-versions-choice-',
             'observer-worker-target': 'observation closed the active parent controller',
             'observer-busy-target': 'locked inventory was treated as empty',
+            'channel-before-publish-target': 'A channel write must stop on its prepublication error',
+            'channel-parent-sync-target': 'Parent sync failure must not report durable channel publication',
             'initial-cas-target': 'stale selection created a candidate'}.get(label)
         if not green and expected is not None: good = good and expected in output
         if not good or 'INSTRUMENTATION_STATUS: numtests=1' not in output: raise RuntimeError('Not accepted assertion result:\n' + output)
