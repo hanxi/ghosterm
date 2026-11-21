@@ -1001,6 +1001,19 @@ bash scripts/check-plugin-channel-url.sh "$plugin_channel" "$plugin_root" \
 
 两端发行工作流启用插件时也会运行此检查。复验通过后，再检查两端手动刷新得到的代次和启用结果。
 
+正式 Release 公开后，从实际下载地址复验两端资产。将 `release_tag` 设为该次正式标签，
+`macos_update_public_key` 设为已确认的 Sparkle 更新公钥，`android_build_tools`
+设为 Android SDK 的 Build Tools 35.0.0 目录：
+
+```bash
+python3 -B scripts/audit-public-release.py --tag "$release_tag" \
+  --update-public-key "$macos_update_public_key" \
+  --android-build-tools "$android_build_tools"
+```
+
+审计核对两端资产清单、标签提交、macOS 更新签名以及 APK 签名、版本和 16 KiB
+对齐。通过后，在两端安装公开资产，从插件设置刷新渠道并核对代次。
+
 GitHub Release 用于分发应用和供用户手动导入的插件包。渠道策略的三个原始
 文件应部署到能直接返回 HTTP 200 的 HTTPS 目录。两端渠道刷新会拒绝重定向，
 因此不能将 `github.com/.../releases/download/<tag>/` 用作策略目录。
