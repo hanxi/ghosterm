@@ -68,6 +68,8 @@ def main():
                         help='run one Android mixed-group mutation after the baseline')
     parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
     parser.add_argument('--macos-stop-disconnect', action='store_true', help='reset the owned macOS SSH route after explicit Runtime stop starts')
+    parser.add_argument('--macos-repeat', type=int, choices=range(1, 11), default=1, metavar='1–10',
+                        help='repeat each macOS baseline route with the same build and isolated instance state')
     parser.add_argument('--macos-group-revocation', action='store_true', help='stop a managed macOS SSH group instance from Settings after revocation')
     args = parser.parse_args()
     if args.android_mutation_case and (not args.android_api or not args.mutate or args.android_revocation):
@@ -76,6 +78,8 @@ def main():
         parser.error('Android uses direct/jump routes')
     if args.android_repeat > 1 and (not args.android_api or args.mutate or args.android_revocation):
         parser.error('--android-repeat requires an Android baseline without mutations or revocation')
+    if args.macos_repeat > 1 and (args.android_api or args.mutate or args.macos_stop_disconnect or args.macos_group_revocation):
+        parser.error('--macos-repeat requires a macOS baseline without mutations, disconnect or revocation')
     if args.android_revocation and not args.android_api:
         parser.error('--android-revocation requires --android-api')
     if args.macos_stop_disconnect and (args.android_api or 'local' in (args.route or ())):
@@ -117,7 +121,7 @@ def main():
         parser.error('refuse to overwrite an unmarked copied project')
     out.mkdir(parents=True, mode=0o700)
     logs = out / 'logs'; logs.mkdir()
-    env = dict(os.environ, TMPDIR=str(out), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
+    env = dict(os.environ, TMPDIR=str(out), TMP=str(out), TEMP=str(out), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
         GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
     commands = []
 
@@ -296,9 +300,11 @@ export function activate(ctx){
             if name.startswith(('apple/', 'core/include/')) and (not copied.is_file() or sha(copied) != digest):
                 raise RuntimeError('copied input mismatch: ' + name)
         # Crypto comes from the explicitly enabled CMake build, never a guessed library.
-        command = ['xcrun', 'swift', 'test', '--package-path', source / 'apple/GhostermApp', '-Xlinker', crypto,
+        swift_options = ['--package-path', source / 'apple/GhostermApp', '--cache-path', out / 'swift-cache',
+            '--disable-keychain', '--disable-netrc', '-Xlinker', crypto]
+        command = ['xcrun', 'swift', 'test', *swift_options,
             '--filter', 'ExtensionMixedConnectionTests.testEightMixedExecutorsKeepResourcesAndAdmissionFailuresIndependent']
-        run('compile', ['xcrun', 'swift', 'build', '--build-tests', '--package-path', source / 'apple/GhostermApp', '-Xlinker', crypto], seconds=600)
+        run('compile', ['xcrun', 'swift', 'build', '--build-tests', *swift_options], seconds=600)
         private, client_public = streams.memory_identity()
         agent = stack.enter_context(keys.owned_agent(out, 'a'))
         host_keys = [keys.add_memory_key(agent, 'mixed-hop-' + str(i)) for i in range(2)]
@@ -352,9 +358,11 @@ export function activate(ctx){
             if thread.is_alive() or (not assertion and ('Executed 1 test, with 0 failures' not in text or 'skipped' in text.lower())):
                 raise RuntimeError(label + ': exact discovery/no-skip evidence missing')
         for route in args.route or (('direct', 'jump') if faults or args.macos_group_revocation else ('local', 'direct', 'jump')):
-            actual(route, route)
-            completed.append(route)
-            print('PASS mixed Native ' + route, flush=True)
+            for repetition in range(1, args.macos_repeat + 1):
+                label = route if args.macos_repeat == 1 else f'{route}-{repetition}'
+                actual(route, label)
+                completed.append(label)
+                print('PASS mixed Native ' + label, flush=True)
         mutations = []
         recipes = [
             ('remote-exit-unknown', 'ExtensionConnectionModel',

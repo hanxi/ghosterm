@@ -13299,6 +13299,14 @@ Android 混合运行脚本新增 `--android-repeat`，只用于无变异的设�
 `67d3ea8a2202758981a05a2cb38ac73328a5a1669475d91255d02296d6ac7d52`。
 本轮未复现历史 I/O 错误，根因仍未知；模拟器与临时目录已核实清理。
 
+macOS 混合运行脚本增加 `--macos-repeat`。使用同一新建 gterm、Node SDK 和离屏
+XCTest 连续复验直连及两跳各三轮，每轮独立实例目录、回环令牌和日志。直连三轮、
+两跳前两轮通过；两跳第三轮的 `fixture.echo resource/0` 返回 unknown，
+业务回执未完整到达。测试在初始实例和归零重开后都会用相同的参数调用该 RPC，
+当前日志无法区分出错阶段，也未确认与历史在线替换 I/O 错误有关。全轮不记绿。
+重复模式与变异组合在创建输出前被拒绝。首次清理遇到只读测试签名安装树，
+恢复本轮目录写权限后已核实清理。
+
 在 `2a38968a` 用 ASan／UBSan 构建公共进程 Runtime，
 `test-plugin-process-runtime.py --public --processes` 全套通过。覆盖 Node
 版本探针迟到 stderr、激活拒绝、子进程退出与取消、远端丢失及 Exec 不支持。
