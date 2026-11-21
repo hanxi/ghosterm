@@ -325,7 +325,8 @@ int main(int argc, char **argv) {
                                    "table.js",
                                    "diff.js",
                                    "task.js",
-                                   "views.js"};
+                                   "views.js",
+                                   "form.js"};
             const char *ids[] = {"sdk:/index.js",
                                  "sdk:/codec.js",
                                  "sdk:/session.js",
@@ -333,7 +334,8 @@ int main(int argc, char **argv) {
                                  "sdk:/table.js",
                                  "sdk:/diff.js",
                                  "sdk:/task.js",
-                                 "sdk:/views.js"};
+                                 "sdk:/views.js",
+                                 "sdk:/form.js"};
 
             enum {
                 SDK_COUNT = sizeof(names) / sizeof(names[0])

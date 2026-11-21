@@ -19,6 +19,8 @@ export { TaskDescribeMethod, TaskReadMethod, TaskCancelMethod, TaskDescriptorCod
 export type { TaskDescriptor, TaskSnapshot, TaskReadRequest, TaskCancelRequest, TaskCancelAck, TaskTotal, TaskResult, TaskPhase } from "./task.js";
 export { ViewRegistry, ViewSpecCodec, VIEWS_MAX } from "./views.js";
 export type { ViewKind, ViewStatus, ViewSpec, ViewHandle, NativeViewPort } from "./views.js";
+export { FormRequestCodec, FormReplyCodec, FormRequestMethod, registerFormPresenter, requestForm, validateFormReply } from "./form.js";
+export type { FormField, FormRequest, FormReply } from "./form.js";
 
 /** Current Session grant observation, not a promise that a host service exists.
  * Queries are live: revocation is never a cached allowed result. */

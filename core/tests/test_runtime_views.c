@@ -135,10 +135,16 @@ int main(int argc, char **argv) {
                            "table.js",
                            "diff.js",
                            "task.js",
-                           "views.js"};
-    char *sources[8], ids[8][64];
-    gt_ext_runtime_module_t modules[9] = {0};
-    for (size_t i = 0; i < 8; i++) {
+                           "views.js",
+                           "form.js"};
+
+    enum {
+        SDK_COUNT = sizeof(names) / sizeof(names[0])
+    };
+
+    char *sources[SDK_COUNT], ids[SDK_COUNT][64];
+    gt_ext_runtime_module_t modules[SDK_COUNT + 1] = {0};
+    for (size_t i = 0; i < SDK_COUNT; i++) {
         sources[i] = view_read(argv[2], names[i]);
         CHECK(snprintf(ids[i], sizeof(ids[i]), "sdk:/%s", names[i]) > 0);
         view_module(&modules[i], ids[i], sources[i]);
@@ -197,16 +203,16 @@ int main(int argc, char **argv) {
         plugin = "export function activate(ctx){if(!ctx.views)throw Error('service');return "
                  "{dispose(){}}}";
     }
-    view_module(&modules[8], "plugin:/entry.js", plugin);
+    view_module(&modules[SDK_COUNT], "plugin:/entry.js", plugin);
     bool executor = !strcmp(mode, "executor");
     gt_ext_runtime_config_t settings = {.modules = modules,
-                                        .module_count = 9,
+                                        .module_count = SDK_COUNT + 1,
                                         .entry = "plugin:/entry.js",
                                         .role = executor ? GT_EXT_EXECUTOR : GT_EXT_HOST};
     gt_ext_runtime_t *runtime = NULL;
     CHECK(gt_ext_runtime_open(executor ? &pair.e : &pair.h, &settings, &runtime) == GT_OK &&
           runtime);
-    for (size_t i = 0; i < 8; i++) {
+    for (size_t i = 0; i < SDK_COUNT; i++) {
         free(sources[i]);
     }
     const char *json = (void *)1;

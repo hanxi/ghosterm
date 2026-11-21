@@ -3882,6 +3882,11 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 覆盖启动期输入；通用表单仍需验证执行端请求经 schema 校验、取消后忽略迟到回答，
 且回答只回到原请求和原实例。这两项继续计入 P5 退出条件。
 
+通用表单的 Portable SDK 首片定义 `view.form.request`，支持有界文本、开关和单选。
+请求与回答按字段类型、唯一 ID、选项集合、请求 ID 和编码字节上限校验；主动取消后
+即使 Session 同时交付成功回答也不会把值交给 Executor。呈现端 helper 在等待前后
+核对原 Session 请求。原生表单能力声明、界面和真实双端 Session 验收仍待接入。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成

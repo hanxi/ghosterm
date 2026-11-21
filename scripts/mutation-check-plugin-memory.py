@@ -44,7 +44,7 @@ def main():
  parser.add_argument('--sdk',type=Path,required=True)
  parser.add_argument('--case',action='append',default=[])
  args=parser.parse_args();sdk=args.sdk.resolve()
- for name in ['index.js','codec.js','session.js','wire-contract.js','resources.js','table.js','diff.js','task.js','views.js']:
+ for name in ['index.js','codec.js','session.js','wire-contract.js','resources.js','table.js','diff.js','task.js','views.js','form.js']:
   if not (sdk/name).is_file():parser.error('missing compiled SDK: '+name)
  if set(args.case)-{c[0] for c in CASES}:parser.error('unknown case')
  cases=[c for c in CASES if not args.case or c[0] in args.case]

@@ -102,7 +102,8 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
                            "table.js",
                            "diff.js",
                            "task.js",
-                           "views.js"};
+                           "views.js",
+                           "form.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])

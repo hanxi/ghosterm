@@ -115,7 +115,8 @@ static void runtime_case(const char *mode, const char *root) {
                            "table.js",
                            "diff.js",
                            "task.js",
-                           "views.js"};
+                           "views.js",
+                           "form.js"};
     const char *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
@@ -123,7 +124,8 @@ static void runtime_case(const char *mode, const char *root) {
                          "sdk:/table.js",
                          "sdk:/diff.js",
                          "sdk:/task.js",
-                         "sdk:/views.js"};
+                         "sdk:/views.js",
+                         "sdk:/form.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])
@@ -525,7 +527,8 @@ static void runtime_many(const char *root, unsigned count) {
                            "table.js",
                            "diff.js",
                            "task.js",
-                           "views.js"};
+                           "views.js",
+                           "form.js"};
     const char *ids[] = {"sdk:/index.js",
                          "sdk:/codec.js",
                          "sdk:/session.js",
@@ -533,7 +536,8 @@ static void runtime_many(const char *root, unsigned count) {
                          "sdk:/table.js",
                          "sdk:/diff.js",
                          "sdk:/task.js",
-                         "sdk:/views.js"};
+                         "sdk:/views.js",
+                         "sdk:/form.js"};
 
     enum {
         SDK_COUNT = sizeof(names) / sizeof(names[0])

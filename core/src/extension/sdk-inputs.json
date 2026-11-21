@@ -4,7 +4,7 @@
   "sdkApiVersion": "1.0.0",
   "bridgeProtocol": 1,
   "candidate": true,
-  "sdkDigest": "970b2da3489fc2515d01cc3a6debb76dfc41022c5215f44f9c309735868986a4",
+  "sdkDigest": "08ab09c3a6bbec8fd940faa9302fbaa18e8d506c7a2762c27fc07b11c4165cfa",
   "modules": [
     {
       "name": "sdk:/codec.js",
@@ -17,9 +17,14 @@
       "sha256": "2d28aeb6f12a687be61d85618a88d522fe87cae24ce4b3557f790cbc2f6a03da"
     },
     {
+      "name": "sdk:/form.js",
+      "bytes": 7164,
+      "sha256": "eb657edca65138e7d65396fe508c9ed5106a3dc0adc283d4af59cd292c011722"
+    },
+    {
       "name": "sdk:/index.js",
-      "bytes": 981,
-      "sha256": "be268411c92f0cd753d787b05191f2c1aa5a060a0193a034ed987bea4b0c34cd"
+      "bytes": 1117,
+      "sha256": "6ebaba8cfa99c1da47779061403830ad3015a78bc459a0ad31dd3216f6703515"
     },
     {
       "name": "sdk:/process.js",
@@ -60,7 +65,8 @@
   "inputs": {
     "packages/plugin-sdk/portable/codec.ts": "409066af0c26b305b8c527f270268bafb70a3ba420e9cd32449ff657d3708245",
     "packages/plugin-sdk/portable/diff.ts": "fc6a8f912622c209f402ee5cd5ada571d5b6268b259a566f1951c28f395a600e",
-    "packages/plugin-sdk/portable/index.ts": "d961e7aaf077675beec43e4fb9bc856f9074304918170dcbb2be31ff21906494",
+    "packages/plugin-sdk/portable/form.ts": "4ab5758d12ac6d6ff8071eaf1b3f31469d1ef3365555fc8c9e6ce8402442411f",
+    "packages/plugin-sdk/portable/index.ts": "b0de94f87ab62a469c59b1e1c6cf5ed816ba949f978f1f25b1b5ee762db4db0d",
     "packages/plugin-sdk/portable/process.ts": "a4743c9851ecce5a3fd5b0dfebc08105f53482360156a303ed6c8ce57ed694ed",
     "packages/plugin-sdk/portable/resources.ts": "2ff026cc68988b96a1a2e1884db8f770bc40d08f300ebbf785668beff694f93d",
     "packages/plugin-sdk/portable/session.ts": "48bbf9f07c8ad44460bec58087905eb2cfdcd40a9e30462b26885b252ddcbb07",
@@ -72,10 +78,10 @@
     "packages/plugin-sdk/sdk-version.json": "68e8a1714c833bd0c12c844b8401cdb562977eb2cd9568a4bd1569e827ab5cdc",
     "scripts/fixtures/plugin-sdk-tools/package.json": "609d8fa44da91aff8576b4532701626dc9c760d4c7ad30d499da3b129eceb527",
     "scripts/fixtures/plugin-sdk-tools/package-lock.json": "e4b50ca634076f9890034059110666023b2b9e0c3df7095323ca051c645d2098",
-    "scripts/generate-plugin-runtime-sdk.mjs": "25260d4416db0f4bb8ee36a8ab6c2aa12ea6235a9c6779620485166d922840e2"
+    "scripts/generate-plugin-runtime-sdk.mjs": "7d5a8342bf3c662cddbc0dded5682b8a56405122cf2e11a4f687c170d64bbca5"
   },
   "outputs": {
-    "core/src/extension/sdk-code.inc": "42215e3eadf4adcff77c146443b8bb2a18e4e85c5b2b94585148acb4562e62e4",
-    "core/src/extension/sdk-identity.h": "cb0b3dd2478871abf8585d11682dd4ab71d74f23ad50b2684342aa9d7d19bb27"
+    "core/src/extension/sdk-code.inc": "2557113a07c95301fcb6c14aaae90f37d6c0b783e34f2720205fa3ed8969a651",
+    "core/src/extension/sdk-identity.h": "b0fda3854c4238b75b72a173b7310571c0cabf5de80f3ee845a1d2949d1a2766"
   }
 }
