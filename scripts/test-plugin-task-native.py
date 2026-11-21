@@ -68,7 +68,8 @@ def main():
     ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     if any(b'GT_TASK_NATIVE_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.swift')):
         raise RuntimeError('leftover Native task mutation marker')
-    with tempfile.TemporaryDirectory(prefix='nd-', dir=ROOT / 'tmp') as temporary:
+    args.receipt.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='nd-', dir=args.receipt.resolve().parent) as temporary:
         work = Path(temporary); source = work / 'h'; logs = work / 'logs'; logs.mkdir()
         for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal'):
             shutil.copytree(ROOT / folder, source / folder, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -76,7 +77,8 @@ def main():
         (source / 'core/build').symlink_to(build / 'core', target_is_directory=True)
         for folder in ('build', 'patches'): (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = {**os.environ, 'TMPDIR': str(ROOT / 'tmp'), 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
+        env = {**os.environ, 'TMPDIR': temporary, 'TMP': temporary, 'TEMP': temporary,
+            'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
             'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_JS': '1'}
         commands = []
 
