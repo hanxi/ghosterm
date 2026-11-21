@@ -36,11 +36,17 @@ jobs:
         env:
           CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+          ANDROID_CHANNEL: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
+          ANDROID_CHANNEL_ROOT: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
         run: |
           set -euo pipefail
           directory=site/plugins
           if [[ ! -e "$directory" && ! -L "$directory" ]]; then exit 0; fi
           [[ -d "$directory" && ! -L "$directory" ]]
+          if [[ -z "$CHANNEL" && -z "$CHANNEL_ROOT" ]]; then
+            CHANNEL="$ANDROID_CHANNEL"
+            CHANNEL_ROOT="$ANDROID_CHANNEL_ROOT"
+          fi
           for name in channel-policy.json channel-policy.sig policy.json; do
             [[ -f "$directory/$name" && ! -L "$directory/$name" ]] || {
               echo "Missing regular plugin channel file: $name" >&2
