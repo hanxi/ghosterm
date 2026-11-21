@@ -236,6 +236,9 @@ import XCTest
         let firstModel = try first.populated(), secondModel = try second.populated()
         let overlap = firstModel.items[0].id
         XCTAssertEqual(secondModel.items[0].id, overlap)
+        XCTAssertEqual(PluginViewsView.adjacentCloseTarget(in: secondModel.items, from: overlap), secondModel.items[1].id)
+        XCTAssertEqual(PluginViewsView.adjacentCloseTarget(in: secondModel.items, from: secondModel.items[3].id), secondModel.items[2].id)
+        XCTAssertNil(PluginViewsView.adjacentCloseTarget(in: [secondModel.items[0]], from: overlap))
         let firstHost = NSHostingView(rootView: PluginViewsView(model: firstModel))
         let secondHost = NSHostingView(rootView: PluginViewsView(model: secondModel))
         let firstProbe = ConversationUIProbe(root: firstHost), secondProbe = ConversationUIProbe(root: secondHost)
