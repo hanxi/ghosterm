@@ -22,8 +22,9 @@ def main():
     args = parser.parse_args(); binary = args.binary.resolve(strict=True)
     reset = len(args.case or []) == 1 and args.case[0] in reset_cases
     if 1 in (args.hops or []) or reset_cases.intersection(args.case or []):
-        if not reset or args.hops != [1]:
-            parser.error('reset tests require exactly one direct loopback hop and no other cases')
+        allowed_hops = ([1], [2]) if args.case == ['discovery-reset'] else ([1],)
+        if not reset or args.hops not in allowed_hops:
+            parser.error('select one owned route for one reset test; only discovery-reset supports two hops')
     if args.expect_assertion and (not args.case or len(args.case) != 1 or not args.hops or len(args.hops) != 1): parser.error('assertion mode requires exactly one hop count and case')
     sources = [ROOT/'core/src/ssh.c', ROOT/'core/src/sftp.c', ROOT/'core/tests/test_ssh_jump.c', Path(__file__).resolve()] + [ROOT/'scripts'/name for name in ['test-plugin-route.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py']]
     if reset:
@@ -45,7 +46,7 @@ def main():
                 proxy = load('jump_reset_proxy', 'lib/tmux-fault-proxy.py').SSHFaultProxy('127.0.0.1', ports[0], folder)
                 stack.callback(proxy.close)
                 known.write_text(known.read_text().replace(f']:{ports[0]} ', f']:{proxy.port} '))
-                ports = [proxy.port]
+                ports = [proxy.port, *ports[1:]]
             tmux = shutil.which('tmux')
             if 'tmux' in (args.case or []):
                 require = helpers.require if hasattr(helpers, 'require') else routes.require
