@@ -3981,6 +3981,12 @@ API 36 无窗口的表单与表格 TalkBack 组合 2 项通过。表格使用原
 连接、真实发音与 macOS VoiceOver 不在此轮证据范围。QuickJS 开启的 Debug、
 测试 APK、未签名 Release 和 app lintRelease 通过。AVD 正常退出，临时目录已清理。
 
+macOS 表格同样区分搜索进度与普通读取，进度控件和原有播报入口使用同一文案。
+QuickJS 开启的 macOS 离屏表格组 16 项通过，无跳过。新增断言核对进度、
+空页可继续和下一页命中三种状态的 AppKit 无障碍文本。Release 构建通过。
+首次 Sparkle 下载停滞，后续使用已缓存的锁定 2.10.1；中间一次未指定
+QuickJS 链接模式而失败。各轮临时目录已核实清理。VoiceOver 实际播报另验。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成

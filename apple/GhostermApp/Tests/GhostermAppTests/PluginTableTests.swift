@@ -63,14 +63,41 @@ final class PluginTableTests: XCTestCase {
         XCTAssertTrue(predicate(), "Expected explicit table fixture barrier")
     }
     func testSearchContinuesFromAnEmptyPageAndDropsLateReply() async throws {
+        TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
         let f = PluginTableFixture()
         let model = PluginTableModel(rpc: { try await f.request($0, $1) }, isCurrent: { true }, supportsSearch: true)
         await model.load()
-        await model.search("value")
+        let host = NSHostingView(rootView: PluginTableView(model: model).padding(16))
+        host.frame = NSRect(x: 0, y: 0, width: 760, height: 640)
+        let window = PluginTableWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        TestWindows.presentOffscreen(window)
+        defer { window.close() }
+        func status(_ identifier: String, _ message: String) -> Bool {
+            host.layoutSubtreeIfNeeded()
+            return PluginTableRendering.elements(host).contains { node in
+                PluginTableRendering.attribute(node, "accessibilityIdentifier") == identifier &&
+                    ["accessibilityLabel", "accessibilityValue"].contains {
+                        PluginTableRendering.attribute(node, $0) == message
+                    }
+            }
+        }
+        f.pauseMethod = PluginTableModel.searchMethod
+        let first = Task { await model.search("value") }
+        defer { f.release() }
+        try await until { f.barrier != nil && status("plugin-table-loading", "正在搜索表格…") }
+        f.release()
+        await first.value
+        try await until { status("plugin-table-range", "本页没有匹配项，可继续搜索") }
         XCTAssertEqual(model.searchPage?.rows, [])
         XCTAssertEqual(model.searchPage?.cursor, 128)
         XCTAssertTrue(model.searchTruncated)
         await model.continueSearch()
+        try await until { status("plugin-table-range", "本页有 1 个匹配项") }
         XCTAssertEqual(model.searchPage?.rows.map(\.id), ["1"])
         XCTAssertTrue(model.searchTruncated)
         let parameters = try XCTUnwrap(JSONSerialization.jsonObject(with: f.calls.last!.1) as? [String: Any])

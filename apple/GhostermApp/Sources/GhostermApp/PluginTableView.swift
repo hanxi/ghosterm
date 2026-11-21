@@ -6,8 +6,8 @@ struct PluginTableView: View {
     @ObservedObject var model: PluginTableModel
     @State private var query = ""
     var body: some View {
-        let loading = "正在读取表格…"
         let searching = model.searchQuery != nil
+        let loading = searching ? "正在搜索表格…" : "正在读取表格…"
         let rows = searching ? model.searchPage?.rows : model.page?.rows
         let range = searching ? model.searchPage.map { page in
             if page.rows.isEmpty {
@@ -30,7 +30,10 @@ struct PluginTableView: View {
                 }
             }
             if let issue = model.issue { Text(issue).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("plugin-table-issue") }
-            if model.busy { ProgressView(loading).accessibilityIdentifier("plugin-table-loading") }
+            if model.busy {
+                ProgressView(loading).accessibilityLabel(Text(verbatim: loading))
+                    .accessibilityIdentifier("plugin-table-loading")
+            }
             if let descriptor = model.descriptor, let rows {
                 if let range { Text(verbatim: range).accessibilityIdentifier("plugin-table-range") }
                 if model.searchTruncated { Text("部分历史记录已超出保留范围") }
