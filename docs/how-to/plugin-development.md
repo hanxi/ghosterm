@@ -1005,6 +1005,12 @@ GitHub Release 用于分发应用和供用户手动导入的插件包。渠道�
 文件应部署到能直接返回 HTTP 200 的 HTTPS 目录。两端渠道刷新会拒绝重定向，
 因此不能将 `github.com/.../releases/download/<tag>/` 用作策略目录。
 
+使用本仓库的 GitHub Pages 时，把签名后的三个文件放在 `site/plugins/`，
+并将应用渠道 URL 指向 Pages 站点下的最终 `plugins/` HTTPS 目录。Pages
+部署前用 macOS 渠道名和根公钥验证策略。两个 macOS 变量都为空时，改用
+Android 的渠道名和根公钥。部署后，工作流从公开地址下载这三个文件，
+复验签名并逐字节对照本轮部署内容。两端共用这个目录时，渠道名和根公钥也应一致。
+
 ### 宿主配置和撤销
 
 - macOS 随包配置使用 `GHOSTERM_PLUGIN_CHANNEL`、`GHOSTERM_PLUGIN_CHANNEL_ROOT`
