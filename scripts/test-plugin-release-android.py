@@ -33,9 +33,9 @@ def run(command, environment, seconds=180):
     return result.stdout + result.stderr
 
 
-def headless_dependencies(api, environment):
+def headless_dependencies(api, environment, image=None):
     sdk = Path(environment.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk')).resolve()
-    image = sdk / f'system-images/android-{api}/google_apis/arm64-v8a'
+    image = image or sdk / f'system-images/android-{api}/google_apis/arm64-v8a'
     missing = [str(p) for p in (sdk / 'platform-tools/adb', sdk / 'emulator/emulator')
                if not p.is_file() or not os.access(p, os.X_OK)]
     if not image.is_dir():
@@ -46,8 +46,8 @@ def headless_dependencies(api, environment):
 
 
 @contextmanager
-def headless(api, work, environment):
-    sdk, image = headless_dependencies(api, environment)
+def headless(api, work, environment, image=None):
+    sdk, image = headless_dependencies(api, environment, image)
     for name in ['avds', 'user', 'emulator', 'discovery', 'crash']:
         (work / name).mkdir()
     avd = work / 'avds/release.avd'; avd.mkdir()

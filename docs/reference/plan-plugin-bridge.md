@@ -16074,3 +16074,12 @@ API 29 arm64 / 4 KiB 页同档无窗口模拟器通过 Kitty Canvas 与动画引
 覆盖放置边界、相对及虚拟放置、动画时钟、Canvas、背景、PNG 透明度、图像尺寸和帧数。
 每组实际编译触发预期断言，同 APK Core 对照及恢复后复验通过，源文件 SHA256 一致。
 模拟器以 0 退出，临时目录已清理。
+
+### P1 Android API 36 16 KiB 页终端联合复验（2026-11-21）
+
+官方 Google APIs arm64 16 KiB 系统镜像修订 7，API 36 / extension 17，
+在自有无窗口模拟器上实测 `getconf PAGE_SIZE=16384`。
+QuickJS 开启的 Debug 与测试 APK 经真实回环 SSH 夹具完成 35 项，
+覆盖 Kitty Canvas 与动画、OSC 52、DCS 内嵌候选隔离、TCP 重置后的读取错误，
+以及背压达到待发上限后的写诊断保留与候选清理。模拟器以 0 退出，
+本轮镜像、下载和运行目录已清理。此处为 16 KiB 页基线，变异与真机验收另记。
