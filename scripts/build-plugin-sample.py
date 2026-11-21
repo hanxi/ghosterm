@@ -28,10 +28,13 @@ def main():
         if (tools / name).read_bytes() != (ROOT / 'scripts/fixtures/plugin-sdk-tools' / name).read_bytes():
             parser.error('locked SDK developer tools required')
     manifest = json.loads((source / 'plugin.json').read_text())
-    env = {**os.environ, 'TMPDIR': str(ROOT / 'tmp')}
+    tmp_root = ROOT / 'tmp'
+    requested_tmp = Path(os.environ.get('TMPDIR', str(tmp_root))).resolve()
+    temporary_root = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(tmp_root) else tmp_root
+    env = {**os.environ, 'TMPDIR': str(temporary_root), 'TMP': str(temporary_root), 'TEMP': str(temporary_root)}
     version = subprocess.check_output(['node', str(tools / 'node_modules/typescript/bin/tsc'), '--version'], env=env, text=True, timeout=10).strip()
     if version != 'Version 5.9.3': raise ValueError('TypeScript 5.9.3 is required')
-    with tempfile.TemporaryDirectory(prefix='sample-build-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='sample-build-', dir=temporary_root) as temporary:
         work = Path(temporary); stage = work / 'package'; stage.mkdir()
         subprocess.run(['node', str(tools / 'node_modules/typescript/bin/tsc'), '-p', str(source / 'tsconfig.json'),
             '--noEmit', 'false', '--rootDir', str(ROOT), '--outDir', str(work / 'emitted'), '--noEmitOnError', 'true'],
