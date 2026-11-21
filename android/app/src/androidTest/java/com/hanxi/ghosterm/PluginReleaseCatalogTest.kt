@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -15,6 +16,35 @@ import java.util.UUID
 /** Storage and unverified declarations only. Real Core/signatures are a separate suite. */
 @RunWith(AndroidJUnit4::class)
 class PluginReleaseCatalogTest {
+    @Test fun channelRecordKeepsOldBytesUntilPublicationAndReportsUncertainSync() {
+        val root = PluginInstallTestFiles.root()
+        val name = "channel-policy-v1-" + "a".repeat(64)
+        val previous = byteArrayOf(1, 2, 3)
+        val candidate = ByteArray(32 * 1024) { (it % 251).toByte() }
+        try {
+            owner(root).use {
+                assertTrue(it.writeChannelRecord(name, previous, null))
+                var chunks = 0
+                val failure = runCatching {
+                    it.writeChannelRecord(name, candidate, previous, checkpoint = { phase ->
+                        if (phase == "file-chunk" && ++chunks == 2) throw ErrnoException("write", OsConstants.ENOSPC)
+                    })
+                }.exceptionOrNull()
+                assertEquals(OsConstants.ENOSPC, (failure as? ErrnoException)?.errno)
+                assertArrayEquals("Unpublished channel data must leave the verified record intact",
+                    previous, it.readChannelRecord(name))
+                assertFalse(root.list().orEmpty().any { entry -> entry.startsWith(".selection-") })
+                assertFalse("Parent sync failure must not report durable channel publication",
+                    it.writeChannelRecord(name, candidate, previous,
+                        parentSync = { throw ErrnoException("fsync", OsConstants.EIO) }))
+            }
+            owner(root).use {
+                assertArrayEquals("Published channel bytes must be available for reconciliation",
+                    candidate, it.readChannelRecord(name))
+            }
+        } finally { root.deleteRecursively() }
+    }
+
     private val plugin = "org.ghosterm.fixture"
     private val a = "a".repeat(64); private val b = "b".repeat(64)
     private fun owner(root: File) = checkNotNull(PluginReleaseCatalog.open(root))

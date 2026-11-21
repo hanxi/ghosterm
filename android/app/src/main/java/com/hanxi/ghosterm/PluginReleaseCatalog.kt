@@ -204,8 +204,9 @@ internal class PluginReleaseCatalog private constructor(
         return readFile(fd.fd, name, 200_000)
     }
 
-    fun writeChannelRecord(name: String, raw: ByteArray, previous: ByteArray?): Boolean =
-        writeRecord(name, raw, previous == null, {}, { Os.fsync(it) }) {
+    fun writeChannelRecord(name: String, raw: ByteArray, previous: ByteArray?,
+        checkpoint: (String) -> Unit = {}, parentSync: (FileDescriptor) -> Unit = { Os.fsync(it) }): Boolean =
+        writeRecord(name, raw, previous == null, checkpoint, parentSync) {
             val current = readChannelRecord(name)
             demand(if (previous == null) current == null else current?.contentEquals(previous) == true, Reason.CONFLICT)
         }
