@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -66,9 +67,16 @@ class PluginDiffUiTest {
         ui.runOnIdle { f.pause = "view.diff.page" }
         ui.onNodeWithTag("plugin-diff-next").performScrollTo().performClick()
         ui.waitUntil(5000) { f.entered.isCompleted }
+        val announcement = SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
+        ui.onNodeWithTag("plugin-diff-loading").assert(announcement)
+        ui.onNodeWithTag("plugin-diff-range").assertDoesNotExist()
         ui.onNodeWithTag("plugin-diff-text-0").assertDoesNotExist()
         ui.onNodeWithTag("plugin-diff-next").assertIsNotEnabled(); ui.onNodeWithTag("plugin-diff-reload").assertIsNotEnabled()
         ui.runOnIdle { f.release.complete(Unit) }; ui.waitUntil(5000) { model.state.value.page?.offset == 3 }
+        val page = checkNotNull(model.state.value.page)
+        val total = checkNotNull(model.state.value.descriptor).total
+        ui.onNodeWithTag("plugin-diff-range").assert(announcement)
+            .assertTextEquals("第 4–${page.offset + page.rows.size} 行，共 $total 行")
     }
     private fun painted(dark: Boolean, scale: Float) = fixture(dark = dark, scale = scale) { model, _ ->
         val text = ui.onNodeWithTag("plugin-diff-text-0").performScrollTo().assertTextEquals("alpha").assertIsDisplayed()

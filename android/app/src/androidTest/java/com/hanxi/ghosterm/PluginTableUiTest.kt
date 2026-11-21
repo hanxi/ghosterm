@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -67,11 +68,18 @@ class PluginTableUiTest {
         ui.runOnIdle { f.pause = "view.table.page" }
         ui.onNodeWithTag("plugin-table-next").performScrollTo().performClick()
         ui.waitUntil(5000) { f.entered.isCompleted }
+        val announcement = SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
+        ui.onNodeWithTag("plugin-table-loading").assert(announcement)
+        ui.onNodeWithTag("plugin-table-range").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-cell-1-n").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-next").assertIsNotEnabled()
         ui.onNodeWithTag("plugin-table-reload").assertIsNotEnabled()
         ui.runOnIdle { f.release.complete(Unit) }
         ui.waitUntil(5000) { model.state.value.page?.offset == 16 }
+        val page = checkNotNull(model.state.value.page)
+        val total = checkNotNull(model.state.value.descriptor).total
+        ui.onNodeWithTag("plugin-table-range").assert(announcement)
+            .assertTextEquals("第 17–${page.offset + page.rows.size} 行，共 $total 行")
     }
     @Test fun darkLargeTextKeepsHeadersCellsCollectionAndPagingAccessible() = fixture(dark = true, scale = 2f, total = 17) { model, _ ->
         ui.onNodeWithTag("plugin-table-column-n").performScrollTo().assertTextEquals("Number")
