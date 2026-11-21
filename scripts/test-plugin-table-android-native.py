@@ -170,6 +170,7 @@ def main():
                         def actual(label, route, count, red=False):
                             token = secrets.token_hex(24); mappings = []
                             payload = dict(route=route, count=count, package=str(package), gterm=str(build / 'gterm'), ports=list(ports),
+                                temporary=str(work),
                                 hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                                 packageDigest=sha(package / 'integrity.json'), packageFiles={p.relative_to(package).as_posix():
                                     base64.b64encode(p.read_bytes()).decode('ascii') for p in package.rglob('*') if p.is_file()})

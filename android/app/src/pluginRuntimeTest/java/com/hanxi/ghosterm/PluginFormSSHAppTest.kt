@@ -65,6 +65,7 @@ class PluginFormSSHAppTest {
         val extensions = ViewModelProvider(ui.activity)[ExtensionPackagesViewModel::class.java]
         val sessions = ViewModelProvider(ui.activity)[SessionsViewModel::class.java]
         val owner = checkNotNull(extensions.controller)
+        var group: ExtensionConnectionModel? = null
         try {
             val review = runBlocking { owner.review(root) }
             assertTrue("ui.form" in review.requiredCapabilities)
@@ -104,9 +105,9 @@ class PluginFormSSHAppTest {
                 await("Form Client activation: ${main { extensions.error }}") { main { extensions.pendingPluginForm != null || extensions.error != null } }
                 assertNull(main { extensions.error })
             }
-            fun status(method: String = "form.status") = runBlocking {
+            fun status(method: String = "form.status", model: ExtensionPackagesViewModel = extensions) = runBlocking {
                 withContext(Dispatchers.Main) {
-                    JSONObject(extensions.requestPluginViewOutcome(method, "{}".toByteArray()).decodeToString())
+                    JSONObject(model.requestPluginViewOutcome(method, "{}".toByteArray()).decodeToString())
                         .getJSONObject("value")
                 }
             }
@@ -141,7 +142,63 @@ class PluginFormSSHAppTest {
             main { extensions.answerPluginForm(second.token, PluginForm.Answer.Dismissed) }
             assertEquals("cancelled", status().getString("status"))
             stopForm()
+
+            val temporary = payload.getString("temporary")
+            main {
+                repeat(2) {
+                    extensions.enqueueGroup(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"),
+                        review.commands.single(), target.alias, request, null, temporary)
+                }
+                assertNull(extensions.error)
+                assertEquals(2, extensions.pendingGroup.size)
+                extensions.launchGroup(sessions) { target }
+            }
+            await("Form group created") { main { extensions.connectionGroups.size == 1 } }
+            val connection = main { extensions.connectionGroups.single() }
+            group = connection
+            var handled: Triple<Long, Int, SSHAuthPhase>? = null
+            val deadline = SystemClock.elapsedRealtime() + 60000
+            while (main { connection.busy && connection.issue == null } && SystemClock.elapsedRealtime() < deadline) {
+                val prompt = main { sessions.connecting?.auth }
+                val identity = prompt?.let { Triple(it.request, it.hop, it.phase) }
+                if (prompt == null || identity == handled) { SystemClock.sleep(20); continue }
+                handled = identity
+                when (prompt.phase) {
+                    SSHAuthPhase.CREDENTIALS -> runBlocking {
+                        connection.controller.submitSSHPrivateKey(prompt, payload.getString("pem").toByteArray(), byteArrayOf())
+                    }
+                    SSHAuthPhase.HOSTKEY -> fail("Only explicitly pinned owned hosts may be used")
+                    SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail("Owned form group SSH authentication failed")
+                    else -> SystemClock.sleep(20)
+                }
+            }
+            assertNull(main { connection.issue })
+            assertFalse(main { connection.busy })
+            val models = main { connection.instances.map { it.model } }
+            assertEquals(2, models.size)
+            for (model in models) {
+                main { model.decideConsent(true) }
+                await("Group form is presented") { main { model.pendingPluginForm != null || model.error != null } }
+                assertNull(main { model.error })
+            }
+            val (left, right) = models
+            val leftForm = main { checkNotNull(left.pendingPluginForm) }
+            val rightForm = main { checkNotNull(right.pendingPluginForm) }
+            assertEquals(leftForm.form.id, rightForm.form.id)
+            assertNotEquals(leftForm.instanceID, rightForm.instanceID)
+            main { right.answerPluginForm(leftForm.token, PluginForm.Answer.Dismissed) }
+            assertEquals("pending", status(model = right).getString("status"))
+            main { left.answerPluginForm(leftForm.token, PluginForm.Answer.Dismissed) }
+            await("Left form dismissed") { main { left.pendingPluginForm == null } }
+            assertEquals("dismissed", status(model = left).getString("status"))
+            assertEquals("pending", status(model = right).getString("status"))
+            assertSame(rightForm.token, main { right.pendingPluginForm?.token })
+            assertTrue(status("form.cancel", right).getBoolean("requested"))
+            await("Right form cancelled") { main { right.pendingPluginForm == null } }
+            assertEquals("cancelled", status(model = right).getString("status"))
+            assertTrue(runBlocking { withContext(Dispatchers.Main) { connection.close() } })
         } finally {
+            group?.let { connection -> runBlocking { withContext(Dispatchers.Main) { connection.close() } } }
             main { if (!extensions.launchBusy) extensions.stopRuntime() }
             runBlocking { owner.requestStopRuntime(); owner.close() }
             if (original == null) known.delete() else known.writeBytes(original)
