@@ -564,7 +564,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             val transferred = callback(readyState)
                             check(transferred) { "插件 SSH 通道的原生处理未完成" }
                             extensionTransferred = true
-                            attempt.connection = null; connecting = null
+                            attempt.connection = null
+                            if (connecting === attempt) connecting = null
                             break
                         }
                         if (terminalState?.connected == true || fileState?.ready == true || tmuxState?.ready==true) {
