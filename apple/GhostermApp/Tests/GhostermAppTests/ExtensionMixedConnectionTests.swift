@@ -47,33 +47,43 @@ import XCTest
         } while ProcessInfo.processInfo.systemUptime < end
         XCTFail(label); throw GhostermError.failed(label)
     }
-    @discardableResult private func echo(_ model: ExtensionInstanceModel, text: String, count: Int) async throws -> Bool {
+    @discardableResult private func echo(_ model: ExtensionInstanceModel, text: String, count: Int,
+                                         stage: String? = nil) async throws -> Bool {
+        let operation = "fixture.echo \(text)/\(count)"
+        let label = stage.map { "\($0): \(operation)" } ?? operation
+        let started = ProcessInfo.processInfo.systemUptime
         let owner = try XCTUnwrap(model.extensionController)
         let admission = try await owner.requestExecutorRPC(method: "fixture.echo",
             input: JSONSerialization.data(withJSONObject: ["text": text, "count": count]), timeoutMilliseconds: 10000)
         let handle = try XCTUnwrap(admission.handle)
         var terminal: ExtensionSession.RPCResult?
-        try await until("fixture.echo \(text)/\(count) did not reach a terminal state") {
+        try await until("\(label) did not reach a terminal state") {
             let (status, result) = try await owner.executorRPCResult(handle: handle)
-            guard status == .ok else { throw GhostermError.failed("fixture.echo \(text)/\(count): result status \(status)") }
+            guard status == .ok else { throw GhostermError.failed("\(label): result status \(status)") }
             guard let result, result.state != .queued, result.state != .pending else { return false }
             terminal = result
             return true
         }
         let result = try XCTUnwrap(terminal)
         let detail = String(decoding: result.outcome, as: UTF8.self)
-        XCTAssertTrue(result.state == .succeeded && result.confirmed,
-                      "fixture.echo \(text)/\(count): \(result.state), confirmed=\(result.confirmed), \(detail)")
-        guard result.state == .succeeded, result.confirmed else { return false }
+        guard result.state == .succeeded, result.confirmed else {
+            let run = model.extensionRun
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            XCTFail("\(label): \(result.state), confirmed=\(result.confirmed), elapsed=\(elapsed)s, " +
+                    "runtime=\(run?.runtime?.phase.description ?? "unobserved"), " +
+                    "session=\(run?.session?.phase.description ?? "unobserved"), " +
+                    "resources=\(run?.receivedResources.count ?? 0), \(detail)")
+            return false
+        }
         let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: result.outcome) as? [String: Any])
         let value = try XCTUnwrap(outcome["value"] as? [String: Any])
         XCTAssertEqual(value["text"] as? String, text); XCTAssertEqual(value["count"] as? Int, count)
         let forgotten = try await owner.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
         return true
     }
-    private func resource(_ model: ExtensionInstanceModel, slot: Int) async throws -> Bool {
-        guard try await echo(model, text: "resource", count: slot) else { return false }
-        try await until("resource \(slot): \(model.extensionRunIssue ?? "")") { model.extensionRun?.receivedResources.count == 1 }
+    private func resource(_ model: ExtensionInstanceModel, slot: Int, stage: String) async throws -> Bool {
+        guard try await echo(model, text: "resource", count: slot, stage: stage) else { return false }
+        try await until("\(stage): resource \(slot) was not received") { model.extensionRun?.receivedResources.count == 1 }
         let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first)
         let expected = Data((0..<262144).map { UInt8(($0 + slot * 17) % 251) })
         XCTAssertEqual(resource.bytes, expected); XCTAssertEqual(resource.size, 262144)
@@ -165,7 +175,7 @@ import XCTest
         }
         if let managedReleaseID {
             let model = try XCTUnwrap(group.instances.first)
-            guard try await resource(model, slot: 0) else { return }
+            guard try await resource(model, slot: 0, stage: "before revocation") else { return }
             for tab in app.tabs.tabs { tab.workspacePanes.removeAll { $0.extensionInstance === model } }
             XCTAssertTrue(model.canInteractWithRuntime)
             let before = try await catalog.installedVersions()
@@ -205,7 +215,7 @@ import XCTest
         }
         if disconnect {
             let model = try XCTUnwrap(group.instances.first)
-            guard try await resource(model, slot: 0) else { return }
+            guard try await resource(model, slot: 0, stage: "before disconnect") else { return }
             app.showExtensionWorkspace()
             XCTAssertEqual(app.channelStopTargets.filter { $0 === app.extensionInstance }.count, 1,
                            "the primary instance and its pane must be visited only once")
@@ -251,7 +261,9 @@ import XCTest
                 do { try await self.echo(model, text: "slot-\(slot)", count: slot) } catch { XCTFail("mixed RPC: \(error)") }
             } }
         }
-        for (slot, model) in group.instances.enumerated() { guard try await resource(model, slot: slot) else { return } }
+        for (slot, model) in group.instances.enumerated() {
+            guard try await resource(model, slot: slot, stage: "initial instances") else { return }
+        }
         XCTAssertEqual(Set(group.instances.compactMap { $0.extensionRun?.receivedResources.first?.sha256 }).count, 8)
         let uncertain = group.instances[3]
         let invalidInput = Data("[]".utf8)
@@ -286,7 +298,7 @@ import XCTest
         XCTAssertEqual(replacement.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
         await replacement.decideExtensionConsent(allow: true)
         try await until("replacement activation") { replacement.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
-        guard try await resource(replacement, slot: 3) else { return }
+        guard try await resource(replacement, slot: 3, stage: "online Node replacement") else { return }
         for model in group.instances { let done = await model.requestClose(); XCTAssertTrue(done) }
         let empty = try await group.controller.stepMultiplexConnection(); XCTAssertEqual(empty.instances, 0); XCTAssertTrue(group.canAdd)
         let reopened = await group.add(try invocation(0, runtime: "exec", signed: true), app: app)
@@ -294,7 +306,7 @@ import XCTest
         let final = try XCTUnwrap(group.instances.last)
         await final.decideExtensionConsent(allow: true)
         try await until("empty connection Exec activation") { final.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue }
-        guard try await resource(final, slot: 0) else { return }
+        guard try await resource(final, slot: 0, stage: "Exec reopened after empty group") else { return }
         let done = await group.close(); XCTAssertTrue(done)
         XCTAssertTrue(group.state?.released == true); XCTAssertTrue(group.state?.peerEOF == true)
         if route == "local" { XCTAssertTrue(group.process?.reaped == true) }
