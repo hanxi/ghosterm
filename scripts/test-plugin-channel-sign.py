@@ -21,12 +21,15 @@ def main():
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     node = Path(shutil.which('node')).resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix='pcs-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='pcs-', dir=work_tmp) as temporary:
         work = Path(temporary)
         root_dir, publisher_dir = work / 'root', work / 'pub'
         root_dir.mkdir()
         publisher_dir.mkdir()
-        env = dict(os.environ, TMPDIR=str(work))
+        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary)
         with helper.agent(node, root_dir) as (root, root_endpoint), helper.agent(node, publisher_dir) as (publisher, publisher_endpoint):
             def cli(arguments, expected=None):
                 result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', *map(str, arguments)],
