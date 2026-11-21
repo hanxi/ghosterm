@@ -153,7 +153,10 @@ import XCTest
         nested.replaceSubrange(0..<16, with: Data(repeating: 0x22, count: 16))
         let nestedOffer = "\\033]777;ghosterm-discovery;1;\(nested.base64EncodedString())\\007"
         let offer = "\\033]777;ghosterm-discovery;1;\(payload)\\007"
-        surface.sendCommittedText("printf '%b%s' '\\033P\(nestedOffer)\\033\\0134\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
+        let nestedStrings = ["P", "X", "^", "_"].map {
+            "\\033\($0)\(nestedOffer)\\033\\0134"
+        }.joined()
+        surface.sendCommittedText("printf '%b%s' '\(nestedStrings)\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
         try await until { surface.readText()?.contains("PTY_OUTPUT") == true }
     }
 
@@ -175,7 +178,8 @@ import XCTest
         }
         XCTAssertFalse(model.frontendCandidates.isEmpty, "top-level discovery must arrive after ordinary PTY output")
         guard !model.frontendCandidates.isEmpty else { return }
-        XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)])
+        XCTAssertEqual(model.frontendCandidates.map(\.offer.instance), [String(repeating: "1", count: 32)],
+                       "DCS, SOS, PM and APC payloads must not emit passive discovery candidates")
         XCTAssertEqual(model.frontendCandidates.first?.sourceID, pane.id)
         XCTAssertNil(model.extensionRun)
         if ending == .idle {
