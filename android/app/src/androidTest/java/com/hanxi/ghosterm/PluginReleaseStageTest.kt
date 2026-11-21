@@ -1,13 +1,61 @@
 package com.hanxi.ghosterm
 
+import android.os.Build
+import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+
+@RunWith(AndroidJUnit4::class)
+class PluginReleaseCapacityTest {
+    @Test fun fullFilesystemPreservesInstalledVersionAndDiscardsIncompleteStage() {
+        val arguments = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue(arguments.getString("ownedInstallCapacityAvd") == "true")
+        check(Build.HARDWARE == "ranchu") { "Storage exhaustion requires an owned emulator" }
+        val fixture = PluginInstallTestFiles.root()
+        val root = File(fixture, "store")
+        val priorID = "a".repeat(64)
+        val candidateID = "b".repeat(64)
+        val filler = File(fixture, "capacity-reservation")
+        fun available(): Long = Os.statvfs(fixture.path).let { it.f_bavail * it.f_frsize }
+        try {
+            val stats = Os.statvfs(fixture.path)
+            val capacity = stats.f_blocks * stats.f_frsize
+            check(capacity in 1..3L * 1024 * 1024 * 1024) {
+                "The fixture requires a bounded emulator data partition, found $capacity bytes"
+            }
+            PluginReleaseStage.create(root, priorID).use {
+                it.write("payload/prior", "installed version".toByteArray())
+                assertTrue(it.publish().durabilityConfirmed)
+            }
+            PluginReleaseStage.create(root, candidateID).use { candidate ->
+                candidate.write("payload/complete", byteArrayOf(1, 2, 3))
+                try {
+                    val fd = Os.open(filler.path, OsConstants.O_WRONLY or OsConstants.O_CREAT or OsConstants.O_EXCL, 384)
+                    try {
+                        val reserve = 2L * 1024 * 1024
+                        val size = available() - reserve
+                        check(size > reserve)
+                        Os.posix_fallocate(fd, 0, size)
+                        assertTrue(available() < 8L * 1024 * 1024)
+                        val failure = runCatching { candidate.write("payload/incomplete", ByteArray(8 * 1024 * 1024)) }
+                            .exceptionOrNull()
+                        assertEquals("candidate write must reach real ENOSPC", OsConstants.ENOSPC, (failure as? ErrnoException)?.errno)
+                    } finally { Os.close(fd) }
+                } finally { check(filler.delete() || !filler.exists()) }
+            }
+            assertEquals(listOf(priorID), root.list()!!.toList())
+            assertEquals("installed version", File(root, "$priorID/payload/prior").readText())
+        } finally { PluginInstallTestFiles.clean(fixture) }
+    }
+}
 
 @RunWith(AndroidJUnit4::class)
 class PluginReleaseStageTest {
