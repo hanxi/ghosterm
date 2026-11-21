@@ -83,6 +83,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--api', type=int, choices=(29, 36), default=36,
                         help='API 29 uses the TalkBack APK from the local API 36 image')
+    parser.add_argument('--system-image', type=Path, help='installed system image for the owned target AVD')
+    parser.add_argument('--expect-page-size', type=int, choices=(4096, 16384),
+                        help='require the guest to use this page size before installing any APK')
     args = parser.parse_args()
     artifacts = ROOT / 'android/app/build/outputs/apk'
     apks = [artifacts / 'debug/app-debug.apk', artifacts / 'androidTest/debug/app-debug-androidTest.apk']
@@ -113,10 +116,18 @@ def main():
 
         target = work / f'api{args.api}'
         target.mkdir()
-        with runner['headless'](args.api, target, env) as (selected, device):
+        image = args.system_image.resolve(strict=True) if args.system_image else None
+        with runner['headless'](args.api, target, env, image) as (selected, device):
             def adb(*args, seconds=30):
                 return runner['run']([*selected, *args], device, seconds)
 
+            api = adb('shell', 'getprop', 'ro.build.version.sdk').strip()
+            page_size = adb('shell', 'getconf', 'PAGE_SIZE').strip()
+            if api != str(args.api):
+                raise RuntimeError(f'Expected API {args.api}, observed {api}')
+            if args.expect_page_size is not None and page_size != str(args.expect_page_size):
+                raise RuntimeError(f'Expected page size {args.expect_page_size}, observed {page_size}')
+            print(f'Owned Android API {api}, page size {page_size}', flush=True)
             if talkback_apk is not None:
                 adb('install', talkback_apk)
             prepare(selected, device, adb, args.api)
