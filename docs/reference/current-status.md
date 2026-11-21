@@ -1,17 +1,17 @@
 # 当前状态
 
-非插件产品源码说明于 2026-11-18 对照当前工作区复核；macOS SFTP owner、staged download、Quick Look 硬上限和事件终态保护的定向结果见[两端待办核对](platform-todos.md)。下列线上发行快照仍为 2026-11-04（当时文档核对源码基线 `d9ef45a`），本轮未查询线上资产。插件源码专项更新至 2026-11-17，见下文。源码、线上发行、完整测试分别记账；滚动 dev 下载应同时核对随包收据，不把本页快照当固定版本承诺。
+非插件产品源码说明于 2026-11-18 对照工作区复核。macOS SFTP owner、staged download、Quick Look 硬上限和事件终态保护的定向结果见[两端待办核对](platform-todos.md)。线上发行和插件专项更新至 2026-11-22。滚动 dev 下载应核对随包收据。
 
 ## 源码与发行
 
 | 范围 | 核对结果 |
 |---|---|
 | 2026-11-04 产品源码基线 | `07b278e`，已包含 Android 设备存储浏览、触屏/连发、文件连接复用、专注终端与菜单输入法修正 |
-| 2026-11-04 线上 macOS dev 快照 | `3345893` / build 107 / arm64 / 最低 macOS 15.0 / ad-hoc / 未公证 |
-| 2026-11-04 线上 Android dev 快照 | `d9ef45a` / clean / release / arm64-v8a / min SDK 29（Android 10）；8,692,793 字节；R8 与资源裁剪开启 |
-| 发行查询来源 | [macOS version.json](https://github.com/hanxi/ghosterm/releases/download/dev/version.json)、[Android build-info](https://github.com/hanxi/ghosterm/releases/download/dev/android-build-info.json)，2026-11-04 实际读取 |
+| 2026-11-22 线上 macOS dev 快照 | `912ebcbf` / build 156 / arm64 / 最低 macOS 15.0 / ad-hoc / 未公证 |
+| 2026-11-22 线上 Android dev 快照 | `912ebcbf` / clean / release / arm64-v8a / min SDK 29（Android 10），8,968,397 字节，R8 与资源裁剪开启 |
+| 发行查询来源 | [macOS version.json](https://github.com/hanxi/ghosterm/releases/download/dev/version.json)、[Android build-info](https://github.com/hanxi/ghosterm/releases/download/dev/android-build-info.json)，2026-11-22 实际读取 |
 
-2026-11-04 核对时，Android 线上为 `d9ef45a`，包含 `07b278e` 的顶部区域与菜单输入法修正；macOS 为 `3345893`，两条工作流产物来自不同提交。这是当时远端清单的读取结果，未另下载 APK 做签名/设备复验，当时等待中的 Mac CI 也未预记成功。旧 `ae164f1`、`808c0ae` 等发行大小、构建号和测试同样保留为历史；本轮源码核对不更新线上快照。
+GitHub 线上仅有 `dev` 预发布。两端已发布资产各自通过签名与来源审计。现有 `v0.1.0` 标签指向 `c10752dc`，正式 Release 尚未创建，生产插件渠道尚未配置。2026-11-04 的 macOS `3345893` 和 Android `d9ef45a` 属历史发行快照。
 
 ## 产品范围
 
@@ -20,12 +20,13 @@
 - iOS、Windows、Linux、HarmonyOS、Web 原生客户端尚未交付。落地页是产品介绍网站，不是 Web 终端。
 - 默认普通终端，远端主机统一面板可自动查询 tmux，普通终端无需等待；创建/attach 仍由用户显式选择。本地默认和普通终端快捷入口不探测。自有 sessiond、私有恢复协议及随包 runtime 已退役。
 - 非插件后续源码：Android 已有固定会话按钮/同窗口覆盖面板与切换保持 IME（§9.207–§9.208）、字形裁切/半圆接缝（§9.209/§9.212–§9.213）；两端 ProxyJump 已接普通终端/SFTP/tmux（§9.214）。macOS 已接用户选择下载/重启的 Sparkle/Ed25519 更新与清单/渠道校验，见[更新说明](../how-to/macos-updates.md)。这些本地实现与专项不更新上方历史发行快照。
-- 插件源码（2026-11-17，本地 `264af42f` 及后续切片）：共享 C 通道 / Session / Runtime / scoped resource、Portable SDK / QuickJS、gterm 显式 relay / IPC 和 macOS / Android 原生资源 / 对话 / 通用视图已接候选。P6 已接离线签名、两端原子安装 / 活动版本 / 禁用回滚 / 旧引用与显式维护；Android 声明差异至第二十二批。普通 App 仍 JS-off，普通 `gterm <业务命令>` 分派不支持；真实模型 / 批准整链、完整 UI / 生命周期 / 设备及发行矩阵尚未闭环。具体范围以[插件计划](plan-plugin-bridge.md)各批为准，网关与其它原生端未交付。
+- 插件源码候选 `560e85ac` 已接共享 C 通道、Portable／Node／Exec、原生预览和标准视图、签名安装、版本选择、撤销与回滚。gterm 支持显式 relay、IPC 和开发包命令入口。普通 App 默认关闭 QuickJS。系统选包、VoiceOver 和生产发行仍待验，Claude 与 Codex 真实后端联调按用户安排暂缓。具体范围见[插件计划](plan-plugin-bridge.md)。
 
 详细平台差异见[能力矩阵](capability-matrix.md)。
 
 ## 验证范围
 
+- 2026-11-22 插件专项先后通过两档 Core 闸门（612／874 项，207 ABI）、Apple／JNI 对拍、macOS 签名专项（124 项与 7 项回环 SSH）、Android API 29／36 的签名渠道 HTTPS（含 API 36 的 16 KiB 页）以及开发工具 76 项。一轮双端正式形态构建在 `0a0cf885` 使用测试签名通过九项资产联合审计。实际安装、完整客户端回归和发行证据见[插件计划](plan-plugin-bridge.md)各批。
 - 最近同源完整 Android 记录：`ae164f1`，API 29 / arm64 / 4 KiB 与 API 36 / arm64 / 16 KiB 各默认完整 942 项通过（[§9.191](android-implementation.md#9191-会话快照修正后的双系统完整-942-项2026-11-03)）。后续修改没有借用这轮结果声称新源码完整通过。
 - 后续非插件专项还包括 §9.205–§9.214 的连接提示、会话/IME、字体、统一入口与 ProxyJump；各自按日志记录的系统/页大小/分轮范围成立，不将其记为新完整回归。
 - 后续本地定向：§9.200–§9.204 分别保存设备存储、触屏/连发、文件 owner 复用、全屏布局及菜单 IME 的分轮结果和失败；当时 Core 记录为 51 CTest / 95 ABI，静态绑定对拍为 Apple 91 引用/4 登记未用、JNI 57 引用/38 登记未用。各原生构建、lint 和变异的范围见对应节，不相加冒充全客户端回归。
