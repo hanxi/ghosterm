@@ -33,22 +33,68 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: 核对正式发行输入
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.inputs.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: 核对远端标签和签名配置
+        id: inputs
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          MACOS_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
+          MACOS_UPDATE_PRIVATE_KEY: ${{ secrets.MACOS_UPDATE_PRIVATE_KEY }}
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          version="$(bash scripts/resolve-formal-release-version.sh "$REQUESTED_VERSION")"
+          tag_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/v$version" --jq .sha)"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "远端正式标签 v$version 与本轮提交不一致" >&2
+            exit 1
+          fi
+          missing=0
+          for name in MACOS_UPDATE_PUBLIC_KEY MACOS_UPDATE_PRIVATE_KEY ANDROID_RELEASE_KEYSTORE_BASE64 \
+                      ANDROID_RELEASE_STORE_PASSWORD ANDROID_RELEASE_KEY_PASSWORD ANDROID_RELEASE_KEY_ALIAS; do
+            if [[ -z "${!name}" ]]; then
+              echo "缺少正式发行配置 $name" >&2
+              missing=1
+            fi
+          done
+          if (( missing )); then exit 1; fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
   package:
+    needs: preflight
+    if: ${{ !cancelled() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped') }}
     uses: ./.github/workflows/macos-package.yml
     with:
       channel: release
       gates: full
-      version: ${{ inputs.version }}
+      version: ${{ needs.preflight.outputs.version || inputs.version || '' }}
       formal_release: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.upload_release || false }}
       notarize: ${{ inputs.notarize || false }}
     secrets: inherit
 
   android:
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
+    needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     uses: ./.github/workflows/android-release.yml
     with:
       formal: true
-      version: ${{ inputs.version }}
+      version: ${{ needs.preflight.outputs.version }}
     secrets: inherit
 
   release:
