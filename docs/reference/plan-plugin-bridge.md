@@ -12794,6 +12794,13 @@ Node 版本探针在 leader 退出后须等 stdout 与 stderr 都到 EOF 才判�
 文件格式检查通过。临时目录均已核实清理。此处收紧探针验收，尚无证据将
 历史在线替换 I/O 失败归因于该竞态。
 
+以 `f922a171` 的新建 gterm 和 Node SDK 复验 macOS 与 Android API 36 的
+八实例混合运行。两端的 SSH 直连与 ProxyJump 两跳共四项通过，均覆盖版本探针、
+签名 Node 在线替换、独立 RPC、资源及最终释放。macOS 和 Android 收据 SHA256
+分别为 `afa525061686ec924c422858c01924c726bf75a0d88090223c60eb5ac166d53f`
+与 `b0af54ed0fc88b8337d45fc2c51ec23bde84792baf8b5c4a870cb0daac13d2a0`。
+两端均离屏或无窗口，临时目录和设备已核实清理；本轮未复现历史 I/O 失败。
+
 macOS 在真实 Native 八实例夹具补验同一竞态。活动实例的无效输入明确返回
 `INVALID_INPUT`。下一次请求在 worker 已拒绝且模型尚未处理时关闭原实例，
 其迟到结果以取消结束，其余实例及新加入的签名 Node 实例继续完成 RPC。
