@@ -16342,6 +16342,13 @@ Android 官方 Preview 常驻运行器新增 `--route direct`，默认仍使用�
 执行端结果以及暂存清理。三个直连用例验证路由只有一个端点。
 两台模拟器和本轮临时目录已核实清理。本批未执行 IME 返回用例、16 KiB 页或真机。
 
+`7c61d4e4` 补验 API 36 / Google APIs arm64 16 KiB 页无窗口模拟器。镜像修订 7，
+下载大小与校验和同 Google SDK 清单一致，设备实测 `getconf PAGE_SIZE=16384`。
+开启 QuickJS 的同一对 APK 及同源 gterm 跑直连与两跳的 Markdown、HTML 和
+Unicode HTML 共六项，零失败或跳过；每项核对安装 APK 摘要、系统 SAF、授权、
+实际资源渲染、执行端退出结果及暂存清理。模拟器以 0 退出，镜像与运行目录已
+验证清理；16 KiB 页 IME 返回和物理设备仍待另验。
+
 macOS 以 `c060053b` 干净检出构建 QuickJS gterm，官方 Preview 经直连和
 两跳回环各通过五项。覆盖批准、资源渲染、停止与释放，以及 Markdown、HTML、
 动画、Unicode 路径与独立图片；同轮 31 项离屏资源生命周期和图像预算通过。
