@@ -103,8 +103,10 @@ jobs:
           GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
           GHOSTERM_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
         run: |
+          set -euo pipefail
           bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
             "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
+          git submodule update --init --depth 1 vendor/quickjs-ng
 
       - name: 取 vendor pin
         run: bash scripts/fetch-vendor-pin.sh
@@ -310,6 +312,22 @@ jobs:
           python3 scripts/mutation-check-tmux.py
           python3 scripts/mutation-check-tmux-ui.py
 
+      - name: macOS QuickJS 应用闸门（full）
+        if: inputs.gates == 'full' && env.MACOS_PLUGIN_JS == 'true'
+        env:
+          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
+          GHOSTERM_APPLE_GATE_MODE: required
+        run: |
+          set -euo pipefail
+          cli="$(mktemp -d "$PWD/tmp/release-gterm-XXXXXX")"
+          trap 'rm -rf -- "$cli"' EXIT
+          cmake -S cli/gterm -B "$cli" -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DGHOSTERM_WITH_PLUGIN_JS=ON \
+            -DGHOSTERM_WITH_LIBSSH2=ON -DGHOSTERM_WITH_RELEASE_SIGNATURE=OFF
+          cmake --build "$cli" --target gterm --parallel 4
+          GHOSTERM_TEST_GTERM="$cli/gterm" bash scripts/apple-app-gate.sh
+
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
         id: signing
@@ -369,7 +387,6 @@ jobs:
           ARGS=(--out dist --build "$GITHUB_RUN_NUMBER" --channel "$INPUT_CHANNEL")
           if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
           if [ "$MACOS_PLUGIN_JS" = true ]; then
-            git submodule update --init --depth 1 vendor/quickjs-ng
             ARGS+=(--plugin-js)
           fi
           if [ "${INPUT_CHANNEL}" = "release" ] && [ "${SIGN_MODE:-adhoc}" = "developer-id" ]; then
