@@ -126,6 +126,46 @@ class PluginFormTalkBackTest {
         assertTrue("Set text in $id", input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments))
     }
 
+    @Test fun speakTaskCancellationWithoutInventingAnOutcome() {
+        val automation = automation()
+        val fixture = PluginTaskFixture().apply {
+            pause = "view.task.cancel"
+            unknownMethod = "view.task.cancel"
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        try {
+            ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val model = PluginTaskModel(scope, fixture::request)
+                    activity.setContent {
+                        MaterialTheme {
+                            Column(Modifier.semantics { testTagsAsResourceId = true }) {
+                                PluginTaskContent(model)
+                            }
+                        }
+                    }
+                }
+                awaitText(automation, "正在运行")
+                click(automation, "plugin-task-cancel")
+                awaitText(automation, "正在发送取消请求…")
+                awaitSpeech(automation, "正在发送取消请求")
+                fixture.release.complete(Unit)
+                awaitText(automation, "取消结果不明；不会重发取消请求")
+                awaitSpeech(automation, "取消结果不明")
+                val cancel = awaitNode(automation, "plugin-task-cancel") { it.viewIdResourceName == "plugin-task-cancel" }
+                assertFalse(cancel.isEnabled)
+                scenario.onActivity { fixture.finish() }
+                click(automation, "plugin-task-read")
+                awaitText(automation, "已确认取消")
+                awaitSpeech(automation, "已确认取消")
+                scenario.onActivity { assertEquals(1, fixture.calls.count { it.first == "view.task.cancel" }) }
+            }
+        } finally {
+            fixture.release.complete(Unit)
+            scope.cancel()
+        }
+    }
+
     private fun click(automation: UiAutomation, id: String) {
         val button = awaitNode(automation, "enabled $id") {
             it.isEnabled && it.isClickable && it.viewIdResourceName == id
@@ -164,7 +204,7 @@ class PluginFormTalkBackTest {
                 val utterances = mutableSetOf<String>()
                 reader.lineSequence().any { line ->
                     val match = fragment.find(line)
-                    if (match != null && match.groupValues[1].startsWith(text)) {
+                    if (match != null && match.groupValues[1].contains(text)) {
                         utterances.add(match.groupValues[2])
                         false
                     } else {

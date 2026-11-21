@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify plugin form and table speech on owned Google APIs AVDs."""
+"""Verify plugin form, table and task speech on owned Google APIs AVDs."""
 import argparse
 import hashlib
 import os
@@ -141,8 +141,8 @@ def main():
                          '-e', 'class', APP + '.PluginFormTalkBackTest',
                          APP + '.test/androidx.test.runner.AndroidJUnitRunner', seconds=120)
             print(result, flush=True)
-            if 'OK (2 tests)' not in result:
-                raise RuntimeError('Expected both TalkBack instrumentation cases to pass')
+            if 'OK (3 tests)' not in result:
+                raise RuntimeError('Expected all three TalkBack instrumentation cases to pass')
             wait_bound(adb)
     if Path(directory).exists():
         raise RuntimeError('Owned AVD directory remains: ' + directory)
