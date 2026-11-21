@@ -141,9 +141,12 @@ def main():
     spec = importlib.util.spec_from_file_location('android_release_runner', ROOT / 'scripts/test-plugin-release-android.py')
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
-    with tempfile.TemporaryDirectory(dir=ROOT / 'tmp', prefix='android-channel-tls-') as path:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(dir=work_tmp, prefix='android-channel-tls-') as path:
         work = Path(path)
-        env = dict(os.environ, TMPDIR=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
+        env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
         host = '127.0.0.1' if args.serial else '10.0.2.2'
         with tls_fixture(work, env, host, args.settings_cache) as (origin, cert, root):
             build = ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
