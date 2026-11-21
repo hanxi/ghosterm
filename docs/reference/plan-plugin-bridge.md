@@ -997,6 +997,11 @@ ExtensionPlatformServices
 在 `3cd6f4d3` 用 actionlint 1.7.7 检查全部 Actions 工作流，无诊断。
 Go 下载缓存首次清理因目录只读报错，恢复目录写权限后已删除并核对。
 
+在 `a6dd288d` 重新运行 actionlint 1.7.7，全仓工作流无诊断。最新 Pages
+预检在本地签名夹具验证按托管 URL 选信任根及共用地址冲突，又分别验证
+两端指向 Pages 时缺失策略目录会被拦截。临时工具与夹具已核实清理。
+该轮未触发生产部署。
+
 在 `5f244a10` 用更新后的审计器从公开 `dev` Release 实际下载两端资产。
 macOS 使用仓库配置的 Sparkle 公钥，ZIP 和 appcast 验签通过；Android 资产审计通过。
 下载目录已核实清理。正式标签资产与生产插件策略仍待发行验证。
