@@ -19,8 +19,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location('release_assets', ROOT / 'scripts/check-dev-release-assets.py')
 CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
+ANDROID_SPEC = importlib.util.spec_from_file_location('android_release_assets', ROOT / 'scripts/check-android-release-assets.py')
+ANDROID = importlib.util.module_from_spec(ANDROID_SPEC)
+ANDROID_SPEC.loader.exec_module(ANDROID)
 FORMAL_MACOS = {'Ghosterm-macos-arm64-release.dmg', 'Ghosterm-macos-arm64-release.zip',
                 'SHA256SUMS', 'BUILD-INFO.txt', 'version.json', 'appcast.xml'}
+FORMAL_ANDROID = {ANDROID.FORMAL_APK, 'android-SHA256SUMS', 'android-build-info.json'}
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 
 
@@ -67,8 +71,8 @@ def verify_update_signatures(folder, archive, archive_signature, public_key):
 
 def verify_formal_macos(folder, assets, version, commit, base, expected_key=None):
     inventory = CHECK.inventory(assets)
-    if set(inventory) != FORMAL_MACOS:
-        raise ValueError('unexpected formal macOS asset inventory')
+    if set(inventory) not in (FORMAL_MACOS, FORMAL_MACOS | FORMAL_ANDROID):
+        raise ValueError('unexpected formal release asset inventory')
     for name, asset in inventory.items():
         path = folder / name
         with path.open('rb') as stream:
@@ -79,6 +83,8 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
     if (manifest.get('channel'), manifest.get('version'), manifest.get('git_commit')) != ('release', version, commit):
         raise ValueError('manifest does not match the formal release tag')
     verify_macos_update(folder, inventory, manifest, 'release', base, expected_key)
+    if FORMAL_ANDROID <= inventory.keys():
+        ANDROID.verify(folder, commit, ANDROID.FORMAL_APK)
 
 
 def verify_macos_update(folder, inventory, manifest, channel, base, expected_key):
@@ -200,8 +206,10 @@ def main():
     project_tmp.mkdir(exist_ok=True)
     requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
     scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
-    names = FORMAL_MACOS if formal else CHECK.FILES[args.platform]
     inventory = CHECK.inventory(assets)
+    names = CHECK.FILES[args.platform]
+    if formal:
+        names = FORMAL_MACOS | (FORMAL_ANDROID & inventory.keys())
     if not names <= inventory.keys():
         raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:

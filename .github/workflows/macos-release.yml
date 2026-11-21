@@ -44,9 +44,16 @@ jobs:
       notarize: ${{ inputs.notarize || false }}
     secrets: inherit
 
+  android:
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
+    uses: ./.github/workflows/android-release.yml
+    with:
+      formal: true
+    secrets: inherit
+
   release:
     name: 建 GitHub Release（草稿）
-    needs: package
+    needs: [package, android]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
     runs-on: ubuntu-latest
     env:
@@ -63,6 +70,12 @@ jobs:
         with:
           name: Ghosterm-macOS-release-${{ github.sha }}
           path: dist
+
+      - name: 取并复验 Android 正式包
+        uses: actions/download-artifact@v4
+        with:
+          name: Ghosterm-android-release-${{ github.sha }}
+          path: dist-android
 
       # BUILD-INFO.txt 里带着真实签名模式与最低系统版本，原样进正文，
       # 不额外润色（铁律 #6：不许把没做的事写成做了）。
@@ -117,8 +130,12 @@ jobs:
           fi
           python3 scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
+          mv dist-android/SHA256SUMS dist-android/android-SHA256SUMS
+          mv dist-android/build-info.json dist-android/android-build-info.json
+          python3 -B scripts/check-android-release-assets.py dist-android --formal --expect-commit "$GITHUB_SHA"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
+          ASSETS+=(dist-android/Ghosterm-android-arm64-release.apk dist-android/android-SHA256SUMS dist-android/android-build-info.json)
           if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [[ "$DRAFT" != true ]]; then
               echo "发布 $TAG 已公开，拒绝覆盖资产" >&2; exit 1

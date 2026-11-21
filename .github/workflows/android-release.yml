@@ -7,12 +7,17 @@ on:
   pull_request:
     paths-ignore: ['docs/**', '**.md']
   workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      formal:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-release-${{ github.ref }}
+  group: android-release-${{ inputs.formal && 'formal' || 'dev' }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -101,10 +106,13 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
           python3 scripts/check-android-build-info.py "$apk" --expect-commit "$GITHUB_SHA" --expect-state clean
           python3 scripts/mutation-check-android-build-info.py "$apk"
-          cp "$apk" dist/android/Ghosterm-android-arm64-dev.apk
+          name=Ghosterm-android-arm64-dev.apk
+          if [ "$FORMAL_RELEASE" = true ]; then name=Ghosterm-android-arm64-release.apk; fi
+          cp "$apk" "dist/android/$name"
+          export ANDROID_ASSET_NAME="$name"
           python3 - <<'PY'
           import hashlib,json,os,pathlib
-          folder=pathlib.Path('dist/android'); apk=folder/'Ghosterm-android-arm64-dev.apk'
+          folder=pathlib.Path('dist/android'); apk=folder/os.environ['ANDROID_ASSET_NAME']
           import zipfile
           with zipfile.ZipFile(apk) as archive:
               metadata=json.loads(archive.read('assets/ghosterm-build.json'))
@@ -115,6 +123,8 @@ jobs:
           (folder/'build-info.json').write_text(json.dumps({**metadata,'build_type':'release','abi':'arm64-v8a','min_sdk':29,'bytes':apk.stat().st_size,'sha256':digest,'r8':True,'resource_shrinking':True},indent=2)+'\n')
           print('Release APK bytes:',apk.stat().st_size)
           PY
+        env:
+          FORMAL_RELEASE: ${{ inputs.formal || false }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: github.event_name != 'pull_request'
         with:
@@ -138,7 +148,7 @@ jobs:
   publish-dev:
     name: Publish Android dev Release
     needs: apk
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: ${{ !inputs.formal && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
