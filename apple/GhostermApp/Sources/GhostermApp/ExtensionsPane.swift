@@ -406,6 +406,7 @@ struct ExtensionsPane: View {
         .onDisappear {
             visible = false
             inspection?.task.cancel()
+            inspection = nil
             packageReview?.cancel()
             packageReview = nil
             pendingPackagePicker = nil
@@ -430,7 +431,7 @@ struct ExtensionsPane: View {
                 binding.wrappedValue.foregroundKey = nil
                 binding.wrappedValue.foregroundIssue = nil
                 inspection = (id, Task {
-                    defer { inspection = nil }
+                    defer { if !Task.isCancelled { inspection = nil } }
                     do {
                         let value = try await model.inspectForegroundPlugin(sshAlias: entry.sshAlias,
                             executable: entry.executable, directory: entry.ipcDirectory, instance: entry.ipcInstance,
