@@ -117,6 +117,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
 
     internal suspend fun inspectForeground(target: PreparedSSH, executable: String, directory: String,
         instance: String, sessions: SessionsViewModel): PluginForegroundDeclaration {
+        currentCoroutineContext().ensureActive()
         val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
         check(!launchBusy && activeSession == null && activeRuntime == null && sessions.connecting == null) { "已有插件运行或 SSH 连接请求" }
         PluginForegroundDeclaration.bootstrap(executable, directory, instance)
@@ -125,6 +126,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         var result: PluginForegroundDeclaration? = null
         try {
             val id = checkNotNull(sessions.inspectExtensionRoute(target, executable, directory, instance) {
+                currentCoroutineContext().ensureActive()
                 val value = owner.readForegroundDeclaration(instance)
                 owner.closeSSHChannel()
                 result = value
