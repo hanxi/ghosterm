@@ -81,13 +81,14 @@ jobs:
           name: Ghosterm-android-release-${{ github.sha }}
           path: dist-android
 
-      - name: 准备 Android Manifest 验证工具
+      - name: 准备 Android 构件验证工具
         run: |
           set -euo pipefail
-          if [[ ! -x "$ANDROID_HOME/build-tools/35.0.0/aapt" ]]; then
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          if [[ ! -x "$tools/aapt" || ! -x "$tools/apksigner" || ! -x "$tools/zipalign" ]]; then
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
           fi
-          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
+          test -x "$tools/aapt" && test -x "$tools/apksigner" && test -x "$tools/zipalign"
 
       # BUILD-INFO.txt 里带着真实签名模式与最低系统版本，原样进正文，
       # 不额外润色（铁律 #6：不许把没做的事写成做了）。
@@ -144,9 +145,13 @@ jobs:
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
           mv dist-android/SHA256SUMS dist-android/android-SHA256SUMS
           mv dist-android/build-info.json dist-android/android-build-info.json
+          ANDROID_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          APK=dist-android/Ghosterm-android-arm64-release.apk
+          "$ANDROID_TOOLS/apksigner" verify "$APK"
+          "$ANDROID_TOOLS/zipalign" -c -P 16 4 "$APK"
           python3 -B scripts/check-android-release-assets.py dist-android \
             --formal-version "$VERSION" --expect-commit "$GITHUB_SHA" \
-            --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt"
+            --aapt "$ANDROID_TOOLS/aapt"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
           ASSETS+=(dist-android/Ghosterm-android-arm64-release.apk dist-android/android-SHA256SUMS dist-android/android-build-info.json)
