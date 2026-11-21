@@ -730,8 +730,14 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(image.mime, "image/png")
         XCTAssertEqual(image.size, UInt64(imageBytes.count))
         XCTAssertEqual(image.sha256, SHA256.hash(data: imageBytes).map { String(format: "%02x", $0) }.joined())
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model))
+        TestWindows.enterAutomationMode()
+        let pane = NSHostingView(rootView: ExtensionRunView(model: model.extensionInstance))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 1500)
+        let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = pane
+        TestWindows.presentOffscreen(window)
+        defer { window.close() }
         var recognizedPreview = ""
         var redPixels = 0
         for _ in 0..<30 {
@@ -755,9 +761,9 @@ final class ExtensionControllerTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertTrue(recognizedPreview.lowercased().contains("resource from appmodel over ssh"),
-            "the production ExtensionsPane must render the exact resource received by AppModel; OCR: \(recognizedPreview)")
+            "the production plugin run view must render the exact resource received by AppModel; OCR: \(recognizedPreview)")
         XCTAssertGreaterThan(redPixels, 10,
-            "the production ExtensionsPane must render the explicitly received Markdown PNG attachment")
+            "the production plugin run view must render the explicitly received Markdown PNG attachment")
 
         await model.stopExtensionRun()
         XCTAssertNil(model.extensionRun)

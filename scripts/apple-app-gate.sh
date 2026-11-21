@@ -46,6 +46,8 @@ if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
   fi
   PLUGIN_JS_PROFILE=1
 fi
+# SwiftPM resolves QuickJS linkage during test discovery and compilation.
+export GHOSTERM_CORE_TEST_PLUGIN_JS="$PLUGIN_JS_PROFILE"
 
 echo "== 构建 C 核心（宿主经 GhostermCore 链接它） =="
 if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
@@ -61,6 +63,7 @@ echo "   ok"
 
 WORK=""
 HTML_CAPTURE=""
+PROCESS_FIXTURE=""
 SRV=""
 JUMP_SRV=""
 cleanup() {
@@ -71,11 +74,22 @@ cleanup() {
       wait "$server" 2>/dev/null || true
     fi
   done
+  if [ -n "$PROCESS_FIXTURE" ]; then rm -rf "$PROCESS_FIXTURE"; fi
   [ -n "$WORK" ] && rm -rf "$WORK"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# The QuickJS core profile omits C test targets. Build the standalone child
+# used by the Swift local process tests.
+if [ "$PLUGIN_JS_PROFILE" = 1 ] && [ -z "${GHOSTERM_PROCESS_CHANNEL_CHILD:-}" ]; then
+  PROCESS_FIXTURE="$(mktemp -d "$TMP/apple-app-child-XXXXXX")"
+  PROCESS_FIXTURE="$(cd "$PROCESS_FIXTURE" && pwd)"
+  export GHOSTERM_PROCESS_CHANNEL_CHILD="$PROCESS_FIXTURE/process-channel-child"
+  xcrun clang -std=c11 -Wall -Wextra -Werror -DGT_PROCESS_CHANNEL_STANDALONE \
+    "$ROOT/core/tests/process_channel_child.c" -o "$GHOSTERM_PROCESS_CHANNEL_CHILD"
+fi
 
 ENVARGS=()
 if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keygen >/dev/null 2>&1; then

@@ -81,7 +81,7 @@ struct SettingsView: View {
             case .appearance: return 572
             case .keyboard: return 640
             case .configuration: return 590
-            case .extensions: return 275
+            case .extensions: return 267
             }
         }
     }
