@@ -501,7 +501,7 @@ final class PluginOfficialReleaseInstallTests: XCTestCase {
                 runtimes: ["portable-js"], capabilities: AppModel.extensionHostCapabilities),
             resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
         addTeardownBlock { let closed = await owner.close(); XCTAssertTrue(closed) }
-        for name in ["preview", "table", "diff", "task", "views", "ai-codex", "ai-claude"] {
+        for name in ["preview", "table", "diff", "task", "views", "logs", "form", "ai-codex", "ai-claude"] {
             let release = fixture.appendingPathComponent("official-\(name)-release")
             let prepared = try await owner.prepareSignedRelease(artifact: release.appendingPathComponent("plugin.zip"),
                 descriptor: release.appendingPathComponent("release.json"), signature: release.appendingPathComponent("release.sig"),

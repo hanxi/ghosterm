@@ -294,7 +294,7 @@ def install_official_candidates(selected, environment, fixture):
     identity = ['run-as', 'com.hanxi.ghosterm']
     run([*selected, 'shell', *identity, 'mkdir', '-p', guest], environment)
     try:
-        for name in ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude'):
+        for name in ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude'):
             directory = f'official-{name}-release'
             run([*selected, 'shell', *identity, 'mkdir', '-p', f'{guest}/{directory}'], environment)
             for relative in (f'official-{name}-policy.json', *(f'{directory}/{file}' for file in ('plugin.zip', 'release.json', 'release.sig'))):
@@ -309,7 +309,7 @@ def install_official_candidates(selected, environment, fixture):
         if ('OK (1 test)' not in output or 'INSTRUMENTATION_STATUS_CODE: -4' in output or
                 'FAILURES' in output or 'INSTRUMENTATION_FAILED' in output):
             raise RuntimeError('Native official package installation failed:\n' + output)
-        print('ANDROID OFFICIAL INSTALL PASS: seven candidates', flush=True)
+        print('ANDROID OFFICIAL INSTALL PASS: nine candidates', flush=True)
     finally:
         run([*selected, 'shell', *identity, 'rm', '-rf', guest], environment)
 
@@ -319,7 +319,7 @@ def main():
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument('--headless-api', choices=[29, 36], type=int)
     choice.add_argument('--android', help='Explicitly authorized device serial')
-    parser.add_argument('--official-release-directory', type=Path, help='Also install seven pre-signed official test releases on an owned headless AVD')
+    parser.add_argument('--official-release-directory', type=Path, help='Also install nine pre-signed official test releases on an owned headless AVD')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--signature-ui', action='store_true', help='Include documents, draft and actual SAF Settings tests')
     parser.add_argument('--archive', action='store_true', help='Include strict ZIP and signed Core preview conformance')

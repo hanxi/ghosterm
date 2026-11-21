@@ -182,7 +182,7 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
                             '--source', ROOT/'plugins/official'/name, '--tools', sdk_tools,
                             '--out', package], check=True, timeout=200)
             official_package(name, package)
-        for name in ('table', 'diff', 'task', 'views'):
+        for name in ('table', 'diff', 'task', 'views', 'logs', 'form'):
             case(f'official-{name}', lambda name=name: sample(name))
     for name, built_package in zip(('ai-codex', 'ai-claude'), ai_packages, strict=bool(ai_packages)):
         case(f'official-{name}', lambda name=name, built_package=built_package: official_package(name, built_package))
@@ -387,14 +387,14 @@ def main():
     parser.add_argument('--ai-packages', nargs=2, type=Path, metavar=('CODEX', 'CLAUDE'),
                         help='verify signed archives of the two built official AI packages')
     parser.add_argument('--export-official-fixtures', type=Path,
-                        help='write only the seven signed test releases to a new project tmp directory')
+                        help='write only the nine signed test releases to a new project tmp directory')
     parser.add_argument('--mutate',action='store_true')
     parser.add_argument('--mutation-case', action='append', help='run only named mutations after the full baseline')
     parser.add_argument('--receipt',type=Path,default=ROOT/'tmp/plugin-release-receipt.json')
     args=parser.parse_args()
     if args.mutation_case and not args.mutate:
         parser.error('--mutation-case requires --mutate')
-    official = ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')
+    official = ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')
     export = args.export_official_fixtures
     if export is not None:
         if not args.sdk_tools or not args.ai_packages or args.mutate:

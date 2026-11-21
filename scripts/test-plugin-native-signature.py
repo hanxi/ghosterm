@@ -176,7 +176,7 @@ def main():
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
     parser.add_argument('--official-packages', nargs=3, type=Path, metavar=('SDK_TOOLS', 'CODEX', 'CLAUDE'),
-                        help='also install seven official candidates signed by the disposable fixture')
+                        help='also install nine official candidates signed by the disposable fixture')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--capacity', action='store_true', help='also run real ENOSPC on a disposable volume')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
@@ -402,7 +402,7 @@ def main():
                 sdk_tools, codex, claude = (path.resolve(strict=True) for path in args.official_packages)
                 official = fixture / 'official'
                 official.mkdir()
-                expected = {f'official-{name}' for name in ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')}
+                expected = {f'official-{name}' for name in ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')}
                 cases = helper.exercise(ROOT, official, tools, node, public, endpoint,
                                         selected=expected, sdk_tools=sdk_tools, ai_packages=(codex, claude))
                 assert set(cases) == expected
