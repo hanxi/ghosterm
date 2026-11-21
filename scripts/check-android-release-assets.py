@@ -32,7 +32,7 @@ def verify_apk_version(apk, version, aapt):
         raise ValueError('APK package identity or formal version mismatch')
 
 
-def verify(folder, commit, formal_version=None, aapt=None):
+def verify(folder, commit, formal_version=None, aapt=None, build_tools=None):
     apk_name = FORMAL_APK if formal_version is not None else APK
     apk = folder / apk_name
     if not all((folder / name).is_file() for name in (apk_name, 'android-SHA256SUMS', 'android-build-info.json')):
@@ -52,6 +52,10 @@ def verify(folder, commit, formal_version=None, aapt=None):
     if not isinstance(metadata, dict) or metadata != expected or any(
             type(metadata[key]) is not type(value) for key, value in expected.items()):
         raise ValueError('published build info mismatch')
+    if build_tools is not None:
+        subprocess.run([build_tools / 'apksigner', 'verify', apk], check=True, timeout=30)
+        subprocess.run([build_tools / 'zipalign', '-c', '-P', '16', '4', apk], check=True, timeout=30)
+        aapt = build_tools / 'aapt'
     if aapt is not None:
         verify_apk_version(apk, formal_version, aapt)
     return digest
@@ -62,11 +66,15 @@ def main():
     parser.add_argument('folder', type=Path)
     parser.add_argument('--expect-commit', required=True)
     parser.add_argument('--formal-version', help='verify a formal APK and receipt against this release version')
-    parser.add_argument('--aapt', help='also verify the formal version in the APK manifest')
+    tools = parser.add_mutually_exclusive_group()
+    tools.add_argument('--aapt', help='also verify the formal version in the APK manifest')
+    tools.add_argument('--android-build-tools', type=Path,
+                       help='verify APK signature, alignment and formal version using this Build Tools directory')
     args = parser.parse_args()
-    if args.aapt and not args.formal_version:
-        parser.error('--aapt requires --formal-version')
-    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version, args.aapt))
+    if (args.aapt or args.android_build_tools) and not args.formal_version:
+        parser.error('Android Build Tools verification requires --formal-version')
+    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version,
+                                                args.aapt, args.android_build_tools))
 
 
 if __name__ == '__main__':
