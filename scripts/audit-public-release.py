@@ -100,9 +100,17 @@ def verify_macos_update(folder, inventory, manifest, channel, base, expected_key
         receipt = archive.read('Ghosterm.app/Contents/Resources/BUILD-INFO.txt')
     if receipt != (folder / 'BUILD-INFO.txt').read_bytes():
         raise ValueError('published build receipt differs from the receipt inside the update ZIP')
-    source = re.search(r'^源码:[ \t]*git ([0-9a-f]{7,40})[ \t]*$', receipt.decode('utf-8'), re.M)
+    receipt_text = receipt.decode('utf-8')
+    source = re.search(r'^源码:[ \t]*git ([0-9a-f]{7,40})[ \t]*$', receipt_text, re.M)
     if source is None or not commit.startswith(source[1]):
         raise ValueError('update ZIP has a dirty or mismatched source receipt')
+    signature = re.findall(r'^签名:[ \t]*(adhoc|dev|id)(?=[ \t]|$)[^\n]*$', receipt_text, re.M)
+    notarization = re.findall(r'^公证:[ \t]*([^\s][^\n]*)$', receipt_text, re.M)
+    if len(signature) != 1 or len(notarization) != 1:
+        raise ValueError('update ZIP is missing unique Apple signing and notarization receipts')
+    notarized = signature[0] == 'id' and not notarization[0].startswith('无')
+    if manifest.get('signature') != signature[0] or manifest.get('notarized') is not notarized:
+        raise ValueError('Apple signing or notarization differs from the build receipt')
     for field in ('update_version', 'min_macos'):
         if not isinstance(manifest.get(field), str) or not manifest[field]:
             raise ValueError('missing application metadata: ' + field)
