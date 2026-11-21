@@ -15181,6 +15181,14 @@ App 与仪器 APK SHA256 分别为
 `91bf3ea5d12d0fca7bfe27fe8d7b07690cee9ede53d5cce2314b016a7c19b382`。
 临时目录均已核实清理。
 
+在 `be9d1be6` 的隔离快照，使用锁定 QuickJS-NG 与现编 Portable SDK 跑启用档
+离线 Core 闸门。874 项 CTest、207 个 ABI 符号对拍和未实现入口冒烟全部通过。
+SDK 构件目录摘要为
+`b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`，
+闸门日志 SHA256 为
+`9c04cb5a5774e403d1f7527255565c9c09032347583aff0a035176c33b9fbb91`。
+临时目录已核实清理。
+
 在 `2e062878` 对 `hanxi/ghosterm` 执行只读 GitHub Actions 仓库变量核对，
 未找到两端共六个插件渠道变量。现有 Android Release 保持运行时关闭并核对
 QuickJS 许可缺席，macOS 实验运行时仅允许显式输出路径的本地 ad-hoc 构建。
