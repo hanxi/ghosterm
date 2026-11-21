@@ -254,16 +254,29 @@ import XCTest
         for (slot, model) in group.instances.enumerated() { guard try await resource(model, slot: slot) else { return } }
         XCTAssertEqual(Set(group.instances.compactMap { $0.extensionRun?.receivedResources.first?.sha256 }).count, 8)
         let uncertain = group.instances[3]
-        uncertain.runtimeObservationFailed("owned mixed observation failure")
-        XCTAssertEqual(uncertain.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue, "Retain the actual last observation")
-        XCTAssertFalse(uncertain.canInteractWithRuntime)
-        XCTAssertTrue(uncertain.runtimeStateIsUnknown)
-        XCTAssertTrue(group.instances.enumerated().allSatisfy { $0.offset == 3 || $0.element.canInteractWithRuntime })
+        let invalidInput = Data("[]".utf8)
+        let invalid = try await uncertain.callPluginViewOutcome("fixture.echo", inputBytes: invalidInput, command: "fixture")
+        let rejectedOutcome = try XCTUnwrap(JSONSerialization.jsonObject(with: invalid) as? [String: Any])
+        XCTAssertEqual((rejectedOutcome["error"] as? [String: String])?["code"], "INVALID_INPUT")
+        var receivedAdmission = false
         do {
-            _ = try await uncertain.callPluginViewOutcome("fixture.echo", inputBytes: Data(#"{"text":"blocked","count":3}"#.utf8), command: "fixture")
-            XCTFail("An unobserved Runtime must not admit another business request")
-        } catch { XCTAssertTrue(String(describing: error).contains("运行状态未知")) }
-        let stopped = await group.instances[3].requestClose(); XCTAssertTrue(stopped)
+            _ = try await uncertain.callPluginViewOutcome("fixture.echo", inputBytes: invalidInput, command: "fixture") {
+                receivedAdmission = true
+                uncertain.runtimeObservationFailed("owned mixed observation failure")
+                XCTAssertEqual(uncertain.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue, "Retain the actual last observation")
+                XCTAssertFalse(uncertain.canInteractWithRuntime)
+                XCTAssertTrue(uncertain.runtimeStateIsUnknown)
+                XCTAssertTrue(group.instances.enumerated().allSatisfy { $0.offset == 3 || $0.element.canInteractWithRuntime })
+                do {
+                    _ = try await uncertain.callPluginViewOutcome("fixture.echo", inputBytes: Data(#"{"text":"blocked","count":3}"#.utf8), command: "fixture")
+                    XCTFail("An unobserved Runtime must not admit another business request")
+                } catch { XCTAssertTrue(String(describing: error).contains("运行状态未知")) }
+                let stopped = await uncertain.requestClose(); XCTAssertTrue(stopped)
+            }
+            XCTFail("Late rejected admission was returned after closing its original run")
+        } catch is CancellationError {
+            XCTAssertTrue(receivedAdmission)
+        }
         let rejected = await group.add(try invocation(3, runtime: "node", signed: true, stale: true), app: app)
         XCTAssertFalse(rejected); XCTAssertEqual(group.instances.filter { !$0.canDiscard }.count, 7)
         for (slot, model) in group.instances.enumerated() where !model.canDiscard { try await echo(model, text: "after-rejection-\(slot)", count: slot) }

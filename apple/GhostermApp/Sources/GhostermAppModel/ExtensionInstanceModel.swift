@@ -595,12 +595,15 @@ import GhostermCore
     }
 
     /// Standard Native views retain declared failures and uncertainty as facts.
-    func callPluginViewOutcome(_ method: String, inputBytes: Data, command: String) async throws -> Data {
-        try await callExtensionExecutor(method, inputBytes: inputBytes, command: command, returnTerminalOutcome: true)
+    func callPluginViewOutcome(_ method: String, inputBytes: Data, command: String,
+                               onRejectedAdmission: (() async -> Void)? = nil) async throws -> Data {
+        try await callExtensionExecutor(method, inputBytes: inputBytes, command: command,
+                                        returnTerminalOutcome: true, onRejectedAdmission: onRejectedAdmission)
     }
 
     private func callExtensionExecutor(_ method: String, inputBytes: Data, command: String,
-                                       returnTerminalOutcome: Bool = false) async throws -> Data {
+                                       returnTerminalOutcome: Bool = false,
+                                       onRejectedAdmission: (() async -> Void)? = nil) async throws -> Data {
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
         guard let extensionController, let run = extensionRun,
@@ -609,6 +612,7 @@ import GhostermCore
         }
         let admission = try await extensionController.requestExecutorRPC(method: method, input: inputBytes)
         guard admission.status == .ok, let handle = admission.handle else {
+            await onRejectedAdmission?()
             try checkExtensionRunGeneration(generation)
             if returnTerminalOutcome {
                 let codes: [ExtensionSession.RPCStatus: String] = [.wait: "BUSY", .invalid: "INVALID_INPUT", .denied: "DENIED", .unsupported: "UNSUPPORTED", .closed: "CANCELLED"]
