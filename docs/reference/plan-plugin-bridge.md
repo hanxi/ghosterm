@@ -3994,6 +3994,11 @@ Swift 编译对象变化与复原源码 SHA256
 变异已登记到 `test-plugin-table-native.py`。本轮定向执行，新登记以外的变异
 与 VoiceOver 实际播报另计，离屏测试临时目录已清理。
 
+Android TalkBack 专项已收进 `python3 -B scripts/test-plugin-talkback-android.py`。
+使用本地构建的 Debug 和测试 APK、专用 API 36 Google APIs 模拟器，记录两份
+安装输入摘要，只在本轮模拟器内设置 TalkBack 并核对其绑定及 TTS 接收。
+常驻脚本实跑 2 项通过，模拟器以 0 退出，临时目录已核实删除。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成
