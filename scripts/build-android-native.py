@@ -5,10 +5,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import shlex
 import subprocess
+import sys
 import tarfile
+import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +33,22 @@ SOURCES = {
 def run(command, **kwargs):
     print('+', ' '.join(map(str, command)), flush=True)
     subprocess.run(list(map(str, command)), check=True, **kwargs)
+
+
+def build_android_vt(command, *, cwd, env):
+    command = list(map(str, command))
+    transient_fetch = re.compile(r"bad HTTP response code: '(?:429|502|503|504)\b")
+    for attempt in range(3):
+        print('+', ' '.join(command), flush=True)
+        result = subprocess.run(command, cwd=cwd, env=env, stderr=subprocess.PIPE, text=True, errors='replace')
+        sys.stderr.write(result.stderr)
+        if result.returncode == 0:
+            return
+        if attempt == 2 or not transient_fetch.search(result.stderr):
+            result.check_returncode()
+        delay = 2 ** (attempt + 1)
+        print(f'Zig package fetch failed temporarily; retrying in {delay}s', file=sys.stderr, flush=True)
+        time.sleep(delay)
 
 
 def source(name, work):
@@ -167,9 +186,9 @@ def main():
         handle.extractall(engine, filter='data')
     for patch in VT_PATCHES:
         run(['patch', '--batch', '--forward', '-p1', '-i', patch], cwd=engine)
-    run([zig, 'build', '-Demit-lib-vt=true', '-Demit-xcframework=false', '-Demit-docs=false',
-         '-Dtarget=aarch64-linux-android.29', '-Doptimize=ReleaseFast', '-Dsimd=false',
-         '-p', prefix], cwd=engine, env=environment)
+    build_android_vt([zig, 'build', '-Demit-lib-vt=true', '-Demit-xcframework=false', '-Demit-docs=false',
+                      '-Dtarget=aarch64-linux-android.29', '-Doptimize=ReleaseFast', '-Dsimd=false',
+                      '-p', prefix], cwd=engine, env=environment)
     verify_vt_libc(prefix / 'lib/libghostty-vt.a', toolchain / 'bin/llvm-nm')
     receipt.write_text(json.dumps({'inputs': signature, 'sha256': {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in artifacts}}, indent=2) + '\n')
