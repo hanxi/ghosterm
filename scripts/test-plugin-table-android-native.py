@@ -64,7 +64,7 @@ def main():
         for path in (ROOT / folder).rglob('*'):
             if path.is_file() and not any(part in ('build', '.gradle', '.kotlin', '.cxx') for part in path.relative_to(ROOT / folder).parts):
                 if path.name != 'local.properties': inputs[str(path.relative_to(ROOT))] = sha(path)
-    for name in ('scripts/test-plugin-table-android-native.py', 'scripts/test-plugin-codex-patch-android.py',
+    for name in ('scripts/test-plugin-table-android-native.py', 'scripts/test-plugin-release-android.py',
                  'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
                  'scripts/test-plugin-channel.py', 'scripts/lib/gt-timeout.sh'):
         inputs[name] = sha(ROOT / name)
@@ -75,21 +75,22 @@ def main():
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.with_suffix('.inputs.json').write_text(json.dumps(dict(accepted=False, inputs=inputs,
         package=package_hashes, binaries=binaries), indent=2) + '\n')
-    helper = load('table_avd', 'scripts/test-plugin-codex-patch-android.py')
+    helper = load('table_avd', 'scripts/test-plugin-release-android.py')
     junit = load('table_junit', 'scripts/test-plugin-channel.py')
     keys = load('table_keys', 'scripts/test-plugin-ssh.py')
     streams = load('table_streams', 'scripts/test-plugin-ssh-stream.py')
     routes = load('table_routes', 'scripts/test-plugin-route.py')
     logs = receipt.parent / (receipt.stem + '-logs'); logs.mkdir(parents=True, exist_ok=False)
     commands, groups, devices, records = [], [], [], []
-    with tempfile.TemporaryDirectory(prefix='at-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='at-', dir=receipt.parent) as temporary:
         work = Path(temporary); source = work / 'h'
         for folder in ('android', 'terminal/android'):
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
         for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp'),
+        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary,
+            JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + temporary + ' -Djava.awt.headless=true',
             JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'),
             ANDROID_HOME=str(ROOT / 'build/android-toolchain/sdk'),
             GRADLE_USER_HOME=str(ROOT / 'build/android-toolchain/gradle-home'))
@@ -130,8 +131,8 @@ def main():
             route_root = work / 'r'; route_root.mkdir()
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
                 for api_index, api in enumerate(args.api or ('29', '36')):
-                    with helper.headless(api) as serial:
-                        adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
+                    device_work = Path(tempfile.mkdtemp(prefix='avd-', dir=work))
+                    with helper.headless(int(api), device_work, env) as (adb, _):
                         def install(label):
                             for index, path in enumerate(apks):
                                 run(label + '-install-' + str(index), [*adb, 'install', '-r', '-t', path])
