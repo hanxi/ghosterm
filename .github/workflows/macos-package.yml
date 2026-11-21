@@ -35,6 +35,8 @@ on:
         required: false
         default: false
     secrets:
+      MACOS_UPDATE_PRIVATE_KEY:
+        required: false
       MACOS_CERTIFICATE_P12_BASE64:
         required: false
       MACOS_CERTIFICATE_PASSWORD:
