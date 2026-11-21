@@ -371,6 +371,19 @@ jobs:
           python3 scripts/make-macos-update.py --dist dist --channel "$INPUT_CHANNEL" \
             --commit "$GITHUB_SHA" --signer apple/GhostermApp/.build/artifacts/sparkle/Sparkle/bin/sign_update
 
+      - name: 验证正式候选的实际更新签名
+        if: inputs.channel == 'release' && github.event_name != 'pull_request' && github.repository == 'hanxi/ghosterm'
+        env:
+          GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          STAGED_ASSETS="$(mktemp -d "$TMPDIR/release-verify.XXXXXX")"
+          trap 'rm -rf -- "$STAGED_ASSETS"' EXIT
+          cp dist/*.dmg dist/*.zip dist/{SHA256SUMS,BUILD-INFO.txt,version.json,appcast.xml} "$STAGED_ASSETS/"
+          VERSION="$(python3 -c 'import json; print(json.load(open("dist/version.json"))["version"])')"
+          python3 -B scripts/audit-public-release.py --repository "$GITHUB_REPOSITORY" --tag "v$VERSION" \
+            --asset-directory "$STAGED_ASSETS" --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
+
       - name: 一键安装脚本集成与变异验证
         run: |
           set -euo pipefail
