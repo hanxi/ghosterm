@@ -5,6 +5,7 @@ Requires an explicitly built JS-enabled core/build and locked developer tools.
 Only copied Swift sources are mutated; owned windows remain offscreen.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -24,6 +25,23 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = 'apple/GhostermApp/Sources/GhostermAppModel/PluginDirectorySignature.swift'
 VIEW = 'apple/GhostermApp/Sources/GhostermApp/PluginSignatureReviewView.swift'
 CONTROLLER = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
+
+
+@contextmanager
+def capacity_volume(work):
+    image = work / 'install-capacity.dmg'
+    mount = work / 'install-capacity'
+    mount.mkdir()
+    subprocess.run(['hdiutil', 'create', '-size', '48m', '-fs', 'HFS+', '-volname',
+                    'GhostermInstallTest', image], check=True, capture_output=True, timeout=60)
+    subprocess.run(['hdiutil', 'attach', image, '-mountpoint', mount, '-nobrowse', '-noautoopen'],
+                   check=True, capture_output=True, timeout=60)
+    try:
+        yield mount
+    finally:
+        subprocess.run(['hdiutil', 'detach', mount], check=True, capture_output=True, timeout=60)
+
+
 DIRECTORY_REVIEW_CASES = (
     ('review-cancelled', CONTROLLER,
      'try Task.checkCancellation()\n        return try await worker.review(directory: directory)',
@@ -160,6 +178,7 @@ def main():
     parser.add_argument('--official-packages', nargs=3, type=Path, metavar=('SDK_TOOLS', 'CODEX', 'CLAUDE'),
                         help='also install seven official candidates signed by the disposable fixture')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
+    parser.add_argument('--capacity', action='store_true', help='also run real ENOSPC on a disposable volume')
     parser.add_argument('--versions', action='store_true', help='also exercise persistent version choices and an active SSH Runtime')
     parser.add_argument('--selection-review', action='store_true', help='include reviewed version transitions, Core-bound declarations and live old-version references')
     parser.add_argument('--policy-review', action='store_true', help='include explicit policy review/disable data, UI, actual Core and live Runtime tests')
@@ -170,6 +189,8 @@ def main():
     parser.add_argument('--gterm', type=Path)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
+    if args.capacity and not args.install:
+        parser.error('--capacity requires --install')
     if args.diagnose_live_version or args.diagnose_live_channel_revocation:
         if args.install or args.versions or args.remove or args.policy_review or args.selection_review:
             parser.error('live diagnostics must run standalone')
@@ -491,6 +512,13 @@ def main():
             baseline_count = 3
         else:
             run('baseline', baseline, count=baseline_count)
+        if args.capacity:
+            with capacity_volume(work) as mount:
+                env['GHOSTERM_TEST_INSTALL_CAPACITY_VOLUME'] = str(mount)
+                try:
+                    run('install-capacity', 'PluginReleaseCapacityTests')
+                finally:
+                    env.pop('GHOSTERM_TEST_INSTALL_CAPACITY_VOLUME')
         if args.official_packages:
             run('official-install', 'PluginOfficialReleaseInstallTests')
         if args.versions and not args.diagnose_live_channel_revocation: run('live-version-baseline', live)
@@ -530,7 +558,8 @@ def main():
         scope = 'macOS live channel revocation before consent and during direct/two-hop SSH Runtime'
     out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
         baselineTests=baseline_count, lifetimeTests=sum(test['label'].startswith('live-') for test in commands), installation=args.install, versions=args.versions, removal=args.remove, policyReview=args.policy_review, selectionReview=args.selection_review,
-        inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
+        capacityTests=int(args.capacity), inputs=inputs, binaries=binaries, xctestSHA256=binary_sha,
+        commands=commands, mutations=groups), indent=2) + '\n')
     print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 
 
