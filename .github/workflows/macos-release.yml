@@ -156,7 +156,7 @@ jobs:
           fi
           android_profile=disabled
           if [[ "$ANDROID_PLUGIN_JS" == true ]]; then android_profile=enabled; fi
-          python3 -B scripts/check-android-plugin-license.py dist/Ghosterm-android-arm64-release.apk +            --plugin-js "$android_profile"
+          python3 -B scripts/check-android-plugin-license.py dist/Ghosterm-android-arm64-release.apk --plugin-js "$android_profile"
           CERTIFICATE_ARGS=()
           if [[ -n "$ANDROID_RELEASE_CERT_SHA256" ]]; then
             CERTIFICATE_ARGS=(--android-certificate-sha256 "$ANDROID_RELEASE_CERT_SHA256")
