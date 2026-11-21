@@ -12744,6 +12744,11 @@ Android API 29 无窗口直连和两跳混合基线通过，收据 SHA256
 `1e74b667b2f494d9cc020725e5ea27b40e6a840f84f25a6c1cfa401ecd10bcae`。
 本轮没有单独注入旧代准入回执。两端夹具和临时目录已核实清理。
 
+Android 对所有被拒绝的异步准入也复核运行代次，覆盖普通 RPC 抛错与视图的结构化
+失败回执。API 29 / 36 无窗口 arm64 同一 APK 对，各通过 47 项视图、表格与 Runtime
+测试，安装摘要一致。Debug、测试 APK、Release 和 lint 通过。未单独注入旧代回执；
+两台模拟器和临时目录均已核实清理。
+
 2026-11-21 在 `10408a0f` 上补验 API 29。用同一对开启 QuickJS 的 APK、
 新构建的 gterm 与 Node SDK，在自有无窗口 arm64 模拟器验证直连和 ProxyJump
 两项混合运行。八实例涵盖 Portable / Node / Exec 与开发目录 / 签名安装，

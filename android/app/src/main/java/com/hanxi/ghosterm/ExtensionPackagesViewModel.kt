@@ -541,8 +541,9 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         val admission = withContext(NonCancellable) {
             owner.requestRuntimeExecutor(method, input, 30000)
         }
-        if (returnTerminalOutcome && admission.status != ExtensionSession.RPCStatus.OK) {
+        if (admission.status != ExtensionSession.RPCStatus.OK) {
             checkRPCGeneration(generation)
+            check(returnTerminalOutcome) { "插件 RPC admission 失败：${admission.status}" }
             val code = when (admission.status) {
                 ExtensionSession.RPCStatus.WAIT -> "BUSY"
                 ExtensionSession.RPCStatus.INVALID -> "INVALID_INPUT"
@@ -553,7 +554,6 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             }
             return JSONObject().put("kind", "failed").put("error", JSONObject().put("code", code).put("message", code).put("effect", "none")).toString().toByteArray(Charsets.UTF_8)
         }
-        check(admission.status == ExtensionSession.RPCStatus.OK) { "插件 RPC admission 失败：${admission.status}" }
         val handle = checkNotNull(admission.handle)
         if (generation === rpcGeneration) {
             pendingExtensionRPCHandles += handle
