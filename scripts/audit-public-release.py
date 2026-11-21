@@ -126,9 +126,10 @@ def verify_macos_update(folder, inventory, manifest, channel, base, expected_key
     enclosure = item.find('enclosure')
     if enclosure is None or (
         item.findtext(SPARKLE + 'shortVersionString'), item.findtext(SPARKLE + 'version'),
+        item.findtext(SPARKLE + 'minimumSystemVersion'),
         enclosure.get('url'), enclosure.get('length'), enclosure.get(SPARKLE + 'edSignature')
     ) != (
-        version, manifest.get('update_version'), base + '/' + zip_name,
+        version, manifest.get('update_version'), manifest.get('min_macos'), base + '/' + zip_name,
         str(inventory[zip_name]['size']), manifest['update_signature']
     ):
         raise ValueError('appcast does not match the published update ZIP')
