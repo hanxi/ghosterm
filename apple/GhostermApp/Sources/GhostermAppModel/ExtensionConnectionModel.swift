@@ -79,7 +79,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         try launch.clientWorkspace?.validate(requiredCapabilities: selected.requiredCapabilities)
         let plan = try ExtensionInstanceModel.clientPlan(selected: selected, methods: request.methods, hostMethods: request.hostMethods)
         return .init(executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
-            clientDigest: request.clientDigest, methods: plan.methods, hostMethods: request.hostMethods, clientCapabilities: plan.services,
+            clientDigest: request.clientDigest, methods: plan.methods, hostMethods: plan.hostMethods, clientCapabilities: plan.services,
             scopedRoots: request.scopedRoots, processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
             execution: request.execution, attachment: request.attachment, releaseEvidence: request.releaseEvidence, variantID: request.variantID, command: request.command, arguments: request.arguments)
     }

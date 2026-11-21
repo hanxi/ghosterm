@@ -3889,8 +3889,10 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 单次运行至多保留一个待答请求。提交前在原 owner 队列复核 Runtime 身份和票据，
 Session 撤销后清除界面和草稿。Android 运行页也接通同一方法，复用 JNI 已有的
 Session 票据检查，按 Runtime 身份及表单令牌绑定答复。macOS 应用、Android
-QuickJS-on Debug 与测试 APK 构建通过。通用能力声明、实际界面和真实双端
-Session 验收仍待完成。
+QuickJS-on Debug 与测试 APK 构建通过。两端现在从已批准的 Client 包读取
+`ui.form` 声明，在本机 / SSH 启动配置中协商 `view.form.request` Host 方法，
+RPC 逐次检查这一能力。Portable 表单样例通过打包，展示文本、开关和单选，
+只保留回答状态。实际界面和真实双端 Session 验收仍待完成。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、

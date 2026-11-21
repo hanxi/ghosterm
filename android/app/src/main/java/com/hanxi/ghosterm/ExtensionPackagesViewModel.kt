@@ -69,7 +69,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             val context = application.applicationContext
             val profile = ExtensionController.HostProfile(
                 sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"))
+                capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views", "ui.form"))
             val refresh = PluginChannelRefresh.configured(context)
             if (refresh == null) ExtensionController(profile, context) else ExtensionController(profile, context, refresh)
         }.getOrNull()
@@ -228,13 +228,15 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         val tableContribution = "table" in selectedCommand.views
         val diffContribution = "diff" in selectedCommand.views
         val taskContribution = "task" in selectedCommand.views
+        val formContribution = "ui.form" in entry.review.requiredCapabilities
         if (request.command != selectedCommand.path || entry.review.commands.firstOrNull { it.path == selectedCommand.path } != selectedCommand ||
             (tableContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.table"))) ||
             (diffContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.diff"))) ||
             (taskContribution && !entry.review.requiredCapabilities.containsAll(listOf("session.rpc", "ui.task"))) ||
             (registeredContribution && !tableContribution && !diffContribution && !taskContribution) ||
             request.clientCapabilities.distinct().size != request.clientCapabilities.size ||
-            request.clientCapabilities.any { when (it) { "ui.table" -> !tableContribution; "ui.diff" -> !diffContribution; "ui.task" -> !taskContribution; "ui.views" -> !registeredContribution; else -> true } }) {
+            (!formContribution && PluginForm.method in request.hostMethods) ||
+            request.clientCapabilities.any { when (it) { "ui.table" -> !tableContribution; "ui.diff" -> !diffContribution; "ui.task" -> !taskContribution; "ui.views" -> !registeredContribution; "ui.form" -> !formContribution; else -> true } }) {
             throw IllegalArgumentException("只能启动已批准的准确命令与已声明的 Client 服务")
         }
         val baseRequest = if (selectedCommand.path == "ai codex") request.copy(
@@ -252,12 +254,15 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             methods = (tableRequest.methods + PluginDiffModel.methods).distinct(), clientCapabilities = (tableRequest.clientCapabilities + "ui.diff").distinct()) else tableRequest
         val taskRequest = if (!registeredContribution && taskContribution) diffRequest.copy(
             methods = (diffRequest.methods + PluginTaskModel.methods).distinct(), clientCapabilities = (diffRequest.clientCapabilities + "ui.task").distinct()) else diffRequest
-        val configuredRequest = if (registeredContribution) baseRequest.copy(clientCapabilities = buildList {
+        val viewRequest = if (registeredContribution) baseRequest.copy(clientCapabilities = buildList {
             if (tableContribution) add("ui.table")
             if (diffContribution) add("ui.diff")
             if (taskContribution) add("ui.task")
             add("ui.views")
         }) else taskRequest
+        val configuredRequest = if (formContribution) viewRequest.copy(
+            hostMethods = (viewRequest.hostMethods + PluginForm.method).distinct(),
+            clientCapabilities = (viewRequest.clientCapabilities + "ui.form").distinct()) else viewRequest
         val launchRequest = configuredRequest.copy(arguments = configuredRequest.arguments.toList(),
             methods = configuredRequest.methods.toList(), hostMethods = configuredRequest.hostMethods.toList(),
             processPrograms = configuredRequest.processPrograms.map { it.copy(prefixArguments = it.prefixArguments.toList()) },
@@ -304,7 +309,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             launchRequest.executorDigest, "0.1.0", peerIdentity,
             (launchRequest.methods.map { it to ExtensionSession.Role.EXECUTOR } +
                 launchRequest.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
-                ExtensionSession.Method(method, "session.rpc", receiver,
+                val capability = if (receiver == ExtensionSession.Role.HOST && method == PluginForm.method) "ui.form" else "session.rpc"
+                ExtensionSession.Method(method, capability, receiver,
                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
             }, additionalRequiredCapabilities = extraCapabilities)
         runtimeObservationIssue = null
@@ -990,7 +996,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         if (!current()) return
         if (status == ExtensionSession.RPCStatus.WAIT) return
         check(status == ExtensionSession.RPCStatus.OK && request != null) { "读取 Executor Host RPC 失败：$status" }
-        if (request.method == PluginForm.method && PluginForm.method in activeSession?.hostMethods.orEmpty()) {
+        if (request.method == PluginForm.method && PluginForm.method in activeSession?.hostMethods.orEmpty() &&
+            "ui.form" in activeSession?.requiredCapabilities.orEmpty()) {
             val form = if (pendingPluginForm == null) runCatching { PluginForm.decode(request.input) }.getOrNull() else null
             if (form != null) {
                 val checked = owner.scopedHostRPC(instanceID, request.ticket)

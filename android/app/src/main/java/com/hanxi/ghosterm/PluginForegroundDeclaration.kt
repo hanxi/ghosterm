@@ -43,7 +43,7 @@ data class PluginForegroundDeclaration(
                         "schemaVersion" -> require(reader.peek() == JsonToken.NUMBER && reader.nextString() == "1") { "不支持的前台声明版本" }
                         "authorizationGranted" -> require(reader.peek() == JsonToken.BOOLEAN && !reader.nextBoolean()) { "前台声明不能授予权限" }
                         "arguments", "methods", "hostMethods", "clientCapabilities" -> {
-                            val maximum = when (key) { "arguments" -> 32; "clientCapabilities" -> 4; else -> 16 }
+                            val maximum = when (key) { "arguments" -> 32; "clientCapabilities" -> 5; else -> 16 }
                             val values = mutableListOf<String>()
                             reader.beginArray()
                             while (reader.hasNext()) {
@@ -69,7 +69,7 @@ data class PluginForegroundDeclaration(
                 command.isNotEmpty() && command.toByteArray().size <= 519 &&
                 arguments.sumOf { it.toByteArray().size + 1 } + command.toByteArray().size + 1 <= 16384 &&
                 methods.size + hostMethods.size <= 16 && methods.none { it in hostMethods } &&
-                services.distinct().size == services.size && services.all { it in listOf("ui.table", "ui.diff", "ui.task", "ui.views") }) { "前台声明无效或实例不匹配" }
+                services.distinct().size == services.size && services.all { it in listOf("ui.table", "ui.diff", "ui.task", "ui.views", "ui.form") }) { "前台声明无效或实例不匹配" }
             ExtensionRelayBootstrap.parseMethodsJson(JSONArray(methods).toString())
             ExtensionRelayBootstrap.parseHostMethodsJson(JSONArray(hostMethods).toString())
             return PluginForegroundDeclaration(instance, strings.getValue("runtime"), strings.getValue("executorDigest"),

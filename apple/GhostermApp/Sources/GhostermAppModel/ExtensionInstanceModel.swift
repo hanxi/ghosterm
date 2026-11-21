@@ -117,7 +117,7 @@ import GhostermCore
         return canDiscard
     }
 
-    struct ClientPlan { let methods: [String], services: [String] }
+    struct ClientPlan { let methods: [String], hostMethods: [String], services: [String] }
     static func clientPlan(selected: ExtensionController.Resolution, methods: [String], hostMethods: [String]) throws -> ClientPlan {
     let tableContribution = selected.command?.views.contains("table") == true
     if tableContribution && !["session.rpc", "ui.table"].allSatisfy(selected.requiredCapabilities.contains) {
@@ -145,10 +145,17 @@ import GhostermCore
     if diffContribution { clientServices.append("ui.diff") }
     if taskContribution { clientServices.append("ui.task") }
     if registeredViews { clientServices.append("ui.views") }
-    guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
+    let form = selected.requiredCapabilities.contains("ui.form")
+    guard form || !hostMethods.contains(PluginFormRequest.method) else {
+        throw GhostermError.failed("表单 Host 方法需要 ui.form")
+    }
+    if form { clientServices.append("ui.form") }
+    let sessionHostMethods = form && !hostMethods.contains(PluginFormRequest.method)
+        ? hostMethods + [PluginFormRequest.method] : hostMethods
+    guard (sessionMethods.isEmpty && sessionHostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
         throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
     }
-        return ClientPlan(methods: sessionMethods, services: clientServices)
+        return ClientPlan(methods: sessionMethods, hostMethods: sessionHostMethods, services: clientServices)
     }
 
     public func startExtensionClient(packageID: String, packageDigest: String, command: String,
@@ -211,6 +218,7 @@ import GhostermCore
             }
             let plan = try Self.clientPlan(selected: selected, methods: methods, hostMethods: hostMethods)
             let sessionMethods = plan.methods, clientServices = plan.services
+            let hostMethods = plan.hostMethods
             try clientWorkspace?.validate(requiredCapabilities: selected.requiredCapabilities)
             if ["ai codex", "ai claude"].contains(command), let executorAttachment, !executorAttachment.remoteProcesses {
                 throw GhostermError.failed("此命令需要明确允许沿用前台实例已有的远端业务进程范围")
@@ -248,7 +256,7 @@ import GhostermCore
                 ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
                     receiver: GhostermCore.ExtensionSession.Role.executor.rawValue)
             } + hostMethods.map {
-                ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
+                ExtensionController.RPCMethod(name: $0, capability: $0 == PluginFormRequest.method ? "ui.form" : "session.rpc",
                     receiver: GhostermCore.ExtensionSession.Role.host.rawValue)
             }
             let version = AppModel.extensionHostProtocolVersion(
@@ -1007,7 +1015,8 @@ import GhostermCore
             }
             return
         }
-        if request.method == PluginFormRequest.method, run.hostMethods.contains(request.method) {
+        if request.method == PluginFormRequest.method, run.hostMethods.contains(request.method),
+           run.requiredCapabilities.contains("ui.form") {
             if pendingPluginForm == nil, let form = try? PluginFormRequest.decode(request.input) {
                 let status = try await extensionController.scopedHostRPC(instanceID: instanceID, ticket: request.ticket)
                 try checkExtensionRunGeneration(generation)

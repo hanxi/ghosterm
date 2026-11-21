@@ -32,9 +32,9 @@ public struct PluginForegroundDeclaration: Sendable, Equatable, Decodable {
               value.arguments.reduce(value.command.utf8.count + 1, { $0 + $1.utf8.count + 1 }) <= 16384,
               value.methods.count + value.hostMethods.count <= 16,
               Set(value.methods).isDisjoint(with: value.hostMethods),
-              value.clientCapabilities.count <= 4,
+              value.clientCapabilities.count <= 5,
               Set(value.clientCapabilities).count == value.clientCapabilities.count,
-              value.clientCapabilities.allSatisfy({ ["ui.table", "ui.diff", "ui.task", "ui.views"].contains($0) }) else { throw invalid() }
+              value.clientCapabilities.allSatisfy({ ["ui.table", "ui.diff", "ui.task", "ui.views", "ui.form"].contains($0) }) else { throw invalid() }
         let encoder = JSONEncoder()
         _ = try ExtensionRelayBootstrap.parseMethodsJSON(String(decoding: encoder.encode(value.methods), as: UTF8.self))
         _ = try ExtensionRelayBootstrap.parseHostMethodsJSON(String(decoding: encoder.encode(value.hostMethods), as: UTF8.self))

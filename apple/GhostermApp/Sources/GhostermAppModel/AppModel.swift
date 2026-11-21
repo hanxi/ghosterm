@@ -23,7 +23,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views", "ui.form"]
 
     /// The wire protocol carries semantic versions with three numeric
     /// components. Apple's marketing version commonly omits the patch (for

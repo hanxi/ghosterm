@@ -12,7 +12,7 @@
 
 typedef struct {
     const char *runtime, *executor, *client, *command;
-    const char *arguments[32], *methods[16], *host_methods[16], *capabilities[4];
+    const char *arguments[32], *methods[16], *host_methods[16], *capabilities[5];
     size_t argument_count, method_count, host_count, capability_count;
 } declaration_t;
 
@@ -71,7 +71,7 @@ static bool valid(const declaration_t *d) {
          strcmp(d->runtime, "exec")) ||
         !digest(d->executor) || !digest(d->client) || !d->command || !*d->command ||
         strlen(d->command) > 519 || d->argument_count > 32 ||
-        d->method_count + d->host_count > 16 || d->capability_count > 4) {
+        d->method_count + d->host_count > 16 || d->capability_count > 5) {
         return false;
     }
     size_t total = strlen(d->command) + 1;
@@ -99,7 +99,7 @@ static bool valid(const declaration_t *d) {
     for (size_t i = 0; i < d->capability_count; i++) {
         const char *s = d->capabilities[i];
         if (strcmp(s, "ui.table") && strcmp(s, "ui.diff") && strcmp(s, "ui.task") &&
-            strcmp(s, "ui.views")) {
+            strcmp(s, "ui.views") && strcmp(s, "ui.form")) {
             return false;
         }
         for (size_t j = 0; j < i; j++) {
@@ -168,7 +168,7 @@ static bool wire(buffer_t *b, declaration_t *d) {
            string(b, &d->command) && vector(b, d->arguments, &d->argument_count, 32) &&
            vector(b, d->methods, &d->method_count, 16) &&
            vector(b, d->host_methods, &d->host_count, 16) &&
-           vector(b, d->capabilities, &d->capability_count, 4) && valid(d);
+           vector(b, d->capabilities, &d->capability_count, 5) && valid(d);
 }
 
 bool gterm_foreground_encode(int argc, char **argv, unsigned char *bytes, size_t *size) {
@@ -204,7 +204,7 @@ bool gterm_foreground_encode(int argc, char **argv, unsigned char *bytes, size_t
             }
             d.host_methods[d.host_count++] = value;
         } else if (!strcmp(option, "--client-capability")) {
-            if (d.capability_count == 4) {
+            if (d.capability_count == 5) {
                 return false;
             }
             d.capabilities[d.capability_count++] = value;

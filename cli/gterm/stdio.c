@@ -227,7 +227,8 @@ static int stdio_prepare(
     const char *variant_id = NULL;
     bool execution_authorized = false;
     bool release_evidence = false;
-    bool client_table = false, client_diff = false, client_task = false, client_views = false;
+    bool client_table = false, client_diff = false, client_task = false, client_views = false,
+         client_form = false;
     const char *extra_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX - 5] = {0};
     size_t extra_environment_count = 0;
     int at = 0;
@@ -276,6 +277,11 @@ static int stdio_prepare(
                     return diagnostic("unknown or duplicate Client service requirement", 2);
                 }
                 client_views = true;
+            } else if (!strcmp(argv[at + 1], "ui.form")) {
+                if (client_form) {
+                    return diagnostic("unknown or duplicate Client service requirement", 2);
+                }
+                client_form = true;
             } else {
                 return diagnostic("unknown or duplicate Client service requirement", 2);
             }
@@ -391,13 +397,25 @@ static int stdio_prepare(
                    job->method_count < GT_EXT_RPC_METHODS_MAX && strlen(argv[at + 1]) <= 128) {
             gt_ext_rpc_method_t *m = &job->methods[job->method_count++];
             strcpy(m->method, argv[at + 1]);
-            strcpy(m->capability, "session.rpc");
             m->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
+            strcpy(m->capability,
+                   m->receiver == GT_EXT_HOST && !strcmp(m->method, "view.form.request")
+                       ? "ui.form"
+                       : "session.rpc");
             m->input_shape = m->output_shape = GT_EXT_JSON_OBJECT;
         } else {
             return diagnostic("invalid or duplicate stdio option", 2);
         }
         at += 2;
+    }
+    bool form_method = false;
+    for (size_t i = 0; i < job->method_count; i++) {
+        if (!strcmp(job->methods[i].capability, "ui.form")) {
+            form_method = true;
+        }
+    }
+    if (client_form != form_method) {
+        return diagnostic("Client form requires ui.form and the form Host method", 2);
     }
     if (!digest(trusted) || !digest(client) || at + 2 >= argc || strcmp(argv[at], "--")) {
         return diagnostic(
@@ -696,6 +714,14 @@ static int stdio_prepare(
         }
         strcpy(config.required[config.required_count++], "ui.views");
         strcpy(config.available[config.available_count++], "ui.views");
+    }
+    if (client_form) {
+        if (!rpc || config.required_count >= 16 || config.available_count >= 16) {
+            job->result = diagnostic("Client form requires declared RPC and a capability slot", 4);
+            goto done;
+        }
+        strcpy(config.required[config.required_count++], "ui.form");
+        strcpy(config.available[config.available_count++], "ui.form");
     }
     if ((receive_resources && !resource_store_available) || (scoped_reads && !job->root_count) ||
         (scoped_reads && !receive_resources)) {

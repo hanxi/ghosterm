@@ -102,8 +102,8 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
     for (size_t i = 0; i < info.requires_count; i++) {
         const char *name = info.requires[i];
         bool native_view =
-            role == GT_BRIDGE_HOST &&
-            (!strcmp(name, "ui.table") || !strcmp(name, "ui.diff") || !strcmp(name, "ui.task"));
+            role == GT_BRIDGE_HOST && (!strcmp(name, "ui.table") || !strcmp(name, "ui.diff") ||
+                                       !strcmp(name, "ui.task") || !strcmp(name, "ui.form"));
         bool view_registry = role == GT_BRIDGE_HOST && !strcmp(name, "ui.views");
         if (!native_view && !view_registry && strcmp(name, "session.rpc") &&
             strcmp(name, "file.readScoped") && strcmp(name, "resource.receive") &&
