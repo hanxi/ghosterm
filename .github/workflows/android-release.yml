@@ -122,12 +122,6 @@ jobs:
           apk=android/app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
-          if [ "$FORMAL_RELEASE" = true ]; then
-            badging="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")"
-            IFS=. read -r major minor patch <<< "$ORG_GRADLE_PROJECT_ghostermReleaseVersion"
-            expected_code=$((major * 1000000 + minor * 1000 + patch + 2))
-            grep -Fq " versionCode='$expected_code' versionName='$ORG_GRADLE_PROJECT_ghostermReleaseVersion' " <<< "$badging"
-          fi
           python3 scripts/check-android-build-info.py "$apk" --expect-commit "$GITHUB_SHA" --expect-state clean
           python3 scripts/mutation-check-android-build-info.py "$apk"
           name=Ghosterm-android-arm64-dev.apk
@@ -135,8 +129,13 @@ jobs:
           cp "$apk" "dist/android/$name"
           export ANDROID_ASSET_NAME="$name"
           python3 - <<'PY'
-          import hashlib,json,os,pathlib
+          import hashlib,json,os,pathlib,runpy
           folder=pathlib.Path('dist/android'); apk=folder/os.environ['ANDROID_ASSET_NAME']
+          formal_version = (os.environ['ORG_GRADLE_PROJECT_ghostermReleaseVersion']
+                            if os.environ.get('FORMAL_RELEASE') == 'true' else None)
+          checks = runpy.run_path('scripts/check-android-release-assets.py')
+          checks['verify_apk_version'](apk, formal_version, pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0/aapt')
+          checks['verify_native_page_alignment'](apk)
           import zipfile
           with zipfile.ZipFile(apk) as archive:
               metadata=json.loads(archive.read('assets/ghosterm-build.json'))
@@ -146,8 +145,8 @@ jobs:
           (folder/'SHA256SUMS').write_text(digest+'  '+apk.name+'\n')
           info = dict(metadata, build_type='release', abi='arm64-v8a', min_sdk=29,
                       bytes=apk.stat().st_size, sha256=digest, r8=True, resource_shrinking=True)
-          if os.environ.get('FORMAL_RELEASE') == 'true':
-              info['version_name'] = os.environ['ORG_GRADLE_PROJECT_ghostermReleaseVersion']
+          if formal_version is not None:
+              info['version_name'] = formal_version
           (folder/'build-info.json').write_text(json.dumps(info, indent=2)+'\n')
           print('Release APK bytes:',apk.stat().st_size)
           PY
