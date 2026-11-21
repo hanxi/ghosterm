@@ -223,7 +223,7 @@ class PluginOfficialReleaseInstallTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = PluginInstallTestFiles.root()
         val owner = ExtensionController(ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"),
-            listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views")), context)
+            listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views", "ui.form")), context)
         try {
             for (name in listOf("preview", "table", "diff", "task", "views", "logs", "form", "ai-codex", "ai-claude")) {
                 val directory = File(input, "official-$name-release")
