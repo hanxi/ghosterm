@@ -16704,6 +16704,8 @@ QuickJS 开启的 macOS 本地 PTY 离屏一项通过，Android API 29 / 36 无�
 随后在 `d40aebea` 核对平台绑定，Apple 204 项引用、3 项登记未绑定，
 Android JNI 168 项引用、39 项登记未绑定。clang-format 19.1.7 检查 297
 个 C 文件通过，临时目录已核实清理。
+在 `76a544ad` 独立构建 QuickJS-off、tests-on Core，默认档 612 项 CTest
+全部通过，编译和测试临时目录已核实清理。
 
 在 `7c6e79ee` 和 `d0a02b4f`，八位控制串改用八位 ST，七位串保留原结束形式。
 QuickJS 开启的 Android API 29 / 36 用同一对新构建 APK 各通过一项；两台
