@@ -70,7 +70,7 @@ class PluginDiffUiTest {
         val announcement = SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
         ui.onNodeWithTag("plugin-diff-loading").assert(announcement)
         ui.onNodeWithTag("plugin-diff-loading").performScrollTo()
-        ui.awaitNativePluginLiveRegion("正在读取差异…")
+        val loadingNode = ui.awaitNativePluginLiveRegion("正在读取差异…")
         ui.onNodeWithTag("plugin-diff-range").assertDoesNotExist()
         ui.onNodeWithTag("plugin-diff-text-0").assertDoesNotExist()
         ui.onNodeWithTag("plugin-diff-next").assertIsNotEnabled(); ui.onNodeWithTag("plugin-diff-reload").assertIsNotEnabled()
@@ -79,7 +79,7 @@ class PluginDiffUiTest {
         val total = checkNotNull(model.state.value.descriptor).total
         val range = "第 4–${page.offset + page.rows.size} 行，共 $total 行"
         ui.onNodeWithTag("plugin-diff-range").performScrollTo().assert(announcement).assertTextEquals(range)
-        ui.awaitNativePluginLiveRegion(range)
+        assertEquals("Diff range must update the same system live region", loadingNode, ui.awaitNativePluginLiveRegion(range))
     }
     private fun painted(dark: Boolean, scale: Float) = fixture(dark = dark, scale = scale) { model, _ ->
         val text = ui.onNodeWithTag("plugin-diff-text-0").performScrollTo().assertTextEquals("alpha").assertIsDisplayed()

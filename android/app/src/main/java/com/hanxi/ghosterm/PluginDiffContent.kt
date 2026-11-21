@@ -22,17 +22,27 @@ import androidx.compose.ui.unit.dp
         Text(state.descriptor?.title ?: "差异", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         state.issue?.let { Text(it, Modifier.testTag("plugin-diff-issue")
             .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
-        if (state.busy) Text("正在读取差异…", Modifier.testTag("plugin-diff-loading")
-            .semantics { liveRegion = LiveRegionMode.Polite })
         val description = state.descriptor; val page = state.page
         if (description != null && page != null) {
             Text("${description.beforeLabel} → ${description.afterLabel}", Modifier.testTag("plugin-diff-labels"))
             Text("新增 ${description.added} 行 · 删除 ${description.removed} 行", Modifier.testTag("plugin-diff-summary"))
+            if (description.total > 0 && description.added == 0 && description.removed == 0) {
+                Text("两份文本相同", Modifier.testTag("plugin-diff-identical"))
+            }
+        }
+        val status = when {
+            state.busy -> "正在读取差异…"
+            description != null && page != null && description.total > 0 ->
+                "第 ${page.offset + 1}–${page.offset + page.rows.size} 行，共 ${description.total} 行"
+            else -> null
+        }
+        // Keep the same live-region node while a page loads and its range replaces the progress text.
+        if (status != null) Text(status, Modifier
+            .testTag(if (state.busy) "plugin-diff-loading" else "plugin-diff-range")
+            .semantics { liveRegion = LiveRegionMode.Polite })
+        if (description != null && page != null) {
             if (description.total == 0) Text("两份文本均为空", Modifier.testTag("plugin-diff-empty"))
             else {
-                if (description.added == 0 && description.removed == 0) Text("两份文本相同", Modifier.testTag("plugin-diff-identical"))
-                Text("第 ${page.offset + 1}–${page.offset + page.rows.size} 行，共 ${description.total} 行",
-                    Modifier.testTag("plugin-diff-range").semantics { liveRegion = LiveRegionMode.Polite })
                 // Independent scroll semantics keep both axes addressable.
                 Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState()).testTag("plugin-diff-rows")) {
                     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

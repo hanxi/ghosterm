@@ -21,14 +21,20 @@ import androidx.compose.ui.unit.dp
         Text(state.descriptor?.title ?: "表格", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         state.issue?.let { Text(it, Modifier.testTag("plugin-table-issue")
             .semantics { liveRegion = LiveRegionMode.Polite }, color = MaterialTheme.colorScheme.error) }
-        if (state.busy) Text("正在读取表格…", Modifier.testTag("plugin-table-loading")
-            .semantics { liveRegion = LiveRegionMode.Polite })
         val description = state.descriptor; val page = state.page
+        val status = when {
+            state.busy -> "正在读取表格…"
+            description != null && page != null && description.total > 0 ->
+                "第 ${page.offset + 1}–${page.offset + page.rows.size} 行，共 ${description.total} 行"
+            else -> null
+        }
+        // Keep the same live-region node while a page loads and its range replaces the progress text.
+        if (status != null) Text(status, Modifier
+            .testTag(if (state.busy) "plugin-table-loading" else "plugin-table-range")
+            .semantics { liveRegion = LiveRegionMode.Polite })
         if (description != null && page != null) {
             if (description.total == 0) Text("空表", Modifier.testTag("plugin-table-empty"))
             else {
-                Text("第 ${page.offset + 1}–${page.offset + page.rows.size} 行，共 ${description.total} 行",
-                    Modifier.testTag("plugin-table-range").semantics { liveRegion = LiveRegionMode.Polite })
                 // Keep one scroll action per semantics node. Combining both axes on
                 // one node loses an axis for accessibility/bring-into-view actions.
                 Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState())

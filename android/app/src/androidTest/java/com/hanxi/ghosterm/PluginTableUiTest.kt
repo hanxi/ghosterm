@@ -75,7 +75,7 @@ class PluginTableUiTest {
         val announcement = SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
         ui.onNodeWithTag("plugin-table-loading").assert(announcement)
         ui.onNodeWithTag("plugin-table-loading").performScrollTo()
-        ui.awaitNativePluginLiveRegion("正在读取表格…")
+        val loadingNode = ui.awaitNativePluginLiveRegion("正在读取表格…")
         ui.onNodeWithTag("plugin-table-range").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-cell-1-n").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-next").assertIsNotEnabled()
@@ -86,7 +86,7 @@ class PluginTableUiTest {
         val total = checkNotNull(model.state.value.descriptor).total
         val range = "第 17–${page.offset + page.rows.size} 行，共 $total 行"
         ui.onNodeWithTag("plugin-table-range").performScrollTo().assert(announcement).assertTextEquals(range)
-        ui.awaitNativePluginLiveRegion(range)
+        assertEquals("Table range must update the same system live region", loadingNode, ui.awaitNativePluginLiveRegion(range))
     }
     @Test fun darkLargeTextKeepsHeadersCellsCollectionAndPagingAccessible() = fixture(dark = true, scale = 2f, total = 17) { model, _ ->
         ui.onNodeWithTag("plugin-table-column-n").performScrollTo().assertTextEquals("Number")
@@ -103,14 +103,20 @@ class PluginTableUiTest {
     }
 }
 
-internal fun ComposeContentTestRule.awaitNativePluginLiveRegion(message: String) {
+internal fun ComposeContentTestRule.awaitNativePluginLiveRegion(message: String): AccessibilityNodeInfo {
     val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-    fun matches(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
-        if (node.text?.toString() == message && node.liveRegion == View.ACCESSIBILITY_LIVE_REGION_POLITE) return true
-        return (0 until node.childCount).any { matches(node.getChild(it)) }
+    fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.text?.toString() == message && node.liveRegion == View.ACCESSIBILITY_LIVE_REGION_POLITE) return node
+        for (index in 0 until node.childCount) {
+            find(node.getChild(index))?.let { return it }
+        }
+        return null
     }
+    var node: AccessibilityNodeInfo? = null
     waitUntil(5_000) {
-        matches(automation.rootInActiveWindow)
+        node = find(automation.rootInActiveWindow)
+        node != null
     }
+    return checkNotNull(node)
 }
