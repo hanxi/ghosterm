@@ -177,6 +177,46 @@ final class PluginDirectorySignatureTests: XCTestCase {
         XCTAssertEqual(reopened.statementSHA256, winner)
     }
 
+    func testChannelPublicationKeepsOldRecordAndReconcilesUncertainSync() throws {
+        let publisher = Fixture(), root = Fixture()
+        let policy = try Self.json(publisher.policy)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func verified(_ generation: String) throws -> Verifier.VerifiedChannelPolicy {
+            let statement = try Self.json(["schemaVersion": 1, "channel": "test", "generation": generation,
+                "issuedAt": "100", "expiresAt": "200", "policySHA256": Self.hash(policy)])
+            return try Verifier.verifyChannelPolicy(statement: statement,
+                signature: root.sign(statement, domain: "ghosterm.channel-policy.v1\0"), policy: policy,
+                channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 150)
+        }
+        let previous = try verified("1"), candidate = try verified("2")
+        do {
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true))
+            try owner.recordChannelPolicy(previous, now: 150)
+            let before = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let record = try XCTUnwrap(before.first { $0.lastPathComponent.hasPrefix("channel-policy-v1-") })
+            let oldBytes = try Data(contentsOf: record)
+            XCTAssertThrowsError(try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true,
+                                                                beforeRename: { throw POSIXError(.ENOSPC) })) {
+                XCTAssertEqual(($0 as? POSIXError)?.code, .ENOSPC)
+            }
+            XCTAssertEqual(try Data(contentsOf: record), oldBytes)
+            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.hasPrefix(".selection-") })
+        }
+        do {
+            let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true, parentSync: { _ in -1 }))
+            XCTAssertThrowsError(try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true)) {
+                XCTAssertEqual($0 as? PluginReleaseCatalog.Failure, .io)
+            }
+        }
+        let recovered = try Verifier.loadChannelPolicy(channel: "test", channelRoot: root.key.publicKey.rawRepresentation,
+                                                       now: 151, stateDirectory: directory)
+        XCTAssertEqual(recovered.statementSHA256, candidate.statementSHA256)
+    }
+
     func testChannelRefreshCommitsOnlyVerifiedCompleteResponses() async throws {
         let fixture = Fixture(), root = Fixture(), policy = try Self.json(fixture.policy)
         let state = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

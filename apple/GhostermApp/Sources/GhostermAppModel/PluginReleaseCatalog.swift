@@ -256,7 +256,7 @@ final class PluginReleaseCatalog {
     }
 
     func recordChannelPolicy(_ policy: PluginDirectorySignatureVerifier.VerifiedChannelPolicy, now: UInt64,
-                             requireHistory: Bool = false) throws {
+                             requireHistory: Bool = false, beforeRename: (() throws -> Void)? = nil) throws {
         guard exclusive else { throw Failure.io }
         try validate()
         guard policy.issuedAt <= now, now < policy.expiresAt else {
@@ -282,7 +282,7 @@ final class PluginReleaseCatalog {
         let raw = try encoder.encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
             digest: policy.statementSHA256, observed: now, envelope: policy.envelope))
         guard raw.count <= Self.channelHistoryLimit else { throw Failure.invalid }
-        guard try publishRecord(raw, as: name) else { throw Failure.io }
+        guard try publishRecord(raw, as: name, beforeRename: { try beforeRename?() }) else { throw Failure.io }
     }
 
     private func publishRecord(_ raw: Data, as destination: String, beforeRename: () throws -> Void = {}) throws -> Bool {
