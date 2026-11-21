@@ -172,7 +172,9 @@ final class PluginReleaseInstallTests: XCTestCase {
     func testInstallPublishesReadOnlyVersionWithoutSourceApproval() async throws {
         let input = try fixture(), root = try directory(), controller = try controller(root)
         let prepared = try await prepare(controller, input)
-        let installed = try await controller.installPreparedRelease(id: prepared.id)
+        let installed: ExtensionController.InstalledRelease
+        do { installed = try await controller.installPreparedRelease(id: prepared.id) }
+        catch { return XCTFail("A valid read-only version must publish: \(error)") }
         XCTAssertTrue(installed.durabilityConfirmed)
         XCTAssertEqual(installed.signature, prepared.signature)
         XCTAssertEqual(try names(root.appendingPathComponent("installed")), [prepared.signature.descriptorSHA256])
@@ -332,7 +334,20 @@ final class PluginReleaseInstallTests: XCTestCase {
         try stage.discard()
         XCTAssertEqual(try names(root), [], "failed frozen stage must still clean")
         let next = try PluginReleaseStage(directory: root)
+        try next.write(Data([1]), path: "payload/a")
+        let member = next.payloadURL.appendingPathComponent("a")
+        do {
+            _ = try next.publish(id: id, beforeRename: {
+                guard chmod(member.path, 0o600) == 0 else { throw PluginReleaseStage.Failure.io }
+                try Data([2]).write(to: member)
+                guard chmod(member.path, 0o400) == 0 else { throw PluginReleaseStage.Failure.io }
+            })
+            return XCTFail("A member changed during final authorization must not publish")
+        } catch {
+            XCTAssertEqual(error as? PluginReleaseStage.Failure, .changed)
+        }
         try next.discard()
+        XCTAssertEqual(try names(root), [])
     }
 
     func testPermissionRetryRestoresSourceModeForSuccessAndConflict() throws {

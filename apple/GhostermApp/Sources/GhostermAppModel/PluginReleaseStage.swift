@@ -183,11 +183,7 @@ final class PluginReleaseStage {
     /// is reported separately: publication has happened; durability is unknown.
     func publish(id: String, beforeRename: (() throws -> Void)? = nil) throws -> (directory: URL, durabilityConfirmed: Bool) {
         guard id.utf8.count == 64, id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw Failure.io }
-        try validate()
-        visited = 0; verifiedFiles = 0
-        try walk(root, removing: false)
-        guard verifiedFiles == files.count else { throw Failure.changed }
-        try validate()
+        try checkTree(freeze: true)
         if var record = journalRecord, let journal, let reference = journalReference {
             record.target = id
             try journal.write(record, expected: reference.digest)
@@ -195,6 +191,7 @@ final class PluginReleaseStage {
         }
         try checkpoint("before-publication-rename")
         try beforeRename?()
+        try checkTree(freeze: false)
         var result = renameExclusive(parent, name, id)
         var code = result == 0 ? 0 : errno
         if code == EACCES {
@@ -239,9 +236,21 @@ final class PluginReleaseStage {
         _ = flock(parent, LOCK_UN)
     }
 
-    private func walk(_ fd: Int32, removing: Bool, depth: Int = 0, prefix: String = "") throws {
+    private func checkTree(freeze: Bool) throws {
+        try validate()
+        visited = 0; verifiedFiles = 0
+        try walk(root, removing: false, freeze: freeze)
+        guard verifiedFiles == files.count else { throw Failure.changed }
+        try validate()
+    }
+
+    private func walk(_ fd: Int32, removing: Bool, freeze: Bool = true, depth: Int = 0, prefix: String = "") throws {
         guard depth <= 34 else { throw Failure.io }
         if removing { guard fchmod(fd, 0o700) == 0 else { throw Failure.io } }
+        if !removing && !freeze {
+            var value = stat()
+            guard fstat(fd, &value) == 0, value.st_mode & 0o222 == 0 else { throw Failure.changed }
+        }
         let copy = fcntl(fd, F_DUPFD_CLOEXEC, 3)
         guard copy >= 0 else { throw Failure.io }
         guard let stream = fdopendir(copy) else { Darwin.close(copy); throw Failure.io }
@@ -265,7 +274,7 @@ final class PluginReleaseStage {
                 if !removing { guard directories.contains(path) else { throw Failure.changed } }
                 let child = openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
                 guard child >= 0 else { throw Failure.io }
-                do { try walk(child, removing: removing, depth: depth + 1, prefix: path) } catch { Darwin.close(child); throw error }
+                do { try walk(child, removing: removing, freeze: freeze, depth: depth + 1, prefix: path) } catch { Darwin.close(child); throw error }
                 Darwin.close(child)
                 if removing && unlinkat(fd, name, AT_REMOVEDIR) != 0 { throw Failure.io }
             } else if removing {
@@ -276,6 +285,6 @@ final class PluginReleaseStage {
                 verifiedFiles += 1
             }
         }
-        if !removing { guard fchmod(fd, 0o500) == 0, fsync(fd) == 0 else { throw Failure.io } }
+        if !removing && freeze { guard fchmod(fd, 0o500) == 0, fsync(fd) == 0 else { throw Failure.io } }
     }
 }

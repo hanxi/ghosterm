@@ -256,6 +256,8 @@ def main():
             ('install-retry-owner', CONTROLLER, 'try pending.stage.discard()\n                try pending.record.package.close()',
              'try pending.record.package.close()\n                try pending.stage.discard()', selected + 'testFailedDiscardRetainsOwnerForExplicitRetry'),
             ('install-snapshot', stage, 'guard files[path] == FileStamp(value) else', 'guard files[path] != nil else', selected + 'testChangedPreparedFilesMustNotPublish'),
+            ('install-final-snapshot', stage, 'try checkTree(freeze: false)', 'try validate()',
+             selected + 'testStageLockFreezeAndFailedPublishCleanup'),
             ('install-member-set', stage, 'guard verifiedFiles == files.count else', 'guard verifiedFiles <= files.count else', selected + 'testAddedOrMissingPreparedMembersMustNotPublish'),
         ]
     if args.remove:
