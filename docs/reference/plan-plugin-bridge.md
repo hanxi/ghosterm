@@ -3950,6 +3950,13 @@ U+0085 保留。macOS 离屏应用专项与 API 29 无窗口 AVD 的组件首尾
 `FEEDBACK_SPOKEN`。首轮仅查到启用项，未取得绑定证据。两轮 AVD 正常退出，
 临时目录已清理。实际插件表单和搜索的焦点与播报仍须在该服务下验证。
 
+后续在专用 API 36 无窗口 AVD 中确认 TalkBack 的默认偏好位于设备保护存储。
+首次尝试在偏好文件落盘前读取而失败。复验先打开 TalkBack 设置并等文件落盘，
+再只在该 AVD 内启用诊断日志。从 TalkBack 自己的 `SpeechControllerImpl` 日志
+捕获到通知授权提示的 `Speaking fragment text` 及对应 `utteranceId`，可用此字段
+作为插件场景的播报文字判据。Ghosterm Debug APK 安装成功；本轮取得的是系统
+授权提示的文字，插件表单与搜索的播报仍待验。模拟器以 0 退出，临时目录均已清理。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成
