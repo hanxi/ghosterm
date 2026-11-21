@@ -335,8 +335,23 @@ def main():
                          os=os_name, arch=arch)
             fact_file = fixture / 'facts.json'
             fact_file.write_text(json.dumps(facts))
+            runtime_node, runtime_node_sha = node, node_sha
+            if mode == 'probe-stderr':
+                probe = fixture / 'probe.c'
+                probe.write_text(
+                    '#include <stdio.h>\n#include <string.h>\n'
+                    'int main(int argc, char **argv) {\n'
+                    '    if (argc != 2 || strcmp(argv[1], "--version")) return 77;\n'
+                    f'    if (puts({json.dumps(version)}) < 0 || fclose(stdout)) return 1;\n'
+                    '    static char diagnostic[32768];\n'
+                    '    memset(diagnostic, \'d\', sizeof(diagnostic));\n'
+                    '    return fwrite(diagnostic, 1, sizeof(diagnostic), stderr) != sizeof(diagnostic);\n'
+                    '}\n')
+                runtime_node = fixture / 'node-probe'
+                run(label + '-probe', ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', probe, '-o', runtime_node])
+                runtime_node_sha = sha(runtime_node)
             try:
-                run(label, [build / 'test_process_runtime', mode, package, fixed_sdk, temp, node, node_sha, sdk_digest, fact_file, *(['public'] if args.public else [])], red)
+                run(label, [build / 'test_process_runtime', mode, package, fixed_sdk, temp, runtime_node, runtime_node_sha, sdk_digest, fact_file, *(['public'] if args.public else [])], red)
                 if red:
                     # C atexit stops/reaps its actual child. Left-over native
                     # fixture roots/stores are private to this test invocation.
@@ -355,7 +370,7 @@ def main():
 
         baseline = ['node:' + mode for mode in ['roundtrip', 'retained', 'frozen', 'sdk-frozen', 'argument-boundary',
                     'stop-created', 'denied', 'wrong-sha', 'node-alias', 'bad-sdk', 'bad-env', 'bad-env-name', 'duplicate-env',
-                    'bad-arguments', 'bad-command', 'wrong-identity', 'wrong-version', 'activation-reject',
+                    'bad-arguments', 'bad-command', 'wrong-identity', 'wrong-version', 'probe-stderr', 'activation-reject',
                     'activation-timeout', 'lifetime', 'stdout-limit', 'stderr-limit', 'ambient', 'busy']]
         baseline += ['exec:' + mode for mode in ['roundtrip', 'retained', 'frozen', 'stop-created', 'denied',
                      'bad-env', 'bad-env-name', 'duplicate-env', 'bad-arguments', 'bad-command', 'wrong-identity',

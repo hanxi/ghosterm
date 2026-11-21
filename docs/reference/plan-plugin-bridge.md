@@ -12794,6 +12794,12 @@ Node 版本探针在 leader 退出后须等 stdout 与 stderr 都到 EOF 才判�
 文件格式检查通过。临时目录均已核实清理。此处收紧探针验收，尚无证据将
 历史在线替换 I/O 失败归因于该竞态。
 
+在 `56059179` 加入 `node:probe-stderr` 常驻场景。一次性子进程先输出正确版本并
+关闭 stdout，再往 stderr 写 32 KiB。公开 Runtime 验证完整计数、拒绝探针且不
+激活业务入口。进程 Runtime 与 Node 进程服务组合 71 项通过，C 格式检查 297
+文件通过，临时目录已核实清理。该场景覆盖输出顺序与拒绝，未固定两路读取间的
+具体调度顺序。
+
 以 `f922a171` 的新建 gterm 和 Node SDK 复验 macOS 与 Android API 36 的
 八实例混合运行。两端的 SSH 直连与 ProxyJump 两跳共四项通过，均覆盖版本探针、
 签名 Node 在线替换、独立 RPC、资源及最终释放。macOS 和 Android 收据 SHA256

@@ -894,6 +894,10 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "wrong-version")) {
             CHECK(!info.activated && info.error == GT_ERR_AUTH);
         }
+        if (!strcmp(mode, "probe-stderr")) {
+            CHECK(!info.activated && !info.probe_verified && info.error == GT_ERR_AUTH &&
+                  info.stderr_bytes == 32768);
+        }
         if (!strcmp(mode, "activation-timeout")) {
             CHECK(!info.activated && info.error == GT_ERR_CANCELLED && info.probe_verified &&
                   info.stderr_bytes && info.child_exited);
