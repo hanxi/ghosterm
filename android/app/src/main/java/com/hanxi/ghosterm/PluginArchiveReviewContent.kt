@@ -34,6 +34,30 @@ internal fun PluginArchiveReviewContent(controller: ExtensionController?) {
 }
 
 @Composable
+private fun PluginArchiveDocumentPicker(model: PluginArchiveReviewModel) {
+    // Register once per review owner. Keep the token actually launched even
+    // when result delivery changes the model's pending state.
+    var launched by remember { mutableStateOf<PluginArchiveReviewModel.Pick?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val request = launched
+        launched = null
+        if (request != null) model.completePick(request, uri)
+    }
+    val request = model.pending
+    LaunchedEffect(request) {
+        if (request != null && launched == null) {
+            launched = request
+            try {
+                picker.launch(arrayOf("*/*"))
+            } catch (_: Exception) {
+                launched = null
+                model.failPick(request)
+            }
+        }
+    }
+}
+
+@Composable
 private fun PluginArchiveInputs(controller: ExtensionController) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
@@ -61,12 +85,7 @@ private fun PluginArchiveInputs(controller: ExtensionController) {
             })
     }
     DisposableEffect(model) { onDispose { model.close() } }
-    model.pending?.let { request -> key(request) {
-        val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> model.completePick(request, uri) }
-        LaunchedEffect(request) {
-            try { picker.launch(arrayOf("*/*")) } catch (_: Exception) { model.failPick(request) }
-        }
-    } }
+    key(model) { PluginArchiveDocumentPicker(model) }
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (model.useConfiguredChannel) "选择 ZIP、发布描述和公开签名。"
             else "选择 ZIP、发布描述、公开签名，以及从独立可信来源取得的渠道公钥策略。",
