@@ -14,6 +14,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -29,6 +33,9 @@ import java.io.File
 import java.net.Socket
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.CoroutineContext
 
 /** Actual Native group and UI consent; all Executors run on the owned SSH host. */
 @RunWith(AndroidJUnit4::class)
@@ -342,6 +349,24 @@ class ExtensionMixedConnectionTest {
             }
             assertEquals(8, main { instances.map { it.model.receivedResources.single().descriptor.sha256 }.distinct().size })
             val uncertain = instances[3].model
+            val invalidInput = "[]".toByteArray()
+            val freshRejection = runBlocking {
+                withContext(Dispatchers.Main) { uncertain.requestPluginViewOutcome("fixture.echo", invalidInput) }
+            }
+            assertEquals("INVALID_INPUT", JSONObject(freshRejection.toString(Charsets.UTF_8))
+                .getJSONObject("error").getString("code"))
+            // Let the actual worker finish admission, then hold its UI
+            // continuation until stop has invalidated this run's generation.
+            val replies = LinkedBlockingQueue<Runnable>()
+            val paused = object : CoroutineDispatcher() {
+                override fun dispatch(context: CoroutineContext, block: Runnable) { replies.add(block) }
+            }
+            val lateRejection = main {
+                CoroutineScope(paused).async(start = CoroutineStart.UNDISPATCHED) {
+                    uncertain.requestPluginViewOutcome("fixture.echo", invalidInput)
+                }
+            }
+            val reply = checkNotNull(replies.poll(10, TimeUnit.SECONDS)) { "RPC worker did not return admission" }
             main {
                 val peers = instances.withIndex().filter { it.index != 3 }
                 fun checkPeers(stage: String) {
@@ -364,6 +389,12 @@ class ExtensionMixedConnectionTest {
             } }
             assertTrue(refused.message?.contains("运行状态未知") == true)
             main { uncertain.stopRuntime() }
+            main { reply.run() }
+            assertTrue("late admission must finish after the captured continuation resumes", lateRejection.isCompleted)
+            val cancelled = assertThrows(CancellationException::class.java) {
+                runBlocking { lateRejection.await() }
+            }
+            assertEquals("Plugin Session changed", cancelled.message)
             await("explicit stop resumes only cleanup observation") {
                 main { uncertain.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED && !uncertain.launchBusy }
             }
