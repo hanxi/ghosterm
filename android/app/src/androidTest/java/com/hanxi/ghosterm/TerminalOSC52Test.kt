@@ -47,9 +47,13 @@ class TerminalOSC52Test {
         val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
         val offer = "\\033]777;ghosterm-discovery;1;$payload\\007"
         val discoveryStatus = if (BuildConfig.PLUGIN_JS_ENABLED) 0 else 7
-        for ((control, introducer) in listOf("DCS" to "P", "SOS" to "X", "PM" to "^", "APC" to "_")) {
+        val controls = listOf(
+            "DCS" to "\\033P", "SOS" to "\\033X", "PM" to "\\033^", "APC" to "\\033_",
+            "C1_DCS" to "\\0220", "C1_SOS" to "\\0230", "C1_PM" to "\\0236", "C1_APC" to "\\0237",
+        )
+        for ((control, introducer) in controls) {
             val marker = "PTY_CONTROL_$control"
-            session.commit("printf '%b' '\\033$introducer$offer\\033\\0134\\033[2J\\033[H$marker'\r")
+            session.commit("printf '%b' '$introducer$offer\\033\\0134\\033[2J\\033[H$marker'\r")
             ready(session, marker)
             val nested = session.discovery()
             assertEquals(discoveryStatus, nested.status)
