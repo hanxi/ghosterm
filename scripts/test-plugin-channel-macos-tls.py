@@ -11,6 +11,27 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def verify_release_preflight(work, env, origin, certificate, root):
+    curl_env = dict(env, CURL_CA_BUNDLE=str(certificate))
+    for route, expected in (
+        ('valid', '"generation":"2"'),
+        ('redirect', 'HTTP 302'),
+        ('mixed', 'CHANNEL_POLICY_DIGEST'),
+        ('expired', 'CHANNEL_POLICY_FRESHNESS'),
+        ('revoked', '"generation":"3"'),
+        ('valid', 'CHANNEL_POLICY_ROLLBACK'),
+    ):
+        result = subprocess.run(
+            ['bash', ROOT / 'scripts/check-plugin-channel-url.sh', 'fixture', root,
+             f'{origin}/{route}/', work / 'preflight.sqlite'],
+            cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=110)
+        output = result.stdout + result.stderr
+        wants_success = expected.startswith('"generation":')
+        if (result.returncode == 0) != wants_success or expected not in output:
+            raise RuntimeError(f'Channel preflight {route}: {output}')
+    print('CHANNEL RELEASE PREFLIGHT PASS: TLS / redirect / digest / expiry / revocation / rollback', flush=True)
+
+
 def main():
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('channel_tls_fixture', ROOT / 'scripts/test-plugin-channel-android-tls.py')
@@ -26,6 +47,7 @@ def main():
             quickjs_enabled = 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in core_cache.read_text().splitlines()
             env['GHOSTERM_CORE_TEST_PLUGIN_JS'] = '1' if quickjs_enabled else '0'
         with helper.tls_fixture(Path(path), env, '127.0.0.1') as (origin, certificate, root):
+            verify_release_preflight(Path(path), env, origin, certificate, root)
             der = subprocess.check_output(['openssl', 'x509', '-in', certificate, '-outform', 'DER'], env=env)
             env.update(GHOSTERM_TEST_CHANNEL_ORIGIN=origin, GHOSTERM_TEST_CHANNEL_ROOT=root,
                        GHOSTERM_TEST_CHANNEL_CERT=base64.b64encode(der).decode(),
