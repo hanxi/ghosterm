@@ -106,6 +106,8 @@ def verify(args, work, project, adb, build_prefix):
         ('attachment-count', limits, document, 'MAX_ATTACHMENTS = 6', 'MAX_ATTACHMENTS = 7'),
         ('form-policy', model + 'documentHasARestrictiveFirstPolicyAndLiteralUnicodeSource', document,
          "form-action 'none'", "form-action 'self'"),
+        ('source-unicode-boundary', model + 'documentHasARestrictiveFirstPolicyAndLiteralUnicodeSource', settings,
+         'if (preview.lastOrNull()?.isHighSurrogate() == true) preview.dropLast(1) else preview', 'preview'),
         ('request-origin', requests, view, 'uri.rawAuthority == host && ', ''),
         ('request-method', requests, view, 'method == "GET" && ', ''),
         ('main-document-scope', requests, view, 'if (url == documentURL)', 'if (true)'),
@@ -189,6 +191,8 @@ def verify(args, work, project, adb, build_prefix):
             good = good and method.split('#')[1] in output
             if label == 'retained-response-revocation-target':
                 good = good and 'A response retained during close must stop serving attachment bytes' in output
+            if label == 'source-unicode-boundary-target':
+                good = good and 'source preview must not split an emoji at its display limit' in output
         if not good or f'INSTRUMENTATION_STATUS: numtests={count}\n' not in output:
             raise RuntimeError('Not accepted assertion result:\n' + output)
     control = 'com.hanxi.ghosterm.NativeSmokeTest#corePreservesUtf8AndLineEndings'

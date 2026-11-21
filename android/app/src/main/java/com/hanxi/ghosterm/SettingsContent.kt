@@ -463,7 +463,8 @@ internal fun decodePluginResourceText(bytes: ByteArray): String? {
         val decoder = Charsets.UTF_8.newDecoder()
             .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
             .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
-        decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString().take(8192)
+        val preview = decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString().take(8192)
+        if (preview.lastOrNull()?.isHighSurrogate() == true) preview.dropLast(1) else preview
     } catch (_: java.nio.charset.CharacterCodingException) { null }
 }
 

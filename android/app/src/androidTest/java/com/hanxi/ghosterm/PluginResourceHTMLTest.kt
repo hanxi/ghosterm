@@ -70,6 +70,11 @@ class PluginResourceHTMLTest {
             "connect-src 'none'", "frame-src 'none'", "form-action 'none'", "base-uri 'none'")) assertTrue(rule, html.contains(rule))
         assertTrue(html.indexOf("default-src 'none'") < html.indexOf("script-src *"))
         assertTrue(html.contains("<h1>中文 😀</h1>"))
+        val prefix = "x".repeat(8191)
+        assertEquals("source preview must not split an emoji at its display limit",
+            prefix, decodePluginResourceText((prefix + "😀").toByteArray()))
+        val fitting = "x".repeat(8190) + "😀"
+        assertEquals(fitting, decodePluginResourceText((fitting + "extra").toByteArray()))
     }
 
     @Test fun onlyFollowingExplicitBundleAssetsAreCapturedAndOriginalArraysCannotChangeThem() {
