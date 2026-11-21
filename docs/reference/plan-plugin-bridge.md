@@ -1001,6 +1001,10 @@ Go 下载缓存首次清理因目录只读报错，恢复目录写权限后已�
 macOS 使用仓库配置的 Sparkle 公钥，ZIP 和 appcast 验签通过；Android 资产审计通过。
 下载目录已核实清理。正式标签资产与生产插件策略仍待发行验证。
 
+在 `12de7c20` 离屏运行 macOS 渠道 HTTPS 测试，发布预检和原生
+`testHTTPSRefreshAndFailurePreserveCache` 均通过。回环端同时覆盖签名文件逐字节
+回读和旧代拒绝。测试临时目录已核实清理。
+
 远端复查：macOS Release 工作流 `44806436423` 的打包作业成功，
 草稿发布作业跳过，且该轮没有 Android 正式构建。GitHub Release 仍只有滚动
 `dev`，远端 `v0.1.0` 标签既有且指向旧提交。仓库级变量列表仅见 macOS
