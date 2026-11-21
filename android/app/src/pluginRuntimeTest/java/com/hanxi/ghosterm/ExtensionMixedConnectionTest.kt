@@ -51,13 +51,16 @@ class ExtensionMixedConnectionTest {
         // Publication has its own 10 s limit. Match the UI's outer RPC budget
         // for this call so the executor can still report a publication failure.
         val rpcTimeoutMs = if (text == "resource") 30_000 else 10_000
-        val admission = try { runBlocking { owner.requestRuntimeExecutor("fixture.echo",
-            JSONObject().put("text", text).put("count", slot).toString().toByteArray(), rpcTimeoutMs) } }
-        catch (failure: IllegalArgumentException) {
-            val observed = runCatching { runBlocking { owner.stepRuntime().info } }.getOrNull()
-            throw AssertionError("RPC admission $text/$slot: cached=${main { model.activeRuntime?.info }} observed=$observed issue=${main { model.error }}", failure)
+        val admission = runBlocking {
+            owner.requestRuntimeExecutor("fixture.echo",
+                JSONObject().put("text", text).put("count", slot).toString().toByteArray(), rpcTimeoutMs)
         }
-        val handle = checkNotNull(admission.handle)
+        val handle = admission.handle
+        if (admission.status != ExtensionSession.RPCStatus.OK || handle == null) {
+            val observed = runCatching { runBlocking { owner.stepRuntime().info } }.getOrNull()
+            throw AssertionError("$label admission=${admission.status} stage=$stage " +
+                "cached=${main { model.activeRuntime?.info }} observed=$observed issue=${main { model.error }}")
+        }
         var observation = runBlocking { owner.runtimeExecutorRequestResult(handle) }
         val deadline = started + rpcTimeoutMs + 5_000L
         while (observation.first == ExtensionSession.RPCStatus.OK &&

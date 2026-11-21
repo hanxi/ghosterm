@@ -609,6 +609,7 @@ import GhostermCore
         }
         let admission = try await extensionController.requestExecutorRPC(method: method, input: inputBytes)
         guard admission.status == .ok, let handle = admission.handle else {
+            try checkExtensionRunGeneration(generation)
             if returnTerminalOutcome {
                 let codes: [ExtensionSession.RPCStatus: String] = [.wait: "BUSY", .invalid: "INVALID_INPUT", .denied: "DENIED", .unsupported: "UNSUPPORTED", .closed: "CANCELLED"]
                 if let code = codes[admission.status] {

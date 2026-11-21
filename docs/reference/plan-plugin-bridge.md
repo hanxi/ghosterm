@@ -12737,6 +12737,13 @@ macOS Swift Runtime 同样在已创建但未激活或已停止时返回 `closed`
 未激活用例仍期待抛错。更新该断言后重新构建，Runtime 14 项全绿，包括未激活、
 活动 RPC 往返及停止后准入。无公共 ABI 变更，两轮临时目录均已核实清理。
 
+macOS 实例模型在异步 RPC 准入拒绝后重新确认运行代次，避免旧实例的拒绝回执
+被作为当前实例的业务结果。Android 八实例夹具改为记录实际准入状态、缓存与
+原生观测。开启 QuickJS 的 macOS App 隔离构建与 24 项离屏定向通过；
+Android API 29 无窗口直连和两跳混合基线通过，收据 SHA256
+`1e74b667b2f494d9cc020725e5ea27b40e6a840f84f25a6c1cfa401ecd10bcae`。
+本轮没有单独注入旧代准入回执。两端夹具和临时目录已核实清理。
+
 2026-11-21 在 `10408a0f` 上补验 API 29。用同一对开启 QuickJS 的 APK、
 新构建的 gterm 与 Node SDK，在自有无窗口 arm64 模拟器验证直连和 ProxyJump
 两项混合运行。八实例涵盖 Portable / Node / Exec 与开发目录 / 签名安装，
