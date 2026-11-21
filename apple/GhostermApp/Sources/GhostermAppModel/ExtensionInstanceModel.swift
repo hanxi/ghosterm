@@ -128,6 +128,9 @@ import GhostermCore
         throw GhostermError.failed("视图注册服务需要所选命令声明标准视图")
     }
     var sessionMethods = !registeredViews && tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+    if !registeredViews, tableContribution, selected.packageID == "org.ghosterm.logs", selected.command?.path == "logs" {
+        sessionMethods = Array(Set(sessionMethods + [PluginTableModel.searchMethod])).sorted()
+    }
     if !registeredViews && diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
     if !registeredViews && taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
     var clientServices = tableContribution ? ["ui.table"] : []
@@ -884,7 +887,7 @@ import GhostermCore
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
                     self.canInteractWithRuntime
-            })
+            }, supportsSearch: run.methods.contains(PluginTableModel.searchMethod))
         }
         if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("diff"), run.requiredCapabilities.contains("ui.diff"),
            runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionDiff == nil,

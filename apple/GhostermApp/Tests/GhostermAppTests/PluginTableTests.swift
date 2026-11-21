@@ -32,7 +32,13 @@ final class PluginTableFixture {
         calls.append((method, input))
         let value: [String: Any]
         if method == "view.table.describe" { value = description }
-        else {
+        else if method == PluginTableModel.searchMethod {
+            let parameters = try JSONSerialization.jsonObject(with: input) as! [String: Any]
+            let first = parameters["after"] as? Int == 0
+            let rows = first ? [] : page()["rows"] as! [[String: Any]]
+            value = ["viewId": description["viewId"]!, "revision": description["revision"]!,
+                "cursor": first ? 128 : 256, "latest": 256, "truncated": first, "rows": Array(rows.prefix(1))]
+        } else {
             let parameters = try JSONSerialization.jsonObject(with: input) as! [String: Any]
             value = page(parameters["offset"] as! Int)
         }
@@ -55,6 +61,31 @@ final class PluginTableTests: XCTestCase {
         let end = ProcessInfo.processInfo.systemUptime + 5
         while !predicate() && ProcessInfo.processInfo.systemUptime < end { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertTrue(predicate(), "Expected explicit table fixture barrier")
+    }
+    func testSearchContinuesFromAnEmptyPageAndDropsLateReply() async throws {
+        let f = PluginTableFixture()
+        let model = PluginTableModel(rpc: { try await f.request($0, $1) }, isCurrent: { true }, supportsSearch: true)
+        await model.load()
+        await model.search("value")
+        XCTAssertEqual(model.searchPage?.rows, [])
+        XCTAssertEqual(model.searchPage?.cursor, 128)
+        XCTAssertTrue(model.searchTruncated)
+        await model.continueSearch()
+        XCTAssertEqual(model.searchPage?.rows.map(\.id), ["1"])
+        XCTAssertTrue(model.searchTruncated)
+        let parameters = try XCTUnwrap(JSONSerialization.jsonObject(with: f.calls.last!.1) as? [String: Any])
+        XCTAssertEqual(parameters["after"] as? Int, 128)
+        XCTAssertEqual(parameters["through"] as? Int, 256)
+        XCTAssertEqual(parameters["query"] as? String, "value")
+
+        f.pauseMethod = PluginTableModel.searchMethod
+        let pending = Task { await model.search("later") }
+        try await until { f.barrier != nil }
+        model.invalidate()
+        f.release()
+        await pending.value
+        XCTAssertNil(model.searchPage)
+        XCTAssertNil(model.searchQuery)
     }
     func testCanonicalRevisionAndExactDescriptor() throws {
         let f = PluginTableFixture()
