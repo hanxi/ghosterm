@@ -16038,6 +16038,14 @@ Release/R8 与 16 KiB 页未纳入本轮。两台模拟器退出码均为 0，�
 `ca4a384aa5612b8484ea6d9accca3987849f44e48cb6ca064269e8a7a43b9493`。
 该构件仅用于构建验收，未安装或发行；构件与临时日志已清理。
 
+macOS 以 `4f6f9244` 干净检出通过 Apple ABI 对拍（204 引用、3 登记）
+及 QuickJS 启用的原生签名与安装组合 35 项。常驻脚本同轮执行
+`channel-commit-root`、`install-durable-version` 与 `install-final-snapshot`，
+三组均重新编译并命中单条正常断言，独立配置对照、恢复与源码摘要通过。
+离屏收据 SHA256 `96accea0882d217b2c0d7169ee7f31fe5439723604f0ad4f2cb105afcc0092bc`。
+首次离线 npm 缓存缺锁定依赖，在测试前退出。随后补齐依赖，独立检出及临时
+文件已清理。版本选择、删除和正式发行矩阵另验。
+
 macOS arm64 / 26.6.2 对公开 dev 执行一键安装，真实下载清单、校验和与 ZIP，
 安装到本轮独占目录。随包 commit 为 `c10752dc08e5`，codesign 严格校验及
 递归 quarantine 检查通过。用同一线上下载重试，在晋升暂存包时注入失败，
