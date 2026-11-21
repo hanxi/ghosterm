@@ -79,12 +79,15 @@ struct PluginTableView: View {
         TextField("搜索表格", text: $query)
             .onSubmit { if canSearch { Task { await model.search(query) } } }
         Button("搜索") { Task { await model.search(query) } }.disabled(!canSearch)
+            .accessibilityIdentifier("plugin-table-search")
         if let active = model.searchQuery {
             Text("搜索：\(active)")
             if let page = model.searchPage, page.cursor < page.latest {
                 Button("继续搜索") { Task { await model.continueSearch() } }.disabled(!model.available || model.busy)
+                    .accessibilityIdentifier("plugin-table-search-more")
             }
             Button("返回表格") { Task { await model.load() } }.disabled(!model.available || model.busy)
+                .accessibilityIdentifier("plugin-table-search-clear")
         }
     }
     @ViewBuilder private var controls: some View {
