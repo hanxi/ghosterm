@@ -16032,6 +16032,12 @@ Release/R8 与 16 KiB 页未纳入本轮。两台模拟器退出码均为 0，�
 模拟器均以 0 退出，临时目录已核实清理。此轮仍是 Debug/测试 APK，
 跨进程远端与正式构建矩阵另验。
 
+随后以 `eb1affb0` 同源隔离构建 QuickJS 启用的未签名 Android Release。
+`:app:minifyReleaseWithR8`、app / bridge / data / terminal 的 Release lint
+与 APK 内 QuickJS 许可检查通过。构件 SHA256
+`ca4a384aa5612b8484ea6d9accca3987849f44e48cb6ca064269e8a7a43b9493`。
+该构件仅用于构建验收，未安装或发行；构件与临时日志已清理。
+
 macOS arm64 / 26.6.2 对公开 dev 执行一键安装，真实下载清单、校验和与 ZIP，
 安装到本轮独占目录。随包 commit 为 `c10752dc08e5`，codesign 严格校验及
 递归 quarantine 检查通过。用同一线上下载重试，在晋升暂存包时注入失败，
