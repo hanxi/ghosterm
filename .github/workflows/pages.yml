@@ -10,6 +10,8 @@ on:
       - 'scripts/plugin_release.py'
       - 'scripts/plugin-release-crypto.mjs'
       - 'scripts/plugin-release-schemas.mjs'
+      - 'scripts/check-plugin-channel-url.sh'
+      - 'scripts/configure-macos-plugin-channel.py'
   workflow_dispatch: {}
 
 permissions:
@@ -59,6 +61,8 @@ jobs:
             --statement "$directory/channel-policy.json" \
             --signature "$directory/channel-policy.sig" \
             --policy "$directory/policy.json"
+          printf 'PAGES_PLUGIN_CHANNEL=%s\nPAGES_PLUGIN_CHANNEL_ROOT=%s\n' \
+            "$CHANNEL" "$CHANNEL_ROOT" >> "$GITHUB_ENV"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
@@ -77,19 +81,5 @@ jobs:
             https://*) ;;
             *) echo "Missing Pages URL" >&2; exit 1 ;;
           esac
-          mkdir -p tmp
-          download="$(mktemp -d "$PWD/tmp/pages-channel-XXXXXX")"
-          trap 'rm -rf -- "$download"' EXIT
-          for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
-            name="${entry%:*}"
-            limit="${entry##*:}"
-            status="$(curl --disable --silent --show-error --proto '=https' --globoff \
-              --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
-              --output "$download/$name" --write-out '%{http_code}' \
-              "${PAGES_URL%/}/plugins/$name")"
-            if [[ "$status" != 200 ]]; then
-              echo "Plugin channel returned HTTP $status for $name" >&2
-              exit 1
-            fi
-            cmp "site/plugins/$name" "$download/$name"
-          done
+          bash scripts/check-plugin-channel-url.sh "$PAGES_PLUGIN_CHANNEL" \
+            "$PAGES_PLUGIN_CHANNEL_ROOT" "${PAGES_URL%/}/plugins/" --compare-directory site/plugins

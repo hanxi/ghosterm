@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-  echo "Usage: $0 CHANNEL ROOT_KEY HTTPS_DIRECTORY [STATE_FILE]" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 5 ] || { [ "$#" -eq 5 ] && [ "$4" != --compare-directory ]; }; then
+  echo "Usage: $0 CHANNEL ROOT_KEY HTTPS_DIRECTORY [STATE_FILE | --compare-directory DIRECTORY]" >&2
   exit 2
 fi
 CHANNEL="${1:?expected channel name}"
@@ -12,6 +12,8 @@ ROOT_KEY="${2:?expected channel public key}"
 DIRECTORY="${3:?expected HTTPS channel directory}"
 STATE_ARGS=()
 if [ "$#" -eq 4 ]; then STATE_ARGS=(--record-state "$4"); fi
+COMPARE_DIRECTORY=""
+if [ "$#" -eq 5 ]; then COMPARE_DIRECTORY="${5:?expected comparison directory}"; fi
 
 GHOSTERM_PLUGIN_CHANNEL="$CHANNEL" GHOSTERM_PLUGIN_CHANNEL_ROOT="$ROOT_KEY" \
   GHOSTERM_PLUGIN_CHANNEL_URL="$DIRECTORY" \
@@ -45,6 +47,9 @@ for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072;
   if [ "$size" -gt "$limit" ]; then
     echo "Plugin channel response exceeds $limit bytes for $name" >&2
     exit 1
+  fi
+  if [ -n "$COMPARE_DIRECTORY" ]; then
+    cmp "$COMPARE_DIRECTORY/$name" "$WORK/$name"
   fi
 done
 
