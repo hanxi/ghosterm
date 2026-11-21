@@ -24,6 +24,7 @@ def verify_release_preflight(work, env, origin, certificate, root):
     for route, expected in (
         ('valid', '"generation":"2"'),
         ('redirect', 'HTTP 302'),
+        ('missing-policy', 'HTTP 404 for policy.json'),
         ('oversized', 'download failed for policy.json (maximum 131072 bytes)'),
         ('mixed', 'CHANNEL_POLICY_DIGEST'),
         ('expired', 'CHANNEL_POLICY_FRESHNESS'),
@@ -46,7 +47,7 @@ def verify_release_preflight(work, env, origin, certificate, root):
             cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=110)
         if result.returncode != expected_status or marker not in result.stdout:
             raise RuntimeError(f'Channel readback {route}: {result.stdout}{result.stderr}')
-    print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / size / digest / expiry / revocation / rollback / readback',
+    print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / missing policy / size / digest / expiry / revocation / rollback / readback',
           flush=True)
 
 
@@ -72,6 +73,8 @@ def main():
                        GHOSTERM_TEST_CHANNEL_CERT=base64.b64encode(der).decode(),
                        GHOSTERM_TEST_CHANNEL_RELEASE_VECTOR=str(helper.ASSETS / "vector.json"))
             result = subprocess.run(['swift', 'test', '--package-path', 'apple/GhostermApp',
+                                     '--scratch-path', str(Path(path) / 'swift'), '--cache-path', str(Path(path) / 'swift-cache'),
+                                     '--disable-keychain', '--disable-netrc',
                                      '--filter', 'PluginChannelTLSLoopbackTests'], cwd=ROOT, env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
             print(result.stdout, end='')
