@@ -6,6 +6,47 @@ import XCTest
 @testable import GhostermAppModel
 @testable import GhostermApp
 
+final class PluginReleaseCapacityTests: XCTestCase {
+    func testFullVolumePreservesInstalledVersionAndDiscardsPartialStage() throws {
+        guard let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_INSTALL_CAPACITY_VOLUME"] else {
+            throw XCTSkip("requires an owned small test volume")
+        }
+        let volume = URL(fileURLWithPath: path)
+        let root = volume.appendingPathComponent(UUID().uuidString)
+        defer {
+            try? PluginReleaseInstallTests.thaw(root)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let installed = try PluginReleaseStage(directory: root)
+        let prior = Data("installed version".utf8)
+        try installed.write(prior, path: "payload/prior")
+        let release = try installed.publish(id: String(repeating: "a", count: 64))
+        XCTAssertTrue(release.durabilityConfirmed)
+
+        let candidate = try PluginReleaseStage(directory: root)
+        defer { try? candidate.discard() }
+        try candidate.write(Data([1, 2, 3]), path: "payload/complete")
+        let attributes = try FileManager.default.attributesOfFileSystem(forPath: root.path)
+        let capacity = try XCTUnwrap(attributes[.systemSize] as? NSNumber).intValue
+        XCTAssertTrue((1...64 * 1024 * 1024).contains(capacity))
+        guard (1...64 * 1024 * 1024).contains(capacity) else { return }
+        let pathInStage = "payload/partial"
+        XCTAssertThrowsError(try candidate.write(Data(repeating: 0xa5, count: capacity), path: pathInStage)) {
+            XCTAssertEqual($0 as? PluginReleaseStage.Failure, .io)
+        }
+        let partial = candidate.payloadURL.appendingPathComponent("partial")
+        let size = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)
+        XCTAssertLessThan(size.intValue, capacity)
+        XCTAssertEqual(try Data(contentsOf: candidate.payloadURL.appendingPathComponent("complete")),
+                       Data([1, 2, 3]))
+        try candidate.discard()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+        XCTAssertEqual(try Data(contentsOf: release.directory.appendingPathComponent("payload/prior")), prior)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { $0 != PluginInstallJournal.directoryName }, [release.directory.lastPathComponent])
+    }
+}
+
 @MainActor
 final class PluginReleaseInstallTests: XCTestCase {
     private func fixture() throws -> URL {

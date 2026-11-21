@@ -16569,6 +16569,14 @@ macOS 随后以 `28a2d6d7` 隔离检出复验两跳五项、离屏资源 31 项�
 恢复通过。收据 SHA256 `7490ed69792533bebb3c6625373da40b61e06428fc5793dce1cab444cfbc05dc`。
 使用一次性签名与故障检查点，临时构件已核实清理；实际磁盘耗尽和断电另验。
 
+在 `4bd4411c` 增加 macOS `PluginReleaseCapacityTests` 的实际空间不足场景。
+通过 `GHOSTERM_TEST_INSTALL_CAPACITY_VOLUME` 指定本轮 48 MiB HFS+ 读写镜像
+挂载点，`hdiutil attach` 使用 `-nobrowse -noautoopen`。生产暂存器先发布原版本，
+再写新暂存成员；超过该卷容量的一次写入实际失败。检查已暂存成员、清理未完成的
+候选树，逐字节核对原版本。首轮错误假设失败写必须留下非零文件，实测 HFS+ 可在
+分配失败时留下零长度文件；改为核对整个不完整暂存后，开启 QuickJS 的 macOS
+构建及该项离屏通过。镜像已卸载、文件和临时目录已核实清理。本轮不代表真实断电。
+
 在 `142f8c36` 的隔离检出补验 Android API 29 无窗口安装持久性。
 `stage-durability` 和 `stage-durable-version` 分别验证父目录同步失败、
 最终版本目录被替换。两组均真实重编命中指定断言，同 APK 独立 Core 对照与
