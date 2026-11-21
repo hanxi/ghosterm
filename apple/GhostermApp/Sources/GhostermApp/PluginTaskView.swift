@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PluginTaskView: View {
     @ObservedObject var model: PluginTaskModel
+    var announcementObserver: ((String) -> Void)?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(model.descriptor?.title ?? "任务").font(.headline).accessibilityAddTraits(.isHeader)
@@ -24,7 +25,7 @@ struct PluginTaskView: View {
                 }
                 if let result = state.result.text { Text(result).textSelection(.enabled).accessibilityIdentifier("plugin-task-result") }
             }
-            if let cancellationMessage {
+            if let cancellationMessage, cancellationMessage != model.issue {
                 Text(cancellationMessage).accessibilityIdentifier("plugin-task-cancel-status")
             }
             if model.busy && model.cancellation != .pending {
@@ -32,7 +33,7 @@ struct PluginTaskView: View {
             }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-task")
-            .announcePluginStatus(statusAnnouncement)
+            .announcePluginStatus(statusAnnouncement, post: announcementObserver)
             .task(id: model.available) {
                 if model.descriptor == nil && model.issue == nil { await model.load() }
                 while !Task.isCancelled && model.available {
@@ -55,7 +56,7 @@ struct PluginTaskView: View {
         case .pending: return "正在发送取消请求…"
         case .requested where model.snapshot?.phase.terminal != true: return "取消请求已受理，仍需任务确认停止"
         case .unconfirmed:
-            return model.snapshot?.phase.terminal == true ? "取消请求回执未确认；任务已结束" : "取消结果不明；不会重发取消请求"
+            return model.snapshot?.phase.terminal == true ? "取消请求回执未确认；任务已结束" : PluginTaskModel.unconfirmedCancellationMessage
         case .alreadyFinished: return "取消到达时任务已结束"
         default: return nil
         }

@@ -133,7 +133,7 @@ import XCTest
         let id = m.cancelRequestID; let calls = f.calls.count
         await m.cancel()
         XCTAssertTrue(m.cancellation == .unconfirmed && !m.canAutoRefresh && f.calls.count == calls)
-        XCTAssertEqual(PluginTaskView(model: m).cancellationMessage, "取消结果不明；不会重发取消请求")
+        XCTAssertEqual(PluginTaskView(model: m).cancellationMessage, "取消结果不明，不会再次发送。请显式读取任务状态。")
         f.finish(); await m.load(); await m.cancel()
         XCTAssertTrue(m.snapshot?.phase == .cancelled && m.cancellation == .unconfirmed && m.cancelRequestID == id && f.calls.filter { $0.0 == "view.task.cancel" }.count == 1)
         XCTAssertEqual(PluginTaskView(model: m).cancellationMessage, "取消请求回执未确认；任务已结束")

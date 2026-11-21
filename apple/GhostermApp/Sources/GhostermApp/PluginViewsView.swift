@@ -69,13 +69,13 @@ private struct PluginRegisteredView: View {
 
 extension View {
     func announcePluginStatus(_ message: String?, onAppearance: Bool = false,
-                              post: @escaping (String) -> Void = { message in
-        guard let app = NSApp, app.isActive else { return }
-        NSAccessibility.post(element: app, notification: .announcementRequested,
-            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
-    }) -> some View {
+                              post: ((String) -> Void)? = nil) -> some View {
         func announce(_ value: String?) {
-            if let value, !value.isEmpty { post(value) }
+            guard let value, !value.isEmpty else { return }
+            if let post { post(value); return }
+            guard let app = NSApp, app.isActive else { return }
+            NSAccessibility.post(element: app, notification: .announcementRequested,
+                userInfo: [.announcement: value, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
         return onChange(of: message) { announce($0) }
             .onAppear { if onAppearance { announce(message) } }

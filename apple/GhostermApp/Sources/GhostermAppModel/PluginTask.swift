@@ -181,6 +181,7 @@ enum PluginTaskCodec {
     public var available: Bool { valid && isCurrent() }
     public var canCancel: Bool { available && descriptor?.cancellable == true && cancelRequestID == nil &&
         (snapshot?.phase == .queued || snapshot?.phase == .running) }
+    public static let unconfirmedCancellationMessage = "取消结果不明，不会再次发送。请显式读取任务状态。"
     public var canAutoRefresh: Bool { available && !busy && issue == nil && cancellation != .unconfirmed &&
         snapshot.map { !$0.phase.terminal && $0.phase != .unknown } == true }
     public func load() async {
@@ -223,7 +224,7 @@ enum PluginTaskCodec {
             if generation == token {
                 busy = false
                 if cancellation == .pending {
-                    cancellation = .unconfirmed; issue = "取消结果不明，不会再次发送。请显式读取任务状态。"
+                    cancellation = .unconfirmed; issue = Self.unconfirmedCancellationMessage
                 }
             }
             history?.action(descriptor, requestID: requestID, state: cancellation)
@@ -241,7 +242,7 @@ enum PluginTaskCodec {
             }
             return
         } catch {
-            if current(token) { cancellation = .unconfirmed; issue = "取消结果不明，不会再次发送。请显式读取任务状态。" }
+            if current(token) { cancellation = .unconfirmed; issue = Self.unconfirmedCancellationMessage }
             return
         }
         do { try await read(descriptor, token: token) }
