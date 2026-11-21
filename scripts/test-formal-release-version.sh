@@ -50,6 +50,8 @@ git tag v1.2.4
 reject 'Multiple formal release tags'
 [[ "$(bash "$RESOLVER" 1.2.4)" == 1.2.4 ]]
 [[ "$(GITHUB_REF=refs/tags/v1.2.3 bash "$RESOLVER")" == 1.2.3 ]]
+[[ "$(GITHUB_REF=refs/tags/v1.2.3 bash "$RESOLVER" 1.2.3)" == 1.2.3 ]]
+GITHUB_REF=refs/tags/v1.2.3 reject 'does not match tag v1.2.3' 1.2.4
 reject 'does not identify the build commit' 0.1.0
 git tag v2100.0.0
 reject 'exceeds the Android versionCode range' 2100.0.0

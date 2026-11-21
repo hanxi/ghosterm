@@ -5,7 +5,12 @@ set -euo pipefail
 version="${1:-}"
 version_pattern='^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
 if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-  version="${GITHUB_REF#refs/tags/v}"
+  tag_version="${GITHUB_REF#refs/tags/v}"
+  if [[ -n "$version" && "$version" != "$tag_version" ]]; then
+    echo "Requested formal release version $version does not match tag v$tag_version" >&2
+    exit 1
+  fi
+  version="$tag_version"
 elif [[ -z "$version" ]]; then
   tags="$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*')"
   while IFS= read -r tag; do
