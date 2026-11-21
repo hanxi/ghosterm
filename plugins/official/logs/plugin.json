@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.logs",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": "^1.0.0",
+  "bridgeProtocolRange": [1],
+  "publisher": "Ghosterm",
+  "license": "MIT",
+  "commands": [{ "path": ["logs"], "title": "Paged log search", "argsSchema": "schemas/logs.json" }],
+  "client": { "runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc"] },
+  "executor": { "variants": [{ "id": "portable", "runtime": "portable-js", "entry": "executor/index.js", "requires": ["session.rpc"] }] },
+  "permissions": [
+    { "side": "client", "capability": "session.rpc", "purpose": "Request bounded pages of sample logs.", "scope": "instance" },
+    { "side": "executor", "capability": "session.rpc", "purpose": "Answer scoped read-only log queries.", "scope": "instance" }
+  ]
+}

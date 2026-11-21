@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": { "count": { "type": "integer", "minimum": 1, "maximum": 10000 } },
+  "required": ["count"],
+  "additionalProperties": false,
+  "x-ghosterm-cli": { "version": 1, "fields": { "count": { "option": "count", "default": 5000 } } }
+}
