@@ -941,6 +941,20 @@ static bool job_close_step(stdio_job_t *job) {
         }
         gt_ext_runtime_info_t info = {0};
         bool observed = gt_ext_runtime_info(job->runtime, &info);
+        if (observed && info.external_process && job->result && info.execution_error != GT_OK &&
+            info.execution_error != GT_ERR_CANCELLED) {
+            fprintf(stderr,
+                    "gterm: external runtime final probe-verified=%u activated=%u "
+                    "child-reaped=%u child-exit=%d child-signal=%d stdout-bytes=%" PRIu64
+                    " stderr-bytes=%" PRIu64 "\n",
+                    info.probe_verified ? 1u : 0u,
+                    info.activated ? 1u : 0u,
+                    info.child_exited ? 1u : 0u,
+                    info.exit_code,
+                    info.term_signal,
+                    info.stdout_bytes,
+                    info.stderr_bytes);
+        }
         if (observed && info.external_process && info.group_signal_error) {
             fprintf(
                 stderr, "gterm: exited process group signal errno=%d\n", info.group_signal_error);
