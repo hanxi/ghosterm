@@ -83,6 +83,28 @@ jobs:
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           printf 'android_certificate_sha256=%s\n' "$ANDROID_RELEASE_CERT_SHA256" >> "$GITHUB_OUTPUT"
 
+      - name: 预检已启用的插件渠道
+        if: vars.MACOS_PLUGIN_JS == 'true' || vars.ANDROID_PLUGIN_JS == 'true'
+        env:
+          MACOS_PLUGIN_JS: ${{ vars.MACOS_PLUGIN_JS }}
+          MACOS_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
+          MACOS_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+          MACOS_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
+          ANDROID_PLUGIN_JS: ${{ vars.ANDROID_PLUGIN_JS }}
+          ANDROID_PLUGIN_CHANNEL: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
+          ANDROID_PLUGIN_CHANNEL_ROOT: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
+          ANDROID_PLUGIN_CHANNEL_URL: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
+        run: |
+          set -euo pipefail
+          if [[ "$MACOS_PLUGIN_JS" == true ]]; then
+            bash scripts/check-plugin-channel-url.sh "$MACOS_PLUGIN_CHANNEL" \
+              "$MACOS_PLUGIN_CHANNEL_ROOT" "$MACOS_PLUGIN_CHANNEL_URL"
+          fi
+          if [[ "$ANDROID_PLUGIN_JS" == true ]]; then
+            bash scripts/check-plugin-channel-url.sh "$ANDROID_PLUGIN_CHANNEL" \
+              "$ANDROID_PLUGIN_CHANNEL_ROOT" "$ANDROID_PLUGIN_CHANNEL_URL"
+          fi
+
   package:
     needs: preflight
     if: ${{ !cancelled() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped') }}
