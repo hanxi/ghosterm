@@ -15156,6 +15156,13 @@ Claude 仅在确认正常退出并回收后发布成功停止回执。回收进�
 QuickJS Core 不一致而失败，测试入口改用当前 CMake 配置匹配链接档后通过。
 本轮模拟器和临时目录已核实清理，渠道为本机回环夹具。
 
+在 `02c4df6b` 用 API 36 自有无窗口模拟器补验设置页签名安装与撤销，
+复用同一对 APK 在独立 AVD 验证原生 HTTPS 客户端，各一项通过。
+App 与仪器 APK SHA256 分别为
+`b291d10599f558ef5454dda3f338910dfa98a52e0db87ebb53b40df19511b307`
+和 `00905b48abccb1e2ec11ac0fb481cb51b10a20665af70d46e788de7bc4f0fb9b`。
+两台 AVD 均正常退出，临时目录已核实清理。本机回环证据，正式渠道另验。
+
 在 `2e062878` 对 `hanxi/ghosterm` 执行只读 GitHub Actions 仓库变量核对，
 未找到两端共六个插件渠道变量。现有 Android Release 保持运行时关闭并核对
 QuickJS 许可缺席，macOS 实验运行时仅允许显式输出路径的本地 ad-hoc 构建。
