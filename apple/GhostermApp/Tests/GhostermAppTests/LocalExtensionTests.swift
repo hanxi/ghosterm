@@ -33,7 +33,11 @@ final class LocalExtensionTests: XCTestCase {
         var root = URL(fileURLWithPath: #filePath); for _ in 0..<5 { root.deleteLastPathComponent() }
         let helper = ProcessInfo.processInfo.environment["GHOSTERM_PROCESS_CHANNEL_CHILD"].map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent("core/build/test_process_channel_child")
         guard FileManager.default.isExecutableFile(atPath: helper.path) else { throw GhostermError.failed("compiled Native child fixture missing") }
-        let directory = root.appendingPathComponent("tmp/local-controller-\(UUID().uuidString)")
+        let projectTemporary = root.appendingPathComponent("tmp").resolvingSymlinksInPath()
+        let requestedTemporary = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath()
+        let scratch = requestedTemporary.path.hasPrefix(projectTemporary.path + "/")
+            ? requestedTemporary : projectTemporary
+        let directory = scratch.appendingPathComponent("local-controller-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let digest = SHA256.hash(data: try Data(contentsOf: helper)).map { String(format: "%02x", $0) }.joined()
         return (directory, helper.path, digest)
@@ -137,6 +141,40 @@ final class LocalExtensionTests: XCTestCase {
         XCTAssertFalse(failed, "DRAINING must retain and advance the owned process within two seconds")
         let closed = await controller.close(); XCTAssertTrue(closed)
         let state = try await controller.localProcessState(); XCTAssertTrue(state?.reaped == true && state?.termSignal == SIGKILL)
+    }
+
+    @MainActor
+    func testCancelledLocalInspectionReapsOwnedProcessAndRemovesTemporaryDirectory() async throws {
+        guard let path = ProcessInfo.processInfo.environment["GHOSTERM_LOCAL_IDLE_CHILD"] else {
+            throw XCTSkip("explicit owned TERM-ignore fixture required")
+        }
+        let (directory, _, _) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let digest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: path)))
+            .map { String(format: "%02x", $0) }.joined()
+        let model = isolatedAppModel()
+        defer { model.disconnectForTesting() }
+        let launch = ExtensionLocalLaunch(executableSHA256: digest, workingDirectory: directory.path,
+                                          temporaryDirectory: directory.path, authorized: true)
+        let task = Task {
+            try await model.inspectForegroundPlugin(sshAlias: "", executable: path, directory: directory.path,
+                                                    instance: String(repeating: "1", count: 32), localLaunch: launch)
+        }
+        let ready = directory.appendingPathComponent("ready")
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while (try? Data(contentsOf: ready)) != Data([82]), ProcessInfo.processInfo.systemUptime < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(try? Data(contentsOf: ready), Data([82]))
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("The inspection must report cancellation")
+        } catch is CancellationError { }
+        XCTAssertEqual(model.extensionLastLocalProcess?.reaped, true)
+        XCTAssertEqual(model.extensionLastLocalTemporary?.phase, .removed)
+        XCTAssertNil(model.extensionRunIssue)
+        XCTAssertTrue(model.extensionInstance.canDiscard)
     }
 
     func testRetainedTemporaryOwnerBlocksNewLaunchUntilRestoration() async throws {
