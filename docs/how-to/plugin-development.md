@@ -1004,7 +1004,8 @@ bash scripts/check-plugin-channel-url.sh "$plugin_channel" "$plugin_root" \
 正式 Release 公开后，从实际下载地址复验两端资产。将 `release_tag` 设为该次正式标签，
 `macos_update_public_key` 设为已确认的 Sparkle 更新公钥，`android_build_tools`
 设为 Android SDK 的 Build Tools 35.0.0 目录，`android_certificate_sha256`
-设为从可信渠道确认的 Android 发行证书指纹：
+设为从可信渠道确认的 Android 发行证书指纹。运行前确保 `JAVA_HOME` 或
+`PATH` 指向可用的 JDK，供 `apksigner` 使用。
 
 ```bash
 python3 -B scripts/audit-public-release.py --tag "$release_tag" \

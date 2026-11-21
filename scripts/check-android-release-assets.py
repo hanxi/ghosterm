@@ -57,7 +57,9 @@ def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, cer
         raise ValueError('published build info mismatch')
     if build_tools is not None:
         result = subprocess.run([build_tools / 'apksigner', 'verify', '--print-certs', apk],
-                                capture_output=True, text=True, check=True, timeout=30)
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise ValueError('apksigner verification failed: ' + (result.stderr.strip() or result.stdout.strip()))
         if certificate_sha256 is not None:
             fingerprints = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$',
                                       result.stdout, re.M)
