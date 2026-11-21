@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
             if (state.searchTruncated) Text("部分历史记录已超出保留范围")
         }
         val status = when {
+            state.busy && searching -> "正在搜索表格…"
             state.busy -> "正在读取表格…"
             searchPage != null && searchPage.rows.isNotEmpty() -> "本页有 ${searchPage.rows.size} 个匹配项"
             searchPage != null && searchPage.cursor < searchPage.latest -> "本页没有匹配项，可继续搜索"

@@ -11,6 +11,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -18,13 +22,18 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PluginFormTalkBackTest {
-    @Test fun presentRequestAndSubmissionStatus() {
+    private fun automation(): UiAutomation {
         assumeTrue(InstrumentationRegistry.getArguments().getString("pluginTalkBack") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         automation.serviceInfo = automation.serviceInfo.apply {
             flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         }
+        return automation
+    }
+
+    @Test fun presentRequestAndSubmissionStatus() {
+        val automation = automation()
         val answering = mutableStateOf(false)
         val form = PluginForm.decode("""
             {"requestId":"42","title":"TalkBack form","fields":[
@@ -45,6 +54,37 @@ class PluginFormTalkBackTest {
             scenario.onActivity { answering.value = true }
             awaitText(automation, "正在发送表单答复…")
             awaitSpeech(automation, "正在发送表单答复")
+        }
+    }
+
+    @Test fun speakTableSearchProgressAndResults() {
+        val automation = automation()
+        val fixture = PluginTableFixture()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        try {
+            ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+                lateinit var model: PluginTableModel
+                scenario.onActivity { activity ->
+                    fixture.description.put("total", 1)
+                    model = PluginTableModel(scope, fixture::request, supportsSearch = true)
+                    activity.setContent { MaterialTheme { PluginTableContent(model) } }
+                }
+                awaitText(automation, "第 1–1 行，共 1 行")
+                scenario.onActivity {
+                    fixture.pause = PluginTableModel.searchMethod
+                    checkNotNull(model.search("Number"))
+                }
+                awaitText(automation, "正在搜索表格…")
+                awaitSpeech(automation, "正在搜索表格")
+                fixture.release.complete(Unit)
+                awaitText(automation, "本页没有匹配项，可继续搜索")
+                awaitSpeech(automation, "本页没有匹配项")
+                scenario.onActivity { checkNotNull(model.continueSearch()) }
+                awaitText(automation, "本页有 1 个匹配项")
+                awaitSpeech(automation, "本页有 1 个匹配项")
+            }
+        } finally {
+            scope.cancel()
         }
     }
 

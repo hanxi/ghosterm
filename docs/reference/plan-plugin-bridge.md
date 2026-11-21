@@ -3974,6 +3974,13 @@ API 36 无窗口复验确认 TalkBack 在 instrumentation 运行期间保持绑�
 未签名 Release 和 app lintRelease 通过。此处验证生成文字及 TTS 接收，
 物理声音、发音、搜索与其他视图仍待验。AVD 正常退出，临时目录已清理。
 
+Android 表格在搜索期间单独显示“正在搜索表格…”，普通分页继续显示读取状态。
+API 36 无窗口的表单与表格 TalkBack 组合 2 项通过。表格使用原生生产视图和
+可暂停的响应夹具，从首轮搜索的进度到“本页没有匹配项，可继续搜索”，再到
+下一页“本页有 1 个匹配项”，三条均按播报 ID 核对 TTS 接收。两端实际插件
+连接、真实发音与 macOS VoiceOver 不在此轮证据范围。QuickJS 开启的 Debug、
+测试 APK、未签名 Release 和 app lintRelease 通过。AVD 正常退出，临时目录已清理。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成
