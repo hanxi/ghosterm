@@ -227,6 +227,22 @@ import XCTest
         XCTAssertNil(table.page); XCTAssertFalse(table.valid); XCTAssertTrue(m.items.isEmpty)
     }
 
+    func testAdjacentCloseTargetSkipsButtonAwaitingItsCloseReply() async throws {
+        let fixture = PluginViewsFixture()
+        let model = try fixture.populated()
+        let items = model.items
+        fixture.pauseClose = true
+        let pending = Task { await model.closeView(handle: items[1].id) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while fixture.closeBarrier == nil && ProcessInfo.processInfo.systemUptime < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertNotNil(fixture.closeBarrier)
+        XCTAssertEqual(PluginViewsView.adjacentCloseTarget(in: items, from: items[0].id), items[2].id)
+        fixture.releaseClose()
+        await pending.value
+    }
+
     func testNativeCloseControlsRouteOverlappingHandlesToTheirOwnInstance() async throws {
         TestWindows.enterAutomationMode()
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")

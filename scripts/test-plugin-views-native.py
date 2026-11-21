@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginViews.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
-VIEW_TEST_COUNT = 22
+VIEW_TEST_COUNT = 23
 FOREGROUND_MUTATION = 'foreground-loss'
 FOREGROUND_ASSERTION = 'foreground loss must invalidate the Native view registry'
 
@@ -70,6 +70,9 @@ def main():
         ('close-label', 'apple/GhostermApp/Sources/GhostermApp/PluginViewsView.swift',
          '"关闭视图 \\(item.registration.viewID)"', '"关闭视图"',
          'testNativeCloseControlsRouteOverlappingHandlesToTheirOwnInstance'),
+        ('close-focus-pending', 'apple/GhostermApp/Sources/GhostermApp/PluginViewsView.swift',
+         'items.dropFirst(index + 1).first { !$0.closing }?.id',
+         'items.dropFirst(index + 1).first?.id', 'testAdjacentCloseTargetSkipsButtonAwaitingItsCloseReply'),
     ]
     if args.mutation_case:
         known = {case[0] for case in cases}
