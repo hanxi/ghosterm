@@ -28,6 +28,7 @@ sys.dont_write_bytecode = True
 MODEL = 'apple/GhostermApp/Sources/GhostermAppModel/PluginTable.swift'
 APP = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
 PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionRunView.swift'
+TABLE_VIEW = 'apple/GhostermApp/Sources/GhostermApp/PluginTableView.swift'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 
 
@@ -116,6 +117,9 @@ def main():
             ('columns', MODEL, 'cells.count == descriptor.columns.count', '!cells.isEmpty', 'testPageRequiresColumnWidthAndUniqueRows'),
             ('body-bytes', 'apple/GhostermApp/Sources/GhostermAppModel/PluginViewValue.swift', 'try jsonBytes(value) <= 2048', 'try jsonBytes(value) <= 3072', 'testAggregateBytesAndStrictJSON'),
             ('late-reply', MODEL, 'generation == token && available && !Task.isCancelled', '!Task.isCancelled', 'testLatePageAfterInvalidationCannotReopenTheView'),
+            ('search-progress', TABLE_VIEW,
+             'let loading = searching ? "正在搜索表格…" : "正在读取表格…"',
+             'let loading = "正在读取表格…"', 'testSearchContinuesFromAnEmptyPageAndDropsLateReply'),
         ]
         groups = []
         for label, filename, old, new, target in cases if args.mutate else []:
