@@ -15885,6 +15885,11 @@ API29 无窗口 AVD 的 `PluginChannelRefreshTlsTest` 真实安装运行通过�
 QuickJS 构建，从安装流程验证已签策略与撤销；回环服务未收到 HTTP 请求。
 两轮模拟器均以 0 退出，临时目录与设备清理已核实。正式渠道仍待部署后验收。
 
+`2b0c2054` 上复验 macOS QuickJS 档真实回环 URLSession，离屏一项通过，
+覆盖可信刷新以及失败后保留缓存。macOS HTTPS 运行器将服务端与客户端临时文件
+置于本轮工程内目录。重建上轮使用测试根的 Android Debug 与测试 APK，并核对
+生成的渠道名、根和 URL 均已清空。两端临时目录均已核实清理。
+
 P2 Android 签名 ZIP 导入统一验收：`scripts/test-plugin-release-android.py
 --headless-api 29 --archive-ui` 与 API 36 同档各通过 112 项，涵盖实际 SAF、
 签名材料与 ZIP 捕获、审查、渠道信任撤回和迟到结果释放。两个 arm64 / 4 KiB
