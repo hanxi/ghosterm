@@ -887,9 +887,16 @@ static void job_step(stdio_job_t *job, volatile sig_atomic_t *cancelled) {
             return;
         }
         job->stage = "runtime activation";
-        if (gt_ext_runtime_open_package(
-                &job->session, job->package, &job->runtime_config, true, &job->runtime) != GT_OK ||
-            gt_ext_package_destroy(&job->package) != GT_OK) {
+        gt_status_t opened = gt_ext_runtime_open_package(
+            &job->session, job->package, &job->runtime_config, true, &job->runtime);
+        if (opened != GT_OK) {
+            fprintf(stderr, "gterm: runtime open status=%d\n", (int)opened);
+            job->finished = true;
+            return;
+        }
+        gt_status_t destroyed = gt_ext_package_destroy(&job->package);
+        if (destroyed != GT_OK) {
+            fprintf(stderr, "gterm: activated package destroy status=%d\n", (int)destroyed);
             job->finished = true;
             return;
         }

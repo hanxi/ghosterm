@@ -12817,6 +12817,15 @@ Node 版本探针在 leader 退出后须等 stdout 与 stderr 都到 EOF 才判�
 与 `b0af54ed0fc88b8337d45fc2c51ec23bde84792baf8b5c4a870cb0daac13d2a0`。
 两端均离屏或无窗口，临时目录和设备已核实清理；本轮未复现历史 I/O 失败。
 
+API 29 / arm64 / 4 KiB 页无窗口复验前，两次误传 Portable SDK 导致首批
+Node 实例未能启动。新增 gterm 诊断将包运行时打开失败与激活后包释放失败分开，
+前者在错误夹具上报告 `GT_ERR_INVALID_ARG`。混合运行脚本现在在启动模拟器前拒绝
+缺少 Node bootstrap 的 SDK 目录，已验证错误参数在创建输出目录前退出。
+使用构建脚本生成的完整 Node SDK 及现编 gterm 重跑，直连和两跳各一项通过，
+覆盖八实例并发及签名 Node 在线替换，未复现历史 I/O 失败。收据 SHA256
+`660e8262b338a1b49c362a025dcdf0744ee3737782cffbd51f1901295098a143`。
+各轮模拟器与临时目录已核实清理。
+
 macOS 在真实 Native 八实例夹具补验同一竞态。活动实例的无效输入明确返回
 `INVALID_INPUT`。下一次请求在 worker 已拒绝且模型尚未处理时关闭原实例，
 其迟到结果以取消结束，其余实例及新加入的签名 Node 实例继续完成 RPC。

@@ -56,7 +56,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', required=True, type=Path)
     parser.add_argument('--node', required=True, type=Path)
-    parser.add_argument('--sdk', required=True, type=Path)
+    parser.add_argument('--sdk', required=True, type=Path, help='bundle built by build-plugin-node-sdk.mjs')
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--route', action='append', choices=('local', 'direct', 'jump'))
     parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
@@ -81,6 +81,8 @@ def main():
     build, node, sdk, out = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True), args.out.absolute()
     if not build.is_relative_to(ROOT / 'tmp') or not sdk.is_relative_to(ROOT / 'tmp') or not out.is_relative_to(ROOT / 'tmp'):
         parser.error('build, SDK and new output must be in project tmp')
+    if not (sdk / 'node/runtime/bootstrap.mjs').is_file():
+        parser.error('SDK must be a Node SDK bundle built by build-plugin-node-sdk.mjs')
     if out.exists() or out.is_symlink():
         parser.error('output must be a new owned directory')
     cache = (build / 'CMakeCache.txt').read_text()
