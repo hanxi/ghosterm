@@ -102,7 +102,7 @@ def verify_macos_update(folder, inventory, manifest, channel, base, expected_key
         raise ValueError('published build receipt differs from the receipt inside the update ZIP')
     receipt_text = receipt.decode('utf-8')
     source = re.search(r'^源码:[ \t]*git ([0-9a-f]{7,40})[ \t]*$', receipt_text, re.M)
-    if source is None or not commit.startswith(source[1]):
+    if source is None or not commit.startswith(source[1]) or (channel == 'release' and source[1] != commit):
         raise ValueError('update ZIP has a dirty or mismatched source receipt')
     signature = re.findall(r'^签名:[ \t]*(adhoc|dev|id)(?=[ \t]|$)[^\n]*$', receipt_text, re.M)
     notarization = re.findall(r'^公证:[ \t]*([^\s][^\n]*)$', receipt_text, re.M)

@@ -18,7 +18,9 @@ import zipfile
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 (ROOT / 'tmp').mkdir(exist_ok=True)
-os.environ['TMPDIR'] = str(ROOT / 'tmp')
+requested_tmp = Path(os.environ.get('TMPDIR', ROOT / 'tmp')).resolve()
+TEST_TMP = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(ROOT / 'tmp') else ROOT / 'tmp'
+os.environ['TMPDIR'] = str(TEST_TMP)
 spec = importlib.util.spec_from_file_location('publisher', ROOT / 'scripts/make-macos-update.py')
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
@@ -38,11 +40,11 @@ print(String(data: try! JSONSerialization.data(withJSONObject: [
 ''']))
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='update-publish-', dir=ROOT / 'tmp')
+        self.temp = tempfile.TemporaryDirectory(prefix='update-publish-', dir=TEST_TMP)
         self.addCleanup(self.temp.cleanup)
         self.dist = Path(self.temp.name)
 
-    def fixture(self, channel='dev', public=None, dirty=False):
+    def fixture(self, channel='dev', public=None, dirty=False, source_length=40):
         version = '1.2.0-dev' if channel == 'dev' else '1.2.0'
         info = dict(CFBundleShortVersionString=version, CFBundleVersion='1794879958',
                     GhostermUpdateChannel=channel, LSMinimumSystemVersion='13.0')
@@ -54,7 +56,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: [
 架构: arm64
 签名: adhoc
 公证: 无
-源码: git {'d'*12}{'+dirty' if dirty else ''}
+源码: git {'d' * source_length}{'+dirty' if dirty else ''}
 '''
         with zipfile.ZipFile(self.dist / 'Ghosterm.zip', 'w') as archive:
             archive.writestr('Ghosterm.app/Contents/Info.plist', plistlib.dumps(info))
@@ -123,6 +125,11 @@ print(String(data: try! JSONSerialization.data(withJSONObject: [
             self.publish()
         self.fixture()
         with self.assertRaisesRegex(ValueError, 'channel mismatch'):
+            self.publish(channel='release')
+
+    def testFormalUpdateRequiresFullSourceCommit(self):
+        self.fixture(channel='release', source_length=12)
+        with self.assertRaisesRegex(ValueError, 'does not match the commit'):
             self.publish(channel='release')
 
 

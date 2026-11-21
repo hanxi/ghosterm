@@ -185,10 +185,10 @@ fi
 if [ -z "$BUILD_NUMBER" ]; then
   BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 fi
-GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 GIT_DIRTY=""
 [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] && GIT_DIRTY="+dirty"
-note "版本 ${VERSION}（build ${BUILD_NUMBER}）· 源码 ${GIT_SHA}${GIT_DIRTY} · 架构 ${ARCH}"
+note "版本 ${VERSION}（build ${BUILD_NUMBER}）· 源码 ${GIT_SHA:0:12}${GIT_DIRTY} · 架构 ${ARCH}"
 
 # ------------------------------------------------------------------ 1. libghostty
 step "1/9 libghostty（GhosttyKit.xcframework）"

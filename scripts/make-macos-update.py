@@ -35,7 +35,8 @@ def metadata(dist, channel, signer, commit):
             raise ValueError('missing build receipt field: ' + name)
         return match[1]
     source = re.search(r'^源码:\s*git ([0-9a-f]{7,40})\s*$', receipt, re.M)
-    if not source or not re.fullmatch(r'[0-9a-f]{40}', commit) or not commit.startswith(source[1]):
+    if (not source or not re.fullmatch(r'[0-9a-f]{40}', commit) or not commit.startswith(source[1])
+            or (channel == 'release' and source[1] != commit)):
         raise ValueError('source receipt is dirty, missing or does not match the commit')
     if field('渠道') != channel or info['GhostermUpdateChannel'] != channel:
         raise ValueError('build channel mismatch')
