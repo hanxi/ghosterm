@@ -12,10 +12,14 @@ import com.hanxi.ghosterm.bridge.NativeTerminalSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -55,6 +59,42 @@ class PluginForegroundInspectionTest {
             assertTrue(observedCancellation)
             assertNull(sessions.connecting)
             assertFalse(model.launchBusy)
+        }
+    }
+
+    @Test fun replacementPluginRouteWaitsForCancelledAttemptCleanup() {
+        org.junit.Assume.assumeTrue(BuildConfig.PLUGIN_JS_ENABLED)
+        runBlocking(Dispatchers.Main) {
+            val application = ApplicationProvider.getApplicationContext<Application>()
+            val controller = checkNotNull(ExtensionPackagesViewModel(application).controller)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val sessions = SessionsViewModel(application, SSHResolver {
+                withContext(NonCancellable) {
+                    entered.complete(Unit)
+                    release.await()
+                    emptyList()
+                }
+            }, monitorSessions = false, settings = null)
+            val target = PreparedSSH("fixture", "fixture.invalid", "fixture", 22, emptyList())
+            val first = checkNotNull(sessions.connectExtensionBootstrap(target, "fixture", controller) { false })
+            val job = checkNotNull(sessions.connecting?.job)
+            try {
+                withTimeout(5000) { entered.await() }
+                sessions.cancelConnection(first)
+                assertNull(sessions.connecting)
+                assertFalse(job.isCompleted)
+                val replacement = target.copy(user = "")
+                assertNull(sessions.connectExtensionBootstrap(replacement, "fixture", controller) { false })
+                release.complete(Unit)
+                withTimeout(5000) { job.join() }
+                assertNotNull(sessions.connectExtensionBootstrap(replacement, "fixture", controller) { false })
+            } finally {
+                release.complete(Unit)
+                sessions.connecting?.let { sessions.cancelConnection(it.id) }
+                withTimeout(5000) { job.join() }
+                controller.close()
+            }
         }
     }
     private fun declaration(): ByteArray = JSONObject().apply {
