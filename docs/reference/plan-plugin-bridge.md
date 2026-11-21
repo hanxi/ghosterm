@@ -13503,6 +13503,14 @@ lintRelease 通过。生成的 `BuildConfig.PLUGIN_JS_ENABLED=false`，APK 通�
 
 ### P5 开发工具与多步场景集中复验（2026-11-19）
 
+2026-11-21 在 `43902ce2` 上叠加两个测试运行器的临时目录调整，独立构建
+QuickJS Core 与 33 成员 Node SDK，开发工具 76 项和多步场景 10 项通过。
+开发工具收据 SHA256 `e1d87ecbdcc7a94ff3b051f65c105f9ec77820ea73e10a4f6358cf1c02f71628`，
+多步场景收据 SHA256 `f925e71f640a3e4ce564659c4900a1157f86ac9da9b87442aeaf0ca5346299ad`。
+首轮运行期间修改了测试脚本，全部行为断言执行后输入摘要检查拒绝该轮；
+最终以固定输入完整重跑。无窗口或真实模型调用，两轮临时目录均已核实清理。
+本轮未重跑变异或原生平台交互。
+
 固定 `57313c3e`，使用锁定开发工具、JS-enabled Core、显式 Node 与新构建的候选
 Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py --execute`。
 76 项开发工具、10 项场景全部通过，覆盖构建和打包、Client / Executor 成对运行、

@@ -1003,7 +1003,10 @@ def main():
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:
         sources.update(p for p in (ROOT / directory).rglob('*') if p.is_file())
     inputs = {str(p.relative_to(ROOT)): digest(p) for p in sorted(sources)}
-    with tempfile.TemporaryDirectory(prefix='plugin-dev-test-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='plugin-dev-test-', dir=work_tmp) as temporary:
         work = Path(temporary)
         selected_cases = [args.case] if args.case else CASES + (EXECUTION_CASES if execution else [])
         for case in selected_cases:

@@ -306,7 +306,10 @@ def main():
     sources += [p for p in (ROOT/'scripts/probes').glob('plugin*testkit*') if p.is_file()]
     inputs={str(p.relative_to(ROOT)):sha(p) for p in sorted(set(sources))}
     cases=[args.case] if args.case else CASES+(NODE_CASES if execution else [])
-    with tempfile.TemporaryDirectory(prefix='dev-scenario-',dir=ROOT/'tmp') as d:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='dev-scenario-',dir=work_tmp) as d:
         work=Path(d)
         for case in cases:
             item=work/case;item.mkdir();run_case(case,item,tools,core,execution,args.control_file.resolve() if args.control_file else None);print('PASS '+case,flush=True)
