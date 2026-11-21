@@ -2,6 +2,7 @@ package com.hanxi.ghosterm
 
 import android.app.UiAutomation
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -40,11 +41,10 @@ class PluginFormTalkBackTest {
             }
             val request = awaitText(automation, "插件 org.ghosterm.talkback 请求输入")
             assertTrue(request.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
-            // Give the external screen reader time to consume the focus event before the live update.
-            Thread.sleep(2_500)
+            awaitSpeech(automation, "插件 org.ghosterm.talkback 请求输入")
             scenario.onActivity { answering.value = true }
             awaitText(automation, "正在发送表单答复…")
-            Thread.sleep(2_500)
+            awaitSpeech(automation, "正在发送表单答复")
         }
     }
 
@@ -64,5 +64,28 @@ class PluginFormTalkBackTest {
         }
         val windows = automation.windows.map { window -> "${window.title} (${window.root?.packageName})" }
         error("Missing accessibility node for $text in $windows")
+    }
+
+    private fun awaitSpeech(automation: UiAutomation, text: String) {
+        val fragment = Regex("""SpeechControllerImpl: Speaking fragment text="([^"]+)", utteranceId=(\S+),""")
+        repeat(40) {
+            val spoken = ParcelFileDescriptor.AutoCloseInputStream(
+                automation.executeShellCommand("logcat -b main -d -t 4000")
+            ).bufferedReader().use { reader ->
+                val utterances = mutableSetOf<String>()
+                reader.lineSequence().any { line ->
+                    val match = fragment.find(line)
+                    if (match != null && match.groupValues[1].startsWith(text)) {
+                        utterances.add(match.groupValues[2])
+                        false
+                    } else {
+                        utterances.any { id -> line.contains("Speak call for $id returned 0") }
+                    }
+                }
+            }
+            if (spoken) return
+            Thread.sleep(500)
+        }
+        error("TalkBack did not hand this speech to TTS: $text")
     }
 }

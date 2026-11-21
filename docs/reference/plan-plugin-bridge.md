@@ -3965,6 +3965,15 @@ QuickJS 开启的 Debug、测试 APK、未签名 Release 和 app lintRelease 通
 另一次并行构建与开机导致模拟器未达到空闲门槛，独立串行复验后正常退出，
 本轮临时目录均已清理。
 
+API 36 无窗口复验确认 TalkBack 在 instrumentation 运行期间保持绑定，支持
+实际表单状态播报。初轮固定等待时，输入请求已交给 Google TTS，提交状态
+仍排在前一条播报后。改为读取主日志缓冲区，按 `utteranceId` 对拍
+`Speaking fragment text` 和 `Speak call … returned 0`，两段文字均通过：
+“插件 org.ghosterm.talkback 请求输入”及“正在发送表单答复…”。独立启动的
+测试设备清空主日志后运行，1 项通过，QuickJS 开启的 Debug、测试 APK、
+未签名 Release 和 app lintRelease 通过。此处验证生成文字及 TTS 接收，
+物理声音、发音、搜索与其他视图仍待验。AVD 正常退出，临时目录已清理。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成
