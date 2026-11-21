@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -48,6 +49,7 @@ class PluginTableSSHAppTest {
     @Test fun officialTableThroughViewModelConsentAndNativePaging() {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture(); val count = payload.getInt("count"); val jump = payload.getString("route") == "jump"
+        val logs = payload.optString("sample") == "logs"
         val context = instrumentation.targetContext
         val root = File(context.cacheDir, "table-${java.util.UUID.randomUUID()}"); check(root.mkdir())
         val files = payload.getJSONObject("packageFiles")
@@ -72,7 +74,7 @@ class PluginTableSSHAppTest {
             val target = PreparedSSH("table-target", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
                 if (jump) listOf(PreparedSSH("table-jump", "127.0.0.1", payload.getString("user"), ports.getInt(0), emptyList())) else emptyList())
             val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), hash, hash,
-                emptyList(), command = "table", arguments = listOf("--count", "$count"))
+                emptyList(), command = if (logs) "logs" else "table", arguments = listOf("--count", "$count"))
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             runBlocking {
@@ -104,8 +106,9 @@ class PluginTableSSHAppTest {
             assertNull(main { extensions.error })
             await("Table Session consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(listOf("session.rpc", "ui.table"), main { extensions.activeSession?.requiredCapabilities })
-            assertEquals(PluginTableModel.methods, main { extensions.activeSession?.methods })
-            if (main { extensions.activeSession?.methods } != PluginTableModel.methods) return
+            val methods = if (logs) PluginTableModel.methods + PluginTableModel.searchMethod else PluginTableModel.methods
+            assertEquals(methods, main { extensions.activeSession?.methods })
+            if (main { extensions.activeSession?.methods } != methods) return
             ui.onNodeWithText("允许并启动").performClick()
             await("Table Client activation") { main { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } }
             val table = main { extensions.table }; assertNotNull("Native table contribution must be wired", table)
@@ -115,8 +118,25 @@ class PluginTableSSHAppTest {
             // polling the worker alone does not compose its LaunchedEffect.
             ui.onNodeWithTag("plugin-table").assertExists()
             await("First Native page: ${main { extensions.error }}") { main { table.state.value.page != null || table.state.value.issue != null } }
-            assertNull(main { table.state.value.issue }); assertEquals(count, main { table.state.value.descriptor?.total })
-            if (count > 0) {
+            assertNull(main { table.state.value.issue })
+            assertEquals(if (logs) 4096 else count, main { table.state.value.descriptor?.total })
+            if (logs) {
+                assertTrue(table.supportsSearch)
+                assertEquals("905", main { table.state.value.page?.rows?.first()?.id })
+                ui.onNodeWithTag("plugin-table-search-query").performScrollTo().performTextInput("record 1100")
+                ui.onNodeWithTag("plugin-table-search").assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick)
+                await("Empty search page") { main { table.state.value.searchPage?.cursor == 1032L || table.state.value.issue != null } }
+                assertNull(main { table.state.value.issue })
+                assertEquals(emptyList<PluginTableRow>(), main { table.state.value.searchPage?.rows })
+                assertTrue(main { table.state.value.searchTruncated })
+                ui.onNodeWithTag("plugin-table-search-more").assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick)
+                await("Matching search page") { main { table.state.value.searchPage?.cursor == 1160L || table.state.value.issue != null } }
+                assertNull(main { table.state.value.issue })
+                ui.onNodeWithTag("plugin-table-cell-1100-message").assertTextEquals("INFO worker 4 completed sample record 1100")
+                ui.onNodeWithTag("plugin-table-search-clear").assertIsEnabled().performSemanticsAction(SemanticsActions.OnClick)
+                await("Browsing restored") { main { table.state.value.searchQuery == null && table.state.value.page != null } }
+                assertEquals("905", main { table.state.value.page?.rows?.first()?.id })
+            } else if (count > 0) {
                 ui.onNodeWithTag("plugin-table-next").performScrollTo().performClick()
                 await("Second Native page") { main { table.state.value.page?.offset == 16 } }
                 ui.onNodeWithTag("plugin-table-cell-17-n").performScrollTo().assertTextEquals("17")

@@ -53,10 +53,12 @@ def main():
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--api', action='append', choices=('29', '36'))
     parser.add_argument('--mutate', action='store_true')
-    parser.add_argument('--form', action='store_true', help='run the Native form controls and SSH form scenario')
+    sample_mode = parser.add_mutually_exclusive_group()
+    sample_mode.add_argument('--form', action='store_true', help='run the Native form controls and SSH form scenario')
+    sample_mode.add_argument('--logs', action='store_true', help='run Native log search over SSH')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
     args = parser.parse_args()
-    if args.form and (args.mutate or args.case): parser.error('table mutation cases require the table package')
+    if (args.form or args.logs) and (args.mutate or args.case): parser.error('table mutation cases require the table package')
     selected_tests, expected_tests = (FORM_TESTS, 2) if args.form else (TESTS, 24)
     actual_test = FORM_ACTUAL if args.form else ACTUAL
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
@@ -66,7 +68,8 @@ def main():
     if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
         parser.error('build explicit JS/SSH-on gterm first')
     inputs = {}
-    sample = 'plugins/official/form' if args.form else 'plugins/official/table'
+    sample_name = 'form' if args.form else 'logs' if args.logs else 'table'
+    sample = f'plugins/official/{sample_name}'
     for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'packages/plugin-sdk', sample):
         for path in (ROOT / folder).rglob('*'):
             if path.is_file() and not any(part in ('build', '.gradle', '.kotlin', '.cxx') for part in path.relative_to(ROOT / folder).parts):
@@ -169,7 +172,7 @@ def main():
 
                         def actual(label, route, count, red=False):
                             token = secrets.token_hex(24); mappings = []
-                            payload = dict(route=route, count=count, package=str(package), gterm=str(build / 'gterm'), ports=list(ports),
+                            payload = dict(route=route, count=count, sample=sample_name, package=str(package), gterm=str(build / 'gterm'), ports=list(ports),
                                 temporary=str(work),
                                 hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                                 packageDigest=sha(package / 'integrity.json'), packageFiles={p.relative_to(package).as_posix():
@@ -214,7 +217,7 @@ def main():
                             if not red: records.append(dict(api=api, route=route, count=count))
 
                         for route in ('direct', 'jump'):
-                            for count in ((0,) if args.form else (1000000, 0)):
+                            for count in ((0,) if args.form else (5000,) if args.logs else (1000000, 0)):
                                 actual('api' + api + '-' + route + '-' + str(count), route, count)
                                 print('PASS API' + api + ': actual Native ' + route + ' count=' + str(count), flush=True)
                         scroll_header = '''Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState())
@@ -269,7 +272,7 @@ def main():
         receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')
-    print('ANDROID NATIVE FORM PASS' if args.form else 'ANDROID NATIVE TABLE PASS', flush=True)
+    print(f'ANDROID NATIVE {sample_name.upper()} PASS', flush=True)
 
 
 if __name__ == '__main__':
