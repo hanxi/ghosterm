@@ -153,10 +153,13 @@ import XCTest
         nested.replaceSubrange(0..<16, with: Data(repeating: 0x22, count: 16))
         let nestedOffer = "\\033]777;ghosterm-discovery;1;\(nested.base64EncodedString())\\007"
         let offer = "\\033]777;ghosterm-discovery;1;\(payload)\\007"
-        let nestedStrings = ["\\033P", "\\033X", "\\033^", "\\033_", "\\0220", "\\0230", "\\0236", "\\0237"].map {
+        let sevenBitStrings = ["\\033P", "\\033X", "\\033^", "\\033_"].map {
             "\($0)\(nestedOffer)\\033\\0134"
         }.joined()
-        surface.sendCommittedText("printf '%b%s' '\(nestedStrings)\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
+        let c1Strings = ["\\0220", "\\0230", "\\0236", "\\0237"].map {
+            "\($0)\(nestedOffer)\\0234"
+        }.joined()
+        surface.sendCommittedText("printf '%b%s' '\(sevenBitStrings)\(c1Strings)\(offer)\\033[2J\\033[HPTY_' OUTPUT\r")
         try await until { surface.readText()?.contains("PTY_OUTPUT") == true }
     }
 
