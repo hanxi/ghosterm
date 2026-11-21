@@ -8,6 +8,7 @@ import json
 import os
 import plistlib
 import re
+import struct
 import subprocess
 import tempfile
 import urllib.request
@@ -99,6 +100,16 @@ def verify_macos_update(folder, inventory, manifest, channel, base, expected_key
     with zipfile.ZipFile(folder / zip_name) as archive:
         info = plistlib.loads(archive.read('Ghosterm.app/Contents/Info.plist'))
         receipt = archive.read('Ghosterm.app/Contents/Resources/BUILD-INFO.txt')
+        if info.get('CFBundleExecutable') != 'GhostermApp':
+            raise ValueError('unexpected macOS release executable name')
+        with archive.open('Ghosterm.app/Contents/MacOS/GhostermApp') as executable:
+            header = executable.read(32)
+        # mach_header_64: magic, CPU type, CPU subtype, file type.
+        if len(header) != 32:
+            raise ValueError('truncated macOS executable header')
+        magic, cpu, _, file_type = struct.unpack_from('<4I', header)
+        if (magic, cpu, file_type) != (0xfeedfacf, 0x0100000c, 2):
+            raise ValueError('macOS release executable must be arm64 Mach-O')
     if receipt != (folder / 'BUILD-INFO.txt').read_bytes():
         raise ValueError('published build receipt differs from the receipt inside the update ZIP')
     receipt_text = receipt.decode('utf-8')
