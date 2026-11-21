@@ -133,7 +133,7 @@ jobs:
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
           mv dist-android/SHA256SUMS dist-android/android-SHA256SUMS
           mv dist-android/build-info.json dist-android/android-build-info.json
-          python3 -B scripts/check-android-release-assets.py dist-android --formal --expect-commit "$GITHUB_SHA"
+          python3 -B scripts/check-android-release-assets.py dist-android --formal-version "$VERSION" --expect-commit "$GITHUB_SHA"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
           ASSETS+=(dist-android/Ghosterm-android-arm64-release.apk dist-android/android-SHA256SUMS dist-android/android-build-info.json)

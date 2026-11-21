@@ -84,7 +84,7 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
         raise ValueError('manifest does not match the formal release tag')
     verify_macos_update(folder, inventory, manifest, 'release', base, expected_key)
     if FORMAL_ANDROID <= inventory.keys():
-        ANDROID.verify(folder, commit, ANDROID.FORMAL_APK)
+        ANDROID.verify(folder, commit, version)
 
 
 def verify_macos_update(folder, inventory, manifest, channel, base, expected_key):

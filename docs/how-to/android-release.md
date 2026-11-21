@@ -23,6 +23,7 @@ shasum -a 256 -c android-SHA256SUMS
 正式版本的草稿工作流会从同一提交构建签名 Android APK，校验来源、摘要和构建收据后，与 macOS 附件一并上传到版本标签的草稿 Release。正式 APK 名为 `Ghosterm-android-arm64-release.apk`，附同名的 Android 校验和与构建信息文件。工作流确认 Release 仍为草稿，核对附件清单并逐一下载比对原始字节。草稿仍需发布后才可公开下载。
 
 正式 APK 的 `versionName` 对应发布标签去掉 `v` 的版本号，`versionCode` 随正式版本递增。例如 `v0.1.0` 对应 `0.1.0` 和 `1002`。滚动 dev APK 维持 `0.1.0-dev` 和版本代码 1，因此已安装正式包的设备会把 dev APK 视为降级。
+正式构建收据记录已核对的 `version_name`。草稿上传前和公开发行审计都会将它与 Release 标签核对。
 
 API 29 无窗口模拟器用同一测试证书验证了 dev → 正式版本覆盖安装。覆盖后应用
 UID 和首次安装时间保持不变，反向安装返回 `INSTALL_FAILED_VERSION_DOWNGRADE`。

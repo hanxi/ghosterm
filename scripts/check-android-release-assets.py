@@ -18,7 +18,8 @@ source = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source)
 
 
-def verify(folder, commit, apk_name=APK):
+def verify(folder, commit, formal_version=None):
+    apk_name = FORMAL_APK if formal_version is not None else APK
     apk = folder / apk_name
     if not all((folder / name).is_file() for name in (apk_name, 'android-SHA256SUMS', 'android-build-info.json')):
         raise ValueError('missing Android Release asset')
@@ -31,6 +32,8 @@ def verify(folder, commit, apk_name=APK):
     metadata = json.loads((folder / 'android-build-info.json').read_text(), object_pairs_hook=source.distinct_object)
     expected = dict(receipt, build_type='release', abi='arm64-v8a', min_sdk=29,
                     bytes=apk.stat().st_size, sha256=digest, r8=True, resource_shrinking=True)
+    if formal_version is not None:
+        expected['version_name'] = formal_version
     if not isinstance(metadata, dict) or metadata != expected or any(
             type(metadata[key]) is not type(value) for key, value in expected.items()):
         raise ValueError('published build info mismatch')
@@ -41,10 +44,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('folder', type=Path)
     parser.add_argument('--expect-commit', required=True)
-    parser.add_argument('--formal', action='store_true')
+    parser.add_argument('--formal-version', help='verify a formal APK and receipt against this release version')
     args = parser.parse_args()
-    apk_name = FORMAL_APK if args.formal else APK
-    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, apk_name))
+    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version))
 
 
 if __name__ == '__main__':
