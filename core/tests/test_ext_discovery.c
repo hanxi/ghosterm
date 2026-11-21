@@ -101,7 +101,8 @@ int main(int argc, char **argv) {
         }
         expect(d, "/工作/😀");
     } else if (!strcmp(mode, "strings")) {
-        const char *starts[] = {"\033]0;", "\033_G", "\033P", "\033X", "\033^", "\x90", "\x9d"};
+        const char *starts[] = {
+            "\033]0;", "\033_G", "\033P", "\033X", "\033^", "\x90", "\x98", "\x9d", "\x9e", "\x9f"};
         for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
             for (size_t byte = 0; starts[i][byte]; byte++) {
                 feed(d, starts[i] + byte, 1, 100);
@@ -111,13 +112,17 @@ int main(int argc, char **argv) {
             feed(d, "\x9c", 1, 100);
             char original[sizeof(valid)];
             memcpy(original, valid, sizeof(valid));
-            for (size_t byte = 0; byte < sizeof(original) - 1; byte++) {
+            for (size_t byte = 0; byte < sizeof(original) - sizeof("\033\\"); byte++) {
                 feed(d, original + byte, 1, 100);
                 CHECK(!poll(d).available);
             }
             CHECK(!memcmp(original, valid, sizeof(valid)));
-            feed(d, "\033", 1, 100);
-            feed(d, "\\", 1, 100);
+            if ((unsigned char)starts[i][0] >= 0x80) {
+                feed(d, "\x9c", 1, 100);
+            } else {
+                feed(d, "\033", 1, 100);
+                feed(d, "\\", 1, 100);
+            }
             feed(d, valid, sizeof(valid) - 1, 100);
             expect(d, "/work/front");
         }
