@@ -1,4 +1,4 @@
-import { object, requestForm, text } from "@ghosterm/plugin-sdk";
+import { boolean, object, requestForm, text } from "@ghosterm/plugin-sdk";
 import type { Disposable, PluginContext } from "@ghosterm/plugin-sdk";
 
 export function activate(context: PluginContext): Disposable {
@@ -21,5 +21,12 @@ export function activate(context: PluginContext): Disposable {
   });
   context.session.register({ name: "form.status", input: object({}), output: object({ status: text(16) }) },
     (_input, request) => { request.check(); return { status }; });
+  context.session.register({ name: "form.cancel", input: object({}), output: object({ requested: boolean() }) },
+    (_input, request) => {
+      request.check();
+      const requested = status === "pending";
+      if (requested) call.cancel();
+      return { requested };
+    });
   return { dispose() { call.cancel(); } };
 }

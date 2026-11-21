@@ -652,6 +652,11 @@ class ExtensionController private constructor(private val shared: Shared, privat
             return@onWorker ExtensionSession.RPCStatus.CLOSED
         }
         val status = current.checkHostRequest(ticket)
+        if (status == ExtensionSession.RPCStatus.CLOSED) {
+            val cancelled = """{"kind":"cancelled","effect":"none"}""".toByteArray(Charsets.UTF_8)
+            current.respondHostRequest(ticket, cancelled)
+            return@onWorker status
+        }
         if (status == ExtensionSession.RPCStatus.OK && outcome != null) current.respondHostRequest(ticket, outcome) else status
     }
 

@@ -3892,7 +3892,11 @@ Session 票据检查，按 Runtime 身份及表单令牌绑定答复。macOS 应
 QuickJS-on Debug 与测试 APK 构建通过。两端现在从已批准的 Client 包读取
 `ui.form` 声明，在本机 / SSH 启动配置中协商 `view.form.request` Host 方法，
 RPC 逐次检查这一能力。Portable 表单样例通过打包，展示文本、开关和单选，
-只保留回答状态。实际界面和真实双端 Session 验收仍待完成。
+只保留回答状态。真实 QuickJS Executor 与原生 Session 对端通过提交、关闭表单、
+错误业务请求 ID 和 Executor 取消四种往返，并对每种验证错误 epoch 不可检查票据。
+取出的票据收到取消后仍需应答，双端 Host 现发送无副作用的取消回执并丢弃表单内容。
+首轮探针误将底层 `respond` 视作取消检查，随后改用生产接线同样的 `check_request`
+及取消回执，四种用例通过。两端真实界面和跨实例验证仍待完成。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、

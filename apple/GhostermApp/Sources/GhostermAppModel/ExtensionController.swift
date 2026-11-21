@@ -2251,6 +2251,11 @@ public actor ExtensionController {
                 try self.checkOpen()
                 guard self.runtimeInstanceID == instanceID, let runtime = self.runtime else { return .closed }
                 let status = try runtime.checkHostRequest(ticket: ticket)
+                if status == .closed, try runtime.info().phase == .active {
+                    let cancelled = Data(#"{"kind":"cancelled","effect":"none"}"#.utf8)
+                    _ = try runtime.respondHostRequest(ticket: ticket, outcome: cancelled)
+                    return status
+                }
                 guard status == .ok, let outcome else { return status }
                 return try runtime.respondHostRequest(ticket: ticket, outcome: outcome)
             }
