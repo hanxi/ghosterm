@@ -70,6 +70,7 @@ jobs:
       INPUT_VERSION: ${{ inputs.version }}
       INPUT_NOTARIZE: ${{ inputs.notarize }}
       INPUT_CHANNEL: ${{ inputs.channel }}
+      MACOS_PLUGIN_JS: ${{ github.event_name != 'pull_request' && vars.MACOS_PLUGIN_JS == 'true' && 'true' || 'false' }}
     steps:
       # vendor pin 一律走 scripts/fetch-vendor-pin.sh：
       # checkout 的内置 submodule 拉取不可靠（浅克隆会把子模块落到远端分支头，实测
@@ -80,6 +81,16 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # git describe 要完整历史与 tag
+
+      - name: 验证插件渠道
+        if: env.MACOS_PLUGIN_JS == 'true'
+        env:
+          GHOSTERM_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
+          GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+          GHOSTERM_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
+        run: |
+          bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
+            "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
 
       - name: 取 vendor pin
         run: bash scripts/fetch-vendor-pin.sh
@@ -333,7 +344,6 @@ jobs:
       - name: 出包（dmg + zip + 校验和）
         env:
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
-          MACOS_PLUGIN_JS: ${{ github.event_name != 'pull_request' && vars.MACOS_PLUGIN_JS == 'true' && 'true' || 'false' }}
           GHOSTERM_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
           GHOSTERM_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
@@ -345,8 +355,6 @@ jobs:
           ARGS=(--out dist --build "$GITHUB_RUN_NUMBER" --channel "$INPUT_CHANNEL")
           if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
           if [ "$MACOS_PLUGIN_JS" = true ]; then
-            bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
-              "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
             git submodule update --init --depth 1 vendor/quickjs-ng
             ARGS+=(--plugin-js)
           fi
