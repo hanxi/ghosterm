@@ -67,16 +67,8 @@ class PluginFormTalkBackTest {
             assertTrue(request.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
             awaitSpeech(automation, "插件 org.ghosterm.talkback 请求输入")
             assertFalse(awaitNode(automation, "plugin-form-submit") { it.viewIdResourceName == "plugin-form-submit" }.isEnabled)
-            val input = awaitNode(automation, "plugin-form-field-name") {
-                it.isEditable && it.viewIdResourceName == "plugin-form-field-name"
-            }
-            assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "example")
-            }))
-            val submit = awaitNode(automation, "enabled plugin-form-submit") {
-                it.isEnabled && it.isClickable && it.viewIdResourceName == "plugin-form-submit"
-            }
-            assertTrue(submit.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            enterText(automation, "plugin-form-field-name", "example")
+            click(automation, "plugin-form-submit")
             awaitText(automation, "正在发送表单答复…")
             awaitSpeech(automation, "正在发送表单答复")
         }
@@ -88,29 +80,57 @@ class PluginFormTalkBackTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         try {
             ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
-                lateinit var model: PluginTableModel
                 scenario.onActivity { activity ->
                     fixture.description.put("total", 1)
-                    model = PluginTableModel(scope, fixture::request, supportsSearch = true)
-                    activity.setContent { MaterialTheme { PluginTableContent(model) } }
+                    val model = PluginTableModel(scope, fixture::request, supportsSearch = true)
+                    activity.setContent {
+                        MaterialTheme {
+                            Column(Modifier.semantics { testTagsAsResourceId = true }) {
+                                PluginTableContent(model)
+                            }
+                        }
+                    }
                 }
                 awaitText(automation, "第 1–1 行，共 1 行")
-                scenario.onActivity {
-                    fixture.pause = PluginTableModel.searchMethod
-                    checkNotNull(model.search("Number"))
-                }
+                assertFalse(awaitNode(automation, "plugin-table-search") { it.viewIdResourceName == "plugin-table-search" }.isEnabled)
+                scenario.onActivity { fixture.pause = PluginTableModel.searchMethod }
+                enterText(automation, "plugin-table-search-query", "Number")
+                click(automation, "plugin-table-search")
                 awaitText(automation, "正在搜索表格…")
                 awaitSpeech(automation, "正在搜索表格")
                 fixture.release.complete(Unit)
                 awaitText(automation, "本页没有匹配项，可继续搜索")
                 awaitSpeech(automation, "本页没有匹配项")
-                scenario.onActivity { checkNotNull(model.continueSearch()) }
+                click(automation, "plugin-table-search-more")
                 awaitText(automation, "本页有 1 个匹配项")
                 awaitSpeech(automation, "本页有 1 个匹配项")
+                scenario.onActivity {
+                    val (method, input) = fixture.calls.last()
+                    assertEquals(PluginTableModel.searchMethod, method)
+                    assertEquals("Number", input.getString("query"))
+                    assertEquals(128L, input.getLong("after"))
+                }
+                click(automation, "plugin-table-search-clear")
+                awaitText(automation, "第 1–1 行，共 1 行")
             }
         } finally {
             scope.cancel()
         }
+    }
+
+    private fun enterText(automation: UiAutomation, id: String, value: String) {
+        val input = awaitNode(automation, id) { it.isEditable && it.viewIdResourceName == id }
+        val arguments = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+        }
+        assertTrue("Set text in $id", input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments))
+    }
+
+    private fun click(automation: UiAutomation, id: String) {
+        val button = awaitNode(automation, "enabled $id") {
+            it.isEnabled && it.isClickable && it.viewIdResourceName == id
+        }
+        assertTrue("Click $id", button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
 
     private fun awaitText(automation: UiAutomation, text: String): AccessibilityNodeInfo =
