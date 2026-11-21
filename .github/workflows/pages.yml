@@ -38,13 +38,20 @@ jobs:
         env:
           CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+          CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
           ANDROID_CHANNEL: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
           ANDROID_CHANNEL_ROOT: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
+          ANDROID_CHANNEL_URL: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
         run: |
           set -euo pipefail
           directory=site/plugins
           if [[ ! -e "$directory" && ! -L "$directory" ]]; then exit 0; fi
           [[ -d "$directory" && ! -L "$directory" ]]
+          if [[ -n "$CHANNEL_URL" && "${CHANNEL_URL%/}" == "${ANDROID_CHANNEL_URL%/}" ]] &&
+             [[ "$CHANNEL" != "$ANDROID_CHANNEL" || "$CHANNEL_ROOT" != "$ANDROID_CHANNEL_ROOT" ]]; then
+            echo "macOS and Android must use the same channel name and public key for a shared policy URL" >&2
+            exit 1
+          fi
           if [[ -z "$CHANNEL" && -z "$CHANNEL_ROOT" ]]; then
             CHANNEL="$ANDROID_CHANNEL"
             CHANNEL_ROOT="$ANDROID_CHANNEL_ROOT"
