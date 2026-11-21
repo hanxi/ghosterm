@@ -17,10 +17,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
 cd "$FIXTURE"
-git init -q
-git -c user.name=Fixture -c user.email=fixture@example.invalid commit -q --allow-empty -m older
+git init -q --template=
+git config --local user.name Fixture
+git config --local user.email fixture@example.invalid
+git config --local commit.gpgsign false
+git config --local tag.gpgsign false
+git config --local core.hooksPath /dev/null
+git commit -q --allow-empty -m older
 git tag v0.1.0
-git -c user.name=Fixture -c user.email=fixture@example.invalid commit -q --allow-empty -m current
+git commit -q --allow-empty -m current
 export GITHUB_REF=refs/heads/main
 GITHUB_SHA="$(git rev-parse HEAD)"
 export GITHUB_SHA
@@ -39,7 +44,7 @@ reject() {
 reject 'No formal release tag identifies the build commit'
 git tag v1.2.3-rc.1
 reject 'No formal release tag identifies the build commit'
-git -c user.name=Fixture -c user.email=fixture@example.invalid tag -a -m release v1.2.3
+git tag -a -m release v1.2.3
 [[ "$(bash "$RESOLVER")" == 1.2.3 ]]
 git tag v1.2.4
 reject 'Multiple formal release tags'
