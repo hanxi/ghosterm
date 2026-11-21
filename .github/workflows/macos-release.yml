@@ -95,6 +95,7 @@ jobs:
       - name: 建草稿 Release
         env:
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
           test -f dist/BUILD-INFO.txt && test -f dist/version.json
@@ -145,9 +146,13 @@ jobs:
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
           mv dist-android/SHA256SUMS dist-android/android-SHA256SUMS
           mv dist-android/build-info.json dist-android/android-build-info.json
+          CERTIFICATE_ARGS=()
+          if [[ -n "$ANDROID_RELEASE_CERT_SHA256" ]]; then
+            CERTIFICATE_ARGS=(--android-certificate-sha256 "$ANDROID_RELEASE_CERT_SHA256")
+          fi
           python3 -B scripts/check-android-release-assets.py dist-android \
             --formal-version "$VERSION" --expect-commit "$GITHUB_SHA" \
-            --android-build-tools "$ANDROID_HOME/build-tools/35.0.0"
+            --android-build-tools "$ANDROID_HOME/build-tools/35.0.0" "${CERTIFICATE_ARGS[@]}"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
           ASSETS+=(dist-android/Ghosterm-android-arm64-release.apk dist-android/android-SHA256SUMS dist-android/android-build-info.json)
