@@ -22,6 +22,12 @@ typedef struct {
     memory_t memory;
 } load_fixture_t;
 
+/* The 64-entry runtime cache also holds the plugin entry and nine modules
+ * loaded by the host SDK. The type-only SDK modules do not occupy a slot. */
+enum {
+    PACKAGE_MODULE_BOUNDARY = 54
+};
+
 typedef struct {
     char path[4097];
     size_t size;
@@ -242,8 +248,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         !strcmp(mode, "module-boundary-overflow") || !strcmp(mode, "source-total")) {
         static char loop[4096];
         unsigned n = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 55
-                     : !strcmp(mode, "module-boundary-overflow") ? 56
+                     : !strcmp(mode, "module-boundary")          ? PACKAGE_MODULE_BOUNDARY
+                     : !strcmp(mode, "module-boundary-overflow") ? PACKAGE_MODULE_BOUNDARY + 1
                                                                  : 8;
         size_t used = 0;
         for (unsigned i = 0; i < n; i++) {
@@ -438,8 +444,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         free(large);
     }
     unsigned extra = !strcmp(mode, "module-count")               ? 65
-                     : !strcmp(mode, "module-boundary")          ? 55
-                     : !strcmp(mode, "module-boundary-overflow") ? 56
+                     : !strcmp(mode, "module-boundary")          ? PACKAGE_MODULE_BOUNDARY
+                     : !strcmp(mode, "module-boundary-overflow") ? PACKAGE_MODULE_BOUNDARY + 1
                      : !strcmp(mode, "source-total")             ? 8
                                                                  : 0;
     for (unsigned i = 0; i < extra; i++) {
