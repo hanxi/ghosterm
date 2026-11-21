@@ -13671,6 +13671,14 @@ Node SDK 运行 `test-plugin-dev.py --execute` 和 `test-plugin-dev-scenarios.py
 
 ### P5 macOS 原生插件视图集中复验（2026-11-19）
 
+在 `6e68d8e5` 加测试工具接线，开启 QuickJS 后用 `--workspace-build`
+复用已解析的锁定 Swift 依赖。官方多视图包的本机、直连和两跳各通过一项；
+本机显式附着并结束自有执行端后，原生视图失效专项通过一项。两轮离屏，
+receipt 核对宿主 Core 归档、执行端和包摘要，临时夹具及目录已清理。
+三路收据 SHA256 `7d2869cebe6355cacf2074987aae5f4b9bbda35a7f0ba651225e373b7d029a92`，
+执行端退出收据 SHA256 `f5d51c6b4698924f602f19d52feb7ad8a9b545ca6c068f5c956ed6f641f386a1`。
+本轮未跑变异或实际 VoiceOver。
+
 固定 `46c54d66`，在完整 Xcode 下以 `GHOSTERM_AUTOMATION_OFFSCREEN=1`
 运行 `swift test --package-path apple/GhostermApp --filter 'Plugin(Table|Diff|Task|Views|Workspace)Tests'`。
 86 项全部通过，覆盖表格、差异及任务视图的主题与大字号、原生无障碍属性、

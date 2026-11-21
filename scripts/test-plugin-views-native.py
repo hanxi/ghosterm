@@ -44,7 +44,11 @@ def main():
     parser.add_argument('--route', choices=['local', 'direct', 'jump'], action='append')
     parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     parser.add_argument('--attach-loss', action='store_true', help='terminate the owned foreground after Native view interactions')
+    parser.add_argument('--workspace-build', action='store_true',
+                        help='reuse the workspace Swift dependencies and enabled Core for a read-only baseline')
     args = parser.parse_args(); build, package = args.build.resolve(), args.package.resolve()
+    if args.workspace_build and args.mutate:
+        parser.error('--workspace-build supports baselines only')
     if args.attach_loss and not args.attach:
         parser.error('--attach-loss requires --attach')
     foreground_mutation = args.mutate and args.attach_loss and (
@@ -85,12 +89,19 @@ def main():
         assert (ROOT / filename).read_text().count(old) == 1, label
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='mv-', dir=args.receipt.resolve().parent) as temporary:
-        work = Path(temporary); source = work / 'h'; logs = work / 'logs'; logs.mkdir()
-        for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
-            shutil.copytree(ROOT / directory, source / directory, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
-        (source / 'core').mkdir(); shutil.copytree(ROOT / 'core/include', source / 'core/include'); (source / 'core/build').symlink_to(build / 'core', target_is_directory=True)
-        for directory in ['build', 'patches']: (source / directory).symlink_to(ROOT / directory, target_is_directory=True)
-        (source / 'tmp').mkdir()
+        work = Path(temporary); logs = work / 'logs'; logs.mkdir()
+        if args.workspace_build:
+            source = ROOT
+            assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in (ROOT / 'core/build/CMakeCache.txt').read_text()
+        else:
+            source = work / 'h'
+            for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
+                shutil.copytree(ROOT / directory, source / directory, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
+            (source / 'core').mkdir(); shutil.copytree(ROOT / 'core/include', source / 'core/include'); (source / 'core/build').symlink_to(build / 'core', target_is_directory=True)
+            for directory in ['build', 'patches']: (source / directory).symlink_to(ROOT / directory, target_is_directory=True)
+            (source / 'tmp').mkdir()
+        native_core = source / 'core/build/libghosterm_core.a'
+        native_core_sha = sha(native_core)
         env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
         commands, groups, actual = [], [], []
         def test(label, selected, count=1, red=False, expected=None):
@@ -185,8 +196,10 @@ def main():
                     groups.append(FOREGROUND_MUTATION)
         test('restored', 'PluginViewsTests', VIEW_TEST_COUNT)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
+        assert sha(native_core) == native_core_sha
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()
         args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, foregroundLoss=args.attach_loss,
+            workspaceBuild=args.workspace_build, nativeCoreSHA256=native_core_sha,
             inputs=inputs, commands=commands, mutations=groups, actual=actual,
             gtermSHA256=sha(build / 'gterm'), package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native registrations/models, actual local/direct/jump and offscreen controls; no Android, OS VoiceOver, full user import flow or release'), indent=2) + '\n')
