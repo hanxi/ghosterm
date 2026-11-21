@@ -16698,6 +16698,10 @@ QuickJS 开启的 macOS 本地 PTY 离屏一项通过，Android API 29 / 36 无�
 各一项通过。Android 两档复用同一对 APK，逐类检查正常输出与候选隔离。
 两台模拟器退出码 0，临时目录均已核实清理；C1 专项变异和真机另验。
 
+在 `a0748005` 从同一工作树构建独立 QuickJS-on、tests-on Core 和当前 Portable SDK。
+874 项 CTest 全部通过，207 个公开 ABI 符号对拍一致。未提供 SDK 的前置配置尝试
+无法生成测试，未计入通过。编译、测试与 ABI 文件均已清理。
+
 在 `7c6e79ee` 和 `d0a02b4f`，八位控制串改用八位 ST，七位串保留原结束形式。
 QuickJS 开启的 Android API 29 / 36 用同一对新构建 APK 各通过一项；两台
 无窗口模拟器均以 0 退出。macOS 离屏默认会话整组通过九项，关闭 QuickJS 专用
