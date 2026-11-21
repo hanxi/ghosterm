@@ -16526,6 +16526,14 @@ API 29 / 36 各通过一项，两台无窗口模拟器正常退出，临时目�
 `e7b8a9d513265b3250ce1562197ca9fa1fcf4819b58e427242aaa65e5a9ff4dd`。
 本轮未重跑关闭档、变异或物理设备。
 
+在 `572b00e7` 补齐 QuickJS 关闭档。macOS 实际本地 PTY 一项离屏通过，日志
+SHA256 `139ab686648d989c9cbde7c647bca58ea87a374c16c55398ec6ec135d75850a8`。
+Android API 29 和 API 36 用同一对关闭档 APK 各通过一项，APK 无 QuickJS
+许可证，两台无窗口模拟器均正常退出。收据 SHA256 分别为
+`a704ae1d2e2c37acc3a3d0f6da43f57ba00c88287cc0a5553d2b5b586c67ad60`
+及 `f0c16ce0fe99f6f0190d5861bd9bdc57669b682b478b6f8b2c6759096673e5f5`。
+临时目录已核实清理，本轮仍未执行变异或物理设备。
+
 ### P1 Android API 36 16 KiB 页终端联合复验（2026-11-21）
 
 官方 Google APIs arm64 16 KiB 系统镜像修订 7，API 36 / extension 17，
