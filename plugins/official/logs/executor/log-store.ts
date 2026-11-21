@@ -23,11 +23,15 @@ export class LogStore {
   private readonly entries: (LogEntry | undefined)[];
   private latest = 0;
 
-  constructor(capacity: number) {
+  constructor(capacity: number, private readonly sample?: {
+    readonly count: number;
+    readonly message: (sequence: number) => string;
+  }) {
     if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_RETAINED_LINES) {
       throw new RangeError("Invalid log retention");
     }
     this.entries = new Array<LogEntry | undefined>(capacity);
+    this.latest = sample?.count ?? 0;
   }
 
   append(message: string): number {
@@ -53,8 +57,11 @@ export class LogStore {
     const entries: LogEntry[] = [];
     const end = cursor + Math.min(MAX_SCAN, through - cursor);
     while (cursor < end && entries.length < limit) {
-      const entry = this.entries[cursor % this.entries.length]!;
-      cursor++;
+      const index = cursor % this.entries.length;
+      const sequence = ++cursor;
+      // Synthetic history needs no eager allocation. A live append replaces
+      // the same ring slot once its older sequence has left retention.
+      const entry = this.entries[index] ?? { sequence, message: this.sample!.message(sequence) };
       if (entry.message.includes(query)) entries.push(entry);
     }
     return { entries, cursor, oldest, latest: through, truncated };

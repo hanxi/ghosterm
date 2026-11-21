@@ -3882,6 +3882,12 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 覆盖启动期输入；通用表单仍需验证执行端请求经 schema 校验、取消后忽略迟到回答，
 且回答只回到原请求和原实例。这两项继续计入 P5 退出条件。
 
+日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
+请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
+快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成
+5000 条的版本在 Runtime 激活阶段失败；改成按扫描范围生成确定性样例数据后
+通过，保留 4096 条历史的逻辑边界。原生 Client 接线和同实例慢读者验收仍待完成。
+
 ### P6 受控分发与后续平台
 
 **交付：** 包签名 / 渠道策略、升级 / 回滚 / 禁用、资源清理；按需要接 Linux / Windows / iOS / HarmonyOS / Web 的平台服务。

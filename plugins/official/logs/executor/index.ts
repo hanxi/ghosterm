@@ -9,11 +9,13 @@ export function activate(context: PluginContext): Disposable {
   if (context.side !== "executor" || context.invocation?.command !== "logs" ||
       context.capabilities.query("session.rpc") !== "allowed") throw new Error("Log Executor invocation and RPC grant required");
   const { count } = Arguments.parse(context.invocation.arguments);
-  const store = new LogStore(4096);
-  for (let n = 1; n <= count; n++) {
-    const level = n % 97 === 0 ? "WARN" : "INFO";
-    store.append(`${level} worker ${n % 8} completed sample record ${n}`);
-  }
+  const store = new LogStore(4096, {
+    count,
+    message(sequence) {
+      const level = sequence % 97 === 0 ? "WARN" : "INFO";
+      return `${level} worker ${sequence % 8} completed sample record ${sequence}`;
+    },
+  });
   let live = true;
   context.session.register(LogPageMethod, (input, request) => {
     request.check();
