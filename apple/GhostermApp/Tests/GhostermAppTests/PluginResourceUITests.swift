@@ -63,18 +63,17 @@ final class PluginResourceUITests: XCTestCase {
         let request = URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/style.css")))
         let web = WKWebView(frame: .zero)
 
-        for invalidate in [
+        let cancelled = [
             { (handler: PluginResourceHTMLSchemeHandler) in handler.close() },
             { (handler: PluginResourceHTMLSchemeHandler) in handler.update(snapshot: prepared) },
-        ] {
+        ].map { invalidate in
             let handler = PluginResourceHTMLSchemeHandler(snapshot: prepared)
             let task = CapturedSchemeTask(request: request)
             task.onResponse = { invalidate(handler) }
             handler.webView(web, start: task)
-            XCTAssertEqual((task.error as? URLError)?.code, .cancelled)
-            XCTAssertTrue(task.data.isEmpty)
-            XCTAssertFalse(task.finished)
+            return (task.error as? URLError)?.code == .cancelled && task.data.isEmpty && !task.finished
         }
+        XCTAssertEqual(cancelled, [true, true], "revoked response must stop before attachment delivery")
 
         let handler = PluginResourceHTMLSchemeHandler(snapshot: prepared)
         let stopped = CapturedSchemeTask(request: request)
@@ -82,9 +81,8 @@ final class PluginResourceUITests: XCTestCase {
             if let stopped { handler.webView(web, stop: stopped) }
         }
         handler.webView(web, start: stopped)
-        XCTAssertTrue(stopped.data.isEmpty)
-        XCTAssertNil(stopped.error)
-        XCTAssertFalse(stopped.finished)
+        XCTAssertTrue(stopped.data.isEmpty && stopped.error == nil && !stopped.finished,
+                      "stopped WebKit task must receive no more callbacks")
     }
 
     @MainActor

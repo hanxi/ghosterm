@@ -221,10 +221,14 @@ final class PluginPaneFlowTests: XCTestCase {
         let interaction = CodexRouteInteraction()
         model.interaction = interaction
         var selections = 0
+        var retiredPicker: ((Result<[URL], Error>) -> Void)?
         trace("create hosting view")
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model, packagePicker: { completion in
             selections += 1
-            if selections == 1 { completion(.failure(CocoaError(.userCancelled))) }
+            if selections == 1 {
+                retiredPicker = completion
+                completion(.failure(CocoaError(.userCancelled)))
+            }
             else {
                 completion(.success([package]))
                 completion(.failure(CocoaError(.fileReadNoSuchFile)))
@@ -284,6 +288,9 @@ final class PluginPaneFlowTests: XCTestCase {
         try press("plugin-package-import")
         XCTAssertEqual(selections, 1)
         XCTAssertNil(node("plugin-package-issue"), "cancelling the picker must not display an import error")
+        retiredPicker?(.failure(CocoaError(.fileReadNoSuchFile)))
+        retiredPicker = nil
+        XCTAssertNil(node("plugin-package-issue"), "a retired picker callback must not display an import error")
         XCTAssertNil(node("plugin-approve-" + id))
         XCTAssertNil(model.extensionRun)
         try press("plugin-package-import")

@@ -54,9 +54,9 @@ def main():
         ('picker-cancel', 'if (error as? CocoaError)?.code == .userCancelled { return }',
          '// fixture mutation: handle cancellation as an import failure',
          'cancelling the picker must not display an import error'),
-        ('picker-repeat', 'guard !reviewingPackage else { return }',
-         '// fixture mutation: accept another callback during review',
-         'a second picker callback must not overwrite an active review'),
+        ('picker-repeat', 'guard pendingPackagePicker == request else { return }',
+         '_ = request',
+         'a retired picker callback must not display an import error'),
         ('digest', 'Text("摘要：\\(entry.review.digest)")', 'Text("摘要：unverified")',
          'review must display the exact immutable package digest'),
         ('approval', 'decide(entry: entry, approve: true)', 'decide(entry: entry, approve: false)',
@@ -89,6 +89,7 @@ def main():
     fresh = 'PluginResourceUITests.testHTMLWebViewUsesFreshNonpersistentStorage'
     lifetime = 'PluginResourceUITests.testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates'
     handler = 'PluginResourceUITests.testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest'
+    delivery = 'PluginResourceUITests.testHTMLSchemeStopsDeliveryWhenRevokedDuringResponse'
     close_header = 'func close(in webView: WKWebView) {\n        guard !closed else { return }'
     update_header = 'func update(snapshot: PluginResourceHTMLSnapshot, in webView: WKWebView) {\n        guard !closed else { return }'
     view_creation = 'let webView = WKWebView(frame: .zero, configuration: configuration)'
@@ -117,6 +118,11 @@ def main():
          'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
         ('privacy-handler-late', 'guard resolver != nil else { return }', '_ = resolver',
          'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
+        ('privacy-response-revoked', 'guard generation == acceptedGeneration else {',
+         'guard activeTasks.contains(id) else { _ = acceptedGeneration',
+         'revoked response must stop before attachment delivery', delivery, HTML),
+        ('privacy-response-stopped', 'activeTasks.remove(ObjectIdentifier(urlSchemeTask))', '_ = urlSchemeTask',
+         'stopped WebKit task must receive no more callbacks', delivery, HTML),
     ])
     exact = 'PluginResourceUITests.testHTMLResolverKeepsCanonicallyEquivalentFilenamesDistinct'
     scope = 'PluginResourceUITests.testHTMLResolverRejectsEquivalentButDifferentDirectoryBytes'
@@ -198,7 +204,10 @@ def main():
     if args.route != 'direct':
         env['GHOSTERM_TEST_SSH_JUMP'] = '1'
     commands, groups = [], []
-    with tempfile.TemporaryDirectory(prefix='pane-ui-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='pane-ui-', dir=scratch) as temporary:
         work = Path(temporary)
         tool_tmp = work / 'tmp'
         tool_tmp.mkdir()
@@ -244,7 +253,8 @@ def main():
                 assert 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-12000:])
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError']), label
             else:
-                assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, output.decode()[-4000:], log[-12000:])
+                passed = re.findall(r"^Test Case '([^']+)' passed", log, re.M)
+                assert child.returncode == 0 and len(passed) == len(set(passed)) == count, (label, passed, output.decode()[-4000:], log[-12000:])
                 assert 'skipped' not in log.lower(), label
             commands.append(dict(label=label, selected=selected, count=count, status=child.returncode,
                                  gateSHA256=hashlib.sha256(output).hexdigest(),
@@ -256,7 +266,7 @@ def main():
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
-        run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=30)
+        run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=31)
         for recipe in cases if args.mutate else []:
             label, old, new, expected, *selected_case = recipe
             if args.mutation_case and label not in args.mutation_case:
@@ -284,7 +294,7 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
     assert all((ROOT / name).read_bytes() == value for name, value in originals.items()), 'original checkout changed'
-    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML/static raster budgets', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=28,
+    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML/static raster budgets', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=31,
                    inputs=inputs, linkedArchives=linked, gtermSHA256=executable_sha, xctestSHA256=binary_sha,
                    commands=commands, mutations=groups)
     out.parent.mkdir(parents=True, exist_ok=True)
