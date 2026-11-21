@@ -1005,6 +1005,11 @@ ad-hoc 签名通过，DMG 实际挂载复验且无 SKIP；外部、签名 App �
 外部收据和 Build Tools 35.0.0 Manifest 核对，QuickJS 许可检查通过。
 临时资产已核实清理，未用于签名、安装或上传。
 
+在 `28b0304a` 对该真实构件做独立复验：从未签名产物创建一次性副本，
+用本机 Android Debug 签名身份签署。通过 `--android-build-tools` 的签名、16 KiB
+对齐、Manifest 和来源核对，以及 QuickJS 许可检查。测试副本已清理，
+生产签名与线上安装另验。
+
 正式草稿作业也以 Build Tools 35.0.0 复验上传前的 Android 安装包。本地用相同命令
 核对带内嵌来源收据的 APK、SHA256SUMS 和外部构建收据；三者一致时通过。
 只把外部收据和期望版本改为另一版本时，摘要仍吻合，但真实 APK Manifest 检查拒绝。
