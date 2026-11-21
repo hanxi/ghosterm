@@ -36,6 +36,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--android", required=True, help="explicit test device or headless emulator serial")
     parser.add_argument("--gterm", type=Path, required=True, help="JS-enabled gterm executable")
+    parser.add_argument("--apk-directory", type=Path, default=ROOT / "android/app/build/outputs/apk",
+                        help="APK output directory from the explicit Android build")
     parser.add_argument("--preview-format", choices=["markdown", "html", "html-unicode"], default="markdown")
     parser.add_argument("--test", help="single instrumentation class#method; default matches the fixture format")
     args = parser.parse_args()
@@ -63,7 +65,10 @@ def main():
     if not api_level.isdigit() or not abi:
         raise RuntimeError(f"could not identify explicit Android test device {args.android}: API={api_level!r}, ABI={abi!r}")
 
-    work = Path(tempfile.mkdtemp(prefix="plugin-preview-android-", dir=ROOT / "tmp"))
+    tmp = (ROOT / "tmp").resolve()
+    requested = Path(os.environ.get("TMPDIR", tmp)).resolve()
+    scratch = requested if requested.is_dir() and requested.is_relative_to(tmp) else tmp
+    work = Path(tempfile.mkdtemp(prefix="pv-", dir=scratch))
     routes = load("preview_android_routes", ROOT / "scripts/test-plugin-route.py")
     keys_helper = load("preview_android_keys", ROOT / "scripts/test-plugin-ssh.py")
     streams = load("preview_android_streams", ROOT / "scripts/test-plugin-ssh-stream.py")
@@ -109,13 +114,22 @@ def main():
                               shlex.quote(str(remote_exit)) + "\nexit \"$status\"\n")
     remote_wrapper.chmod(0o700)
     fixture_token = secrets.token_hex(24)
-    apk = ROOT / "android/app/build/outputs/apk/debug/app-debug.apk"
-    test_apk = ROOT / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+    apk = args.apk_directory / "debug/app-debug.apk"
+    test_apk = args.apk_directory / "androidTest/debug/app-debug-androidTest.apk"
 
     try:
         subprocess.run([*device, "install", "-r", str(apk)], check=True, capture_output=True, timeout=90)
         subprocess.run([*device, "install", "-r", "-t", str(test_apk)], check=True, capture_output=True, timeout=90)
-        with keys_helper.owned_agent(work, "preview-android-host-agent") as agent:
+        for package_id, archive in (("com.hanxi.ghosterm", apk), ("com.hanxi.ghosterm.test", test_apk)):
+            installed = subprocess.run([*device, "shell", "pm", "path", package_id], check=True,
+                                       capture_output=True, text=True, timeout=15).stdout.strip()
+            if not installed.startswith("package:/data/app/") or "\n" in installed:
+                raise RuntimeError(f"unexpected installed APK for {package_id}")
+            actual = subprocess.run([*device, "shell", "sha256sum", installed.removeprefix("package:")],
+                                    check=True, capture_output=True, text=True, timeout=15).stdout.split()
+            if not actual or actual[0] != hashlib.sha256(archive.read_bytes()).hexdigest():
+                raise RuntimeError(f"installed APK differs from {archive.name}")
+        with keys_helper.owned_agent(work, "agent") as agent:
             host_keys = [keys_helper.add_memory_key(agent, f"preview-android-hop-{i}") for i in range(2)]
             if len({line.split()[1] for line in host_keys}) != 2:
                 raise RuntimeError("two-hop SSH fixture host identities collided")
