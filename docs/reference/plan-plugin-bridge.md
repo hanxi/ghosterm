@@ -15229,6 +15229,12 @@ SDK 构件目录摘要为
 `9c04cb5a5774e403d1f7527255565c9c09032347583aff0a035176c33b9fbb91`。
 临时目录已核实清理。
 
+在 `ba04ad57` 的隔离快照，加入内外层重置测试夹具后复验默认 Core 闸门。
+612 项 CTest、207 个公共 ABI 符号和未实现入口冒烟通过；Apple 204 引用／
+3 登记未用，Android JNI 168 引用／39 登记未用对拍通过。
+闸门摘要 `91bf3ea5d12d0fca7bfe27fe8d7b07690cee9ede53d5cce2314b016a7c19b382`，
+临时目录已核实清理。
+
 在 `2e062878` 对 `hanxi/ghosterm` 执行只读 GitHub Actions 仓库变量核对，
 未找到两端共六个插件渠道变量。现有 Android Release 保持运行时关闭并核对
 QuickJS 许可缺席，macOS 实验运行时仅允许显式输出路径的本地 ad-hoc 构建。
