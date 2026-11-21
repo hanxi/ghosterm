@@ -16519,6 +16519,13 @@ macOS 本地 PTY 的发现对照扩展到七位 DCS、SOS、PM 和 APC 四类串
 `540b8b27d20a23742a204e583613065590414cdc9a70a95fd5c1a1fa7323b974`。
 本轮不计其它设备、变异或真实桌面焦点验收；临时目录已核实清理。
 
+Android 的 `TerminalOSC52Test` 逐类验证同四种七位控制串，每类都独立检查
+普通网格标记及候选为空，最后验证顶层提示。QuickJS 开启的同一对 APK 在
+API 29 / 36 各通过一项，两台无窗口模拟器正常退出，临时目录已核实清理。
+两端 instrumentation 输出摘要相同，为
+`e7b8a9d513265b3250ce1562197ca9fa1fcf4819b58e427242aaa65e5a9ff4dd`。
+本轮未重跑关闭档、变异或物理设备。
+
 ### P1 Android API 36 16 KiB 页终端联合复验（2026-11-21）
 
 官方 Google APIs arm64 16 KiB 系统镜像修订 7，API 36 / extension 17，

@@ -46,12 +46,15 @@ class TerminalOSC52Test {
     @Test fun discoveryIgnoresNestedOscAndPreservesLocalTerminalOutput() = terminal { session, _ ->
         val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
         val offer = "\\033]777;ghosterm-discovery;1;$payload\\007"
-        session.commit("printf '%b' '\\033P$offer\\033\\0134\\033[2J\\033[HPTY_CONTROL_MARKER'\r")
-        ready(session, "PTY_CONTROL_MARKER")
-        val nested = session.discovery()
         val discoveryStatus = if (BuildConfig.PLUGIN_JS_ENABLED) 0 else 7
-        assertEquals(discoveryStatus, nested.status)
-        assertNull("OSC nested in ordinary DCS must not become an offer", nested.offer)
+        for ((control, introducer) in listOf("DCS" to "P", "SOS" to "X", "PM" to "^", "APC" to "_")) {
+            val marker = "PTY_CONTROL_$control"
+            session.commit("printf '%b' '\\033$introducer$offer\\033\\0134\\033[2J\\033[H$marker'\r")
+            ready(session, marker)
+            val nested = session.discovery()
+            assertEquals(discoveryStatus, nested.status)
+            assertNull("OSC nested in ordinary $control must not become an offer", nested.offer)
+        }
         session.commit("printf '%b' '$offer\\033[2J\\033[HPTY_CANDIDATE_MARKER'\r")
         ready(session, "PTY_CANDIDATE_MARKER")
         if (!BuildConfig.PLUGIN_JS_ENABLED) {
