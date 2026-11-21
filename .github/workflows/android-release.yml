@@ -47,9 +47,10 @@ jobs:
           export TMPDIR="$PWD/tmp/android-ci"
           git submodule update --init --depth 1 vendor/ghostty
           if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
-            : "${ORG_GRADLE_PROJECT_ghostermPluginChannel:?Missing ANDROID_PLUGIN_CHANNEL}"
-            : "${ORG_GRADLE_PROJECT_ghostermPluginChannelRoot:?Missing ANDROID_PLUGIN_CHANNEL_ROOT}"
-            : "${ORG_GRADLE_PROJECT_ghostermPluginChannelUrl:?Missing ANDROID_PLUGIN_CHANNEL_URL}"
+            bash scripts/check-plugin-channel-url.sh \
+              "$ORG_GRADLE_PROJECT_ghostermPluginChannel" \
+              "$ORG_GRADLE_PROJECT_ghostermPluginChannelRoot" \
+              "$ORG_GRADLE_PROJECT_ghostermPluginChannelUrl"
             git submodule update --init --depth 1 vendor/quickjs-ng
           fi
           curl --fail --location --retry 3 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o tmp/android-ci/zig.tar.xz

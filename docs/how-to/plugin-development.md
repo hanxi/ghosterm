@@ -995,29 +995,11 @@ python3 -B scripts/gterm-plugin release verify-policy \
 目录。部署后，用同一渠道的本地验证数据库复验服务实际返回的材料：
 
 ```bash
-(
-  set -eu
-  downloaded=$(mktemp -d "$PWD/tmp/plugin-channel-verify.XXXXXXXX")
-  trap 'rm -rf -- "$downloaded"' EXIT
-  for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
-    name=${entry%:*}
-    limit=${entry##*:}
-    status=$(curl --disable --silent --show-error --proto '=https' --globoff \
-      --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
-      --output "$downloaded/$name" --write-out '%{http_code}' \
-      "${plugin_channel_url%/}/$name")
-    test "$status" = 200
-    test "$(wc -c < "$downloaded/$name")" -le "$limit"
-  done
-  python3 -B scripts/gterm-plugin release verify-policy \
-    --channel "$plugin_channel" --channel-root "$plugin_root" \
-    --statement "$downloaded/channel-policy.json" \
-    --signature "$downloaded/channel-policy.sig" --policy "$downloaded/policy.json" \
-    --record-state "$plugin_verification_database"
-)
+bash scripts/check-plugin-channel-url.sh "$plugin_channel" "$plugin_root" \
+  "$plugin_channel_url" "$plugin_verification_database"
 ```
 
-复验通过后，再检查两端手动刷新得到的代次和启用结果。
+两端发行工作流启用插件时也会运行此检查。复验通过后，再检查两端手动刷新得到的代次和启用结果。
 
 GitHub Release 用于分发应用和供用户手动导入的插件包。渠道策略的三个原始
 文件应部署到能直接返回 HTTP 200 的 HTTPS 目录。两端渠道刷新会拒绝重定向，

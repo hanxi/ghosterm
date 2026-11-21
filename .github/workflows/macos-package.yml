@@ -345,6 +345,8 @@ jobs:
           ARGS=(--out dist --build "$GITHUB_RUN_NUMBER" --channel "$INPUT_CHANNEL")
           if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
           if [ "$MACOS_PLUGIN_JS" = true ]; then
+            bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
+              "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
             git submodule update --init --depth 1 vendor/quickjs-ng
             ARGS+=(--plugin-js)
           fi
