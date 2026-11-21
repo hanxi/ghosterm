@@ -990,6 +990,10 @@ ExtensionPlatformServices
 指定错误版本及用现有 dev APK 冒充正式版时均拒绝。这是本地 Manifest 验证，
 线上正式发行和下载仍待验收。
 
+正式草稿作业也以 Build Tools 35.0.0 复验上传前的 Android 安装包。本地用相同命令
+核对带内嵌来源收据的 APK、SHA256SUMS 和外部构建收据；三者一致时通过。
+只把外部收据和期望版本改为另一版本时，摘要仍吻合，但真实 APK Manifest 检查拒绝。
+
 远端复查：macOS Release 工作流 `44806436423` 的打包作业成功，
 草稿发布作业跳过，且该轮没有 Android 正式构建。GitHub Release 仍只有滚动
 `dev`，远端 `v0.1.0` 标签既有且指向旧提交。仓库级变量列表仅见 macOS
