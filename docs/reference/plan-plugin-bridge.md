@@ -997,6 +997,10 @@ ExtensionPlatformServices
 在 `3cd6f4d3` 用 actionlint 1.7.7 检查全部 Actions 工作流，无诊断。
 Go 下载缓存首次清理因目录只读报错，恢复目录写权限后已删除并核对。
 
+在 `5f244a10` 用更新后的审计器从公开 `dev` Release 实际下载两端资产。
+macOS 使用仓库配置的 Sparkle 公钥，ZIP 和 appcast 验签通过；Android 资产审计通过。
+下载目录已核实清理。正式标签资产与生产插件策略仍待发行验证。
+
 远端复查：macOS Release 工作流 `44806436423` 的打包作业成功，
 草稿发布作业跳过，且该轮没有 Android 正式构建。GitHub Release 仍只有滚动
 `dev`，远端 `v0.1.0` 标签既有且指向旧提交。仓库级变量列表仅见 macOS
