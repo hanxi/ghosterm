@@ -388,12 +388,8 @@ struct ExtensionsPane: View {
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
                       onCompletion: selectedPackage)
-        .onChange(of: importing) { isPresented in
-            if !isPresented, restoreImportFocus {
-                restoreImportFocus = false
-                if !reviewingPackage { importButtonFocused = true }
-            }
-        }
+        .onChange(of: importing) { _ in restorePackagePickerFocusIfReady() }
+        .onChange(of: reviewingPackage) { _ in restorePackagePickerFocusIfReady() }
         .confirmationDialog("停止并关闭插件连接？", isPresented: Binding(
             get: { connectionToClose.map { !$0.closed } ?? false },
             set: { if !$0 { connectionToClose = nil } }), titleVisibility: .visible) {
@@ -415,6 +411,12 @@ struct ExtensionsPane: View {
             pendingPackagePicker = nil
             restoreImportFocus = false
         }
+    }
+
+    private func restorePackagePickerFocusIfReady() {
+        guard visible, restoreImportFocus, !importing, !reviewingPackage else { return }
+        restoreImportFocus = false
+        importButtonFocused = true
     }
 
     private func foregroundInspection(_ binding: Binding<Entry>) -> some View {
