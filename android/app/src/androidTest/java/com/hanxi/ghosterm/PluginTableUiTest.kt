@@ -1,6 +1,8 @@
 package com.hanxi.ghosterm
 
 import androidx.activity.ComponentActivity
+import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,8 +15,10 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -70,6 +74,8 @@ class PluginTableUiTest {
         ui.waitUntil(5000) { f.entered.isCompleted }
         val announcement = SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
         ui.onNodeWithTag("plugin-table-loading").assert(announcement)
+        ui.onNodeWithTag("plugin-table-loading").performScrollTo()
+        ui.awaitNativePluginLiveRegion("正在读取表格…")
         ui.onNodeWithTag("plugin-table-range").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-cell-1-n").assertDoesNotExist()
         ui.onNodeWithTag("plugin-table-next").assertIsNotEnabled()
@@ -78,8 +84,9 @@ class PluginTableUiTest {
         ui.waitUntil(5000) { model.state.value.page?.offset == 16 }
         val page = checkNotNull(model.state.value.page)
         val total = checkNotNull(model.state.value.descriptor).total
-        ui.onNodeWithTag("plugin-table-range").assert(announcement)
-            .assertTextEquals("第 17–${page.offset + page.rows.size} 行，共 $total 行")
+        val range = "第 17–${page.offset + page.rows.size} 行，共 $total 行"
+        ui.onNodeWithTag("plugin-table-range").performScrollTo().assert(announcement).assertTextEquals(range)
+        ui.awaitNativePluginLiveRegion(range)
     }
     @Test fun darkLargeTextKeepsHeadersCellsCollectionAndPagingAccessible() = fixture(dark = true, scale = 2f, total = 17) { model, _ ->
         ui.onNodeWithTag("plugin-table-column-n").performScrollTo().assertTextEquals("Number")
@@ -93,5 +100,17 @@ class PluginTableUiTest {
         ui.onNodeWithTag("plugin-table-next").performScrollTo().assertIsDisplayed().performClick()
         ui.waitUntil(5000) { model.state.value.page?.offset == 16 }
         ui.onNodeWithTag("plugin-table-cell-17-n").performScrollTo().assertTextEquals("17")
+    }
+}
+
+internal fun ComposeContentTestRule.awaitNativePluginLiveRegion(message: String) {
+    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+    fun matches(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        if (node.text?.toString() == message && node.liveRegion == View.ACCESSIBILITY_LIVE_REGION_POLITE) return true
+        return (0 until node.childCount).any { matches(node.getChild(it)) }
+    }
+    waitUntil(5_000) {
+        matches(automation.rootInActiveWindow)
     }
 }
