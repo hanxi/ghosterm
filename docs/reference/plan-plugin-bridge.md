@@ -12716,6 +12716,14 @@ P1–P6 保持未完成。
 
 ### P1 多实例通道第九批：Android 混合运行专项与未闭合恢复失败（2026-11-18）
 
+2026-11-21 用 `4e95a4eb` 补 Android API 29 固定八实例的原生验收。
+同一对 QuickJS APK 在无窗口 arm64 模拟器上分别走真实回环直连与 ProxyJump；
+两项均完成逐实例授权、原生界面、独立 RPC 和关闭，远端暂存清空。
+同 APK 的 24 项模型、启动和控制器回归通过，安装摘要与构建产物一致。
+收据 SHA256 `8906fbffe10d45317c06b3d5c19f01ab2973f39956d489e6cd943992bb425d1a`。
+运行器复用项目内无窗口 AVD 管理器，模拟器以 0 退出，独立 adb 与临时目录
+已核实清理。本次使用官方表格包，混合运行和故障矩阵仍按各自专项验收。
+
 新增真实 `ExtensionMixedConnectionTest` 与 `test-plugin-mixed-native.py --android-api 36`
 后端；沿用同一真实签名安装 / 开发目录夹具，不在 Kotlin 重造 wire 或模拟执行端。
 专用 AOSP **API36 / arm64-v8a / 4096 字节页** AVD 始终 `-no-window`，测试前核对实际

@@ -59,7 +59,8 @@ def main():
         listener.bind(('127.0.0.1', 0)); adb_port = listener.getsockname()[1]
     os.environ['ADB_SERVER_SOCKET'] = 'tcp:' + str(adb_port)
     os.environ['ANDROID_ADB_SERVER_PORT'] = str(adb_port)
-    env = dict(os.environ, TMPDIR=str(work), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(work),
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work),
+        JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(work),
         JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'),
         ANDROID_HOME=str(ROOT / 'build/android-toolchain/sdk'),
         GRADLE_USER_HOME=str(ROOT / 'build/android-toolchain/gradle-home'))
@@ -84,7 +85,7 @@ def main():
     if not package.exists():
         run('package', ['python3', ROOT / 'scripts/build-plugin-sample.py', '--source', ROOT / 'plugins/official/table',
             '--tools', ROOT / 'build/plugin-sdk-tools', '--out', package])
-    helper = load('mux_avd', 'scripts/test-plugin-codex-patch-android.py')
+    helper = load('mux_avd', 'scripts/test-plugin-release-android.py')
     keys = load('mux_keys', 'scripts/test-plugin-ssh.py')
     streams = load('mux_streams', 'scripts/test-plugin-ssh-stream.py')
     routes = load('mux_routes', 'scripts/test-plugin-route.py')
@@ -93,12 +94,11 @@ def main():
     daemon = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb']
     run('adb-start', [*daemon, 'start-server'])
     try:
-        execute_device = helper.headless(args.api)
-        with execute_device as serial:
+        device_work = Path(tempfile.mkdtemp(prefix='avd-', dir=work))
+        with helper.headless(int(args.api), device_work, env) as (adb, _):
             # Boot before the copied build uses disk space needed by userdata.
             run('build', [source / 'android/gradlew', '-p', source / 'android', '--offline', '-PghostermPluginJs=true',
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
-            adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
             for i, relative in enumerate(['android/app/build/outputs/apk/debug/app-debug.apk', 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk']):
                 apk = source / relative; artifacts[relative] = sha(apk)
                 run('install-' + str(i), [*adb, 'install', '-r', '-t', apk])
