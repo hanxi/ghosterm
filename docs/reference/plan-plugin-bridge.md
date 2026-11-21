@@ -3999,6 +3999,12 @@ Android TalkBack 专项已收进 `python3 -B scripts/test-plugin-talkback-androi
 安装输入摘要，只在本轮模拟器内设置 TalkBack 并核对其绑定及 TTS 接收。
 常驻脚本实跑 2 项通过，模拟器以 0 退出，临时目录已核实删除。
 
+表单 TalkBack 用例改走真实无障碍控件动作：核对必填空白时提交不可用，
+通过 Android 无障碍写入文本并点击提交，再核对原控件交付类型化值与
+TalkBack 将提交中状态交给 TTS。专用 API 36 无窗口的表单与表格 2 项同轮
+通过；QuickJS 开启的 Debug、测试 APK、未签名 Release 和 app lintRelease
+通过。模拟器正常退出，临时目录已清理。物理设备和 VoiceOver 另验。
+
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
 快照截止。每项同时检查非法页大小、取消及 Runtime 回收。最初同步生成

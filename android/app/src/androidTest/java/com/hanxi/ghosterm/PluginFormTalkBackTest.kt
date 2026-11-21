@@ -2,12 +2,18 @@ package com.hanxi.ghosterm
 
 import android.app.UiAutomation
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -16,18 +22,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
+@OptIn(ExperimentalComposeUiApi::class)
 class PluginFormTalkBackTest {
     private fun automation(): UiAutomation {
         assumeTrue(InstrumentationRegistry.getArguments().getString("pluginTalkBack") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         automation.serviceInfo = automation.serviceInfo.apply {
-            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         return automation
     }
@@ -44,14 +54,29 @@ class PluginFormTalkBackTest {
             scenario.onActivity { activity ->
                 activity.setContent {
                     MaterialTheme {
-                        PluginFormContent(form, "org.ghosterm.talkback", answering.value) { }
+                        Column(Modifier.semantics { testTagsAsResourceId = true }) {
+                            PluginFormContent(form, "org.ghosterm.talkback", answering.value) { answer ->
+                                assertEquals(PluginForm.Answer.Submitted(mapOf("name" to PluginViewValue.Value.Text("example"))), answer)
+                                answering.value = true
+                            }
+                        }
                     }
                 }
             }
             val request = awaitText(automation, "插件 org.ghosterm.talkback 请求输入")
             assertTrue(request.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
             awaitSpeech(automation, "插件 org.ghosterm.talkback 请求输入")
-            scenario.onActivity { answering.value = true }
+            assertFalse(awaitNode(automation, "plugin-form-submit") { it.viewIdResourceName == "plugin-form-submit" }.isEnabled)
+            val input = awaitNode(automation, "plugin-form-field-name") {
+                it.isEditable && it.viewIdResourceName == "plugin-form-field-name"
+            }
+            assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "example")
+            }))
+            val submit = awaitNode(automation, "enabled plugin-form-submit") {
+                it.isEnabled && it.isClickable && it.viewIdResourceName == "plugin-form-submit"
+            }
+            assertTrue(submit.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             awaitText(automation, "正在发送表单答复…")
             awaitSpeech(automation, "正在发送表单答复")
         }
@@ -88,10 +113,14 @@ class PluginFormTalkBackTest {
         }
     }
 
-    private fun awaitText(automation: UiAutomation, text: String): AccessibilityNodeInfo {
+    private fun awaitText(automation: UiAutomation, text: String): AccessibilityNodeInfo =
+        awaitNode(automation, text) { it.text?.toString() == text }
+
+    private fun awaitNode(automation: UiAutomation, description: String,
+                          matches: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             if (node == null) return null
-            if (node.text?.toString() == text) return node
+            if (matches(node)) return node
             repeat(node.childCount) { index ->
                 find(node.getChild(index))?.let { return it }
             }
@@ -103,7 +132,7 @@ class PluginFormTalkBackTest {
             Thread.sleep(100)
         }
         val windows = automation.windows.map { window -> "${window.title} (${window.root?.packageName})" }
-        error("Missing accessibility node for $text in $windows")
+        error("Missing accessibility node for $description in $windows")
     }
 
     private fun awaitSpeech(automation: UiAutomation, text: String) {

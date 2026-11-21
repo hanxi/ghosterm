@@ -86,7 +86,10 @@ def main():
     runner = runpy.run_path(str(ROOT / 'scripts/test-plugin-release-android.py'))
     tmp = ROOT / 'tmp'
     tmp.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='agent-', dir=tmp) as directory:
+    parent = Path(os.environ.get('TMPDIR', tmp)).resolve()
+    owned_parent = parent.parent == tmp and parent.name.startswith('agent-') and parent.is_dir()
+    with tempfile.TemporaryDirectory(prefix='talkback-' if owned_parent else 'agent-',
+                                     dir=parent if owned_parent else tmp) as directory:
         env = dict(os.environ, TMPDIR=directory, TMP=directory, TEMP=directory,
                    GHOSTERM_AUTOMATION_OFFSCREEN='1')
         with runner['headless'](36, Path(directory), env) as (selected, device):
