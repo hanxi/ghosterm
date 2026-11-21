@@ -35,7 +35,7 @@ CONTROL = 'com.hanxi.ghosterm.ConfigIdentityTest#identitySourcesUseCoreOrderingA
 RUNNER = 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'
 TESTS = 'com.hanxi.ghosterm.PluginViewsTest,com.hanxi.ghosterm.PluginViewsUiTest'
 ACTUAL = 'com.hanxi.ghosterm.PluginViewsSSHAppTest#registeredViewsThroughViewModelAndNativeControls'
-BASELINE_COUNT = 30
+BASELINE_COUNT = 31
 FOREGROUND_MUTATION = 'foreground-loss'
 
 

@@ -79,6 +79,19 @@ class PluginViewsUiTest {
         ui.mainClock.advanceTimeBy(2000); ui.waitForIdle()
         assertTrue(f.task.calls.size == calls && f.task.calls.none { it.first == "view.task.cancel" })
     }
+    @Test fun remoteRemovalMovesKeyboardFocusToRemainingCloseButton() = fixture { m, f ->
+        val close = ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务").performScrollTo()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_TAB)
+        close.performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+        ui.runOnIdle {
+            f.entries.removeAt(0)
+            f.revision++
+            m.apply(f.data())
+        }
+        close.assertDoesNotExist()
+        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assertIsFocused()
+        assertFalse(f.closeEntered.isCompleted)
+    }
     @Test fun unconfirmedCloseRetainsWidgetAndRestartsPolling() = fixture { m, f ->
         val item = m.state.value.items.last(); val task = (item.content as PluginViewItem.Content.Task).model
         ui.onNodeWithText("task-a").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
