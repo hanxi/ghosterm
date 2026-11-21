@@ -436,7 +436,8 @@ def main():
                 child_env['OBJC_PRINT_EXCEPTIONS'] = 'YES'
                 child_env['GHOSTERM_TEST_PLUGIN_UI_TRACE'] = '1'
                 payload = ['bash', 'scripts/apple-app-gate.sh']
-            else: payload = ['swift', 'test', '--package-path', str(package), '--filter', selected]
+            else: payload = ['swift', 'test', '--package-path', str(package), '--cache-path', str(work / 'swift-cache'),
+                '--disable-keychain', '--disable-netrc', '--filter', selected]
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require native-signature; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
                        'native-signature', str(ROOT), *payload]
             child = subprocess.Popen(command, cwd=ROOT, env=child_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
