@@ -29,6 +29,10 @@ API 29 无窗口模拟器用同一测试证书验证了 dev → 正式版本覆�
 UID 和首次安装时间保持不变，反向安装返回 `INSTALL_FAILED_VERSION_DOWNGRADE`。
 这是本地版本迁移证据，GitHub 发行签名及实际下载另验。
 
+可使用 `python3 -B scripts/audit-public-release.py --platform android --android-build-tools /path/to/build-tools/35.0.0`
+检查公开 dev APK 的签名、16 KiB 对齐和实际 Manifest。已独立记录可信签名证书
+指纹时，可再传 `--android-certificate-sha256` 核对签名身份。
+
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
 和 `build-info.json`。诊断 artifact 单独保存 R8 映射与 native 符号，均保留 14 天。

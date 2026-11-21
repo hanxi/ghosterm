@@ -171,9 +171,9 @@ def main():
                         help='verify local macOS assets and optionally the complete formal Android set before upload')
     parser.add_argument('--commit', help='expected full commit for a local artifact')
     tools = parser.add_mutually_exclusive_group()
-    tools.add_argument('--aapt', help='also verify the published formal APK manifest using Android SDK aapt')
+    tools.add_argument('--aapt', help='also verify the published APK manifest using Android SDK aapt')
     tools.add_argument('--android-build-tools', type=Path,
-                       help='verify the formal APK signature, alignment and manifest using this Build Tools directory')
+                       help='verify the APK signature, alignment and manifest using this Build Tools directory')
     parser.add_argument('--android-certificate-sha256', help='expected APK signer certificate SHA-256 in lowercase hex')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
@@ -181,8 +181,8 @@ def main():
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
     if args.update_public_key is not None and args.platform != 'macos':
         parser.error('--update-public-key requires macOS')
-    if (args.aapt or args.android_build_tools) and not formal:
-        parser.error('Android Build Tools verification requires a formal release audit')
+    if (args.aapt or args.android_build_tools) and not (formal or args.platform == 'android'):
+        parser.error('Android Build Tools verification requires Android dev or a formal release audit')
     if args.android_certificate_sha256 is not None and (
             not args.android_build_tools or not re.fullmatch(r'[0-9a-f]{64}', args.android_certificate_sha256)):
         parser.error('--android-certificate-sha256 requires --android-build-tools and 64 lowercase hex digits')
@@ -252,6 +252,10 @@ def main():
             if args.platform == 'macos':
                 manifest = json.loads((folder / 'version.json').read_text())
                 verify_macos_update(folder, inventory, manifest, 'dev', base, args.update_public_key)
+            elif args.aapt or args.android_build_tools:
+                receipt = json.loads((folder / 'android-build-info.json').read_text())
+                ANDROID.verify(folder, receipt['git_commit'], aapt=args.aapt,
+                               build_tools=args.android_build_tools, certificate_sha256=args.android_certificate_sha256)
     print(f'PUBLIC RELEASE PASS: {args.repository}@{args.tag} ({args.platform})')
 
 

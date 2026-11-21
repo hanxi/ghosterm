@@ -21,15 +21,18 @@ spec.loader.exec_module(source)
 
 
 def verify_apk_version(apk, version, aapt):
-    major, minor, patch = map(int, version.split('.'))
-    expected_code = major * 1000000 + minor * 1000 + patch + 2
+    if version is None:
+        version, expected_code = '0.1.0-dev', 1
+    else:
+        major, minor, patch = map(int, version.split('.'))
+        expected_code = major * 1000000 + minor * 1000 + patch + 2
     result = subprocess.run([aapt, 'dump', 'badging', apk], capture_output=True,
                             text=True, check=True, timeout=30)
     packages = [line for line in result.stdout.splitlines() if line.startswith('package:')]
     if len(packages) != 1 or not re.match(
             r"^package: name='com\.hanxi\.ghosterm' versionCode='"
             + str(expected_code) + r"' versionName='" + re.escape(version) + r"'(?: |$)", packages[0]):
-        raise ValueError('APK package identity or formal version mismatch')
+        raise ValueError('APK package identity or release version mismatch')
 
 
 def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, certificate_sha256=None):
@@ -73,13 +76,11 @@ def main():
     parser.add_argument('--expect-commit', required=True)
     parser.add_argument('--formal-version', help='verify a formal APK and receipt against this release version')
     tools = parser.add_mutually_exclusive_group()
-    tools.add_argument('--aapt', help='also verify the formal version in the APK manifest')
+    tools.add_argument('--aapt', help='also verify the version in the APK manifest')
     tools.add_argument('--android-build-tools', type=Path,
-                       help='verify APK signature, alignment and formal version using this Build Tools directory')
+                       help='verify APK signature, alignment and version using this Build Tools directory')
     parser.add_argument('--android-certificate-sha256', help='expected APK signer certificate SHA-256 in lowercase hex')
     args = parser.parse_args()
-    if (args.aapt or args.android_build_tools) and not args.formal_version:
-        parser.error('Android Build Tools verification requires --formal-version')
     if args.android_certificate_sha256 is not None and (
             not args.android_build_tools or not re.fullmatch(r'[0-9a-f]{64}', args.android_certificate_sha256)):
         parser.error('--android-certificate-sha256 requires --android-build-tools and 64 lowercase hex digits')
