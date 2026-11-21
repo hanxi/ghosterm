@@ -415,7 +415,10 @@ def main():
             parser.error(f'expected the built {name} package at {package}')
         binary_inputs.update({str(p):sha(p.read_bytes()) for p in package.rglob('*') if p.is_file()})
     binary_inputs[str(ROOT/'core/build/test_config')]=sha((ROOT/'core/build/test_config').read_bytes())
-    with tempfile.TemporaryDirectory(prefix='pr-',dir=ROOT/'tmp') as temporary:
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='pr-', dir=work_tmp) as temporary:
         work=Path(temporary)
         source=work/'source'
         for directory in ['scripts','packages']:
