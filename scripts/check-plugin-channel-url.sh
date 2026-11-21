@@ -9,9 +9,9 @@ if [ "$#" -lt 3 ] || [ "$#" -gt 5 ] ||
   echo "Usage: $0 CHANNEL ROOT_KEY HTTPS_DIRECTORY [STATE_FILE | --compare-directory DIRECTORY]" >&2
   exit 2
 fi
-CHANNEL="${1:?expected channel name}"
-ROOT_KEY="${2:?expected channel public key}"
-DIRECTORY="${3:?expected HTTPS channel directory}"
+CHANNEL="$1"
+ROOT_KEY="$2"
+DIRECTORY="$3"
 STATE_ARGS=()
 if [ "$#" -eq 4 ]; then STATE_ARGS=(--record-state "$4"); fi
 COMPARE_DIRECTORY=""

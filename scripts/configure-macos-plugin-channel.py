@@ -34,13 +34,16 @@ if __name__ == '__main__':
     mode.add_argument('plist', nargs='?', type=Path)
     mode.add_argument('--check-required', action='store_true')
     args = parser.parse_args()
+    names = ('GHOSTERM_PLUGIN_CHANNEL', 'GHOSTERM_PLUGIN_CHANNEL_ROOT', 'GHOSTERM_PLUGIN_CHANNEL_URL')
+    values = tuple(os.environ.get(name, '') for name in names)
+    if args.check_required:
+        missing = [name for name, value in zip(names, values) if not value]
+        if missing:
+            parser.error('missing plugin channel configuration: ' + ', '.join(missing))
     try:
-        config = channel_config(*(os.environ.get(name, '') for name in
-                                  ('GHOSTERM_PLUGIN_CHANNEL', 'GHOSTERM_PLUGIN_CHANNEL_ROOT', 'GHOSTERM_PLUGIN_CHANNEL_URL')))
+        config = channel_config(*values)
     except ValueError as error:
         parser.error(str(error))
-    if args.check_required and config is None:
-        parser.error('plugin runtime packaging requires channel configuration')
     if args.plist is not None and config is not None:
         plist = plistlib.loads(args.plist.read_bytes())
         plist['GhostermPluginChannel'] = config
