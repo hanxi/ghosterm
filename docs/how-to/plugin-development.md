@@ -1019,20 +1019,26 @@ python3 -B scripts/gterm-plugin release verify-policy \
 
 复验通过后，再检查两端手动刷新得到的代次和启用结果。
 
+GitHub Release 用于分发应用和供用户手动导入的插件包。渠道策略的三个原始
+文件应部署到能直接返回 HTTP 200 的 HTTPS 目录。两端渠道刷新会拒绝重定向，
+因此不能将 `github.com/.../releases/download/<tag>/` 用作策略目录。
+
 ### 宿主配置和撤销
 
 - macOS 随包配置使用 `GHOSTERM_PLUGIN_CHANNEL`、`GHOSTERM_PLUGIN_CHANNEL_ROOT`
   与 `GHOSTERM_PLUGIN_CHANNEL_URL`。复用工作流读取同名后缀的 `MACOS_PLUGIN_*`
-  变量。要在本地启用 JS 实验包，使用 `package-mac.sh --experimental-plugin-js`
-  并提供独立的 `--out` 路径。
+  变量。非 PR 工作流构建用 `MACOS_PLUGIN_JS=true` 启用，或在本地用
+  `package-mac.sh --plugin-js` 构建发行形态。单独的本地实验包仍用
+  `--experimental-plugin-js` 和独立的 `--out` 路径。
 - Android 在启用插件 JS 的构建中提供 Gradle 属性 `ghostermPluginChannel`、
   `ghostermPluginChannelRoot`、`ghostermPluginChannelUrl`。Android 发布工作流分别
   从仓库变量 `ANDROID_PLUGIN_CHANNEL`、`ANDROID_PLUGIN_CHANNEL_ROOT`、
-  `ANDROID_PLUGIN_CHANNEL_URL` 传入这些属性。两端默认发行档仍关闭实验插件 JS。
-- 渠道变量只提供信任与下载位置。部署后验收须使用显式开启插件运行时的两端构件，
-  分别检查构件携带的渠道名、根和 URL，再从实际设置页刷新、验签并安装。
-  普通 GitHub Release 工作流仍产出关闭插件运行时的构件。正式插件构件需另有
-  明确的构建与发行入口，使用已审阅的生产渠道配置。
+  `ANDROID_PLUGIN_CHANNEL_URL` 传入这些属性。非 PR 工作流构建用
+  `ANDROID_PLUGIN_JS=true` 启用。两端默认发行档均关闭插件 JS。
+- 部署后先用上面的命令从最终地址下载并复验策略，再启用两端发行开关。用实际
+  GitHub Release 构件检查随包渠道名、根和 URL，并在各端设置中刷新、验签和
+  安装。保留首个已验证的代次，再发布更高代次的撤销策略，检查刷新后的安装及
+  新启动是否明确拒绝被撤销的发行者。
 - 撤销时在 `revokedKeyIds` 列出被撤销的发布键摘要，以新代次签署并发布。
   若需恢复策略内容，用更高代次重新签署已经审阅的内容。旧代和同代不同声明
   会被已记录该渠道的客户端拒绝。
