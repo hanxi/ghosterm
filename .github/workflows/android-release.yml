@@ -19,6 +19,11 @@ jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      ORG_GRADLE_PROJECT_ghostermPluginJs: ${{ github.event_name != 'pull_request' && vars.ANDROID_PLUGIN_JS == 'true' && 'true' || 'false' }}
+      ORG_GRADLE_PROJECT_ghostermPluginChannel: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
+      ORG_GRADLE_PROJECT_ghostermPluginChannelRoot: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
+      ORG_GRADLE_PROJECT_ghostermPluginChannelUrl: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
     steps:
       - name: Align Gradle home with setup-java dependency caches
         run: printf 'GRADLE_USER_HOME=%s/.gradle\n' "$HOME" >> "$GITHUB_ENV"
@@ -36,6 +41,12 @@ jobs:
           mkdir -p tmp/android-ci
           export TMPDIR="$PWD/tmp/android-ci"
           git submodule update --init --depth 1 vendor/ghostty
+          if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
+            : "${ORG_GRADLE_PROJECT_ghostermPluginChannel:?Missing ANDROID_PLUGIN_CHANNEL}"
+            : "${ORG_GRADLE_PROJECT_ghostermPluginChannelRoot:?Missing ANDROID_PLUGIN_CHANNEL_ROOT}"
+            : "${ORG_GRADLE_PROJECT_ghostermPluginChannelUrl:?Missing ANDROID_PLUGIN_CHANNEL_URL}"
+            git submodule update --init --depth 1 vendor/quickjs-ng
+          fi
           curl --fail --location --retry 3 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o tmp/android-ci/zig.tar.xz
           echo '70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  tmp/android-ci/zig.tar.xz' | sha256sum -c -
           tar -xJf tmp/android-ci/zig.tar.xz -C tmp/android-ci
@@ -65,9 +76,6 @@ jobs:
           PY
       - name: Build optimized release
         env:
-          ORG_GRADLE_PROJECT_ghostermPluginChannel: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
-          ORG_GRADLE_PROJECT_ghostermPluginChannelRoot: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
-          ORG_GRADLE_PROJECT_ghostermPluginChannelUrl: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
@@ -78,7 +86,11 @@ jobs:
           apks=(android/app/build/outputs/apk/release/*.apk)
           test "${#apks[@]}" -eq 1
           python3 scripts/check-android-package-paths.py "${apks[0]}"
-          python3 scripts/check-android-plugin-license.py "${apks[0]}" --plugin-js disabled
+          profile=disabled
+          if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
+            profile=enabled
+          fi
+          python3 scripts/check-android-plugin-license.py "${apks[0]}" --plugin-js "$profile"
       - name: Verify signed installable APK
         if: github.event_name != 'pull_request'
         run: |
