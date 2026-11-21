@@ -98,9 +98,10 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
+        let memoryKey = env["GHOSTERM_TEST_SSH_STDIN"] == "1"
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
-              let key = env["GHOSTERM_SSH_KEY"], let user = env["GHOSTERM_SSH_USER"] else {
+              memoryKey || env["GHOSTERM_SSH_KEY"] != nil, let user = env["GHOSTERM_SSH_USER"] else {
             throw XCTSkip("requires JS-enabled Core and the explicitly owned gate SSH fixture")
         }
         if jump && (env["GHOSTERM_SSH_JUMP_HOST"] == nil || env["GHOSTERM_SSH_JUMP_PORT"] == nil) {
@@ -163,6 +164,20 @@ final class PluginPaneFlowTests: XCTestCase {
         let argumentsJSON = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
         let count = (format == .html || unicodeHTML || animatedHTML) ? 3 : format == .markdown ? 2 : 1
         let config = root.appendingPathComponent("config"), known = root.appendingPathComponent("known")
+        let key = memoryKey ? root.appendingPathComponent("fixture-client").path : env["GHOSTERM_SSH_KEY"]!
+        if memoryKey {
+            let pem = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+            guard !pem.isEmpty else { return XCTFail("Missing owned SSH fixture identity") }
+            addTeardownBlock {
+                KeychainStore.removePrivateKeyPEM(forPath: key)
+                do {
+                    _ = try KeychainStore.privateKeyPEM(forPath: key)
+                    XCTFail("Owned SSH fixture identity was not retired")
+                } catch KeychainStoreError.notFound { }
+                catch { XCTFail("Could not verify retirement of the owned SSH fixture identity") }
+            }
+            try KeychainStore.setPrivateKeyPEM(pem, forPath: key)
+        }
         var source = "Host pane-target\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
         if jump {
             source += " ProxyJump pane-jump\nHost pane-jump\n HostName \(env["GHOSTERM_SSH_JUMP_HOST"]!)\n Port \(env["GHOSTERM_SSH_JUMP_PORT"]!)\n User \(user)\n IdentityFile \(key)\n"
