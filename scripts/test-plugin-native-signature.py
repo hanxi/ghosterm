@@ -427,8 +427,8 @@ def main():
                     try: child.communicate(timeout=8)
                     except subprocess.TimeoutExpired: os.killpg(child.pid, signal.SIGKILL); child.communicate()
             log = output.decode(errors='replace')
-            if lifetime and gate_log.is_file():
-                log += gate_log.read_text()
+            serial_log = gate_log.read_text() if lifetime and gate_log.is_file() else ''
+            log += serial_log
             full_output = log.encode()
             (work / (label + '.log')).write_bytes(full_output)
             if child.returncode != 0 and not red:
@@ -451,7 +451,17 @@ def main():
                 if expected:
                     assert expected in log and 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-9000:])
             else:
-                assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, log[-9000:])
+                if lifetime:
+                    # The Apple gate runs each requested test in its own XCTest process.
+                    # Count those named tests, excluding any nested fixture XCTest runs.
+                    sections = re.split(r'^== Swift suite: ([\w.]+)/(\w+) ==\s*$', serial_log, flags=re.M)
+                    tests = list(zip(sections[1::3], sections[2::3], sections[3::3]))
+                    passed = (len(tests) == count and len({(suite, method) for suite, method, _ in tests}) == count
+                              and all(f"Test Case '-[{suite} {method}]' passed " in section
+                                      for suite, method, section in tests))
+                else:
+                    passed = f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log
+                assert child.returncode == 0 and passed, (label, log[-9000:])
                 assert 'skipped' not in log.lower(), label
             commands.append(dict(label=label, selected=selected, status=child.returncode, logSHA256=hashlib.sha256(full_output).hexdigest()))
             print('PASS ' + label, flush=True)
@@ -460,10 +470,10 @@ def main():
         baseline_count = 35 if args.install else 15
         if args.versions:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests)'
-            baseline_count = 48
+            baseline_count += 14
         if args.remove:
             baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests|PluginReleaseCatalogTests|PluginInstalledVersionsUITests|PluginReleaseRemovalTests)'
-            baseline_count = 70
+            baseline_count += 23
         if args.policy_review:
             baseline = baseline[:-1] + '|PluginPolicyReviewTests|PluginPolicyReviewUITests|PluginPolicyReviewSignedTests)'
             baseline_count += 26
