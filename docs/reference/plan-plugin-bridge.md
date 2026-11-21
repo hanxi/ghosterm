@@ -3945,6 +3945,10 @@ VoiceOver / TalkBack 播报仍待完成。
 两端原生表单的必填空白判据已与 Portable SDK 对齐，U+FEFF 视为空白、
 U+0085 保留。macOS 离屏应用专项与 API 29 无窗口 AVD 的组件首尾各 2 项、
 直连 / ProxyJump 实例流程通过，AVD 正常退出。
+在一次性 API 36 无窗口 AVD 上确认镜像自带 TalkBack 16.0.0.738667889。
+解除测试设备锁屏后按包管理器注册的组件启用，系统报告 TalkBack 已绑定并声明
+`FEEDBACK_SPOKEN`。首轮仅查到启用项，未取得绑定证据。两轮 AVD 正常退出，
+临时目录已清理。实际插件表单和搜索的焦点与播报仍须在该服务下验证。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
