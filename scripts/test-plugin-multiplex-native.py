@@ -49,7 +49,8 @@ def main():
         for folder in ["build", "patches"]:
             (project / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (project / "tmp").mkdir()
-    env = {**os.environ, "TMPDIR": str(work), "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
+    env = {**os.environ, "TMPDIR": str(work), "TMP": str(work), "TEMP": str(work),
+        "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
         "GHOSTERM_CORE_TEST_PLUGIN_JS": "1", "GHOSTERM_AUTOMATION_OFFSCREEN": "1"}
 
     def run(label, arguments, extra=None, count=None):
@@ -63,7 +64,8 @@ def main():
         print("PASS " + label, flush=True)
 
     app = project / "apple/GhostermApp"
-    run("compile", ["swift", "build", "--build-tests", "--package-path", app])
+    swift_options = ["--package-path", app, "--cache-path", work / "swift-cache", "--disable-keychain", "--disable-netrc"]
+    run("compile", ["swift", "build", "--build-tests", *swift_options])
     package = work / "table-package"
     if not package.exists():
         run("package", ["python3", ROOT / "scripts/build-plugin-sample.py", "--source", ROOT / "plugins/official/table",
@@ -94,7 +96,7 @@ def main():
                 with socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler) as server:
                     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
                     try:
-                        run(route, ["swift", "test", "--skip-build", "--package-path", app, "--filter",
+                        run(route, ["swift", "test", "--skip-build", *swift_options, "--filter",
                             "ExtensionConnectionTests.testRealEightTableInstancesShareOneConnectionAndCloseIndependently"],
                             {"GHOSTERM_APP_MUX_PORT": str(server.server_address[1]), "GHOSTERM_APP_MUX_TOKEN": token}, 1)
                     finally: server.shutdown(); thread.join()
