@@ -52,7 +52,9 @@ struct PluginFormView: View {
     @ViewBuilder private var actions: some View {
         Button("提交") { answer(submission) }
             .disabled((try? request.outcome(submission)) == nil)
+            .accessibilityIdentifier("plugin-form-submit")
         Button("取消表单") { answer(.dismissed) }
+            .accessibilityIdentifier("plugin-form-dismiss")
     }
 
     private func text(_ id: String) -> Binding<String> {

@@ -19,6 +19,9 @@ import XCTest
         let binaryDigest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: binary)))
             .map { String(format: "%02x", $0) }.joined()
         TestWindows.enterAutomationMode()
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
 
         func start(_ name: String) async throws -> ExtensionInstanceModel {
             let work = root.appendingPathComponent(name)
@@ -83,6 +86,20 @@ import XCTest
         await second.answerPluginForm(id: b.id, answer: answer)
         let cancelled = try await status(second)
         XCTAssertEqual(cancelled, "cancelled")
+
+        let third = try await start("third")
+        pane.rootView = ExtensionRunView(model: third).background(Color(nsColor: .windowBackgroundColor))
+        func dismissButton() -> NSObject? {
+            pane.layoutSubtreeIfNeeded()
+            return PluginTableRendering.elements(pane).first {
+                PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-form-dismiss"
+            }
+        }
+        try await until { dismissButton() != nil }
+        XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(dismissButton())))
+        try await until { third.pendingPluginForm == nil }
+        let dismissed = try await status(third)
+        XCTAssertEqual(dismissed, "dismissed")
     }
 
     private func until(_ predicate: () -> Bool) async throws {
