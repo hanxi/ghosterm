@@ -16013,6 +16013,12 @@ macOS arm64 / 26.6.2 对公开 dev 执行一键安装，真实下载清单、校
 启动任何应用。此证据覆盖 dev 一键安装器，应用内 Sparkle 正式更新另验。
 测试安装目录、下载和暂存已清理。
 
+公开 Android dev 的签名 Release APK（clean `de7702fe`）在专用 API 29 /
+36 arm64 / 4 KiB 页无窗口模拟器分别通过首次安装与冷启动。发布清单 SHA256、
+APK v2 签名和两台设备的已安装 APK SHA256 核对通过，系统报告 MainActivity
+已进入 resumed。此轮覆盖公开 dev 安装及启动，未执行升级、业务矩阵或真机
+验收。两台模拟器均以 0 退出，临时下载与模拟器目录已清理。
+
 ### P1 macOS 普通 SSH 连接重置与候选清理（2026-11-21）
 
 在独立构建的 JS-on Core 和 macOS 离屏 XCTest 上运行
