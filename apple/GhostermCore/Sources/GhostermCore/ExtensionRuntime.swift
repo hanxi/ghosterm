@@ -285,6 +285,10 @@ public final class ExtensionRuntime {
         }
         return try session.respondRuntimeRequest(ticket: ticket, outcome: outcome)
     }
+    public func checkHostRequest(ticket: UInt64) throws -> ExtensionSession.RPCStatus {
+        guard try info().phase == .active, let session else { return .closed }
+        return try session.checkRuntimeRequest(ticket: ticket)
+    }
     /// Sends one Host -> Executor RPC using the Session now owned by this Runtime.
     /// The caller must retain the handle and poll its result; unknown outcomes
     /// are never retried automatically.

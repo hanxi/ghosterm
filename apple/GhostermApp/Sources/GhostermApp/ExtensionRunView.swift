@@ -75,6 +75,12 @@ struct ExtensionRunView: View {
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
                 codexControls(run: run)
+                if let pending = model.pendingPluginForm, model.canInteractWithRuntime {
+                    PluginFormView(request: pending.request, pluginName: run.packageID, answering: model.answeringPluginForm) { answer in
+                        Task { await model.answerPluginForm(id: pending.id, answer: answer) }
+                    }
+                    .id(pending.id)
+                }
                 if let views = model.extensionRegisteredViews {
                     PluginViewsView(model: views)
                 }

@@ -281,6 +281,11 @@ public final class ExtensionSession {
             RPCStatus(rawValue: gt_ext_session_respond(session, &rawLease, ticket, $0.baseAddress, $0.count).rawValue) ?? .invalid
         }
     }
+    internal func checkRuntimeRequest(ticket: UInt64) throws -> RPCStatus {
+        let (session, lease) = try runtimePointer()
+        var rawLease = lease.raw
+        return RPCStatus(rawValue: gt_ext_session_check_request(session, &rawLease, ticket).rawValue) ?? .invalid
+    }
     private func runtimePointer() throws -> (OpaquePointer, Lease) {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
         guard let runtimeBorrowedRaw, let runtimeBorrowedLease else {

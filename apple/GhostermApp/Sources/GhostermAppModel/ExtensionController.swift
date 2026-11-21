@@ -737,6 +737,10 @@ public actor ExtensionController {
         try await worker.respondHostRPC(ticket: ticket, outcome: outcome)
     }
 
+    func scopedHostRPC(instanceID: String, ticket: UInt64, outcome: Data? = nil) async throws -> ExtensionSession.RPCStatus {
+        try await worker.scopedHostRPC(instanceID: instanceID, ticket: ticket, outcome: outcome)
+    }
+
     public func stopRuntime() async throws { try await worker.stopRuntime() }
 
     public func stopSession() async throws { try await worker.stopSession() }
@@ -2239,6 +2243,16 @@ public actor ExtensionController {
                     throw ControllerError.sessionUnavailable
                 }
                 return UInt32(try runtime.respondHostRequest(ticket: ticket, outcome: outcome).rawValue)
+            }
+        }
+
+        func scopedHostRPC(instanceID: String, ticket: UInt64, outcome: Data?) async throws -> ExtensionSession.RPCStatus {
+            try await perform {
+                try self.checkOpen()
+                guard self.runtimeInstanceID == instanceID, let runtime = self.runtime else { return .closed }
+                let status = try runtime.checkHostRequest(ticket: ticket)
+                guard status == .ok, let outcome else { return status }
+                return try runtime.respondHostRequest(ticket: ticket, outcome: outcome)
             }
         }
 

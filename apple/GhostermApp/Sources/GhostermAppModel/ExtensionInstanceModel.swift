@@ -79,6 +79,14 @@ import GhostermCore
     @Published public private(set) var extensionDiff: PluginDiffModel?
     @Published public private(set) var extensionTask: PluginTaskModel?
     @Published public private(set) var extensionRegisteredViews: PluginViewsModel?
+    public struct PendingPluginForm: Identifiable, Sendable {
+        public let id: UUID
+        public let request: PluginFormRequest
+        fileprivate let ticket: UInt64
+        fileprivate let instanceID: String
+    }
+    @Published public private(set) var pendingPluginForm: PendingPluginForm?
+    @Published public private(set) var answeringPluginForm = false
     private var extensionViews: [String] = []
     @Published public private(set) var claudeConversation: ClaudeConversation?
     @Published public private(set) var closeRequested = false
@@ -361,6 +369,7 @@ import GhostermCore
 
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        clearPluginForm()
         extensionRegisteredViews?.invalidate()
         extensionTable?.invalidate()
         extensionDiff?.invalidate()
@@ -762,7 +771,7 @@ import GhostermCore
                 try await reapPendingExtensionRPCs()
                 try checkExtensionRunGeneration(generation)
                 if state.phase == GhostermCore.ExtensionRuntime.Phase.active.rawValue {
-                    try await pumpCodexHostEvent()
+                    try await pumpHostEvent()
                 }
                 if extensionRun?.requiredCapabilities.contains("resource.receive") == true,
                    let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
@@ -780,6 +789,7 @@ import GhostermCore
     /// The last Native snapshot is retained as an observation, not authority
     /// for another request. Only an explicit stop may resume cleanup stepping.
     func runtimeObservationFailed(_ message: String) {
+        clearPluginForm()
         guard runtimeObservationIssue == nil else { return }
         runtimeObservationIssue = message
         runtimeTask?.cancel()
@@ -823,6 +833,7 @@ import GhostermCore
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
+            clearPluginForm()
             extensionRegisteredViews?.invalidate()
             extensionTable?.invalidate()
             extensionDiff?.invalidate()
@@ -961,14 +972,51 @@ import GhostermCore
         struct Notification: Decodable { let method: String }
     }
 
-    private func pumpCodexHostEvent() async throws {
-        guard let extensionController, let run = extensionRun, run.command == "ai codex" else { return }
+    private func clearPluginForm() {
+        pendingPluginForm = nil
+        answeringPluginForm = false
+    }
+
+    public func answerPluginForm(id: UUID, answer: PluginFormRequest.Answer) async {
+        guard let controller = extensionController, let pending = pendingPluginForm, pending.id == id,
+              canInteractWithRuntime, !answeringPluginForm, let outcome = try? pending.request.outcome(answer) else { return }
+        answeringPluginForm = true
+        do {
+            _ = try await controller.scopedHostRPC(instanceID: pending.instanceID, ticket: pending.ticket, outcome: outcome)
+        } catch {
+            if pendingPluginForm?.id == id { extensionRunIssue = "无法答复插件表单：\(error)" }
+        }
+        if pendingPluginForm?.id == id { clearPluginForm() }
+    }
+
+    private func pumpHostEvent() async throws {
+        guard let extensionController, let run = extensionRun,
+              run.command == "ai codex" || run.hostMethods.contains(PluginFormRequest.method),
+              let instanceID = run.runtime?.instanceID else { return }
         let generation = extensionRunGeneration
+        if let pending = pendingPluginForm, !answeringPluginForm {
+            let status = try await extensionController.scopedHostRPC(instanceID: pending.instanceID, ticket: pending.ticket)
+            try checkExtensionRunGeneration(generation)
+            if status != .ok, pendingPluginForm?.id == pending.id, !answeringPluginForm { clearPluginForm() }
+        }
         let poll = try await extensionController.pollHostRPCRequest()
         try checkExtensionRunGeneration(generation)
         guard let request = poll.request else {
             guard poll.status == UInt32(GhostermCore.ExtensionSession.RPCStatus.wait.rawValue) else {
-                throw GhostermError.failed("读取 Codex Executor Host RPC 失败（status \(poll.status)）")
+                throw GhostermError.failed("读取 Executor Host RPC 失败（status \(poll.status)）")
+            }
+            return
+        }
+        if request.method == PluginFormRequest.method, run.hostMethods.contains(request.method) {
+            if pendingPluginForm == nil, let form = try? PluginFormRequest.decode(request.input) {
+                let status = try await extensionController.scopedHostRPC(instanceID: instanceID, ticket: request.ticket)
+                try checkExtensionRunGeneration(generation)
+                if status == .ok {
+                    pendingPluginForm = .init(id: UUID(), request: form, ticket: request.ticket, instanceID: instanceID)
+                }
+            } else {
+                let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Invalid form or another form is pending","effect":"none"}}"#.utf8)
+                _ = try await extensionController.scopedHostRPC(instanceID: instanceID, ticket: request.ticket, outcome: failure)
             }
             return
         }
