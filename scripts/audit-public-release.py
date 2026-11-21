@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Read-only audit of a GitHub Release's published platform assets."""
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
 import os
 import plistlib
 import re
+import subprocess
 import tempfile
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -35,7 +37,35 @@ def download_asset(url, path, size):
             raise ValueError('download exceeds published asset size: ' + path.name)
 
 
-def verify_formal_macos(folder, assets, version, commit, base):
+def verify_update_signatures(folder, archive, archive_signature, public_key):
+    key = base64.b64decode(public_key, validate=True)
+    if len(key) != 32:
+        raise ValueError('invalid Ed25519 public key in update ZIP')
+    signed_feed = (folder / 'appcast.xml').read_bytes()
+    trailer = re.search(rb'<!-- sparkle-signatures:\nedSignature: ([A-Za-z0-9+/=]+)\nlength: ([0-9]+)\n-->\n\Z', signed_feed)
+    if trailer is None or int(trailer[2]) != trailer.start():
+        raise ValueError('invalid signed appcast trailer')
+    with tempfile.TemporaryDirectory(prefix='signatures-', dir=folder) as scratch:
+        scratch = Path(scratch)
+        key_file = scratch / 'public.der'
+        # RFC 8410 SubjectPublicKeyInfo for a raw Ed25519 key.
+        key_file.write_bytes(bytes.fromhex('302a300506032b6570032100') + key)
+        feed = scratch / 'feed.xml'
+        feed.write_bytes(signed_feed[:trailer.start()])
+        signature_file = scratch / 'signature'
+        for asset, encoded in ((archive, archive_signature), (feed, trailer[1])):
+            signature = base64.b64decode(encoded, validate=True)
+            if len(signature) != 64:
+                raise ValueError('invalid Ed25519 signature length: ' + asset.name)
+            signature_file.write_bytes(signature)
+            result = subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER',
+                                     '-inkey', str(key_file), '-rawin', '-sigfile', str(signature_file),
+                                     '-in', str(asset)], capture_output=True, text=True, timeout=60)
+            if result.returncode:
+                raise ValueError('Ed25519 verification failed for ' + asset.name + ': ' + result.stderr.strip())
+
+
+def verify_formal_macos(folder, assets, version, commit, base, expected_key=None):
     inventory = CHECK.inventory(assets)
     if set(inventory) != FORMAL_MACOS:
         raise ValueError('unexpected formal macOS asset inventory')
@@ -89,6 +119,10 @@ def verify_formal_macos(folder, assets, version, commit, base):
         'sha256:' + digest != inventory[name]['digest'] for name, digest in checksums.items()
     ):
         raise ValueError('formal release checksums do not match the assets')
+    key = info.get('SUPublicEDKey')
+    if not isinstance(key, str) or (expected_key is not None and key != expected_key):
+        raise ValueError('update ZIP does not contain the expected Ed25519 public key')
+    verify_update_signatures(folder, folder / zip_name, manifest['update_signature'], key)
 
 
 def main():
@@ -96,10 +130,13 @@ def main():
     parser.add_argument('--repository', default='hanxi/ghosterm')
     parser.add_argument('--tag', default='dev')
     parser.add_argument('--platform', choices=sorted(CHECK.FILES), default='macos')
+    parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a formal macOS release')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
     if args.tag != 'dev' and (not formal or args.platform != 'macos'):
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
+    if args.update_public_key is not None and not formal:
+        parser.error('--update-public-key requires a formal macOS tag')
     api = f'https://api.github.com/repos/{args.repository}/releases/tags/{args.tag}'
     with urllib.request.urlopen(api, timeout=30) as response:
         release = json.load(response)
@@ -133,7 +170,7 @@ def main():
         for name in sorted(names):
             download_asset(base + '/' + name, folder / name, inventory[name]['size'])
         if formal:
-            verify_formal_macos(folder, assets, formal[1], commit, base)
+            verify_formal_macos(folder, assets, formal[1], commit, base, args.update_public_key)
         else:
             CHECK.verify(args.platform, folder, assets)
     print(f'PUBLIC RELEASE PASS: {args.repository}@{args.tag} ({args.platform})')

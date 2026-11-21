@@ -15984,6 +15984,13 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
   应用的 ad-hoc 签名和 DMG 自带校验和均通过。临时下载及解包已清理。
   发布标签尚未指向该提交，当前产物仍位于 Actions。
 
+正式 macOS 资产只读审计增加了 Sparkle ZIP 与 appcast 的实际 Ed25519 验签，
+可用 `--update-public-key` 与独立信任配置对拍；需支持 Ed25519 的 OpenSSL。
+以仓库现有更新公钥复验 Actions 候选，两份签名通过，各改动一个字节后均被拒绝。
+远端 `v0.1.0` 当前仍指向 `24d72991`，GitHub Release 仅有 `dev`，
+因此这轮是候选资产验收。正式下载安装、更新和回滚仍待真实发布后验证。
+临时下载已清理。
+
 ### P1 macOS 普通 SSH 连接重置与候选清理（2026-11-21）
 
 在独立构建的 JS-on Core 和 macOS 离屏 XCTest 上运行
