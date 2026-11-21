@@ -101,14 +101,17 @@ def main():
             return text
 
         app = source / 'apple/GhostermApp'
-        def test(label, selected='PluginTableTests', count=15, red=False):
+        def test(label, selected='PluginTableTests', count=16, red=False):
             text = run(label, ['swift', 'test', '--package-path', app, '--filter', selected], red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text.lower()):
                 raise RuntimeError(label + ': discovery/no-skip mismatch\n' + text)
         test('baseline')
+        page_identity = '''guard try identifier(value["viewId"]) == descriptor.viewID,
+              try revision(value["revision"]) == descriptor.revision,
+              try integer(value["offset"], range: 0...1_000_000) == offset,'''
         cases = [
-            ('view', MODEL, 'try identifier(value["viewId"]) == descriptor.viewID', 'try identifier(value["viewId"]) != ""', 'testPageRejectsMismatchedViewRevisionOffsetAndTotal'),
-            ('revision', MODEL, 'try revision(value["revision"]) == descriptor.revision', 'try revision(value["revision"]) != ""', 'testPageRejectsMismatchedViewRevisionOffsetAndTotal'),
+            ('view', MODEL, page_identity, page_identity.replace('== descriptor.viewID', '!= ""'), 'testPageRejectsMismatchedViewRevisionOffsetAndTotal'),
+            ('revision', MODEL, page_identity, page_identity.replace('== descriptor.revision', '!= ""'), 'testPageRejectsMismatchedViewRevisionOffsetAndTotal'),
             ('page-complete', MODEL, 'rows.count == min(descriptor.pageSize, descriptor.total - offset)', 'true', 'testPageRequiresExactRowCount'),
             ('columns', MODEL, 'cells.count == descriptor.columns.count', '!cells.isEmpty', 'testPageRequiresColumnWidthAndUniqueRows'),
             ('body-bytes', 'apple/GhostermApp/Sources/GhostermAppModel/PluginViewValue.swift', 'try jsonBytes(value) <= 2048', 'try jsonBytes(value) <= 3072', 'testAggregateBytesAndStrictJSON'),

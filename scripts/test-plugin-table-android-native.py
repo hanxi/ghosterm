@@ -221,15 +221,16 @@ def main():
                                 actual('api' + api + '-' + route + '-' + str(count), route, count)
                                 print('PASS API' + api + ': actual Native ' + route + ' count=' + str(count), flush=True)
                         scroll_header = '''Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState())
-                    .semantics { collectionInfo = CollectionInfo(page.rows.size + 1, description.columns.size) }
+                    .semantics { collectionInfo = CollectionInfo(rows.size + 1, description.columns.size) }
                     .testTag("plugin-table-grid")) {
                   Column(Modifier.verticalScroll(rememberScrollState())) {'''
                         combined_scroll = scroll_header.replace('.horizontalScroll(rememberScrollState())',
                             '.horizontalScroll(rememberScrollState()).verticalScroll(rememberScrollState())').replace(
                             'Column(Modifier.verticalScroll(rememberScrollState()))', 'Column')
+                        page_identity = 'require(value["viewId"].id() == descriptor.viewID && value["revision"].revision() == descriptor.revision) { "表格身份或修订已变化" }'
                         cases = [
-                            ('view', MODEL, 'value["viewId"].id() == descriptor.viewID', 'value["viewId"].id().isNotEmpty()', 'selectedPageRejectsDifferentViewRevisionOffsetAndTotal'),
-                            ('revision', MODEL, 'value["revision"].revision() == descriptor.revision', 'value["revision"].revision().isNotEmpty()', 'selectedPageRejectsDifferentViewRevisionOffsetAndTotal'),
+                            ('view', MODEL, page_identity, page_identity.replace(' == descriptor.viewID', '.isNotEmpty()'), 'selectedPageRejectsDifferentViewRevisionOffsetAndTotal'),
+                            ('revision', MODEL, page_identity, page_identity.replace(' == descriptor.revision', '.isNotEmpty()'), 'selectedPageRejectsDifferentViewRevisionOffsetAndTotal'),
                             ('page-complete', MODEL, 'rows.size == minOf(descriptor.pageSize, descriptor.total - offset)', 'true', 'selectedPageMustContainEveryExpectedRow'),
                             ('columns', MODEL, 'cells.size == descriptor.columns.size', 'cells.isNotEmpty()', 'selectedPageRequiresColumnWidthAndUniqueRows'),
                             ('body-bytes', APP + 'PluginViewValue.kt', 'utf8(compact(value)).size <= 2048', 'utf8(compact(value)).size <= 3072', 'aggregateBodyByteLimitIsIndependentOfIndividualCells'),
@@ -238,7 +239,7 @@ def main():
                             ('native-next', UI, 'model.showPage(state.selectedOffset + (description?.pageSize ?: 16))', 'model.showPage(state.selectedOffset + 2 * (description?.pageSize ?: 16))', 'UI#realPagingButtonsShowNextLastAndPreviousExactValues'),
                             ('native-scroll-axis', UI, scroll_header, combined_scroll, 'UI#scrollActionsKeepBothAxesIndependentlyAddressable'),
                             ('native-declaration', VM, 'if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&', 'if (false && state.info.phase == ExtensionRuntime.Phase.ACTIVE && table == null &&', None),
-                            ('native-methods', VM, '(baseRequest.methods + PluginTableModel.methods).distinct()', 'baseRequest.methods', None),
+                            ('native-methods', VM, '(baseRequest.methods + PluginTableModel.methods + searchMethods).distinct()', '(baseRequest.methods + searchMethods).distinct()', None),
                             ('native-render', APP + 'SettingsContent.kt', 'extensions.table?.let { PluginTableContent(it) }', 'extensions.table?.let { _ -> Unit }', None),
                         ]
                         if args.case and set(args.case) - {c[0] for c in cases}: parser.error('unknown mutation group')
