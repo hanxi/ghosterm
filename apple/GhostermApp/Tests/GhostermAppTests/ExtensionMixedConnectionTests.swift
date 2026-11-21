@@ -48,13 +48,13 @@ import XCTest
         XCTFail(label); throw GhostermError.failed(label)
     }
     @discardableResult private func echo(_ model: ExtensionInstanceModel, text: String, count: Int,
-                                         stage: String? = nil) async throws -> Bool {
+                                         stage: String? = nil, timeoutMilliseconds: UInt32 = 10000) async throws -> Bool {
         let operation = "fixture.echo \(text)/\(count)"
         let label = stage.map { "\($0): \(operation)" } ?? operation
         let started = ProcessInfo.processInfo.systemUptime
         let owner = try XCTUnwrap(model.extensionController)
         let admission = try await owner.requestExecutorRPC(method: "fixture.echo",
-            input: JSONSerialization.data(withJSONObject: ["text": text, "count": count]), timeoutMilliseconds: 10000)
+            input: JSONSerialization.data(withJSONObject: ["text": text, "count": count]), timeoutMilliseconds: timeoutMilliseconds)
         let handle = try XCTUnwrap(admission.handle)
         var terminal: ExtensionSession.RPCResult?
         try await until("\(label) did not reach a terminal state") {
@@ -77,12 +77,16 @@ import XCTest
         }
         let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: result.outcome) as? [String: Any])
         let value = try XCTUnwrap(outcome["value"] as? [String: Any])
-        XCTAssertEqual(value["text"] as? String, text); XCTAssertEqual(value["count"] as? Int, count)
+        let returnedText = value["text"] as? String
+        let returnedCount = value["count"] as? Int
+        XCTAssertTrue(returnedText == text && returnedCount == count,
+                      "\(label): unexpected response text=\(returnedText ?? "missing"), count=\(String(describing: returnedCount))")
         let forgotten = try await owner.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
-        return true
+        return returnedText == text && returnedCount == count
     }
     private func resource(_ model: ExtensionInstanceModel, slot: Int, stage: String) async throws -> Bool {
-        guard try await echo(model, text: "resource", count: slot, stage: stage) else { return false }
+        // Keep the publication deadline at ten seconds and allow time for its result to travel back.
+        guard try await echo(model, text: "resource", count: slot, stage: stage, timeoutMilliseconds: 15000) else { return false }
         try await until("\(stage): resource \(slot) was not received") { model.extensionRun?.receivedResources.count == 1 }
         let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first)
         let expected = Data((0..<262144).map { UInt8(($0 + slot * 17) % 251) })
