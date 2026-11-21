@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real read-only DMG teardown, with isolated mutations of the shared helper."""
 import hashlib, os, pathlib, shutil, signal, subprocess, tempfile
+from contextlib import contextmanager
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'scripts/lib/package-dmg.sh'
 MARK = 'GT_PACKAGE_DMG_MUTATION_MARK'
@@ -9,14 +10,27 @@ def run(args, env=None):
     result = subprocess.run(['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require package-dmg; shift; gt_timeout 60 "$@"', 'package-dmg', str(ROOT)] + list(map(str, args)), capture_output=True, text=True, env=env)
     return result.returncode, result.stdout + result.stderr
 
+@contextmanager
+def owned_directory():
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested = pathlib.Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested if requested.is_dir() and requested.is_relative_to(project_tmp) else project_tmp
+    folder = pathlib.Path(tempfile.mkdtemp(prefix='package-dmg-', dir=scratch))
+    try:
+        yield folder
+    finally:
+        if os.path.ismount(folder / 'work/mnt'):
+            raise RuntimeError(f'owned DMG still mounted; retained temporary directory: {folder}')
+        shutil.rmtree(folder)
+
 def main():
     if not shutil.which('hdiutil'): raise RuntimeError('real macOS hdiutil required; no SKIP')
     original = SOURCE.read_bytes(); digest = hashlib.sha256(original).digest()
     if MARK.encode() in original: raise RuntimeError('leftover mutation marker: exit 2')
     def interrupt(sig, frame): raise InterruptedError(sig)
     for sig in [signal.SIGINT, signal.SIGTERM]: signal.signal(sig, interrupt)
-    with tempfile.TemporaryDirectory(prefix='package-dmg-', dir=ROOT/'tmp') as directory:
-        folder = pathlib.Path(directory); stage = folder/'stage'; stage.mkdir()
+    with owned_directory() as folder:
+        stage = folder/'stage'; stage.mkdir()
         (stage/'sentinel').write_text('owned read-only volume\n')
         image = folder/'probe.dmg'; helper = folder/'package-dmg.sh'; helper.write_bytes(original)
         tools = folder/'bin'; tools.mkdir(); events = folder/'events'
@@ -30,7 +44,8 @@ lie) exit 0;;
 esac
 exec /usr/bin/hdiutil "$@"
 '''); wrapper.chmod(0o700)
-        env = dict(os.environ, TMPDIR=str(ROOT/'tmp'), PATH=str(tools)+os.pathsep+os.environ['PATH'], GT_DMG_EVENTS=str(events))
+        env = dict(os.environ, TMPDIR=str(folder), TMP=str(folder), TEMP=str(folder),
+                   PATH=str(tools)+os.pathsep+os.environ['PATH'], GT_DMG_EVENTS=str(events))
         def command(args):
             code, out = run(args, env)
             if code: print(out, flush=True); raise RuntimeError('DMG fixture/tool failed')
