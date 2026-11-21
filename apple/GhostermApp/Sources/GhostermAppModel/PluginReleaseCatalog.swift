@@ -267,11 +267,16 @@ final class PluginReleaseCatalog {
         if fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 {
             let raw = try Self.read(fd, name: name, limit: Self.channelHistoryLimit)
             let previous = try JSONDecoder().decode(ChannelHistory.self, from: raw)
-            guard previous.root == policy.rootSHA256, previous.generation > 0,
-                  previous.observed > 0, Self.digest(previous.digest), now >= previous.observed,
-                  policy.generation >= previous.generation,
-                  policy.generation != previous.generation || policy.statementSHA256 == previous.digest else {
-                throw PluginDirectorySignatureVerifier.Failure.channelHistory
+            typealias Verifier = PluginDirectorySignatureVerifier
+            guard previous.root == policy.rootSHA256, previous.observed > 0, now >= previous.observed,
+                  let envelope = previous.envelope,
+                  let verified = try? Verifier.verifyChannelPolicy(statement: envelope.statement,
+                      signature: envelope.signature, policy: envelope.policy, channel: policy.channel,
+                      channelRoot: policy.channelRoot, now: previous.observed),
+                  previous.generation == verified.generation, previous.digest == verified.statementSHA256,
+                  policy.generation >= verified.generation,
+                  policy.generation != verified.generation || policy.statementSHA256 == verified.statementSHA256 else {
+                throw Verifier.Failure.channelHistory
             }
         } else {
             guard errno == ENOENT else { throw Failure.io }

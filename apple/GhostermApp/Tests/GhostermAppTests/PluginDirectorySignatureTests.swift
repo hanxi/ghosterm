@@ -191,7 +191,7 @@ final class PluginDirectorySignatureTests: XCTestCase {
                 signature: root.sign(statement, domain: "ghosterm.channel-policy.v1\0"), policy: policy,
                 channel: "test", channelRoot: root.key.publicKey.rawRepresentation, now: 150)
         }
-        let previous = try verified("1"), candidate = try verified("2")
+        let previous = try verified("1"), candidate = try verified("3")
         do {
             let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true))
             try owner.recordChannelPolicy(previous, now: 150)
@@ -219,6 +219,16 @@ final class PluginDirectorySignatureTests: XCTestCase {
         let recovered = try Verifier.loadChannelPolicy(channel: "test", channelRoot: root.key.publicKey.rawRepresentation,
                                                        now: 151, stateDirectory: directory)
         XCTAssertEqual(recovered.statementSHA256, candidate.statementSHA256)
+        let entries = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let record = try XCTUnwrap(entries.first { $0.lastPathComponent.hasPrefix("channel-policy-v1-") })
+        var inconsistent = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: record)) as? [String: Any])
+        inconsistent["generation"] = 1
+        let inconsistentBytes = try Self.json(inconsistent)
+        try inconsistentBytes.write(to: record)
+        let replay = try verified("2")
+        let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true))
+        rejects(.channelHistory) { try owner.recordChannelPolicy(replay, now: 152, requireHistory: true) }
+        XCTAssertEqual(try Data(contentsOf: record), inconsistentBytes, "Failed refresh must preserve the existing cache")
     }
 
     func testChannelRefreshCommitsOnlyVerifiedCompleteResponses() async throws {

@@ -61,6 +61,7 @@ public enum PluginDirectorySignatureVerifier {
         public let expiresAt: UInt64
         public let statementSHA256: String
         let rootSHA256: String
+        let channelRoot: Data
         let envelope: ChannelEnvelope
         var policyBytes: Data { envelope.policy }
     }
@@ -90,7 +91,7 @@ public enum PluginDirectorySignatureVerifier {
         guard issuedAt <= now, now < expiresAt else { throw Failure.channelFreshness }
         return VerifiedChannelPolicy(channel: channel, generation: generation, issuedAt: issuedAt,
                                      expiresAt: expiresAt, statementSHA256: hash(statement),
-                                     rootSHA256: rootDigest,
+                                     rootSHA256: rootDigest, channelRoot: key.rawRepresentation,
                                      envelope: ChannelEnvelope(statement: statement, signature: signature, policy: policyBytes))
     }
 
