@@ -1405,6 +1405,7 @@ public final class AppModel: ObservableObject {
     /// Session or infers a host from the observed declaration.
     public func inspectForegroundPlugin(sshAlias: String, executable: String, directory: String,
                                          instance: String, localLaunch: ExtensionLocalLaunch? = nil) async throws -> PluginForegroundDeclaration {
+        try Task.checkCancellation()
         guard let extensionController, extensionInstance.canDiscard else { throw GhostermError.failed("已有插件运行或资源仍待释放") }
         extensionInstance.beginInspection()
         defer { extensionInstance.endInspection() }
@@ -1418,6 +1419,7 @@ public final class AppModel: ObservableObject {
                 _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: command)
             }
             opened = true
+            try Task.checkCancellation()
             let value = try await extensionController.readForegroundDeclaration(instance: instance)
             try await extensionController.stopSSHChannel()
             try await extensionController.releaseFinished()

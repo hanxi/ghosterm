@@ -13,6 +13,26 @@ import Vision
 
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
+    func testCancelledForegroundInspectionDoesNotStartAConnection() async {
+        let model = isolatedAppModel()
+        defer { model.disconnectForTesting() }
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await model.inspectForegroundPlugin(
+                sshAlias: "unused", executable: "", directory: "", instance: ""
+            )
+        }
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled inspection must not start")
+        } catch is CancellationError {
+            XCTAssertTrue(model.extensionInstance.canDiscard)
+        } catch {
+            XCTFail("Expected cancellation before connection setup: \(error)")
+        }
+    }
+
+    @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
         XCTAssertEqual(AppModel.extensionHostCapabilities,
                        ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views"])
