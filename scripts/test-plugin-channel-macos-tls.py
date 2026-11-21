@@ -14,11 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def verify_release_preflight(work, env, origin, certificate, root):
     curl_env = dict(env, CURL_CA_BUNDLE=str(certificate))
     command = ['bash', ROOT / 'scripts/check-plugin-channel-url.sh', 'fixture', root]
-    invalid = subprocess.run(
-        [*command, f'{origin}/valid/', work / 'preflight.sqlite', 'unexpected'],
-        cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=10)
-    if invalid.returncode != 2 or 'Usage:' not in invalid.stderr:
-        raise RuntimeError('Channel preflight accepted an extra argument')
+    for invalid_args in ((work / 'preflight.sqlite', 'unexpected'), ('--compare-directory',)):
+        invalid = subprocess.run(
+            [*command, f'{origin}/valid/', *invalid_args],
+            cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=10)
+        if invalid.returncode != 2 or 'Usage:' not in invalid.stderr:
+            raise RuntimeError(f'Channel preflight accepted invalid arguments: {invalid_args}')
     for route, expected in (
         ('valid', '"generation":"2"'),
         ('redirect', 'HTTP 302'),
@@ -35,7 +36,16 @@ def verify_release_preflight(work, env, origin, certificate, root):
         wants_success = expected.startswith('"generation":')
         if (result.returncode == 0) != wants_success or expected not in output:
             raise RuntimeError(f'Channel preflight {route}: {output}')
-    print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / size / digest / expiry / revocation / rollback',
+    for route, expected_status, marker in (
+        ('valid', 0, '"generation":"2"'),
+        ('revoked', 1, 'differ'),
+    ):
+        result = subprocess.run(
+            [*command, f'{origin}/{route}/', '--compare-directory', work / 'signed-channel'],
+            cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=110)
+        if result.returncode != expected_status or marker not in result.stdout:
+            raise RuntimeError(f'Channel readback {route}: {result.stdout}{result.stderr}')
+    print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / size / digest / expiry / revocation / rollback / readback',
           flush=True)
 
 

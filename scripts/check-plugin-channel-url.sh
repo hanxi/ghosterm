@@ -3,7 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [ "$#" -lt 3 ] || [ "$#" -gt 5 ] || { [ "$#" -eq 5 ] && [ "$4" != --compare-directory ]; }; then
+if [ "$#" -lt 3 ] || [ "$#" -gt 5 ] ||
+  { [ "$#" -eq 4 ] && [ "$4" = --compare-directory ]; } ||
+  { [ "$#" -eq 5 ] && [ "$4" != --compare-directory ]; }; then
   echo "Usage: $0 CHANNEL ROOT_KEY HTTPS_DIRECTORY [STATE_FILE | --compare-directory DIRECTORY]" >&2
   exit 2
 fi
