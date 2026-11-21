@@ -336,7 +336,13 @@ def main():
     parser.add_argument('--maintenance', action='store_true', help='Include persistent install ownership, explicit stage removal/metadata retirement and Settings UI; implies --removal')
     parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
     parser.add_argument('--capacity', action='store_true', help='Also verify real ENOSPC on an owned 2 GiB AVD data partition')
+    parser.add_argument('--system-image', type=Path, help='Use this installed image directory for the owned headless AVD')
+    parser.add_argument('--expect-page-size', type=int, choices=(4096, 16384), help='Require this page size on the owned AVD')
     args = parser.parse_args()
+    if (args.system_image or args.expect_page_size) and not args.headless_api:
+        parser.error('--system-image and --expect-page-size require an owned headless AVD')
+    if args.system_image:
+        args.system_image = args.system_image.resolve(strict=True)
     if args.capacity and (args.android or args.mutate):
         parser.error('--capacity requires an owned headless AVD and a baseline build')
     if args.official_release_directory:
@@ -366,7 +372,7 @@ def main():
     work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp.resolve()) else project_tmp
     environment = dict(os.environ, TMPDIR=str(work_tmp), TMP=str(work_tmp), TEMP=str(work_tmp))
     if args.headless_api is not None:
-        headless_dependencies(args.headless_api, environment)
+        headless_dependencies(args.headless_api, environment, args.system_image)
     # Explicit enabled build also includes the real Controller/Core snapshot test.
     print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
@@ -374,8 +380,13 @@ def main():
         execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=work_tmp) as directory:
-            with headless(args.headless_api, Path(directory), environment, bounded_userdata=args.capacity) as (selected, isolated):
+            with headless(args.headless_api, Path(directory), environment, args.system_image,
+                          bounded_userdata=args.capacity) as (selected, isolated):
                 try:
+                    if args.expect_page_size:
+                        page_size = run([*selected, 'shell', 'getconf', 'PAGE_SIZE'], isolated, 20).strip()
+                        if page_size != str(args.expect_page_size):
+                            raise RuntimeError(f'Expected AVD page size {args.expect_page_size}, observed {page_size}')
                     execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
                 except RuntimeError:
                     report_owned_crash_buffer(selected, isolated, work_tmp)
