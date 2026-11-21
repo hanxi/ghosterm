@@ -9,6 +9,8 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 APK = 'Ghosterm-android-arm64-dev.apk'
@@ -18,7 +20,19 @@ source = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source)
 
 
-def verify(folder, commit, formal_version=None):
+def verify_apk_version(apk, version, aapt):
+    major, minor, patch = map(int, version.split('.'))
+    expected_code = major * 1000000 + minor * 1000 + patch + 2
+    result = subprocess.run([aapt, 'dump', 'badging', apk], capture_output=True,
+                            text=True, check=True, timeout=30)
+    packages = [line for line in result.stdout.splitlines() if line.startswith('package:')]
+    if len(packages) != 1 or not re.match(
+            r"^package: name='com\.hanxi\.ghosterm' versionCode='"
+            + str(expected_code) + r"' versionName='" + re.escape(version) + r"'(?: |$)", packages[0]):
+        raise ValueError('APK package identity or formal version mismatch')
+
+
+def verify(folder, commit, formal_version=None, aapt=None):
     apk_name = FORMAL_APK if formal_version is not None else APK
     apk = folder / apk_name
     if not all((folder / name).is_file() for name in (apk_name, 'android-SHA256SUMS', 'android-build-info.json')):
@@ -38,6 +52,8 @@ def verify(folder, commit, formal_version=None):
     if not isinstance(metadata, dict) or metadata != expected or any(
             type(metadata[key]) is not type(value) for key, value in expected.items()):
         raise ValueError('published build info mismatch')
+    if aapt is not None:
+        verify_apk_version(apk, formal_version, aapt)
     return digest
 
 
@@ -46,8 +62,11 @@ def main():
     parser.add_argument('folder', type=Path)
     parser.add_argument('--expect-commit', required=True)
     parser.add_argument('--formal-version', help='verify a formal APK and receipt against this release version')
+    parser.add_argument('--aapt', help='also verify the formal version in the APK manifest')
     args = parser.parse_args()
-    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version))
+    if args.aapt and not args.formal_version:
+        parser.error('--aapt requires --formal-version')
+    print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version, args.aapt))
 
 
 if __name__ == '__main__':

@@ -69,7 +69,7 @@ def verify_update_signatures(folder, archive, archive_signature, public_key):
                 raise ValueError('Ed25519 verification failed for ' + asset.name + ': ' + result.stderr.strip())
 
 
-def verify_formal_macos(folder, assets, version, commit, base, expected_key=None):
+def verify_formal_macos(folder, assets, version, commit, base, expected_key=None, aapt=None):
     inventory = CHECK.inventory(assets)
     if set(inventory) not in (FORMAL_MACOS, FORMAL_MACOS | FORMAL_ANDROID):
         raise ValueError('unexpected formal release asset inventory')
@@ -84,7 +84,7 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
         raise ValueError('manifest does not match the formal release tag')
     verify_macos_update(folder, inventory, manifest, 'release', base, expected_key)
     if FORMAL_ANDROID <= inventory.keys():
-        ANDROID.verify(folder, commit, version)
+        ANDROID.verify(folder, commit, version, aapt)
 
 
 def verify_macos_update(folder, inventory, manifest, channel, base, expected_key):
@@ -159,12 +159,15 @@ def main():
     parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a macOS release')
     parser.add_argument('--asset-directory', type=Path, help='verify a local macOS artifact before upload')
     parser.add_argument('--commit', help='expected full commit for a local artifact')
+    parser.add_argument('--aapt', help='also verify the published formal APK manifest using Android SDK aapt')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
     if args.tag != 'dev' and (not formal or args.platform != 'macos'):
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
     if args.update_public_key is not None and args.platform != 'macos':
         parser.error('--update-public-key requires macOS')
+    if args.aapt and (not formal or args.asset_directory is not None):
+        parser.error('--aapt requires a public formal release audit')
     base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
     if args.asset_directory is not None:
         if not (args.platform == 'macos' and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
@@ -219,7 +222,7 @@ def main():
         for name in sorted(names):
             download_asset(base + '/' + name, folder / name, inventory[name]['size'])
         if formal:
-            verify_formal_macos(folder, assets, formal[1], commit, base, args.update_public_key)
+            verify_formal_macos(folder, assets, formal[1], commit, base, args.update_public_key, args.aapt)
         else:
             CHECK.verify(args.platform, folder, assets)
             if args.platform == 'macos':
