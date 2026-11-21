@@ -9,6 +9,7 @@ on:
       - 'scripts/gterm-plugin'
       - 'scripts/plugin_release.py'
       - 'scripts/plugin-release-crypto.mjs'
+      - 'scripts/plugin-release-schemas.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -16,7 +17,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Finish public readback before a newer deployment can replace the policy.
+  cancel-in-progress: false
 
 jobs:
   deploy:
