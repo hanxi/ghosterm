@@ -320,7 +320,8 @@ final class PluginReleaseCatalog {
         try validate()
         guard renameat(fd, name, fd, destination) == 0 else { throw Failure.io }
         published = true
-        return parentSync(fd) == 0
+        guard parentSync(fd) == 0 else { return false }
+        return (try? validate()) != nil
     }
     func removalRoot() throws -> Int32 {
         guard exclusive else { throw Failure.io }

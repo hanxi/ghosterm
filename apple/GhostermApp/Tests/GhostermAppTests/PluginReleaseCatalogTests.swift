@@ -250,6 +250,27 @@ final class PluginReleaseCatalogTests: XCTestCase {
         let (value, durable) = try owner.writeSelection(.init(revision: nil, choices: [:]), expected: nil)
         XCTAssertFalse(durable)
         XCTAssertEqual(try owner.selection(), value, "post-rename fsync failure is not an absent write")
+
+        let replaced = try self.root()
+        let detached = replaced.appendingPathExtension("detached")
+        defer { try? FileManager.default.removeItem(at: detached) }
+        var syncCompleted = false
+        let replacingOwner = try XCTUnwrap(PluginReleaseCatalog(directory: replaced, exclusive: true, parentSync: { fd in
+            do {
+                try FileManager.default.moveItem(at: replaced, to: detached)
+                try FileManager.default.createDirectory(at: replaced, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                let status = fsync(fd)
+                syncCompleted = status == 0
+                return status
+            } catch { return -1 }
+        }))
+        let (_, replacementDurable) = try replacingOwner.writeSelection(.init(revision: nil, choices: [:]), expected: nil)
+        XCTAssertTrue(syncCompleted)
+        XCTAssertFalse(replacementDurable, "A detached catalog cannot report durable publication")
+        let current = try XCTUnwrap(PluginReleaseCatalog(directory: replaced, exclusive: true))
+        XCTAssertNil(try current.selection().revision)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: detached.appendingPathComponent(PluginReleaseCatalog.selectionName).path))
     }
 
     func testSelectionRequiresCanonicalSchemaWithoutOverwritingInvalidRecords() throws {
