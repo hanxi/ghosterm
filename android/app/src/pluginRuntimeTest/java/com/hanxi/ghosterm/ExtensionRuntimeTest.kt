@@ -164,6 +164,9 @@ class ExtensionRuntimeTest {
             }
             assertFalse("UI accessed runtime IO", unexpected)
             assertTrue(r.step() == ExtensionRuntime.Phase.STOPPED && r.info().error == ExtensionRuntime.Failure.CANCELLED)
+            val admission = r.requestExecutor("fixture.echo", "{}".toByteArray())
+            assertEquals(ExtensionSession.RPCStatus.CLOSED, admission.status)
+            assertNull(admission.handle)
         } finally { r.close(); p.h.close() }
     }
     @Test fun digestAndRoleFailuresKeepSession() {

@@ -97,8 +97,9 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         return ExtensionSession.RPCStatus.entries[NativeExtensionRuntime.respondHostRequest(handle, lease.bytes, ticket, outcome)]
     }
     fun requestExecutor(method: String, input: ByteArray, timeoutMilliseconds: Int = 30000): ExtensionSession.RPCAdmission {
-        owner(); require(info().phase == Phase.ACTIVE); require(timeoutMilliseconds in 1..300000)
+        owner(); require(timeoutMilliseconds in 1..300000)
         require('\u0000' !in method)
+        if (info().phase != Phase.ACTIVE) return ExtensionSession.RPCAdmission(ExtensionSession.RPCStatus.CLOSED, null)
         val lease = borrowedLease ?: return ExtensionSession.RPCAdmission(ExtensionSession.RPCStatus.CLOSED, null)
         val v = NativeExtensionRuntime.requestExecutor(handle, lease.bytes, method.toByteArray(), input, timeoutMilliseconds)
         check(v.size == 2)

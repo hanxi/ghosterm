@@ -12724,6 +12724,14 @@ Kotlin 类及源码 SHA256 核对一致。收据
 本轮验证当前保护，历史偶发 ACTIVE 前置条件失败的原因仍未定位。临时构件、
 SSH 夹具及模拟器已核实清理。
 
+2026-11-21 Android Runtime 请求准入对非 ACTIVE 返回 `CLOSED` 与空句柄。
+worker 归属、参数验证及 ACTIVE 请求分派仍由原路径处理。既有真实停止测试
+新增停止后请求及空句柄断言。开启 QuickJS 的同一对 APK 在 API 29 / 36
+arm64 / 4 KiB 页无窗口模拟器各通过 14 项，安装摘要一致；Debug、测试 APK、
+Release 和 lint 构建通过。首轮调用了 JVM 模块不存在的 lint 任务，第二轮测试
+APK 缺 SDK 资产，最终用 Gradle 的测试资产入口补齐。两台模拟器和临时目录已
+核实清理。此变更报告当前准入关闭，历史偶发运行时未激活的原因仍待定位。
+
 2026-11-21 在 `10408a0f` 上补验 API 29。用同一对开启 QuickJS 的 APK、
 新构建的 gterm 与 Node SDK，在自有无窗口 arm64 模拟器验证直连和 ProxyJump
 两项混合运行。八实例涵盖 Portable / Node / Exec 与开发目录 / 签名安装，
