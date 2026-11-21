@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
@@ -11,11 +12,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -50,8 +53,13 @@ class PluginViewsUiTest {
         ui.onAllNodesWithTag("plugin-view-close").assertCountEquals(4)
         ui.onAllNodesWithTag("plugin-table-next")[0].performScrollTo().performClick()
         await { alpha.state.value.page?.offset == 16 }; assertEquals(0, beta.state.value.page?.offset)
-        ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务").performScrollTo().performClick()
+        val close = ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务").performScrollTo()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_TAB)
+        close.performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
         await { m.state.value.items.size == 3 }
+        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assertIsFocused()
         assertTrue(!alpha.state.value.valid && m.state.value.items.any { (it.content as? PluginViewItem.Content.Table)?.model === beta })
         ui.runOnIdle { f.entries += f.entry(5, "table-a", "table", "alpha"); f.revision++; m.apply(f.data()) }
         ui.onAllNodesWithTag("plugin-view-close").assertCountEquals(4)
