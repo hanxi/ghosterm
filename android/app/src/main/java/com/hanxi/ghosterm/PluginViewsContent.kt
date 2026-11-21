@@ -19,16 +19,6 @@ import androidx.compose.ui.unit.dp
 @Composable internal fun PluginViewsContent(model: PluginViewsModel) {
     val state by model.state.collectAsState()
     val closeFocus = remember(model) { mutableMapOf<String, FocusRequester>() }
-    var focusedCloseHandle by remember(model) { mutableStateOf<String?>(null) }
-    val handles = state.items.map { it.handle }
-    LaunchedEffect(handles) {
-        val removed = focusedCloseHandle ?: return@LaunchedEffect
-        if (removed in handles) return@LaunchedEffect
-        focusedCloseHandle = null
-        if (model.available) {
-            state.items.firstOrNull { !it.closing }?.let { closeFocus[it.handle]?.requestFocus() }
-        }
-    }
     Column(Modifier.fillMaxWidth().testTag("plugin-views"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         state.issue?.let {
             Text(it, Modifier.testTag("plugin-views-issue").semantics { liveRegion = LiveRegionMode.Polite },
@@ -41,13 +31,14 @@ import androidx.compose.ui.unit.dp
                 closeFocus[item.handle] = focusRequester
                 onDispose { closeFocus.remove(item.handle) }
             }
+            var closeFocused by remember { mutableStateOf(false) }
             OutlinedCard(Modifier.fillMaxWidth().testTag("plugin-registered-view-${item.handle}")) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(item.registration.viewID, Modifier.weight(1f).semantics { heading() },
                             style = MaterialTheme.typography.labelMedium)
                         TextButton(onClick = {
-                            if (focusedCloseHandle == item.handle) {
+                            if (closeFocused) {
                                 val next = state.items.drop(index + 1).firstOrNull { !it.closing }
                                     ?: state.items.take(index).lastOrNull { !it.closing }
                                 next?.let { closeFocus[it.handle]?.requestFocus() }
@@ -55,14 +46,7 @@ import androidx.compose.ui.unit.dp
                             model.closeView(item.handle)
                         }, enabled = model.available && !item.closing,
                             modifier = Modifier.focusRequester(focusRequester)
-                                .onFocusChanged { focus ->
-                                    if (focus.isFocused) {
-                                        focusedCloseHandle = item.handle
-                                    } else if (focusedCloseHandle == item.handle &&
-                                        model.state.value.items.any { it.handle == item.handle }) {
-                                        focusedCloseHandle = null
-                                    }
-                                }
+                                .onFocusChanged { closeFocused = it.isFocused }
                                 .testTag("plugin-view-close").semantics {
                                 contentDescription = if (item.closing) "正在关闭视图 ${item.registration.viewID}"
                                 else "关闭视图 ${item.registration.viewID}，不取消任务"

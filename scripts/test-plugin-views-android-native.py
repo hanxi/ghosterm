@@ -54,8 +54,6 @@ CASES = [
     ('native-close', UI, '                            model.closeView(item.handle)', '                            Unit', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
     ('native-close-focus', UI, '                                next?.let { closeFocus[it.handle]?.requestFocus() }',
         '                                next?.let { Unit }', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
-    ('native-removal-focus', UI, '            state.items.firstOrNull { !it.closing }?.let { closeFocus[it.handle]?.requestFocus() }',
-        '            Unit', 'UI#remoteRemovalMovesKeyboardFocusToRemainingCloseButton'),
     ('native-heading', UI, 'Modifier.weight(1f).semantics { heading() }', 'Modifier.weight(1f)', 'UI#darkLargeTextPaints'),
     ('native-restart', APP + 'PluginTaskContent.kt', 'LaunchedEffect(model, model.available)', 'LaunchedEffect(model)', 'UI#unconfirmedCloseRetainsWidgetAndRestartsPolling'),
     (FOREGROUND_MUTATION, VM, '                    registeredViews?.invalidate(); task?.invalidate()\n',
@@ -285,12 +283,10 @@ def main():
                                 install(label + '-red')
                                 if selected:
                                     output = test(label + '-red', selected, 1, True)
-                                    expected = {
-                                        'native-close-focus': 'Adjacent close button must gain keyboard focus before the close reply',
-                                        'native-removal-focus': 'Executor removal must restore keyboard focus to a remaining close button',
-                                    }.get(label)
-                                    if expected and expected not in output:
-                                        raise RuntimeError('Wrong focus assertion\n' + output)
+                                    if label == 'native-close-focus':
+                                        expected = 'Adjacent close button must gain keyboard focus before the close reply'
+                                        if expected not in output:
+                                            raise RuntimeError('Wrong focus assertion\n' + output)
                                 else: actual(label + '-red', 'direct', scenario, True)
                                 test(label + '-control', CONTROL, 1)
                             finally: path.write_bytes(original)
