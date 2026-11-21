@@ -16081,6 +16081,12 @@ Android 以 `912ebcbf` 同源构建，在官方 API 36 Google APIs arm64 16 KiB
 HTTP 504。VT 构建增加最多三次的瞬时 HTTP 重试，本地验证成功、瞬时恢复、
 耗尽与普通编译错误四分支；上述云端通过早于重试变更，临时文件已清理。
 
+随后用该轮公开 dev 的 Android 签名 Release APK 在官方 API 36 arm64
+16 KiB 页无窗口模拟器实装。签名、ZIP 对齐、发布收据与已安装 APK SHA256
+一致，主界面冷启进入 resumed。此证据覆盖 `912ebcbf` 的公开签名包安装和
+启动；329 项插件组合使用另行构建的 Debug/测试 APK，真机另验。
+模拟器以 0 退出，镜像、下载与暂存均已清理。
+
 macOS arm64 / 26.6.2 对公开 dev 执行一键安装，真实下载清单、校验和与 ZIP，
 安装到本轮独占目录。随包 commit 为 `c10752dc08e5`，codesign 严格校验及
 递归 quarantine 检查通过。用同一线上下载重试，在晋升暂存包时注入失败，
