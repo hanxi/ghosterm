@@ -100,6 +100,38 @@ import XCTest
         try await until { third.pendingPluginForm == nil }
         let dismissed = try await status(third)
         XCTAssertEqual(dismissed, "dismissed")
+
+        let textOnly = try PluginFormRequest.decode(Data(
+            #"{"requestId":"1","title":"Name","fields":[{"kind":"text","id":"name","label":"Name","required":true,"maxLength":3}]}"#.utf8))
+        var submitted: PluginFormRequest.Answer?
+        let textPane = NSHostingView(rootView: PluginFormView(
+            request: textOnly, pluginName: "org.ghosterm.form", answering: false) { submitted = $0 })
+        textPane.frame = pane.frame
+        window.contentView = textPane
+        textPane.layoutSubtreeIfNeeded()
+        func editableField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.isEditable { return field }
+            return view.subviews.lazy.compactMap { editableField(in: $0) }.first
+        }
+        func submitButton() -> NSObject? {
+            textPane.layoutSubtreeIfNeeded()
+            return PluginTableRendering.elements(textPane).first {
+                PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-form-submit"
+            }
+        }
+        try await until { editableField(in: textPane) != nil && submitButton() != nil }
+        let field = try XCTUnwrap(editableField(in: textPane))
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.insertText("甲乙丙丁", replacementRange: editor.selectedRange())
+        try await Task.sleep(for: .milliseconds(80))
+        _ = PluginTableRendering.press(try XCTUnwrap(submitButton()))
+        XCTAssertNil(submitted)
+        editor.selectAll(nil)
+        editor.insertText("甲乙丙", replacementRange: editor.selectedRange())
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(submitButton())))
+        XCTAssertEqual(submitted, .submitted(["name": .text("甲乙丙")]))
     }
 
     private func until(_ predicate: () -> Bool) async throws {
