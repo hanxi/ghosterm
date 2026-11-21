@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Verify plugin form and table speech on an owned API 36 Google APIs AVD."""
+"""Verify plugin form and table speech on owned Google APIs AVDs."""
+import argparse
 import hashlib
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ def interrupted(signum, _frame):
     raise SystemExit(128 + signum)
 
 
-def prepare(selected, environment, adb):
+def prepare(selected, environment, adb, api):
     # These operations require root and affect only the disposable,
     # serial-selected emulator created by the shared headless harness.
     adb('root')
@@ -32,7 +33,8 @@ def prepare(selected, environment, adb):
     adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')
     adb('shell', 'svc', 'power', 'stayon', 'true')
     adb('shell', 'wm', 'dismiss-keyguard')
-    adb('shell', 'pm', 'grant', TALKBACK, 'android.permission.POST_NOTIFICATIONS')
+    if api >= 33:
+        adb('shell', 'pm', 'grant', TALKBACK, 'android.permission.POST_NOTIFICATIONS')
 
     def enable(on):
         adb('shell', 'settings', 'put', 'secure', 'enabled_accessibility_services', SERVICE if on else "''")
@@ -78,6 +80,10 @@ def wait_bound(adb):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--api', type=int, choices=(29, 36), default=36,
+                        help='API 29 uses the TalkBack APK from the local API 36 image')
+    args = parser.parse_args()
     artifacts = ROOT / 'android/app/build/outputs/apk'
     apks = [artifacts / 'debug/app-debug.apk', artifacts / 'androidTest/debug/app-debug-androidTest.apk']
     missing = [str(apk) for apk in apks if not apk.is_file()]
@@ -92,11 +98,28 @@ def main():
                                      dir=parent if owned_parent else tmp) as directory:
         env = dict(os.environ, TMPDIR=directory, TMP=directory, TEMP=directory,
                    GHOSTERM_AUTOMATION_OFFSCREEN='1')
-        with runner['headless'](36, Path(directory), env) as (selected, device):
+        work = Path(directory)
+        talkback_apk = None
+        if args.api == 29:
+            source = work / 'api36'
+            source.mkdir()
+            with runner['headless'](36, source, env) as (selected, device):
+                result = runner['run']([*selected, 'shell', 'pm', 'path', TALKBACK], device)
+                paths = [line.removeprefix('package:') for line in result.splitlines() if line.startswith('package:')]
+                if len(paths) != 1:
+                    raise RuntimeError('Expected a standalone TalkBack APK in the local API 36 image')
+                talkback_apk = work / 'talkback.apk'
+                runner['run']([*selected, 'pull', paths[0], talkback_apk], device)
+
+        target = work / f'api{args.api}'
+        target.mkdir()
+        with runner['headless'](args.api, target, env) as (selected, device):
             def adb(*args, seconds=30):
                 return runner['run']([*selected, *args], device, seconds)
 
-            prepare(selected, device, adb)
+            if talkback_apk is not None:
+                adb('install', talkback_apk)
+            prepare(selected, device, adb, args.api)
             for apk in apks:
                 with apk.open('rb') as stream:
                     digest = hashlib.file_digest(stream, 'sha256').hexdigest()

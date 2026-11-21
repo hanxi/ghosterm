@@ -4017,6 +4017,12 @@ TalkBack 将提交中状态交给 TTS。专用 API 36 无窗口的表单与表�
 和表单同轮 2 项通过。QuickJS 开启的 Android APK 构建与 app lintRelease
 通过，API 36 专用无窗口模拟器正常退出，临时目录已清理。
 
+同一对 APK 在 API 29 无窗口模拟器的表单和表格 TalkBack 用例也通过 2 项。
+本地 API 29 Google APIs 镜像含 TTS，未预装 TalkBack；常驻脚本的
+`--api 29` 从本地 API 36 镜像取原版独立 APK（16.0.0.738667889，minSdk 26），
+仅安装到本轮 API 29 AVD。两台模拟器均以 0 退出，TalkBack APK 与临时目录
+已清理。此处覆盖两档模拟器的控件动作与 TTS 接收，真实发音和真机另验。
+
 macOS 运行页首次呈现时若已有待答表单，请求状态也会进入系统无障碍播报入口；
 此前只由后续状态变化触发。提交等待仍走状态变化，系统通知继续要求 App 活跃。
 QuickJS 开启的表格、差异、任务和通用视图离屏组 82 项及 Release 构建通过，
