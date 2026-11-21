@@ -110,6 +110,8 @@ def verify(args, work, project, adb, build_prefix):
         ('request-method', requests, view, 'method == "GET" && ', ''),
         ('main-document-scope', requests, view, 'if (url == documentURL)', 'if (true)'),
         ('closed-view-revocation', lifetime, view, 'content = null; stylesheet = byteArrayOf()', 'stylesheet = byteArrayOf()'),
+        ('retained-response-revocation', requests, view,
+         'if (status == 200) responseBody(data) else ByteArrayInputStream(data)', 'ByteArrayInputStream(data)'),
         ('network-block', render, view, 'blockNetworkLoads = true', 'blockNetworkLoads = false'),
         ('javascript-disabled', render, view, 'javaScriptEnabled = false', 'javaScriptEnabled = true'),
         ('file-access-disabled', render, view, 'allowFileAccess = false', 'allowFileAccess = true'),
@@ -185,6 +187,8 @@ def verify(args, work, project, adb, build_prefix):
             # One selected JUnit method must fail by a normal assertion, never
             # compilation, process death, sanitizer, setup or runner failure.
             good = good and method.split('#')[1] in output
+            if label == 'retained-response-revocation-target':
+                good = good and 'A response retained during close must stop serving attachment bytes' in output
         if not good or f'INSTRUMENTATION_STATUS: numtests={count}\n' not in output:
             raise RuntimeError('Not accepted assertion result:\n' + output)
     control = 'com.hanxi.ghosterm.NativeSmokeTest#corePreservesUtf8AndLineEndings'

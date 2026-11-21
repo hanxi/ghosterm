@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.ensureActive
@@ -43,13 +44,33 @@ internal class PluginResourceHTMLCoordinator(snapshot: PluginResourceHTMLDocumen
     private var stylesheet = byteArrayOf()
     val closed get() = synchronized(lock) { content == null }
 
+    private fun responseBody(data: ByteArray): InputStream = object : InputStream() {
+        private var input: ByteArrayInputStream? = ByteArrayInputStream(data)
+
+        override fun read(): Int = synchronized(lock) {
+            if (content == null) -1 else input?.read() ?: -1
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = synchronized(lock) {
+            if (offset < 0 || length < 0 || offset > buffer.size - length) throw IndexOutOfBoundsException()
+            if (length == 0) 0 else if (content == null) -1 else input?.read(buffer, offset, length) ?: -1
+        }
+
+        override fun available(): Int = synchronized(lock) {
+            if (content == null) 0 else input?.available() ?: 0
+        }
+
+        override fun close() { synchronized(lock) { input = null } }
+    }
+
     private fun response(mime: String, data: ByteArray, status: Int): WebResourceResponse =
         WebResourceResponse(mime, if (mime.startsWith("text/")) "utf-8" else null,
             status, if (status == 200) "OK" else "Blocked", mapOf(
                 "Cache-Control" to "no-store, no-cache, must-revalidate",
                 "Content-Length" to data.size.toString(), "X-Content-Type-Options" to "nosniff",
                 "Referrer-Policy" to "no-referrer", "X-Frame-Options" to "DENY",
-                "Content-Security-Policy" to PluginResourceHTMLDocument.CSP), ByteArrayInputStream(data))
+                "Content-Security-Policy" to PluginResourceHTMLDocument.CSP),
+            if (status == 200) responseBody(data) else ByteArrayInputStream(data))
 
     fun intercept(url: String, method: String, mainFrame: Boolean): WebResourceResponse = synchronized(lock) {
         val snapshot = content

@@ -263,7 +263,14 @@ class PluginResourceHTMLTest {
         }
         assertEquals(403, owner.intercept(allowed, "POST", false).statusCode)
         assertEquals(403, owner.intercept(allowed, "GET", true).statusCode)
-        owner.close(); owner.close(); owner.load()
+        owner.intercept(allowed, "GET", false).data.use { retained ->
+            assertEquals('b'.code, retained.read())
+            owner.close()
+            assertEquals("A response retained during close must stop serving attachment bytes", -1, retained.read())
+            assertEquals(-1, retained.read(ByteArray(8)))
+            assertEquals(0, retained.available())
+        }
+        owner.close(); owner.load()
         assertTrue(owner.closed); assertEquals(403, owner.intercept(allowed, "GET", false).statusCode)
     }
 }

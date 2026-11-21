@@ -16119,3 +16119,14 @@ macOS 原生签名 runner 的 14 项离屏基线和 `review-cancelled`、`review
 `review-denial` 三组变异通过。每组确认生产对象重新编译，目标恰有一条指定正常
 断言失败，独立配置对照绿，恢复复验绿并核对源文件摘要。依赖使用锁定工具和同版本
 Sparkle 缓存，临时目录已清理。系统选择器与系统焦点仍待验收。
+
+### P2 Android HTML 已打开响应的撤销（2026-11-21）
+
+关闭 HTML 预览时，除了拒绝新的附件请求，也结束已交给 WebView、仍在读取的
+响应流。响应读取与关闭共用原预览锁，关闭后的单字节和批量读取都返回 EOF。
+已交付给渲染器的字节无法撤回。
+
+QuickJS 开启的 Debug 和测试 APK 编译通过。API 29 无窗口设备的
+`retained-response-revocation` 变异编译后触发指定单条断言，同 APK Core 对照和复原后
+目标通过，安装 APK 摘要及源文件 SHA256 均核对。API 36 无窗口设备完整 HTML 基线
+19 项通过，含原生 WebView CSS、PNG 渲染和渲染进程退出。设备和临时目录已清理。
