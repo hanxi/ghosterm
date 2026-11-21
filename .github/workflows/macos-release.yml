@@ -144,3 +144,21 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --draft --title "Ghosterm $TAG" --notes "$NOTES" "${ASSETS[@]}"
           fi
+          mkdir -p tmp
+          VERIFIED="$(mktemp -d "$PWD/tmp/formal-release-XXXXXX")"
+          trap 'rm -rf -- "$VERIFIED"' EXIT
+          gh release view "$TAG" --json isDraft,assets > "$VERIFIED/inventory.json"
+          jq -e '.isDraft == true' "$VERIFIED/inventory.json" >/dev/null
+          expected=()
+          downloads=()
+          for asset in "${ASSETS[@]}"; do
+            name="${asset##*/}"
+            expected+=("$name")
+            downloads+=(--pattern "$name")
+          done
+          diff -u <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort) \
+            <(jq -r '.assets[].name' "$VERIFIED/inventory.json" | LC_ALL=C sort)
+          gh release download "$TAG" --dir "$VERIFIED" "${downloads[@]}"
+          for asset in "${ASSETS[@]}"; do
+            cmp "$asset" "$VERIFIED/${asset##*/}"
+          done

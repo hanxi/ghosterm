@@ -20,7 +20,7 @@ shasum -a 256 -c android-SHA256SUMS
 
 共用 Release 中，Android 仅更新 `Ghosterm-android-arm64-dev.apk`、`android-SHA256SUMS` 和 `android-build-info.json`；Mac 使用自己的五份附件。两端发布 job 共用 `dev-release` 互斥组，原位更新 Release，不能删除整个 Release 或另一平台附件。正文共用 [.github/release-notes/dev.md](../../.github/release-notes/dev.md)。
 
-正式版本的草稿工作流会从同一提交构建签名 Android APK，校验来源、摘要和构建收据后，与 macOS 附件一并上传到版本标签的草稿 Release。正式 APK 名为 `Ghosterm-android-arm64-release.apk`，附同名的 Android 校验和与构建信息文件。草稿仍需发布后才可公开下载。
+正式版本的草稿工作流会从同一提交构建签名 Android APK，校验来源、摘要和构建收据后，与 macOS 附件一并上传到版本标签的草稿 Release。正式 APK 名为 `Ghosterm-android-arm64-release.apk`，附同名的 Android 校验和与构建信息文件。工作流确认 Release 仍为草稿，核对附件清单并逐一下载比对原始字节。草稿仍需发布后才可公开下载。
 
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
