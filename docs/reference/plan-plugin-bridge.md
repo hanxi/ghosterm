@@ -9619,6 +9619,11 @@ GHOSTERM_AUTOMATION_OFFSCREEN=1 python3 -B scripts/test-plugin-selection-review.
   --mutate --out tmp/p6-selection/data-receipt.json
 ```
 
+2026-11-22 使用 `--core-build` 指向本轮独立的 QuickJS 关闭档复验，19 项基线、
+八组变异的目标断言 / 独立对照 / 恢复及两个中断清理检查均通过。复验前修正
+候选引用变异锚点与临时目录断言。SwiftPM 缓存及夹具均在本轮目录并已核实清理。
+本轮为选择审查数据层离屏证据，实际系统选包与桌面焦点另验。
+
 前置 **19 项基线 / 八组变异**通过，收据
 `09819eae4f812cf63cdd95be5da3ed08ac20ba585181d671f0efdd870b14ab58`，1056 指定源 /
 四份工具与默认归档一致，切换档前再次全表对拍。数据层使用自有签名声明和明确

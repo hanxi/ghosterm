@@ -52,10 +52,16 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def scratch_root():
+    requested = Path(os.environ.get('TMPDIR', TMP)).resolve()
+    return requested if requested.is_dir() and requested.is_relative_to(TMP.resolve()) else TMP
+
+
 def environment():
     # xctest prints its environment for malformed invocations. Do not propagate
     # the caller's credentials, terminal integration, SSH or model settings.
-    return dict(PATH=os.environ.get('PATH', '/usr/bin:/bin'), TMPDIR=str(TMP),
+    scratch = str(scratch_root())
+    return dict(PATH=os.environ.get('PATH', '/usr/bin:/bin'), TMPDIR=scratch, TMP=scratch, TEMP=scratch,
                 DEVELOPER_DIR=os.environ.get('DEVELOPER_DIR', '/Applications/Xcode.app/Contents/Developer'),
                 LC_ALL='C.UTF-8', GHOSTERM_AUTOMATION_OFFSCREEN='1')
 
@@ -73,7 +79,7 @@ def thaw(path):
 
 @contextmanager
 def private_work(prefix):
-    work = Path(tempfile.mkdtemp(prefix=prefix, dir=TMP))
+    work = Path(tempfile.mkdtemp(prefix=prefix, dir=scratch_root()))
     try:
         yield work
     finally:
@@ -336,7 +342,7 @@ def check_interruptions(bundle, work):
                     if line.startswith(b'GHOSTERM_DRIVER_READY '): proof = json.loads(line.removeprefix(b'GHOSTERM_DRIVER_READY '))
             assert proof is not None and proof['pid'] == child.pid
             assert child.poll() is None
-            owned = Path(proof['root']); assert owned.parent == TMP and owned.is_dir()
+            owned = Path(proof['root']); assert owned.parent == scratch_root() and owned.is_dir()
             os.kill(proof['child'], 0)  # Verified live native lease holder, not just a marker file.
             child.send_signal(number)
             suffix, _ = child.communicate(timeout=15); output.extend(suffix)

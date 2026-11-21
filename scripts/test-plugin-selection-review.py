@@ -28,7 +28,7 @@ RECIPES = [
     ('candidate-binding', MODULE, 'let proof = try authenticated.bind(.init(id: review.id, version: review.version, publisher: review.publisher, packageSHA256: review.digest))', 'let proof = authenticated.proof', 'testCandidateMetadataCannotBorrowSignedVersion'),
     ('root-binding', MODULE, 'guard rootIdentity.sameObject(try Self.rootStamp(owner)) else', 'guard true else', 'testRootReplacementCannotReuseIdenticalSelectionBytes'),
     ('candidate-object', MODULE, 'guard try Self.stamp(named.fd).sameObject(Self.stamp(candidate.fd)) else', 'guard named.fd >= 0 else', 'testReplacedCandidateCannotReuseIdenticalSelectionAndDescriptor'),
-    ('candidate-reference', MODULE, 'let opened = try owner.openVersion(releaseID); try opened.pin(); candidate = opened', 'let opened = try owner.openVersion(releaseID); candidate = opened', 'testCandidateReferenceBlocksRemovalUntilReviewIsReleased'),
+    ('candidate-reference', MODULE, 'try opened.pin(); candidate = opened', 'candidate = opened', 'testCandidateReferenceBlocksRemovalUntilReviewIsReleased'),
     ('unknown-previous', MODULE, 'previous = nil; state = .unknown', 'previous = nil; state = .none', 'testMissingPreviousIsUnknownRatherThanAnEmptyDifference'),
     ('manifest-binding', DECLARATIONS, 'guard PluginReleaseCatalog.sha(bytes) == manifestDigest else', 'guard PluginReleaseCatalog.digest(manifestDigest) else', 'GhostermAppTests.PluginReleaseDeclarationsTests/testChangedManifestCannotBorrowAnOldCoreDigest'),
     ('declaration-programs', DECLARATIONS, 'let programs = try object["programs"].map { try $0.array().map { try $0.string() } } ?? []', 'let programs: [String] = []', 'GhostermAppTests.PluginReleaseDeclarationsTests/testDisplayFieldsUseExactlyTheManifestCoreAttested'),
@@ -38,7 +38,8 @@ RECIPES = [
 
 def compile_native(package, work, label, baseline=False):
     selected = 'PluginSelectionReviewTests|PluginReleaseDeclarationsTests|HostListTests.testReadingDoesNotMutateConfig' if baseline else 'HostListTests.testReadingDoesNotMutateConfig'
-    child = subprocess.Popen(['swift', 'test', '--package-path', str(package), '--filter', selected], cwd=ROOT,
+    child = subprocess.Popen(['swift', 'test', '--package-path', str(package), '--cache-path', str(work / 'swift-cache'),
+        '--disable-keychain', '--disable-netrc', '--filter', selected], cwd=ROOT,
         env=base.environment(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
     try: output, _ = child.communicate(timeout=300)
     finally:
@@ -61,13 +62,17 @@ def compile_native(package, work, label, baseline=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mutate', action='store_true'); parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build', help='use a separate QuickJS-disabled Core build')
     args = parser.parse_args()
     base.TMP.mkdir(exist_ok=True); out = args.out.resolve(); assert base.TMP in out.parents
-    assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' in (ROOT / 'core/build/CMakeCache.txt').read_text()
+    core_build = args.core_build.resolve(strict=True)
+    if core_build != ROOT / 'core/build' and not core_build.is_relative_to(base.TMP.resolve()):
+        parser.error('--core-build must be the workspace build or an owned build under tmp/')
+    assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' in (core_build / 'CMakeCache.txt').read_text()
     inputs = {str(p.relative_to(ROOT)): base.sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'scripts']
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in p.parts for part in ['.build', '.swiftpm', '__pycache__'])}
     tools = [Path(subprocess.check_output(['/usr/bin/xcrun', '--find', 'xctest'], env=base.environment(), text=True).strip()),
-             ROOT / 'core/build/libghosterm_core.a', ROOT / 'build/host-native/lib/libssh2.a', ROOT / 'build/GhosttyKit.xcframework/macos-arm64/libghostty-internal.a']
+             core_build / 'libghosterm_core.a', ROOT / 'build/host-native/lib/libssh2.a', ROOT / 'build/GhosttyKit.xcframework/macos-arm64/libghostty-internal.a']
     binaries = {str(path): base.sha(path) for path in tools}
     for label, filename, old, _, _ in RECIPES: assert (ROOT / filename).read_text().count(old) == 1, label
     with base.private_work('selection-') as work:
@@ -75,7 +80,8 @@ def main():
         for name in ['GhostermApp', 'GhostermCore', 'GhostermTerminal']:
             shutil.copytree(ROOT / 'apple' / name, source / 'apple' / name, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
         (source / 'core').mkdir()
-        for name in ['include', 'build']: (source / 'core' / name).symlink_to(ROOT / 'core' / name, target_is_directory=True)
+        (source / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
+        (source / 'core/build').symlink_to(core_build, target_is_directory=True)
         for name in ['build', 'patches']: (source / name).symlink_to(ROOT / name, target_is_directory=True)
         (source / 'tmp').mkdir(); package = source / 'apple/GhostermApp'
         baseline = compile_native(package, work, 'baseline', True)
