@@ -5,17 +5,25 @@ import SwiftUI
 struct PluginDiffView: View {
     @ObservedObject var model: PluginDiffModel
     var body: some View {
+        let loading = "正在读取差异…"
+        let range = model.page.flatMap { page in
+            model.descriptor.flatMap { descriptor in
+                descriptor.total > 0
+                    ? "第 \(page.offset + 1)–\(page.offset + page.rows.count) 行，共 \(descriptor.total) 行"
+                    : nil
+            }
+        }
         VStack(alignment: .leading, spacing: 12) {
             Text(model.descriptor?.title ?? "差异").font(.headline).accessibilityAddTraits(.isHeader)
             if let issue = model.issue { Text(issue).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("plugin-diff-issue") }
-            if model.busy { ProgressView("正在读取差异…").accessibilityIdentifier("plugin-diff-loading") }
+            if model.busy { ProgressView(loading).accessibilityIdentifier("plugin-diff-loading") }
             if let d = model.descriptor, let page = model.page {
                 Text("\(d.beforeLabel) → \(d.afterLabel)").textSelection(.enabled).accessibilityIdentifier("plugin-diff-labels")
                 Text("新增 \(d.added) 行 · 删除 \(d.removed) 行").accessibilityIdentifier("plugin-diff-summary")
                 if d.total == 0 { Text("两份文本均为空").accessibilityIdentifier("plugin-diff-empty") }
                 else {
                     if d.added == 0 && d.removed == 0 { Text("两份文本相同").accessibilityIdentifier("plugin-diff-identical") }
-                    Text("第 \(page.offset + 1)–\(page.offset + page.rows.count) 行，共 \(d.total) 行").accessibilityIdentifier("plugin-diff-range")
+                    if let range { Text(verbatim: range).accessibilityIdentifier("plugin-diff-range") }
                     GeometryReader { geometry in
                         ScrollView([.horizontal, .vertical]) {
                             VStack(alignment: .leading, spacing: 12) {
@@ -42,7 +50,7 @@ struct PluginDiffView: View {
             }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-diff")
-            .announcePluginStatus(model.issue)
+            .announcePluginStatus(model.issue ?? (model.busy ? loading : range))
             .task { if model.descriptor == nil && model.issue == nil { await model.load() } }
     }
     @ViewBuilder private var controls: some View {

@@ -5,16 +5,23 @@ import SwiftUI
 struct PluginTableView: View {
     @ObservedObject var model: PluginTableModel
     var body: some View {
+        let loading = "正在读取表格…"
+        let range = model.page.flatMap { page in
+            model.descriptor.flatMap { descriptor in
+                descriptor.total > 0
+                    ? "第 \(page.offset + 1)–\(page.offset + page.rows.count) 行，共 \(descriptor.total) 行"
+                    : nil
+            }
+        }
         VStack(alignment: .leading, spacing: 12) {
             Text(model.descriptor?.title ?? "表格").font(.headline).accessibilityAddTraits(.isHeader)
             if let issue = model.issue { Text(issue).foregroundStyle(.red).textSelection(.enabled).accessibilityIdentifier("plugin-table-issue") }
-            if model.busy { ProgressView("正在读取表格…").accessibilityIdentifier("plugin-table-loading") }
+            if model.busy { ProgressView(loading).accessibilityIdentifier("plugin-table-loading") }
             if let descriptor = model.descriptor, let page = model.page {
                 if descriptor.total == 0 {
                     Text("空表").accessibilityIdentifier("plugin-table-empty")
                 } else {
-                    Text("第 \(page.offset + 1)–\(page.offset + page.rows.count) 行，共 \(descriptor.total) 行")
-                        .accessibilityIdentifier("plugin-table-range")
+                    if let range { Text(verbatim: range).accessibilityIdentifier("plugin-table-range") }
                     ScrollView([.horizontal, .vertical]) {
                         Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
                             GridRow {
@@ -45,7 +52,7 @@ struct PluginTableView: View {
                 VStack(alignment: .leading) { controls }
             }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-table")
-            .announcePluginStatus(model.issue)
+            .announcePluginStatus(model.issue ?? (model.busy ? loading : range))
             .task { if model.descriptor == nil && model.issue == nil { await model.load() } }
     }
     @ViewBuilder private var controls: some View {
