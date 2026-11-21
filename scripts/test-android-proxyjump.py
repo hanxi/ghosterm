@@ -11,16 +11,21 @@ def load(name, file):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--method');parser.add_argument('--hops',type=int,choices=[2,3]);parser.add_argument('--expect-assertion',action='store_true')
+    parser.add_argument('--reset', choices=('outer', 'destination'))
     args=parser.parse_args()
+    if args.reset and (args.hops != 2 or args.method != 'productResolvesOnlyFirstHopAndSeparatesAuthentication'):
+        parser.error('--reset requires the two-hop product authentication test')
     if args.expect_assertion and not (args.method and args.hops): parser.error('one method and hop count required for mutation')
     sources=[p for scope in ['android/app/src','android/bridge/src','core/src','core/include'] for p in (ROOT/scope).rglob('*') if p.is_file()]
     hashes={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     serial = os.environ['ANDROID_SERIAL']
     adb = [str(ROOT/'build/android-toolchain/sdk/platform-tools/adb'), '-s', serial]
-    work = Path(tempfile.mkdtemp(prefix='aj-', dir=ROOT/'tmp')); logs=work/'logs'; logs.mkdir()
+    scratch = Path(os.environ.get('TMPDIR', ROOT/'tmp')).resolve()
+    if not scratch.is_relative_to(ROOT/'tmp'): scratch = ROOT/'tmp'
+    work = Path(tempfile.mkdtemp(prefix='aj-', dir=scratch)); logs=work/'logs'; logs.mkdir()
     routes=load('aj_routes','test-plugin-route.py'); helpers=load('aj_keys','test-plugin-ssh.py'); streams=load('aj_streams','test-plugin-ssh-stream.py')
     private, public=streams.memory_identity()
-    token=secrets.token_hex(24); payload={}
+    token=secrets.token_hex(24); payload={}; proxy=None
     def run(args, label):
         result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True,timeout=180)
         (logs/(label+'.log')).write_text(result.stdout+result.stderr)
@@ -28,14 +33,17 @@ def main():
         return result.stdout+result.stderr
     class Handler(socketserver.StreamRequestHandler):
         def handle(self):
-            if self.rfile.readline(256).strip().decode()==token:
+            request = self.rfile.readline(256).strip().decode()
+            if request == token:
                 self.wfile.write(json.dumps(payload).encode()+b'\n')
+            elif request == token + ':reset' and proxy is not None and proxy.fault('reset'):
+                self.wfile.write(b'OK\n')
     with ExitStack() as stack:
         server=stack.enter_context(socketserver.TCPServer(('127.0.0.1',0),Handler))
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         stack.callback(server.shutdown)
         fixture_port=server.server_address[1]
-        run([*adb,'reverse',f'tcp:{fixture_port}',f'tcp:{fixture_port}'],'fixture-reverse')
+        run([*adb,'reverse','--no-rebind',f'tcp:{fixture_port}',f'tcp:{fixture_port}'],'fixture-reverse')
         stack.callback(lambda: subprocess.run([*adb,'reverse','--remove',f'tcp:{fixture_port}'],capture_output=True))
         for name,path in [('app','app/build/outputs/apk/debug/app-debug.apk'),('test','app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk')]:
             run([*adb,'install','-r','-t',str(ROOT/'android'/path)],'install-'+name)
@@ -44,13 +52,22 @@ def main():
         tmux=shutil.which('tmux'); assert tmux
         for count in ([args.hops] if args.hops else [2,3]):
             folder=work/str(count);folder.mkdir()
-            ports,_,_=stack.enter_context(routes.chain(folder,count,public,keys,agent,'echo',sftp=True))
+            def proxy_port(port):
+                nonlocal proxy
+                faults = load('aj_faults', 'lib/tmux-fault-proxy.py')
+                proxy = faults.SSHFaultProxy('127.0.0.1', port, folder)
+                stack.callback(proxy.close)
+                return proxy.port
+            ports,_,_=stack.enter_context(routes.chain(folder,count,public,keys,agent,'echo',sftp=True,
+                destination_proxy=proxy_port if args.reset == 'destination' else None))
+            if args.reset == 'outer': ports[0] = proxy_port(ports[0])
             (folder/'payload').write_bytes(b'owned Android route fixture')
             socket=folder/'tmux-route'
             stack.callback(lambda socket=socket: subprocess.run([tmux,'-S',str(socket),'kill-server'],capture_output=True))
-            run([*adb,'reverse',f'tcp:{ports[0]}',f'tcp:{ports[0]}'],f'{count}-reverse')
+            run([*adb,'reverse','--no-rebind',f'tcp:{ports[0]}',f'tcp:{ports[0]}'],f'{count}-reverse')
             stack.callback(lambda port=ports[0]: subprocess.run([*adb,'reverse','--remove',f'tcp:{port}'],capture_output=True))
             payload.update(ports=ports,user=pwd.getpwuid(os.getuid()).pw_name,pem=private.decode(),socket=str(socket),tmux=tmux)
+            if args.reset: payload['reset'] = args.reset
             output=run([*adb,'shell','am','instrument','-w','-r','-e','class','com.hanxi.ghosterm.ProxyJumpTest'+('#'+args.method if args.method else ''),'-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],f'{count}-tests')
             if args.expect_assertion:
                 valid=bool(re.search(r'Tests run: 1,\s+Failures: 1',output)) and any(x in output for x in ['java.lang.AssertionError','org.junit.ComparisonFailure'])

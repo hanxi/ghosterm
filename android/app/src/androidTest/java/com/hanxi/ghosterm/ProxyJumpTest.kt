@@ -83,9 +83,10 @@ class ProxyJumpTest {
         val target = PreparedSSH("dest", "127.0.0.1", fixture.getString("user"), ports.last(), listOf("identity-final"), jumps)
         val lookedUp = java.util.concurrent.CopyOnWriteArrayList<String>()
         val store = androidx.lifecycle.ViewModelStore()
+        val testReset = fixture.has("reset")
         lateinit var model: SessionsViewModel
         main {
-            model = SessionsViewModel(app, SSHResolver { host -> lookedUp += host; listOf(java.net.InetAddress.getByAddress(byteArrayOf(127,0,0,1))) }, 20000, false)
+            model = SessionsViewModel(app, SSHResolver { host -> lookedUp += host; listOf(java.net.InetAddress.getByAddress(byteArrayOf(127,0,0,1))) }, 20000, testReset)
             store.put("route", model); model.connect(target)
         }
         val seen = mutableSetOf<Long>(); val hosts = mutableListOf<Int>(); val credentials = mutableListOf<Int>()
@@ -114,6 +115,42 @@ class ProxyJumpTest {
             assertEquals(listOf("first-hop.invalid"), lookedUp)
             assertEquals(ports.indices.toList(), hosts)
             assertEquals(ports.indices.toList(), credentials)
+            if (testReset) {
+                assertTrue("Reset test requires QuickJS-enabled discovery", BuildConfig.PLUGIN_JS_ENABLED)
+                lateinit var candidate: FrontendCandidate
+                val session = model.sessions.single()
+                val offer = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
+                session.connection.resize(60, 12, 10, 20)
+                session.connection.visible(true)
+                session.connection.commit("printf '\\r\\nJUMP_%s\\r\\n' READY\r")
+                await {
+                    session.connection.frame(-1)?.let { frame ->
+                        (0 until frame.rows).any { frame.line(it).contains("JUMP_READY") }
+                    } == true
+                }
+                session.connection.commit("printf '\\033]777;ghosterm-discovery;1;$offer\\007'\r")
+                await {
+                    var found = false
+                    main {
+                        model.frontendCandidates.singleOrNull { it.sourceID == session.id }?.let {
+                            candidate = it
+                            found = true
+                        }
+                    }
+                    found
+                }
+                resetSSHFixtureConnection()
+                await {
+                    var stopped = false
+                    main { stopped = session.state.terminal && model.frontendCandidates.isEmpty() }
+                    stopped
+                }
+                main {
+                    assertSame(session, model.sessions.single())
+                    assertFalse("Candidate must clear before expiry", candidate.expired)
+                    assertTrue(session.state.error, session.state.error?.startsWith("终端读取失败") == true)
+                }
+            }
         } finally { main { store.clear() }; await { owners("NativeSession") == 0 }; folder.deleteRecursively() }
     }
     @Test fun innerHostRejectionAndCancellationNeverCreateATerminal() {
