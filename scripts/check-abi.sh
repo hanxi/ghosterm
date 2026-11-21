@@ -8,10 +8,21 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIB="$ROOT/core/build/libghosterm_core.a"
-TMP="$ROOT/tmp"
-mkdir -p "$TMP"
 
 [ -f "$LIB" ] || { echo "check-abi: 缺少静态库，先跑 scripts/gate.sh" >&2; exit 2; }
+mkdir -p "$ROOT/tmp"
+TMP_ROOT="$(cd "$ROOT/tmp" && pwd -P)"
+SCRATCH="$TMP_ROOT"
+if [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ]; then
+  REQUESTED_TMP="$(cd "$TMPDIR" && pwd -P)"
+  case "$REQUESTED_TMP" in
+    "$TMP_ROOT"/*) SCRATCH="$REQUESTED_TMP" ;;
+  esac
+fi
+TMP="$(mktemp -d "$SCRATCH/core-abi-XXXXXX")"
+trap 'rm -rf -- "$TMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # 头文件里的公共函数声明：gt_ 后紧跟小写字母（排除 gt__ 内部符号）
 grep -rhoE '\bgt_[a-z][a-z0-9_]*[[:space:]]*\(' "$ROOT/core/include" \
