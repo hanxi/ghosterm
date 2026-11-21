@@ -4119,6 +4119,11 @@ Android TalkBack runner 支持指定本地镜像和核对设备页大小。用 S
 `PAGE_SIZE=16384`。表单与表格 2 项通过。镜像、设备数据和临时目录全部
 清理，AVD 以 0 退出。本轮为控件及 TTS 路径的 16 KiB 页证据。
 
+在 `76dd478c` 重建 QuickJS-on / SSH-on gterm，用现有 APK 在同一 API 29
+无窗口模拟器完成官方 Preview 的直连 Markdown 和 ProxyJump Unicode HTML。
+两项均经真实 SSH、同意、设置预览、停止释放和远端清理通过；模拟器正常退出，
+临时目录已核实清理。本轮未覆盖桌面系统选包或真实设备。
+
 macOS 运行页首次呈现时若已有待答表单，请求状态也会进入系统无障碍播报入口；
 此前只由后续状态变化触发。提交等待仍走状态变化，系统通知继续要求 App 活跃。
 QuickJS 开启的表格、差异、任务和通用视图离屏组 82 项及 Release 构建通过，
