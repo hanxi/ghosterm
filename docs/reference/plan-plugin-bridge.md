@@ -994,6 +994,9 @@ ExtensionPlatformServices
 核对带内嵌来源收据的 APK、SHA256SUMS 和外部构建收据；三者一致时通过。
 只把外部收据和期望版本改为另一版本时，摘要仍吻合，但真实 APK Manifest 检查拒绝。
 
+在 `3cd6f4d3` 用 actionlint 1.7.7 检查全部 Actions 工作流，无诊断。
+Go 下载缓存首次清理因目录只读报错，恢复目录写权限后已删除并核对。
+
 远端复查：macOS Release 工作流 `44806436423` 的打包作业成功，
 草稿发布作业跳过，且该轮没有 Android 正式构建。GitHub Release 仍只有滚动
 `dev`，远端 `v0.1.0` 标签既有且指向旧提交。仓库级变量列表仅见 macOS
