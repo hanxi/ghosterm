@@ -10,7 +10,9 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import struct
 import subprocess
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 APK = 'Ghosterm-android-arm64-dev.apk'
@@ -39,6 +41,33 @@ def verify_apk_version(apk, version, aapt):
     abi = [line.removeprefix('native-code:').split() for line in lines if line.startswith('native-code:')]
     if abi != [["'arm64-v8a'"]]:
         raise ValueError('APK native ABI does not match the arm64 release metadata')
+
+
+def verify_native_page_alignment(apk):
+    with ZipFile(apk) as archive:
+        libraries = [entry for entry in archive.infolist()
+                     if re.fullmatch(r'lib/arm64-v8a/[^/]+\.so', entry.filename)]
+        if not libraries:
+            raise ValueError('APK is missing arm64 native libraries')
+        for library in libraries:
+            with archive.open(library) as stream:
+                header = stream.read(64)
+                if len(header) != 64 or header[:6] != b'\x7fELF\x02\x01':
+                    raise ValueError('expected a little-endian ELF64 library: ' + library.filename)
+                offset = struct.unpack_from('<Q', header, 32)[0]
+                entry_size, count = struct.unpack_from('<HH', header, 54)
+                if entry_size != 56 or not count or offset < 64 or offset + entry_size * count > library.file_size:
+                    raise ValueError('invalid ELF program headers: ' + library.filename)
+                stream.seek(offset)
+                loads = 0
+                for _ in range(count):
+                    entry = stream.read(entry_size)
+                    if struct.unpack_from('<I', entry)[0] == 1:  # PT_LOAD
+                        loads += 1
+                        if struct.unpack_from('<Q', entry, 48)[0] < 16384:
+                            raise ValueError('ELF load segment alignment below 16 KiB: ' + library.filename)
+                if not loads:
+                    raise ValueError('missing ELF load segments: ' + library.filename)
 
 
 def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, certificate_sha256=None):
@@ -72,6 +101,7 @@ def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, cer
             if fingerprints != [certificate_sha256]:
                 raise ValueError('APK signing certificate does not match the expected SHA-256 fingerprint')
         subprocess.run([build_tools / 'zipalign', '-c', '-P', '16', '4', apk], check=True, timeout=30)
+        verify_native_page_alignment(apk)
         aapt = build_tools / 'aapt'
     if aapt is not None:
         verify_apk_version(apk, formal_version, aapt)
