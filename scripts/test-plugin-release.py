@@ -50,9 +50,11 @@ def agent(node, work):
 
 
 def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools=None, ai_packages=()):
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work))
+
     def cli(*args, status=0, code=None):
         child = subprocess.Popen([sys.executable, '-B', root / 'scripts/gterm-plugin', *map(str, args)],
-            stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')))
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=env)
         try: output,diagnostics=child.communicate(timeout=90)
         finally:
             if child.poll() is None:
@@ -356,7 +358,7 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
         signer.write_text(json.dumps(dict(config,prefixArguments=[str(ROOT/'scripts/fixtures/plugin-release-agent.mjs'),'hold',str(barrier)])))
         destination=work/('interrupted-'+str(number))
         child=subprocess.Popen([sys.executable,'-B',root/'scripts/gterm-plugin',*map(str,[*sign_args,'--out',destination])],
-            stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=dict(os.environ,TMPDIR=str(ROOT/'tmp')))
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=env)
         try:
             deadline=time.monotonic()+10
             while not barrier.exists() and child.poll() is None and time.monotonic()<deadline: time.sleep(.02)

@@ -40,10 +40,13 @@ def main():
                 raise ValueError('unrecognized output')
         except (OSError, ValueError):
             raise SystemExit('refusing to replace a directory without the Claude package identity')
-    (ROOT / 'tmp').mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='claude-package-', dir=ROOT / 'tmp') as temporary:
+    tmp_root = ROOT / 'tmp'
+    tmp_root.mkdir(exist_ok=True)
+    requested_tmp = Path(os.environ.get('TMPDIR', str(tmp_root))).resolve()
+    temporary_root = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(tmp_root) else tmp_root
+    with tempfile.TemporaryDirectory(prefix='claude-package-', dir=temporary_root) as temporary:
         work = Path(temporary)
-        env = dict(os.environ, TMPDIR=str(work))
+        env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work))
         tools = args.tools.resolve(strict=True) if args.tools else work / 'tools'
         if args.tools:
             for name in ('package.json', 'package-lock.json'):
