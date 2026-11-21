@@ -22,7 +22,7 @@ def verify_release_preflight(work, env, origin, certificate, root):
     for route, expected in (
         ('valid', '"generation":"2"'),
         ('redirect', 'HTTP 302'),
-        ('oversized', ('curl: (63)', 'exceeds 131072 bytes for policy.json')),
+        ('oversized', 'download failed for policy.json (maximum 131072 bytes)'),
         ('mixed', 'CHANNEL_POLICY_DIGEST'),
         ('expired', 'CHANNEL_POLICY_FRESHNESS'),
         ('revoked', '"generation":"3"'),
@@ -32,9 +32,8 @@ def verify_release_preflight(work, env, origin, certificate, root):
             [*command, f'{origin}/{route}/', work / 'preflight.sqlite'],
             cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=110)
         output = result.stdout + result.stderr
-        markers = (expected,) if isinstance(expected, str) else expected
-        wants_success = markers[0].startswith('"generation":')
-        if (result.returncode == 0) != wants_success or not any(marker in output for marker in markers):
+        wants_success = expected.startswith('"generation":')
+        if (result.returncode == 0) != wants_success or expected not in output:
             raise RuntimeError(f'Channel preflight {route}: {output}')
     print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / size / digest / expiry / revocation / rollback',
           flush=True)

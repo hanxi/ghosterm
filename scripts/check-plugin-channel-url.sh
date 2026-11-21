@@ -26,9 +26,17 @@ trap 'exit 143' TERM
 for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
   name="${entry%:*}"
   limit="${entry##*:}"
-  status="$(curl --disable --silent --show-error --proto '=https' --globoff \
-    --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
-    --output "$WORK/$name" --write-out '%{http_code}' "${DIRECTORY%/}/$name")"
+  status="$(
+    # Older curl versions need a separate bound for responses without Content-Length.
+    set +o posix
+    ulimit -Sf "$(( (limit + 1023) / 1024 ))" || exit 1
+    exec curl --disable --silent --show-error --proto '=https' --globoff \
+      --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
+      --output "$WORK/$name" --write-out '%{http_code}' "${DIRECTORY%/}/$name"
+  )" || {
+    echo "Plugin channel download failed for $name (maximum $limit bytes)" >&2
+    exit 1
+  }
   if [ "$status" != 200 ]; then
     echo "Plugin channel returned HTTP $status for $name" >&2
     exit 1
