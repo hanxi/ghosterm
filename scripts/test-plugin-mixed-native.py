@@ -131,7 +131,7 @@ def main():
         commands.append(dict(label=label, returncode=process.returncode))
         abnormal = any(mark in text for mark in ('AddressSanitizer', 'runtime error:', 'unexpected signal', 'fatalError'))
         if assertion:
-            failures = re.findall(r'^.*: error: .* : XCTAssert\w+ failed[^\n]*', text, re.M)
+            failures = re.findall(r'^.*: error: -\[.*\] : (?:XCTAssert\w+ failed|failed - )[^\n]*', text, re.M)
             if process.returncode != 1 or abnormal or len(failures) != 1 or 'Executed 1 test, with 1 failure (0 unexpected)' not in text:
                 raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-12000:])
         elif process.returncode or abnormal:
@@ -360,6 +360,10 @@ export function activate(ctx){
              'a live group owner remains a channel stop target without its workspace pane'),
         ] if faults else [
             ('parent-pump', 'ExtensionController', b'                    _ = try self.run.parent?.multiplexer?.step()\n', b'', 2, None),
+            ('rejected-admission-generation', 'ExtensionInstanceModel',
+             b'            await onRejectedAdmission?()\n            try checkExtensionRunGeneration(generation)\n',
+             b'            await onRejectedAdmission?()\n', 1,
+             'Late rejected admission was returned after closing its original run'),
         ]
         for mutation, stem, anchor, replacement, occurrences, expected in recipes if args.mutate else []:
             filename = f'apple/GhostermApp/Sources/GhostermAppModel/{stem}.swift'
@@ -371,7 +375,7 @@ export function activate(ctx){
             before = {str(p): sha(p) for p in objects}
             if not before: raise RuntimeError('missing compiled worker object')
             try:
-                route = 'direct' if faults else 'local'
+                route = completed[0] if mutation == 'rejected-admission-generation' else ('direct' if faults else 'local')
                 target.write_bytes(original.replace(anchor, replacement))
                 actual(route, mutation + '-red', assertion=True, compile=True)
                 if expected and expected not in (logs / (mutation + '-red.log')).read_text():
