@@ -85,6 +85,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0 # git describe 要完整历史与 tag
 
+      - name: 验证正式发行标签解析
+        if: inputs.gates == 'full'
+        run: bash scripts/test-formal-release-version.sh
+
       - name: 核对正式发行标签
         if: inputs.formal_release
         run: |
