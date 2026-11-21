@@ -56,6 +56,38 @@ final class PluginResourceUITests: XCTestCase {
     }
 
     @MainActor
+    func testHTMLSchemeStopsDeliveryWhenRevokedDuringResponse() async throws {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let image = resource("image", path: "site/style.css", mime: "text/css", bytes: Data("body{}".utf8))
+        let prepared = try await snapshot(main, resources: [main, image])
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/style.css")))
+        let web = WKWebView(frame: .zero)
+
+        for invalidate in [
+            { (handler: PluginResourceHTMLSchemeHandler) in handler.close() },
+            { (handler: PluginResourceHTMLSchemeHandler) in handler.update(snapshot: prepared) },
+        ] {
+            let handler = PluginResourceHTMLSchemeHandler(snapshot: prepared)
+            let task = CapturedSchemeTask(request: request)
+            task.onResponse = { invalidate(handler) }
+            handler.webView(web, start: task)
+            XCTAssertEqual((task.error as? URLError)?.code, .cancelled)
+            XCTAssertTrue(task.data.isEmpty)
+            XCTAssertFalse(task.finished)
+        }
+
+        let handler = PluginResourceHTMLSchemeHandler(snapshot: prepared)
+        let stopped = CapturedSchemeTask(request: request)
+        stopped.onResponse = { [weak stopped] in
+            if let stopped { handler.webView(web, stop: stopped) }
+        }
+        handler.webView(web, start: stopped)
+        XCTAssertTrue(stopped.data.isEmpty)
+        XCTAssertNil(stopped.error)
+        XCTAssertFalse(stopped.finished)
+    }
+
+    @MainActor
     func testHTMLCoordinatorCloseRevokesRetainedSchemeHandler() async throws {
         TestWindows.enterAutomationMode()
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
@@ -541,9 +573,10 @@ final class PluginResourceUITests: XCTestCase {
         private(set) var data = Data()
         private(set) var finished = false
         private(set) var error: Error?
+        var onResponse: (() -> Void)?
 
         init(request: URLRequest) { self.request = request }
-        func didReceive(_ response: URLResponse) { self.response = response }
+        func didReceive(_ response: URLResponse) { self.response = response; onResponse?() }
         func didReceive(_ data: Data) { self.data.append(data) }
         func didFinish() { finished = true }
         func didFailWithError(_ error: Error) { self.error = error }

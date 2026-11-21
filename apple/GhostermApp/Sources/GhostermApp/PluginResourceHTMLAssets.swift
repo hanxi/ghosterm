@@ -187,10 +187,10 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
     func close(in webView: WKWebView) {
         guard !closed else { return }
         closed = true
+        schemeHandler.close()
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        schemeHandler.close()
         resourceFingerprint = nil
         baseURL = nil
         navigation = nil
@@ -241,9 +241,11 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
     }
 }
 
-final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
-    private let lock = NSLock()
+@MainActor
+final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler {
     private var resolver: PluginResourceHTMLAssetResolver?
+    private var generation = UUID()
+    private var activeTasks = Set<ObjectIdentifier>()
 
     init(snapshot: PluginResourceHTMLSnapshot) {
         resolver = snapshot.resolver
@@ -251,23 +253,19 @@ final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unch
     }
 
     func update(snapshot: PluginResourceHTMLSnapshot) {
-        lock.lock()
-        defer { lock.unlock() }
         guard resolver != nil else { return }
         resolver = snapshot.resolver
+        generation = UUID()
     }
 
     func close() {
-        lock.lock()
         resolver = nil
-        lock.unlock()
+        generation = UUID()
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        lock.lock()
         let requestedURL = urlSchemeTask.request.url
         let asset = requestedURL.flatMap { resolver?.resolve($0) }
-        lock.unlock()
         guard let asset, let url = requestedURL else {
             urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
             return
@@ -281,10 +279,26 @@ final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unch
             urlSchemeTask.didFailWithError(URLError(.badServerResponse))
             return
         }
+        let id = ObjectIdentifier(urlSchemeTask)
+        activeTasks.insert(id)
+        defer { activeTasks.remove(id) }
+        let acceptedGeneration = generation
+        func canContinue() -> Bool {
+            guard activeTasks.contains(id) else { return false }
+            guard generation == acceptedGeneration else {
+                urlSchemeTask.didFailWithError(URLError(.cancelled))
+                return false
+            }
+            return true
+        }
         urlSchemeTask.didReceive(response)
+        guard canContinue() else { return }
         urlSchemeTask.didReceive(asset.data)
+        guard canContinue() else { return }
         urlSchemeTask.didFinish()
     }
 
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        activeTasks.remove(ObjectIdentifier(urlSchemeTask))
+    }
 }

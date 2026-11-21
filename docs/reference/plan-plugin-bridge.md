@@ -16130,3 +16130,13 @@ QuickJS 开启的 Debug 和测试 APK 编译通过。API 29 无窗口设备的
 `retained-response-revocation` 变异编译后触发指定单条断言，同 APK Core 对照和复原后
 目标通过，安装 APK 摘要及源文件 SHA256 均核对。API 36 无窗口设备完整 HTML 基线
 19 项通过，含原生 WebView CSS、PNG 渲染和渲染进程退出。设备和临时目录已清理。
+
+### P2 macOS HTML 附件响应中途撤销（2026-11-21）
+
+WebKit 的 scheme handler 在主 actor 处理响应、关闭和切换。发出响应头后，若预览
+已经关闭或切换，旧请求以取消结束，尚未发送的附件字节不会交付。若 WebKit 已明确
+停止该请求，handler 不再发送回调。协调器先撤销附件，再停止 WebView 加载。
+
+QuickJS 开启的 macOS 隔离构建通过。离屏资源界面组 23 项通过，新增断言覆盖响应头
+回调期间关闭、替换快照及 WebKit 停止。该竞态由 scheme task 夹具触发。同轮仍通过
+既有原生 WebKit 资源界面断言。临时目录已清理。
