@@ -130,6 +130,9 @@ def main():
             ('announcement-title', 'apple/GhostermApp/Sources/GhostermApp/PluginTaskView.swift',
              'return cancellationMessage.map { "\\(title)，\\($0)" }', 'return cancellationMessage',
              'testCancellationAnnouncementIdentifiesTheTask'),
+            ('cancel-receipt', 'apple/GhostermApp/Sources/GhostermApp/PluginTaskView.swift',
+             '"取消请求回执未确认；任务已结束"', '"取消结果不明；不会重发取消请求"',
+             'testUnknownCancellationOnlyAllowsExplicitReads'),
         ]
         if args.mutation_case:
             if not args.mutate or set(args.mutation_case) - {case[0] for case in cases}:

@@ -238,6 +238,8 @@ def main():
                             ('caller-cancelled', MODEL, 'mutable.value = if (state.value.cancellation == Cancellation.PENDING)', 'mutable.value = if (false && state.value.cancellation == Cancellation.PENDING)', 'cancelledCallerKeepsActionUnconfirmed'),
                             ('native-service', BOOT, 'request.clientCapabilities.forEach { add("--client-capability"); add(it) }', 'request.clientCapabilities.forEach { _ -> Unit }', 'nativeBootstrapUsesOnlyUniqueImplementedServices'),
                             ('native-cancel', UI, 'onClick = { model.cancel() }', 'onClick = { Unit }', 'UI#actualCancelButtonAcknowledgesWithoutInventingStop'),
+                            ('native-cancel-receipt', UI, '"取消请求回执未确认；任务已结束"',
+                             '"取消结果不明；不会重发取消请求"', 'UI#unknownCancelOnlyAllowsExplicitRead'),
                             ('native-refresh', UI, 'if (model.canAutoRefresh) model.load()?.join()', 'if (false) model.load()?.join()', 'UI#mountedViewRefreshesPausesAndResumesAfterExplicitRead'),
                             ('native-declaration', VM, 'if (state.info.phase == ExtensionRuntime.Phase.ACTIVE && task == null &&', 'if (false && state.info.phase == ExtensionRuntime.Phase.ACTIVE && task == null &&', None),
                             ('native-methods', VM, '(diffRequest.methods + PluginTaskModel.methods).distinct()', 'diffRequest.methods', None),
