@@ -105,7 +105,9 @@ def main():
         env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
         commands, groups, actual = [], [], []
         def test(label, selected, count=1, red=False, expected=None):
-            command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require views-native; shift; exec "$gt_timeout_bin" "$@"', 'views-native', ROOT, 300, 'swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected]
+            command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require views-native; shift; exec "$gt_timeout_bin" "$@"', 'views-native', ROOT, 300,
+                'swift', 'test', '--package-path', source / 'apple/GhostermApp', '--cache-path', args.receipt.resolve().parent / 'swift-cache',
+                '--disable-keychain', '--disable-netrc', '--filter', selected]
             child = subprocess.Popen(list(map(str, command)), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
             try: output, errors = child.communicate(timeout=305)
             finally:
@@ -126,7 +128,7 @@ def main():
         test('baseline', 'PluginViewsTests', VIEW_TEST_COUNT)
         test('bootstrap', 'ExtensionControllerTests.testRelayBootstrapAcceptsFourUniqueImplementedViewServices')
         test('host-profile', 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities')
-        test('legacy-table', 'PluginTableTests', 15); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 28)
+        test('legacy-table', 'PluginTableTests', 16); test('legacy-diff', 'PluginDiffTests', 15); test('legacy-task', 'PluginTaskTests', 28)
         if args.mutate:
             for label, filename, old, new, selected in cases:
                 path = source / filename; before = path.read_bytes()

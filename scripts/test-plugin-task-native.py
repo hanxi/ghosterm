@@ -110,11 +110,12 @@ def main():
 
         app = source / 'apple/GhostermApp'
         def test(label, selected='PluginTaskTests', count=28, red=False):
-            text = run(label, ['swift', 'test', '--package-path', app, '--filter', selected], red)
+            text = run(label, ['swift', 'test', '--package-path', app, '--cache-path', args.receipt.resolve().parent / 'swift-cache',
+                '--disable-keychain', '--disable-netrc', '--filter', selected], red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text.lower()):
                 raise RuntimeError(label + ': discovery/no-skip mismatch\n' + text)
         test('baseline')
-        test('legacy-table', 'PluginTableTests', 15)
+        test('legacy-table', 'PluginTableTests', 16)
         test('legacy-diff', 'PluginDiffTests', 15)
         cases = [
             ('view', MODEL, 'try V.identifier(value["viewId"]) == d.viewID', 'try V.identifier(value["viewId"]) != ""', 'testSnapshotViewScope'),
@@ -225,7 +226,7 @@ def main():
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
-        print('NATIVE TASK PASS: 28 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual scenarios / ' + str(len(groups)) + ' mutations', flush=True)
+        print('NATIVE TASK PASS: 28 Native tests / 16 legacy table + 15 diff tests / ' + str(len(records)) + ' actual scenarios / ' + str(len(groups)) + ' mutations', flush=True)
 
 
 if __name__ == '__main__':
