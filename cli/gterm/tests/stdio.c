@@ -62,7 +62,9 @@ int main(int argc, char **argv) {
     CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)) || process_config);
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
-    bool table = !strcmp(mode, "table-describe");
+    bool logs = !strcmp(mode, "logs-describe");
+    bool table = logs || !strcmp(mode, "table-describe");
+    bool form = !strcmp(mode, "form-dismiss");
     bool task = !strcmp(mode, "task-read");
     bool diff = !strcmp(mode, "diff-page");
     bool codex = !strcmp(mode, "codex-thread");
@@ -177,6 +179,17 @@ int main(int argc, char **argv) {
                       "--after",
                       "\"new\"",
                       (char *)NULL);
+            } else if (form) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "form",
+                      (char *)NULL);
             } else if (view) {
                 execl(binary,
                       binary,
@@ -186,9 +199,11 @@ int main(int argc, char **argv) {
                       "--instance",
                       instance,
                       "--",
-                      table ? "table" : "task primes",
+                      logs    ? "logs"
+                      : table ? "table"
+                              : "task primes",
                       table ? "--count" : "--limit",
-                      "17",
+                      logs ? "5000" : "17",
                       (char *)NULL);
             } else {
                 execl(binary,
@@ -496,6 +511,11 @@ int main(int argc, char **argv) {
         strcpy(c.required[0], "session.rpc");
         strcpy(c.available[0], "session.rpc");
     }
+    if (form) {
+        c.required_count = c.available_count = 2;
+        strcpy(c.required[1], "ui.form");
+        strcpy(c.available[1], "ui.form");
+    }
     if (!strcmp(mode, "peer-digest")) {
         strcpy(c.client_digest, package_digest);
     }
@@ -505,6 +525,14 @@ int main(int argc, char **argv) {
                                        .input_shape = GT_EXT_JSON_OBJECT,
                                        .output_shape = GT_EXT_JSON_OBJECT}};
     size_t method_count = 1;
+    if (form) {
+        strcpy(methods[0].method, "form.status");
+        methods[1] = methods[0];
+        strcpy(methods[1].method, "view.form.request");
+        strcpy(methods[1].capability, "ui.form");
+        methods[1].receiver = GT_EXT_HOST;
+        method_count++;
+    }
     if (view) {
         strcpy(methods[0].method,
                table  ? "view.table.describe"
@@ -657,8 +685,28 @@ int main(int argc, char **argv) {
             }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
+                if (form && !host_method_confirmed) {
+                    gt_ext_rpc_request_t request;
+                    gt_ext_rpc_status_t status =
+                        gt_ext_session_take_request(session, &lease, &request);
+                    CHECK(status == GT_EXT_RPC_OK || status == GT_EXT_RPC_WAIT);
+                    if (status == GT_EXT_RPC_OK) {
+                        CHECK(!strcmp(request.method, "view.form.request"));
+                        CHECK(strstr(request.input, "\"requestId\":\"1\""));
+                        CHECK(gt_ext_session_check_request(session, &lease, request.ticket) ==
+                              GT_EXT_RPC_OK);
+                        const char answer[] = "{\"kind\":\"success\",\"value\":{\"requestId\":"
+                                              "\"1\",\"kind\":\"dismissed\"}}";
+                        CHECK(gt_ext_session_respond(
+                                  session, &lease, request.ticket, answer, sizeof(answer) - 1) ==
+                              GT_EXT_RPC_OK);
+                        host_method_confirmed = true;
+                    }
+                    idle();
+                    continue;
+                }
                 const char *input =
-                    (view || claude || codex) ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
+                    (view || claude || codex || form) ? "{}" : "{\"text\":\"stdio\",\"count\":17}";
                 CHECK(gt_ext_session_request(session,
                                              &lease,
                                              methods[0].method,
@@ -712,7 +760,9 @@ int main(int argc, char **argv) {
                 bool valid = strstr(result.outcome, "stdio") != NULL;
                 char page_input[160];
                 int page_size = 0;
-                if (codex) {
+                if (form) {
+                    valid = strstr(result.outcome, "\"status\":\"dismissed\"") != NULL;
+                } else if (codex) {
                     valid = strstr(result.outcome, "\"threadID\":\"thread-fixture\"") != NULL;
                 } else if (claude) {
                     valid = strstr(result.outcome, "\"phase\":\"new\"") &&
@@ -733,9 +783,10 @@ int main(int argc, char **argv) {
                                          "{\"viewId\":\"%s\",\"revision\":\"%" PRIu64 "\"%s}",
                                          lease.instance,
                                          lease.epoch,
-                                         table  ? ",\"offset\":16,\"limit\":16"
-                                         : diff ? ",\"offset\":0,\"limit\":2"
-                                                : "");
+                                         logs    ? ",\"offset\":0,\"limit\":4"
+                                         : table ? ",\"offset\":16,\"limit\":16"
+                                         : diff  ? ",\"offset\":0,\"limit\":2"
+                                                 : "");
                     char view_key[64], revision_key[64];
                     snprintf(view_key, sizeof(view_key), "\"viewId\":\"%s\"", lease.instance);
                     snprintf(revision_key,
@@ -748,6 +799,10 @@ int main(int argc, char **argv) {
                         valid = valid && strstr(result.outcome, "Text comparison") &&
                                 strstr(result.outcome, "\"added\":1") &&
                                 strstr(result.outcome, "\"removed\":1");
+                    } else if (logs) {
+                        valid = valid && strstr(result.outcome, "Sample logs") &&
+                                strstr(result.outcome, "\"total\":4096") &&
+                                strstr(result.outcome, "\"pageSize\":4");
                     } else {
                         valid =
                             valid && (table ? strstr(result.outcome, "Number powers") &&
@@ -762,6 +817,12 @@ int main(int argc, char **argv) {
                     valid = strstr(result.outcome, "\"viewId\":\"beta\"") &&
                             strstr(result.outcome, "\"offset\":4") &&
                             strstr(result.outcome, "\"cells\":[\"5\",\"50\"]");
+                } else if (logs) {
+                    valid =
+                        strstr(result.outcome, "\"offset\":0") &&
+                        strstr(result.outcome, "\"total\":4096") &&
+                        strstr(result.outcome,
+                               "\"cells\":[\"905\",\"INFO worker 1 completed sample record 905\"]");
                 } else if (table) {
                     valid = strstr(result.outcome, "\"offset\":16") &&
                             strstr(result.outcome, "\"total\":17") &&
@@ -875,7 +936,7 @@ int main(int argc, char **argv) {
     } else if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (!fixture_denied && (view || claude || codex || !strcmp(mode, "roundtrip") ||
+    if (!fixture_denied && (view || claude || codex || form || !strcmp(mode, "roundtrip") ||
                             process_config || !strcmp(mode, "dispose-error") || pipes ||
                             !strcmp(mode, "active-cancel") || !strcmp(mode, "lost"))) {
         CHECK(confirmed && decided && consent_at);

@@ -783,7 +783,7 @@ def exercise_official_sessions(build, cases, denied_names):
 def install_official_candidates(build, fixtures, work):
     env = {key: value for key, value in os.environ.items() if not key.startswith(('GTERM_', 'GT_GTERM_'))}
     env['TMPDIR'] = str(work)
-    names = ('preview', 'table', 'diff', 'task', 'views', 'ai-codex', 'ai-claude')
+    names = ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')
     host = work / 'host.json'
     host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1],
         runtimes=['portable-js'], capabilities=['resource.receive', 'file.readScoped', 'session.rpc',
@@ -818,8 +818,11 @@ def install_official_candidates(build, fixtures, work):
         current = catalog_record.read_bytes() if catalog_record.exists() else None
         require(current == previous, f'{name}: install must leave the catalog unchanged')
         profile = ['--client-digest', release.sha(expected['integrity.json'])]
-        if name == 'table':
+        if name in ('table', 'logs'):
             profile.extend(['--method', 'view.table.describe', '--method', 'view.table.page'])
+        if name == 'form':
+            profile.extend(['--client-capability', 'ui.form', '--host-method', 'view.form.request',
+                            '--method', 'form.status'])
         if name == 'task':
             profile.extend(['--method', 'view.task.describe', '--method', 'view.task.read'])
         if name == 'diff':
@@ -873,6 +876,8 @@ def install_official_candidates(build, fixtures, work):
         arguments = ['site/index.md', '--assets', r'site/theme\,dark.css'] if name == 'preview' else []
         if name == 'table':
             arguments = ['--count', '17']
+        if name == 'logs':
+            arguments = ['--count', '5000']
         if name == 'task':
             arguments = ['--limit', '17']
         if name == 'diff':
@@ -902,6 +907,10 @@ def install_official_candidates(build, fixtures, work):
                     input=b'', capture_output=True, env=launch_env, timeout=10)
                 require(inspection.returncode == 0, f'{name}: signed foreground inspection: {inspection.stderr!r}')
                 declaration = json.loads(inspection.stdout)
+                if name == 'form':
+                    require(declaration['clientCapabilities'] == ['ui.form']
+                            and declaration['hostMethods'] == ['view.form.request'],
+                            'form: foreground declaration retains scoped capability and method')
                 digest = release.sha(expected['integrity.json'])
                 require(declaration['instance'] == instance and declaration['command'] == ' '.join(command)
                         and declaration['arguments'] == arguments and declaration['executorDigest'] == digest
@@ -921,6 +930,7 @@ def install_official_candidates(build, fixtures, work):
             finally:
                 ipc.terminate(frontend)
         host_modes = {'task': 'task-read', 'table': 'table-describe', 'diff': 'diff-page',
+                      'logs': 'logs-describe', 'form': 'form-dismiss',
                       'views': 'views-beta', 'ai-claude': 'claude-status', 'ai-codex': 'codex-thread'}
         resource_store = None
         if name == 'preview':
@@ -953,13 +963,16 @@ def main():
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
     selection.add_argument('--official-release-directory', type=Path,
-                           help='install the seven fixtures exported by test-plugin-release.py')
+                           help='install the nine fixtures exported by test-plugin-release.py')
     args = parser.parse_args()
     if args.official_release_directory:
         fixtures = args.official_release_directory.resolve(strict=True)
         if not fixtures.is_relative_to(ROOT / 'tmp') or not fixtures.is_dir():
             parser.error('official release fixtures must be a directory under project tmp/')
-        with tempfile.TemporaryDirectory(prefix='grel-official-', dir=ROOT / 'tmp') as directory:
+        project_tmp = (ROOT / 'tmp').resolve()
+        requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+        work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+        with tempfile.TemporaryDirectory(prefix='grel-official-', dir=work_tmp) as directory:
             install_official_candidates(args.build.resolve(), fixtures, Path(directory))
         return
     if not args.node:
