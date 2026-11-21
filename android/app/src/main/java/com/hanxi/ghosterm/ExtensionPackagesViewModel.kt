@@ -237,8 +237,12 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             hostMethods = (request.hostMethods + codexHostMethods).distinct())
         else if (selectedCommand.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
         else request
-        val tableRequest = if (!registeredContribution && tableContribution) baseRequest.copy(
-            methods = (baseRequest.methods + PluginTableModel.methods).distinct(), clientCapabilities = listOf("ui.table")) else baseRequest
+        val tableRequest = if (!registeredContribution && tableContribution) {
+            val searchMethods = if (entry.review.id == "org.ghosterm.logs" && selectedCommand.path == "logs")
+                listOf(PluginTableModel.searchMethod) else emptyList()
+            baseRequest.copy(methods = (baseRequest.methods + PluginTableModel.methods + searchMethods).distinct(),
+                clientCapabilities = listOf("ui.table"))
+        } else baseRequest
         val diffRequest = if (!registeredContribution && diffContribution) tableRequest.copy(
             methods = (tableRequest.methods + PluginDiffModel.methods).distinct(), clientCapabilities = (tableRequest.clientCapabilities + "ui.diff").distinct()) else tableRequest
         val taskRequest = if (!registeredContribution && taskContribution) diffRequest.copy(
@@ -853,7 +857,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                     table = PluginTableModel(viewModelScope, { method, input ->
                         checkRPCGeneration(expected)
                         requestExtensionRPC(method, input).also { checkRPCGeneration(expected) }
-                    }, isCurrent = {
+                    }, supportsSearch = PluginTableModel.searchMethod in activeSession?.methods.orEmpty(), isCurrent = {
                         expected === rpcGeneration && canInteractWithRuntime
                     })
                 }

@@ -33,7 +33,18 @@ internal class PluginTableFixture {
     }
     suspend fun request(method: String, bytes: ByteArray): ByteArray {
         val input = JSONObject(bytes.toString(Charsets.UTF_8)); calls += method to input
-        val value = if (method == "view.table.describe") description else page(input.getInt("offset"))
+        val value = when (method) {
+            "view.table.describe" -> description
+            PluginTableModel.searchMethod -> {
+                val first = input.getLong("after") == 0L
+                val rows = JSONArray()
+                if (!first) rows.put(page().getJSONArray("rows").getJSONObject(0))
+                JSONObject().put("viewId", description.getString("viewId"))
+                    .put("revision", description.getString("revision")).put("cursor", if (first) 128 else 256)
+                    .put("latest", 256).put("truncated", first).put("rows", rows)
+            }
+            else -> page(input.getInt("offset"))
+        }
         val data = if (unknown) """{"kind":"unknown","reason":"FIXTURE_UNCONFIRMED"}""".toByteArray() else outcome(changed?.invoke(value) ?: value)
         if (pause == method) { pause = null; entered.complete(Unit); release.await() }
         return data
@@ -45,6 +56,31 @@ class PluginTableTest {
     private fun main(block: suspend CoroutineScope.() -> Unit) = runBlocking { withContext(Dispatchers.Main.immediate) { block() } }
     private fun rejected(block: () -> Unit) { try { block(); fail("Expected table value rejection") } catch (_: Exception) { } }
     private suspend fun entered(f: PluginTableFixture) { withTimeout(5000) { f.entered.await() } }
+
+    @Test fun searchContinuesFromEmptyPageAndDiscardsLateReply() = main {
+        val f = PluginTableFixture()
+        val model = PluginTableModel(this, f::request, supportsSearch = true)
+        model.load()!!.join()
+        model.search("value")!!.join()
+        assertEquals(emptyList<PluginTableRow>(), model.state.value.searchPage?.rows)
+        assertEquals(128L, model.state.value.searchPage?.cursor)
+        model.continueSearch()!!.join()
+        assertEquals(listOf("1"), model.state.value.searchPage?.rows?.map { it.id })
+        assertTrue(model.state.value.searchTruncated)
+        val input = f.calls.last().second
+        assertEquals(128L, input.getLong("after"))
+        assertEquals(256L, input.getLong("through"))
+        assertEquals("value", input.getString("query"))
+
+        f.pause = PluginTableModel.searchMethod
+        val pending = model.search("later")!!
+        entered(f)
+        model.invalidate()
+        f.release.complete(Unit)
+        pending.join()
+        assertNull(model.state.value.searchPage)
+        assertNull(model.state.value.searchQuery)
+    }
 
     @Test fun revisionIsExactCanonicalPositiveUint64() {
         val f = PluginTableFixture()
