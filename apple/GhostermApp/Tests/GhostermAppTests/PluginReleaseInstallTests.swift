@@ -376,6 +376,26 @@ final class PluginReleaseInstallTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: result.directory.appendingPathComponent("payload/a")), Data([1]))
         try stage.discard()
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.directory.path), "discard must never delete an already-published release")
+
+        let replacementRoot = try directory().appendingPathComponent("store")
+        let id = String(repeating: "d", count: 64)
+        let destination = replacementRoot.appendingPathComponent(id)
+        let detached = replacementRoot.appendingPathComponent("detached")
+        let replacedStage = try PluginReleaseStage(directory: replacementRoot, checkpoint: { phase in
+            if phase == "after-publication-sync" {
+                guard chmod(destination.path, 0o700) == 0 else { throw PluginReleaseStage.Failure.io }
+                try FileManager.default.moveItem(at: destination, to: detached)
+                try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+            }
+        })
+        try replacedStage.write(Data([1]), path: "payload/a")
+        let replacement = try replacedStage.publish(id: id)
+        XCTAssertFalse(replacement.durabilityConfirmed, "A replaced version cannot report durable installation")
+        guard !replacement.durabilityConfirmed else { return }
+        let journal = replacementRoot.appendingPathComponent(PluginInstallJournal.directoryName)
+        XCTAssertEqual(try names(journal).filter { $0.hasSuffix(".json") }.count, 1)
+        XCTAssertEqual(try Data(contentsOf: detached.appendingPathComponent("payload/a")), Data([1]))
+        XCTAssertEqual(try names(destination), [])
     }
 
     func testExistingEmptySlotIsNeverAdopted() throws {

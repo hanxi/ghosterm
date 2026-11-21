@@ -128,6 +128,26 @@ class PluginReleaseStageTest {
             assertFalse(result.durabilityConfirmed); assertTrue(File(root, "$id/payload/a").isFile); assertTrue(journal(root).isFile)
         } finally { PluginInstallTestFiles.clean(root) }
     }
+    @Test fun replacedPublishedVersionRetainsInstallIntent() {
+        val root = PluginInstallTestFiles.root()
+        val destination = File(root, id)
+        val detached = File(root, "detached")
+        try {
+            val result = PluginReleaseStage.create(root, id, checkpoint = { phase ->
+                if (phase == "after-publication-sync") {
+                    Os.rename(destination.path, detached.path)
+                    Os.mkdir(destination.path, 448)
+                }
+            }).use {
+                it.write("payload/a", byteArrayOf(1))
+                it.publish()
+            }
+            assertFalse("A replaced version cannot report durable installation", result.durabilityConfirmed)
+            assertEquals(id, JSONObject(journal(root).readText()).getString("target"))
+            assertArrayEquals(byteArrayOf(1), File(detached, "payload/a").readBytes())
+            assertTrue(destination.list().orEmpty().isEmpty())
+        } finally { PluginInstallTestFiles.clean(root) }
+    }
     @Test fun writeFaultAndPreRenameCancellationCleanOwnedState() {
         for (phase in listOf("after-reservation", "after-directory-record", "after-file-create", "after-file-write", "before-rename")) {
             val root = PluginInstallTestFiles.root()

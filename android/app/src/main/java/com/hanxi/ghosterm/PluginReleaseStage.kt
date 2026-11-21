@@ -106,11 +106,14 @@ internal class PluginReleaseStage private constructor(
     }
     private fun validate() {
         demand(!closed && !published)
+        validateDirectory(name)
+        verifyRecord()
+    }
+    private fun validateDirectory(entry: String) {
         validateParent()
         val selected = Os.fstat(rootFD.fileDescriptor)
-        val named = Os.lstat(proc(parentFD, name))
+        val named = Os.lstat(proc(parentFD, entry))
         demand(privateDirectory(selected) && privateDirectory(named) && identity(selected) == directoryIdentity && identity(named) == directoryIdentity)
-        verifyRecord()
     }
     private fun writeRecord(selected: PluginReleaseRemoval.Stamp?) {
         validateParent()
@@ -255,7 +258,12 @@ internal class PluginReleaseStage private constructor(
             else -> Reason.IO
         })
         published = true
-        val durable = runCatching { checkpoint("after-rename"); parentSync(parentFD.fileDescriptor); checkpoint("after-publication-sync") }.isSuccess
+        val durable = runCatching {
+            checkpoint("after-rename")
+            parentSync(parentFD.fileDescriptor)
+            checkpoint("after-publication-sync")
+            validateDirectory(releaseID)
+        }.isSuccess
         var issue = if (durable) null else "版本已发布；持久性未确认，安装归属记录保留待核对。"
         if (durable) try { retireRecord() } catch (_: Exception) { issue = "版本已发布；归属记录清理未确认。" }
         return Publication(releaseID, File(location, releaseID), durable, issue)

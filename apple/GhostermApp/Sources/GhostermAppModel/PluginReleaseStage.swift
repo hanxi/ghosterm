@@ -130,8 +130,12 @@ final class PluginReleaseStage {
         a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_mode & S_IFMT == S_IFDIR && a.st_uid == geteuid()
     }
     private func validate() throws {
+        guard !published else { throw Failure.changed }
+        try validateDirectory()
+    }
+    private func validateDirectory() throws {
         var value = stat()
-        guard !published, fstatat(parent, name, &value, AT_SYMLINK_NOFOLLOW) == 0,
+        guard fstatat(parent, name, &value, AT_SYMLINK_NOFOLLOW) == 0,
               same(value, identity), fstat(root, &value) == 0, same(value, identity) else { throw Failure.changed }
         let path = open(rootURL.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard path >= 0 else { throw Failure.changed }
@@ -208,8 +212,9 @@ final class PluginReleaseStage {
         published = true
         name = id
         try checkpoint("after-publication-rename")
-        let durable = parentSync(parent) == 0
+        let synced = parentSync(parent) == 0
         try checkpoint("after-publication-sync")
+        let durable = synced && (try? validateDirectory()) != nil
         if durable, let journal, let reference = journalReference {
             do { try journal.retire(reference) }
             catch { maintenanceIssue = "版本已发布；安装归属记录保留待核对：\(error)" }

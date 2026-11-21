@@ -91,7 +91,9 @@ def main():
         ('stage-published-owner', st + 'parentSyncFailureAfterRenameKeepsPublishedTreeAndIntent', stage,
          'published = true', 'published = false'),
         ('stage-durability', st + 'parentSyncFailureAfterRenameKeepsPublishedTreeAndIntent', stage,
-         'checkpoint("after-publication-sync") }.isSuccess', 'checkpoint("after-publication-sync") }.let { true }'),
+         'validateDirectory(releaseID)\n        }.isSuccess', 'validateDirectory(releaseID)\n        }.let { true }'),
+        ('stage-durable-version', st + 'replacedPublishedVersionRetainsInstallIntent', stage,
+         '            validateDirectory(releaseID)', '            Unit'),
         ('stage-retire', st + 'publishesCompleteReadonlyTreeAndRetiresIntent', stage,
          'if (durable) try { retireRecord() }', 'if (false) try { retireRecord() }'),
         ('controller-proof', owner + 'differentAuthenticatedProofCannotReplaceConfirmedMaterialSnapshot', controller,
@@ -167,6 +169,7 @@ def main():
             'controller-proof-target': 'mismatched proof reached persistent reservation',
             'controller-declarations-target': 'changed preview was accepted',
             'controller-cancellation-target': 'cancelled install left owned state',
+            'stage-durable-version-target': 'A replaced version cannot report durable installation',
             'controller-descriptor-target': 'signed installation metadata missing: release.json',
             'controller-signature-target': 'signed installation metadata missing: release.sig',
             'controller-policy-target': 'signed installation metadata missing: policy.json'}.get(label)
