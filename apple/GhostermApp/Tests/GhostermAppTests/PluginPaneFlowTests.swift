@@ -25,7 +25,7 @@ final class PluginPaneFlowTests: XCTestCase {
         try await runPreview(.markdown, jump: false)
     }
     func testForegroundInspectionAndAttachmentThroughControls() async throws {
-        try await runPreview(.markdown, jump: false, foreground: true)
+        try await runPreview(.markdown, jump: false, foreground: true, cancelInspection: true)
     }
     func testProxyJumpForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: true, foreground: true)
@@ -96,7 +96,7 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false) async throws {
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false, cancelInspection: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         let memoryKey = env["GHOSTERM_TEST_SSH_STDIN"] == "1"
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
@@ -406,6 +406,31 @@ final class PluginPaneFlowTests: XCTestCase {
                 try set("plugin-ipc-instance", instance)
             }
             try await Task.sleep(for: .milliseconds(30))
+            if cancelInspection {
+                let executable = root.appendingPathComponent("delayed-inspection")
+                try Data("""
+                    #!/bin/sh
+                    printf R > "$0-started"
+                    exec /bin/sleep 5
+
+                    """.utf8).write(to: executable)
+                let signalFile = URL(fileURLWithPath: executable.path + "-started")
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+                let inspection = Task {
+                    try await model.inspectForegroundPlugin(sshAlias: "pane-target", executable: executable.path,
+                        directory: endpoint.path, instance: instance)
+                }
+                let didStart = try await until { (try? Data(contentsOf: signalFile)) == Data([82]) }
+                inspection.cancel()
+                do {
+                    _ = try await inspection.value
+                    XCTFail("Cancelled SSH inspection returned a declaration")
+                } catch is CancellationError {
+                    XCTAssertTrue(didStart, "Cancellation must happen after the remote command starts")
+                }
+                XCTAssertFalse(model.extensionRunBusy)
+                XCTAssertNil(model.extensionRunIssue)
+            }
             try press("plugin-ipc-inspect")
             guard try await until({ node("plugin-ipc-declaration") != nil && !model.extensionRunBusy }) else {
                 let issue = node("plugin-ipc-inspection-issue").flatMap { PluginTableRendering.attribute($0, "accessibilityValue") }
