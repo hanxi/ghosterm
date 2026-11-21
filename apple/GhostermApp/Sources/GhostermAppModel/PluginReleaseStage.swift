@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -39,6 +40,7 @@ final class PluginReleaseStage {
         }
     }
     private var files: [String: FileStamp] = [:]
+    private var fileDigests: [String: SHA256.Digest] = [:]
     private var verifiedFiles = 0
     private var journal: PluginInstallJournal?
     private var journalRecord: PluginInstallJournal.Record?
@@ -176,6 +178,7 @@ final class PluginReleaseStage {
         var value = stat()
         guard fstat(output, &value) == 0 else { throw Failure.io }
         files[path] = FileStamp(value)
+        fileDigests[path] = SHA256.hash(data: data)
         try checkpoint("after-file-write")
     }
 
@@ -282,9 +285,35 @@ final class PluginReleaseStage {
             } else {
                 guard value.st_mode & S_IFMT == S_IFREG, value.st_mode & 0o222 == 0 else { throw Failure.io }
                 guard files[path] == FileStamp(value) else { throw Failure.changed }
+                if !freeze {
+                    guard let expected = fileDigests[path] else { throw Failure.changed }
+                    try verifyContent(parent: fd, name: name, stamp: FileStamp(value), expected: expected)
+                }
                 verifiedFiles += 1
             }
         }
         if !removing && freeze { guard fchmod(fd, 0o500) == 0, fsync(fd) == 0 else { throw Failure.io } }
+    }
+
+    private func verifyContent(parent: Int32, name: String, stamp: FileStamp, expected: SHA256.Digest) throws {
+        let fd = openat(parent, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw Failure.changed }
+        defer { Darwin.close(fd) }
+        var value = stat()
+        guard fstat(fd, &value) == 0, FileStamp(value) == stamp else { throw Failure.changed }
+        var digest = SHA256()
+        var remaining = stamp.size
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while remaining > 0 {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(fd, $0.baseAddress, Int(min(remaining, off_t($0.count))))
+            }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { throw Failure.changed }
+            buffer.withUnsafeBytes { digest.update(bufferPointer: UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
+            remaining -= off_t(count)
+        }
+        guard fstat(fd, &value) == 0, FileStamp(value) == stamp,
+              digest.finalize() == expected else { throw Failure.changed }
     }
 }
