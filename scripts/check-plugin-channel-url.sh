@@ -22,10 +22,18 @@ GHOSTERM_PLUGIN_CHANNEL="$CHANNEL" GHOSTERM_PLUGIN_CHANNEL_ROOT="$ROOT_KEY" \
   python3 -B "$ROOT/scripts/configure-macos-plugin-channel.py" --check-required
 
 mkdir -p "$ROOT/tmp"
-WORK="$(mktemp -d "$ROOT/tmp/channel-url-XXXXXX")"
+TMP_ROOT="$(cd "$ROOT/tmp" && pwd -P)"
+SCRATCH="$TMP_ROOT"
+if [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ]; then
+  REQUESTED_TMP="$(cd "$TMPDIR" && pwd -P)"
+  case "$REQUESTED_TMP" in
+    "$TMP_ROOT"/*) SCRATCH="$REQUESTED_TMP" ;;
+  esac
+fi
+WORK="$(mktemp -d "$SCRATCH/channel-url-XXXXXX")"
 trap 'rm -rf -- "$WORK"' EXIT
 trap 'exit 130' INT
-trap 'exit 143' TERM
+trap 'exit 143' TERM HUP
 
 for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
   name="${entry%:*}"
