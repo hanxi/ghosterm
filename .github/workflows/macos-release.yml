@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "版本号（留空 = 0.1.0-dev）"
+        description: "版本号（留空时，草稿发行取当前提交的唯一正式标签，普通出包取 0.1.0-dev）"
         required: false
       notarize:
         description: "公证（需 Developer ID 证书 secret + 公证 secret）"

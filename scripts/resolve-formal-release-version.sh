@@ -3,14 +3,28 @@
 set -euo pipefail
 
 version="${1:-}"
+version_pattern='^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
 if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
   version="${GITHUB_REF#refs/tags/v}"
 elif [[ -z "$version" ]]; then
-  version="$(git describe --tags --abbrev=0 --match 'v[0-9]*')"
-  version="${version#v}"
+  tags="$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*')"
+  while IFS= read -r tag; do
+    candidate="${tag#v}"
+    if [[ "$candidate" =~ $version_pattern ]]; then
+      if [[ -n "$version" ]]; then
+        echo "Multiple formal release tags identify the build commit; specify a version" >&2
+        exit 1
+      fi
+      version="$candidate"
+    fi
+  done <<< "$tags"
+  if [[ -z "$version" ]]; then
+    echo "No formal release tag identifies the build commit" >&2
+    exit 1
+  fi
 fi
 
-if ! [[ "$version" =~ ^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+if ! [[ "$version" =~ $version_pattern ]]; then
   echo "Invalid formal release version: $version" >&2
   exit 1
 fi
