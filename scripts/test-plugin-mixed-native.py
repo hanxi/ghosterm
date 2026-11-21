@@ -31,6 +31,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 
 
+class ScenarioAssertion(RuntimeError):
+    pass
+
+
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -144,10 +148,14 @@ def main():
         (logs / (label + '.log')).write_text(text)
         commands.append(dict(label=label, returncode=process.returncode))
         abnormal = any(mark in text for mark in ('AddressSanitizer', 'runtime error:', 'unexpected signal', 'fatalError'))
+        failures = re.findall(r'^.*: error: -\[.*\] : (?:XCTAssert\w+ failed|failed - )[^\n]*', text, re.M)
+        ordinary_assertion = (process.returncode == 1 and not abnormal and len(failures) == 1
+            and 'Executed 1 test, with 1 failure (0 unexpected)' in text and 'skipped' not in text.lower())
         if assertion:
-            failures = re.findall(r'^.*: error: -\[.*\] : (?:XCTAssert\w+ failed|failed - )[^\n]*', text, re.M)
-            if process.returncode != 1 or abnormal or len(failures) != 1 or 'Executed 1 test, with 1 failure (0 unexpected)' not in text:
+            if not ordinary_assertion:
                 raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-12000:])
+        elif ordinary_assertion:
+            raise ScenarioAssertion(failures[0])
         elif process.returncode or abnormal:
             raise RuntimeError(label + '\n' + text[-12000:])
         return output, text
@@ -312,6 +320,7 @@ export function activate(ctx){
         ports, _, _ = stack.enter_context(routes.chain(route_root, 2, client_public, host_keys, agent, 'echo'))
         faults = load('mixed_macos_ssh_faults', 'lib/tmux-fault-proxy.py') if args.macos_stop_disconnect else None
         completed = []
+        failed = []
         def actual(route, label, assertion=False, compile=False):
             scratch = out / label; scratch.mkdir(); (scratch / 'stage').mkdir()
             for slot in range(8):
@@ -360,7 +369,14 @@ export function activate(ctx){
         for route in args.route or (('direct', 'jump') if faults or args.macos_group_revocation else ('local', 'direct', 'jump')):
             for repetition in range(1, args.macos_repeat + 1):
                 label = route if args.macos_repeat == 1 else f'{route}-{repetition}'
-                actual(route, label)
+                try:
+                    actual(route, label)
+                except ScenarioAssertion as error:
+                    if args.macos_repeat == 1:
+                        raise
+                    failed.append(label)
+                    print(f'FAIL mixed Native {label}: {error}', flush=True)
+                    continue
                 completed.append(label)
                 print('PASS mixed Native ' + label, flush=True)
         mutations = []
@@ -414,13 +430,15 @@ export function activate(ctx){
     for path in logs.iterdir():
         if b'PRIVATE KEY-----' in path.read_bytes():
             raise RuntimeError('fixture private material leaked to a log')
-    receipt = dict(accepted=True, inputs=inputs, commands=commands, routes=completed, mutations=mutations,
+    receipt = dict(accepted=not failed, inputs=inputs, commands=commands, routes=completed, failedRoutes=failed, mutations=mutations,
         artifacts={str(path): sha(path) for path in (build / 'gterm', build / 'core/libghosterm_core.a', peer, node, crypto)},
         logs={path.name: sha(path) for path in logs.iterdir()},
         scope=('macOS App-owned SSH reset after explicit stop, local release failure and retry, remote exit unknown'
             if args.macos_stop_disconnect else 'macOS managed SSH group revocation and Settings stop without a workspace pane'
             if args.macos_group_revocation else 'macOS App-owned local/direct/two-hop mixed Portable/Node/Exec, per-instance consent/RPC/resources, signed stale-policy rejection and online/empty reuse'))
     (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':
