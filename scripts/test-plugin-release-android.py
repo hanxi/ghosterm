@@ -46,7 +46,7 @@ def headless_dependencies(api, environment, image=None):
 
 
 @contextmanager
-def headless(api, work, environment, image=None):
+def headless(api, work, environment, image=None, *, bounded_userdata=False):
     sdk, image = headless_dependencies(api, environment, image)
     for name in ['avds', 'user', 'emulator', 'discovery', 'crash']:
         (work / name).mkdir()
@@ -75,9 +75,9 @@ def headless(api, work, environment, image=None):
                 port = candidate; break
         except OSError: continue
     if port is None: raise RuntimeError('No unused AVD console/ADB port pair')
-    if (image / 'data/empty_data_disk').is_file():
-        # The SDK image ships no initial userdata. Seed an isolated sparse
-        # filesystem so the emulator need not reserve its default 8 GiB.
+    if bounded_userdata or (image / 'data/empty_data_disk').is_file():
+        # Seed a 2 GiB scratch filesystem when there is no image-supplied
+        # userdata or the capacity test requires a bounded data partition.
         data = avd / 'userdata-qemu.img'
         with data.open('xb') as disk:
             disk.truncate(2 * 1024**3)
@@ -319,7 +319,10 @@ def main():
     parser.add_argument('--unclassified', action='store_true', help='Include unknown-directory full review, extra consent and format-three removal; implies --maintenance')
     parser.add_argument('--maintenance', action='store_true', help='Include persistent install ownership, explicit stage removal/metadata retirement and Settings UI; implies --removal')
     parser.add_argument('--death', action='store_true', help='Owned headless install checkpoints only; implies --install')
+    parser.add_argument('--capacity', action='store_true', help='Also verify real ENOSPC on an owned 2 GiB AVD data partition')
     args = parser.parse_args()
+    if args.capacity and (args.android or args.mutate):
+        parser.error('--capacity requires an owned headless AVD and a baseline build')
     if args.official_release_directory:
         if args.android: parser.error('Official install fixtures require an owned headless AVD')
         args.official_release_directory = args.official_release_directory.resolve(strict=True)
@@ -355,10 +358,17 @@ def main():
         execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=work_tmp) as directory:
-            with headless(args.headless_api, Path(directory), environment) as (selected, isolated):
+            with headless(args.headless_api, Path(directory), environment, bounded_userdata=args.capacity) as (selected, isolated):
                 execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
                 if args.official_release_directory:
                     install_official_candidates(selected, isolated, args.official_release_directory)
+                if args.capacity:
+                    result = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+                        'com.hanxi.ghosterm.PluginReleaseCapacityTest', '-e', 'ownedInstallCapacityAvd', 'true',
+                        'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], isolated, 120)
+                    if 'OK (1 test)' not in result or 'INSTRUMENTATION_STATUS_CODE: 0' not in result:
+                        raise RuntimeError('Android installation capacity test did not execute successfully:\n' + result)
+                    print('ANDROID INSTALL CAPACITY PASS', flush=True)
         print('OWNED AVD FILES REMOVED', flush=True)
 
 
