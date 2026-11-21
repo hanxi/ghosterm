@@ -1003,17 +1003,18 @@ bash scripts/check-plugin-channel-url.sh "$plugin_channel" "$plugin_root" \
 
 正式 Release 公开后，从实际下载地址复验两端资产。将 `release_tag` 设为该次正式标签，
 `macos_update_public_key` 设为已确认的 Sparkle 更新公钥，`android_build_tools`
-设为 Android SDK 的 Build Tools 35.0.0 目录：
+设为 Android SDK 的 Build Tools 35.0.0 目录，`android_certificate_sha256`
+设为从可信渠道确认的 Android 发行证书指纹：
 
 ```bash
 python3 -B scripts/audit-public-release.py --tag "$release_tag" \
   --update-public-key "$macos_update_public_key" \
-  --android-build-tools "$android_build_tools"
+  --android-build-tools "$android_build_tools" \
+  --android-certificate-sha256 "$android_certificate_sha256"
 ```
 
-审计核对两端资产清单、标签提交、macOS 更新签名以及 APK 签名、版本和 16 KiB
-对齐。若已从可信渠道取得预期 Android 签名证书的 SHA-256，可追加
-`--android-certificate-sha256 "$android_certificate_sha256"` 核对签名身份。
+审计核对两端资产清单、标签提交、macOS 更新签名以及 APK 签名身份、版本和 16 KiB
+对齐。公开正式发行审计要求调用方同时提供两端的可信签名身份。
 正式草稿工作流在上传前默认使用公开 dev APK 沿用的发行证书指纹核对正式 APK。
 如已安排证书轮换，可用仓库变量 `ANDROID_RELEASE_CERT_SHA256` 指定已确认的新指纹。
 通过后，在两端安装公开资产，从插件设置刷新渠道并核对代次。

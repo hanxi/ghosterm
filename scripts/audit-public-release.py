@@ -209,6 +209,8 @@ def main():
         return
     if args.commit is not None:
         parser.error('--commit requires --asset-directory')
+    if formal and not (args.update_public_key and args.android_build_tools and args.android_certificate_sha256):
+        parser.error('public formal verification requires --update-public-key, --android-build-tools, and --android-certificate-sha256')
     api = f'https://api.github.com/repos/{args.repository}/releases/tags/{args.tag}'
     with urllib.request.urlopen(api, timeout=30) as response:
         release = json.load(response)
