@@ -4,6 +4,11 @@
 
 纯静态 HTML / CSS，无依赖或构建步骤。GitHub Pages 只上传 `site/`，不会发布仓库其它目录。`site/**` 或 Pages 工作流变更推送到 main 后自动部署，也支持手动触发。仓库 Pages 的构建来源为 GitHub Actions。
 
+插件渠道可将签名策略的三个公开文件放入 `site/plugins/`。部署前使用仓库变量
+`MACOS_PLUGIN_CHANNEL` 和 `MACOS_PLUGIN_CHANNEL_ROOT` 核对签名、代次与有效期。
+部署后从 `https://hanxi.cc/ghosterm/plugins/` 复验实际响应，再配置应用出包使用
+的渠道地址。渠道签发和撤销流程见[插件开发指南](../docs/how-to/plugin-development.md)。
+
 本地预览（工程根目录执行）：
 
 ```bash

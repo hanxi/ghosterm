@@ -6,6 +6,9 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
+      - 'scripts/gterm-plugin'
+      - 'scripts/plugin_release.py'
+      - 'scripts/plugin-release-crypto.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -27,6 +30,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Verify signed plugin channel before deployment
+        env:
+          CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
+          CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
+        run: |
+          set -euo pipefail
+          directory=site/plugins
+          if [[ ! -e "$directory" && ! -L "$directory" ]]; then exit 0; fi
+          [[ -d "$directory" && ! -L "$directory" ]]
+          for name in channel-policy.json channel-policy.sig policy.json; do
+            [[ -f "$directory/$name" && ! -L "$directory/$name" ]] || {
+              echo "Missing regular plugin channel file: $name" >&2
+              exit 1
+            }
+          done
+          python3 -B scripts/gterm-plugin release verify-policy \
+            --channel "${CHANNEL:?Missing channel name}" \
+            --channel-root "${CHANNEL_ROOT:?Missing channel root}" \
+            --statement "$directory/channel-policy.json" \
+            --signature "$directory/channel-policy.sig" \
+            --policy "$directory/policy.json"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
