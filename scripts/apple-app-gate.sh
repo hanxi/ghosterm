@@ -223,7 +223,7 @@ echo "== 3/3 GhostermApp 构建 + 测试 =="
     fi
   done
   for suite in "${SUITES[@]}"; do
-    echo "== Swift suite: $suite ==" >>"$TMP/apple-app-test.log"
+    printf '== Swift suite: %s ==\n' "$suite" | tee -a "$TMP/apple-app-test.log" || exit $?
     # Discard inherited endpoints. Tests that need SSH or a plugin runtime
     # receive only this invocation's fixture settings.
     gt_timeout 1800 env \
