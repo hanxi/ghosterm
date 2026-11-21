@@ -54,10 +54,16 @@ class PluginViewsUiTest {
         ui.onAllNodesWithTag("plugin-table-next")[0].performScrollTo().performClick()
         await { alpha.state.value.page?.offset == 16 }; assertEquals(0, beta.state.value.page?.offset)
         val close = ui.onNodeWithContentDescription("关闭视图 table-a，不取消任务").performScrollTo()
+        ui.runOnIdle { f.pauseClose = true }
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_TAB)
         close.performSemanticsAction(SemanticsActions.RequestFocus).assertIsFocused()
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+        await { f.closeEntered.isCompleted && m.state.value.items.first().closing }
+        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.Focused, true)
+        ) { "Adjacent close button must gain keyboard focus before the close reply" }
+        ui.runOnIdle { f.closeRelease.complete(Unit) }
         await { m.state.value.items.size == 3 }
         ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assertIsFocused()
         assertTrue(!alpha.state.value.valid && m.state.value.items.any { (it.content as? PluginViewItem.Content.Table)?.model === beta })

@@ -51,7 +51,9 @@ CASES = [
     ('native-enable', APP + 'ExtensionController.kt', 'try { active.enableViews(viewKinds) }', 'try { Unit }', None),
     ('native-owner', APP + 'ExtensionController.kt', 'runtimeInstanceID == instanceID && runtimeViewScope != null', 'runtimeViewScope != null', None),
     ('native-render', APP + 'SettingsContent.kt', 'extensions.registeredViews?.let { PluginViewsContent(it) }', 'extensions.registeredViews?.let { _ -> Unit }', None),
-    ('native-close', UI, 'onClick = { model.closeView(item.handle) }', 'onClick = { Unit }', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
+    ('native-close', UI, '                            model.closeView(item.handle)', '                            Unit', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
+    ('native-close-focus', UI, '                                next?.let { closeFocus[it.handle]?.requestFocus() }',
+        '                                next?.let { Unit }', 'UI#actualCloseKeepsOtherTableAndReopenGetsFreshHandle'),
     ('native-heading', UI, 'Modifier.weight(1f).semantics { heading() }', 'Modifier.weight(1f)', 'UI#darkLargeTextPaints'),
     ('native-restart', APP + 'PluginTaskContent.kt', 'LaunchedEffect(model, model.available)', 'LaunchedEffect(model)', 'UI#unconfirmedCloseRetainsWidgetAndRestartsPolling'),
     (FOREGROUND_MUTATION, VM, '                    registeredViews?.invalidate(); task?.invalidate()\n',
@@ -279,7 +281,12 @@ def main():
                                 mutated = compile_apks(label + '-build-red')
                                 if before[0] == mutated[0]: raise RuntimeError('Actual production APK unchanged: ' + label)
                                 install(label + '-red')
-                                if selected: test(label + '-red', selected, 1, True)
+                                if selected:
+                                    output = test(label + '-red', selected, 1, True)
+                                    if label == 'native-close-focus':
+                                        expected = 'Adjacent close button must gain keyboard focus before the close reply'
+                                        if expected not in output:
+                                            raise RuntimeError('Wrong focus assertion\n' + output)
                                 else: actual(label + '-red', 'direct', scenario, True)
                                 test(label + '-control', CONTROL, 1)
                             finally: path.write_bytes(original)
