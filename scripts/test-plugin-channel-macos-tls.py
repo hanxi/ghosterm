@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the native macOS channel client against an owned loopback TLS server."""
+import argparse
 import base64
 import importlib.util
 import os
@@ -50,6 +51,7 @@ def verify_release_preflight(work, env, origin, certificate, root):
 
 
 def main():
+    argparse.ArgumentParser(description=__doc__).parse_args()
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('channel_tls_fixture', ROOT / 'scripts/test-plugin-channel-android-tls.py')
     helper = importlib.util.module_from_spec(spec)
