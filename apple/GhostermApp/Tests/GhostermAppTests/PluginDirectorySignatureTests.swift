@@ -366,7 +366,19 @@ final class PluginDirectorySignatureTests: XCTestCase {
         let root = URL(fileURLWithPath: path), package = root.appendingPathComponent("p")
         let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0",
             protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root)
+        let cancelledReview = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await controller.review(directory: package)
+        }
+        do {
+            _ = try await cancelledReview.value
+            XCTFail("A cancelled review must not enter the package worker")
+        } catch is CancellationError {}
+
         let review = try await controller.review(directory: package)
+        let repeated = try await controller.review(directory: package)
+        XCTAssertEqual(repeated.digest, review.digest)
+        XCTAssertFalse(repeated.sourceApproved, "Reopening a pending review cannot approve its source")
         let proof = try await controller.verifyDirectorySignature(packageID: review.id, digest: review.digest,
             descriptor: root.appendingPathComponent("r/release.json"), signature: root.appendingPathComponent("r/release.sig"),
             trustedPolicy: root.appendingPathComponent("policy.json"))
@@ -381,6 +393,14 @@ final class PluginDirectorySignatureTests: XCTestCase {
                 trustedPolicy: root.appendingPathComponent("policy.json"))
             XCTFail("unreviewed digest accepted")
         } catch { XCTAssertEqual(error as? Failure, .identity) }
+        _ = try await controller.deny(id: review.id, digest: review.digest)
+        do {
+            _ = try await controller.review(directory: package)
+            XCTFail("Repeating a review must not reopen a denied source")
+        } catch {
+            guard case ExtensionController.ControllerError.registry(let status) = error else { throw error }
+            XCTAssertEqual(status, ExtensionRegistry.Status.conflict.rawValue)
+        }
         let closed = await controller.close()
         XCTAssertTrue(closed)
         do {

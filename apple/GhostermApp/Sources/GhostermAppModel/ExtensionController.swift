@@ -501,7 +501,8 @@ public actor ExtensionController {
     /// Reads a user-selected directory through a no-follow directory descriptor,
     /// captures and checks its immutable package, and registers it as UNKNOWN.
     public func review(directory: URL) async throws -> PackageReview {
-        try await worker.review(directory: directory)
+        try Task.checkCancellation()
+        return try await worker.review(directory: directory)
     }
 
     public func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
@@ -2582,8 +2583,12 @@ public actor ExtensionController {
         private func reviewOnQueue(directory: URL) throws -> PackageReview {
             let record = try captureOnQueue(directory: directory)
             let packageKey = key(record.review.id, record.review.digest)
-            guard packages[packageKey] == nil else {
+            if let existing = packages[packageKey] {
                 try? record.package.close()
+                // A cancelled page can lose the result after this queue has
+                // captured it. Re-open the same pending review without
+                // granting authorization or replacing a decided record.
+                if existing.source == .unknown, existing.managedReleaseID == nil { return existing.review }
                 throw ControllerError.registry(ExtensionRegistry.Status.conflict.rawValue)
             }
             packages[packageKey] = record
