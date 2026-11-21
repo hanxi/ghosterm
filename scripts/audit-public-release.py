@@ -78,9 +78,17 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
     manifest = json.loads((folder / 'version.json').read_text())
     if (manifest.get('channel'), manifest.get('version'), manifest.get('git_commit')) != ('release', version, commit):
         raise ValueError('manifest does not match the formal release tag')
+    verify_macos_update(folder, inventory, manifest, 'release', base, expected_key)
+
+
+def verify_macos_update(folder, inventory, manifest, channel, base, expected_key):
+    version, commit = manifest.get('version'), manifest.get('git_commit')
+    if (manifest.get('channel') != channel or not isinstance(version, str) or not version
+            or not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit)):
+        raise ValueError('invalid macOS update manifest identity')
     if not isinstance(manifest.get('update_signature'), str) or not manifest['update_signature']:
         raise ValueError('manifest is missing the update signature')
-    zip_name = 'Ghosterm-macos-arm64-release.zip'
+    zip_name = f'Ghosterm-macos-arm64-{channel}.zip'
     with zipfile.ZipFile(folder / zip_name) as archive:
         info = plistlib.loads(archive.read('Ghosterm.app/Contents/Info.plist'))
         receipt = archive.read('Ghosterm.app/Contents/Resources/BUILD-INFO.txt')
@@ -94,12 +102,12 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
             raise ValueError('missing application metadata: ' + field)
     if (info.get('GhostermUpdateChannel'), info.get('CFBundleShortVersionString'),
         info.get('CFBundleVersion'), info.get('LSMinimumSystemVersion')) != (
-        'release', version, manifest.get('update_version'), manifest.get('min_macos')
+        channel, version, manifest.get('update_version'), manifest.get('min_macos')
     ):
         raise ValueError('application metadata differs from the published release manifest')
     items = ET.parse(folder / 'appcast.xml').findall('./channel/item')
     if len(items) != 1 or manifest.get('download_base') != base:
-        raise ValueError('formal appcast must describe one release at the tag URL')
+        raise ValueError('appcast must describe one update at the channel download URL')
     item = items[0]
     enclosure = item.find('enclosure')
     if enclosure is None or (
@@ -109,16 +117,17 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
         version, manifest.get('update_version'), base + '/' + zip_name,
         str(inventory[zip_name]['size']), manifest['update_signature']
     ):
-        raise ValueError('formal appcast does not match the published update ZIP')
-    expected = FORMAL_MACOS - {'SHA256SUMS', 'version.json', 'appcast.xml'}
+        raise ValueError('appcast does not match the published update ZIP')
+    platform_assets = FORMAL_MACOS if channel == 'release' else CHECK.FILES['macos']
+    expected = platform_assets - {'SHA256SUMS', 'version.json', 'appcast.xml'}
     rows = [line.split(None, 1) for line in (folder / 'SHA256SUMS').read_text().splitlines()]
     if len(rows) != len(expected) or any(len(row) != 2 for row in rows):
-        raise ValueError('invalid formal release checksum records')
+        raise ValueError('invalid macOS release checksum records')
     checksums = {name: digest for digest, name in rows}
     if set(checksums) != expected or checksums != manifest.get('sha256') or any(
         'sha256:' + digest != inventory[name]['digest'] for name, digest in checksums.items()
     ):
-        raise ValueError('formal release checksums do not match the assets')
+        raise ValueError('macOS release checksums do not match the assets')
     key = info.get('SUPublicEDKey')
     if not isinstance(key, str) or (expected_key is not None and key != expected_key):
         raise ValueError('update ZIP does not contain the expected Ed25519 public key')
@@ -141,15 +150,15 @@ def main():
     parser.add_argument('--repository', default='hanxi/ghosterm')
     parser.add_argument('--tag', default='dev')
     parser.add_argument('--platform', choices=sorted(CHECK.FILES), default='macos')
-    parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a formal macOS release')
+    parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a macOS release')
     parser.add_argument('--asset-directory', type=Path, help='verify a local formal macOS artifact before upload')
     parser.add_argument('--commit', help='expected full commit for a local artifact')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
     if args.tag != 'dev' and (not formal or args.platform != 'macos'):
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
-    if args.update_public_key is not None and not formal:
-        parser.error('--update-public-key requires a formal macOS tag')
+    if args.update_public_key is not None and args.platform != 'macos':
+        parser.error('--update-public-key requires macOS')
     base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
     if args.asset_directory is not None:
         if not (formal and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
@@ -195,6 +204,9 @@ def main():
             verify_formal_macos(folder, assets, formal[1], commit, base, args.update_public_key)
         else:
             CHECK.verify(args.platform, folder, assets)
+            if args.platform == 'macos':
+                manifest = json.loads((folder / 'version.json').read_text())
+                verify_macos_update(folder, inventory, manifest, 'dev', base, args.update_public_key)
     print(f'PUBLIC RELEASE PASS: {args.repository}@{args.tag} ({args.platform})')
 
 

@@ -16000,6 +16000,11 @@ macOS 发布候选 `115f0ecc` 以 required 模式复验本地应用闸门。131 
 实际工作流 shell 步骤复验六份候选资产，正确公钥通过，错误公钥拒绝，两个
 分支均清理暂存副本。此次为本地工作流步骤复验，未触发新云端构建。
 
+公开 macOS `dev` 资产复用正式版的 ZIP/appcast Ed25519 验签，并核对
+dev 下载地址、构建收据、ZIP 内版本和发布摘要。使用仓库配置公钥从当前
+GitHub Release 下载并通过。同期 Android dev 原有资产审计和正式 macOS
+Actions 候选本地审计通过。临时下载已清理，未执行客户端安装或更新。
+
 ### P1 macOS 普通 SSH 连接重置与候选清理（2026-11-21）
 
 在独立构建的 JS-on Core 和 macOS 离屏 XCTest 上运行
