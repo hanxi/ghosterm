@@ -34,8 +34,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        id: pages
       - name: Verify signed plugin channel before deployment
         env:
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
           CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
           CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
@@ -52,7 +55,10 @@ jobs:
             echo "macOS and Android must use the same channel name and public key for a shared policy URL" >&2
             exit 1
           fi
-          if [[ -z "$CHANNEL" && -z "$CHANNEL_ROOT" ]]; then
+          pages_policy_url="${PAGES_BASE_URL%/}/plugins"
+          if [[ "${ANDROID_CHANNEL_URL%/}" == "$pages_policy_url" &&
+                "${CHANNEL_URL%/}" != "$pages_policy_url" ]] ||
+             [[ -z "$CHANNEL" && -z "$CHANNEL_ROOT" ]]; then
             CHANNEL="$ANDROID_CHANNEL"
             CHANNEL_ROOT="$ANDROID_CHANNEL_ROOT"
           fi
@@ -70,7 +76,6 @@ jobs:
             --policy "$directory/policy.json"
           printf 'PAGES_PLUGIN_CHANNEL=%s\nPAGES_PLUGIN_CHANNEL_ROOT=%s\n' \
             "$CHANNEL" "$CHANNEL_ROOT" >> "$GITHUB_ENV"
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
