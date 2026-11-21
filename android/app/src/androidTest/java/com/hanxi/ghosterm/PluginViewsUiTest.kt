@@ -89,7 +89,9 @@ class PluginViewsUiTest {
             m.apply(f.data())
         }
         close.assertDoesNotExist()
-        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assertIsFocused()
+        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.Focused, true)
+        ) { "Executor removal must restore keyboard focus to a remaining close button" }
         assertFalse(f.closeEntered.isCompleted)
     }
     @Test fun unconfirmedCloseRetainsWidgetAndRestartsPolling() = fixture { m, f ->
