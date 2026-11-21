@@ -55,9 +55,18 @@ class PluginTaskUiTest {
         assertEquals(1, f.calls.count { it.first == "view.task.cancel" })
     }
     @Test fun unknownCancelOnlyAllowsExplicitRead() = fixture { model, f ->
-        ui.runOnIdle { f.unknownMethod = "view.task.cancel" }
+        ui.runOnIdle { f.pause = "view.task.cancel"; f.unknownMethod = "view.task.cancel" }
         ui.onNodeWithTag("plugin-task-cancel").performScrollTo().performClick()
+        awaitState { f.entered.isCompleted }
+        ui.onNodeWithTag("plugin-task-loading").assertDoesNotExist()
+        val status = ui.onNodeWithTag("plugin-task-cancel-status").performScrollTo()
+        status.assertTextEquals("正在发送取消请求…")
+        val pendingNode = ui.awaitNativePluginLiveRegion("正在发送取消请求…")
+        ui.runOnIdle { f.release.complete(Unit) }
         awaitState { model.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED }
+        status.performScrollTo().assertTextEquals("取消结果不明；不会重发取消请求")
+        assertEquals("Cancel receipt must update the same system live region", pendingNode,
+            ui.awaitNativePluginLiveRegion("取消结果不明；不会重发取消请求"))
         ui.onNodeWithTag("plugin-task-cancel").assertIsNotEnabled()
         ui.runOnIdle { f.finish() }
         ui.onNodeWithTag("plugin-task-read").performScrollTo().performClick()
@@ -65,6 +74,7 @@ class PluginTaskUiTest {
         ui.onNodeWithTag("plugin-task-phase").assertTextEquals("已确认取消")
             .assertContentDescriptionEquals("${checkNotNull(model.state.value.descriptor).title}，已确认取消")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        status.performScrollTo().assertTextEquals("取消请求回执未确认；任务已结束")
         assertTrue(model.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED && f.calls.count { it.first == "view.task.cancel" } == 1)
     }
     @Test fun knownZeroIsNotUnknown() = fixture(prepare = { f ->

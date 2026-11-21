@@ -27,7 +27,9 @@ struct PluginTaskView: View {
             if let cancellationMessage {
                 Text(cancellationMessage).accessibilityIdentifier("plugin-task-cancel-status")
             }
-            if model.busy { ProgressView("正在读取任务…").accessibilityIdentifier("plugin-task-loading") }
+            if model.busy && model.cancellation != .pending {
+                ProgressView("正在读取任务…").accessibilityIdentifier("plugin-task-loading")
+            }
             ViewThatFits(in: .horizontal) { HStack { controls }; VStack(alignment: .leading) { controls } }
         }.accessibilityElement(children: .contain).accessibilityIdentifier("plugin-task")
             .announcePluginStatus(statusAnnouncement)
@@ -48,10 +50,12 @@ struct PluginTaskView: View {
         return cancellationMessage.map { "\(title)，\($0)" }
     }
 
-    private var cancellationMessage: String? {
+    var cancellationMessage: String? {
         switch model.cancellation {
+        case .pending: return "正在发送取消请求…"
         case .requested where model.snapshot?.phase.terminal != true: return "取消请求已受理，仍需任务确认停止"
-        case .unconfirmed: return "取消结果不明；不会重发取消请求"
+        case .unconfirmed:
+            return model.snapshot?.phase.terminal == true ? "取消请求回执未确认；任务已结束" : "取消结果不明；不会重发取消请求"
         case .alreadyFinished: return "取消到达时任务已结束"
         default: return nil
         }

@@ -52,16 +52,19 @@ import kotlinx.coroutines.isActive
             } }
         }
         val cancellationMessage = when (state.cancellation) {
+            PluginTaskModel.Cancellation.PENDING -> "正在发送取消请求…"
             PluginTaskModel.Cancellation.REQUESTED ->
                 "取消请求已受理，仍需任务确认停止".takeUnless { state.snapshot?.phase?.terminal == true }
-            PluginTaskModel.Cancellation.UNCONFIRMED -> "取消结果不明；不会重发取消请求"
+            PluginTaskModel.Cancellation.UNCONFIRMED ->
+                if (state.snapshot?.phase?.terminal == true) "取消请求回执未确认；任务已结束"
+                else "取消结果不明；不会重发取消请求"
             PluginTaskModel.Cancellation.ALREADY_FINISHED -> "取消到达时任务已结束"
             else -> null
         }
         cancellationMessage?.let {
             Text(it, statusSemantics("plugin-task-cancel-status", it))
         }
-        if (state.busy) Text("正在读取任务…", Modifier.testTag("plugin-task-loading").semantics {
+        if (state.busy && state.cancellation != PluginTaskModel.Cancellation.PENDING) Text("正在读取任务…", Modifier.testTag("plugin-task-loading").semantics {
             contentDescription = "$title 正在读取"
             liveRegion = LiveRegionMode.Polite
         })
