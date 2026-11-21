@@ -386,9 +386,10 @@ struct ExtensionsPane: View {
             }
             SettingsNote("来源批准不等于授予访问文件或启动程序的权限。运行内容在工作区中打开；关闭窗格会停止插件并释放资源。")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
-                      onCompletion: selectedPackage)
-        .onChange(of: importing) { _ in restorePackagePickerFocusIfReady() }
+        .modifier(PluginPackageImporter(isPresented: $importing, onCompletion: { result in
+            selectedPackage(result)
+            restorePackagePickerFocusIfReady()
+        }, onCancellation: restorePackagePickerFocusIfReady))
         .onChange(of: reviewingPackage) { _ in restorePackagePickerFocusIfReady() }
         .confirmationDialog("停止并关闭插件连接？", isPresented: Binding(
             get: { connectionToClose.map { !$0.closed } ?? false },
@@ -734,6 +735,25 @@ struct ExtensionsPane: View {
         if temporary.error != 0 { Text("临时清理错误：\(temporary.error)").font(DS.Font.caption).foregroundStyle(.red) }
     }
 
+}
+
+private struct PluginPackageImporter: ViewModifier {
+    @Binding var isPresented: Bool
+    let onCompletion: (Result<[URL], Error>) -> Void
+    let onCancellation: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14, *) {
+            content.fileImporter(isPresented: $isPresented, allowedContentTypes: [.folder], allowsMultipleSelection: false,
+                                 onCompletion: onCompletion, onCancellation: onCancellation)
+        } else {
+            content.fileImporter(isPresented: $isPresented, allowedContentTypes: [.folder], allowsMultipleSelection: false,
+                                 onCompletion: onCompletion)
+                .onChange(of: isPresented) { presented in
+                    if !presented { onCancellation() }
+                }
+        }
+    }
 }
 
 struct CodexFileChangesView: View {
