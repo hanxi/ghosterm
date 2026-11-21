@@ -485,7 +485,7 @@ final class PluginReleaseInstallTests: XCTestCase {
 
 @MainActor
 final class PluginOfficialReleaseInstallTests: XCTestCase {
-    func testSevenOfficialCandidatesInstallWithoutApprovingTheirSources() async throws {
+    func testNineOfficialCandidatesInstallWithoutApprovingTheirSources() async throws {
         guard let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_OFFICIAL_RELEASES"] else {
             throw XCTSkip("requires explicit signed official candidate fixtures")
         }

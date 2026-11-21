@@ -217,7 +217,7 @@ class PluginInstallControllerTest {
 
 @RunWith(AndroidJUnit4::class)
 class PluginOfficialReleaseInstallTest {
-    @Test fun installsSevenCandidatesWithoutApprovingTheirSources() = runBlocking {
+    @Test fun installsNineCandidatesWithoutApprovingTheirSources() = runBlocking {
         val input = InstrumentationRegistry.getArguments().getString("officialReleaseRoot")
         org.junit.Assume.assumeNotNull(input)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
