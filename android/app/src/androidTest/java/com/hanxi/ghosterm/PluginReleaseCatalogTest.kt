@@ -21,6 +21,7 @@ class PluginReleaseCatalogTest {
         val name = "channel-policy-v1-" + "a".repeat(64)
         val previous = byteArrayOf(1, 2, 3)
         val candidate = ByteArray(32 * 1024) { (it % 251).toByte() }
+        val detached = File(root.parentFile, "${root.name}-detached")
         try {
             owner(root).use {
                 assertTrue(it.writeChannelRecord(name, previous, null))
@@ -42,8 +43,22 @@ class PluginReleaseCatalogTest {
             owner(root).use {
                 assertArrayEquals("Published channel bytes must be available for reconciliation",
                     candidate, it.readChannelRecord(name))
+                var synced = false
+                val durable = it.writeChannelRecord(name, previous, candidate, parentSync = { fd ->
+                    Os.rename(root.path, detached.path)
+                    Os.mkdir(root.path, 448)
+                    Os.fsync(fd)
+                    synced = true
+                })
+                assertTrue("The detached directory must have been synchronized", synced)
+                assertFalse("A detached catalog cannot report durable channel publication", durable)
             }
-        } finally { root.deleteRecursively() }
+            owner(root).use { assertNull(it.readChannelRecord(name)) }
+            assertArrayEquals(previous, File(detached, name).readBytes())
+        } finally {
+            root.deleteRecursively()
+            detached.deleteRecursively()
+        }
     }
 
     private val plugin = "org.ghosterm.fixture"

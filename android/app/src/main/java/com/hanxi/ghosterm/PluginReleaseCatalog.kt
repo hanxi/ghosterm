@@ -246,7 +246,12 @@ internal class PluginReleaseCatalog private constructor(
                     demand(error == 0, if (error == OsConstants.EEXIST) Reason.CONFLICT else Reason.IO)
                 } else { Os.rename(path(temporary), path(name)) }
                 published = true
-                val durable = runCatching { checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.isSuccess
+                val durable = runCatching {
+                    checkpoint("after-rename")
+                    validate()
+                    parentSync(fd.fileDescriptor)
+                    validate()
+                }.isSuccess
                 return durable
             } finally {
                 try { if (!published) {

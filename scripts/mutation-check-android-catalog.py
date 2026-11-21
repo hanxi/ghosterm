@@ -96,7 +96,11 @@ def main():
         ('publication-receipt', store + 'parentSyncAndReceiptFailuresKeepPublishedSelection', catalog,
          'published = true', 'published = false'),
         ('publication-durability', store + 'parentSyncAndReceiptFailuresKeepPublishedSelection', catalog,
-         'checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.isSuccess', 'checkpoint("after-rename"); validate(); parentSync(fd.fileDescriptor) }.let { true }'),
+         'parentSync(fd.fileDescriptor)\n                    validate()\n                }.isSuccess',
+         'parentSync(fd.fileDescriptor)\n                    validate()\n                }.let { true }'),
+        ('publication-durable-root', store + 'channelRecordKeepsOldBytesUntilPublicationAndReportsUncertainSync', catalog,
+         'parentSync(fd.fileDescriptor)\n                    validate()\n                }.isSuccess',
+         'parentSync(fd.fileDescriptor)\n                }.isSuccess'),
         ('channel-before-publish', store + 'channelRecordKeepsOldBytesUntilPublicationAndReportsUncertainSync', catalog,
          'writeRecord(name, raw, previous == null, checkpoint, parentSync)',
          'writeRecord(name, raw, previous == null, {}, parentSync)'),
@@ -187,6 +191,7 @@ def main():
             'observer-busy-target': 'locked inventory was treated as empty',
             'channel-before-publish-target': 'A channel write must stop on its prepublication error',
             'channel-parent-sync-target': 'Parent sync failure must not report durable channel publication',
+            'publication-durable-root-target': 'A detached catalog cannot report durable channel publication',
             'initial-cas-target': 'stale selection created a candidate'}.get(label)
         if not green and expected is not None: good = good and expected in output
         if not good or 'INSTRUMENTATION_STATUS: numtests=1' not in output: raise RuntimeError('Not accepted assertion result:\n' + output)
