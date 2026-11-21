@@ -12833,6 +12833,12 @@ Android 混合运行脚本新增 `--android-repeat`，只用于无变异的设�
 `67d3ea8a2202758981a05a2cb38ac73328a5a1669475d91255d02296d6ac7d52`。
 本轮未复现历史 I/O 错误，根因仍未知；模拟器与临时目录已核实清理。
 
+在 `2a38968a` 用 ASan／UBSan 构建公共进程 Runtime，
+`test-plugin-process-runtime.py --public --processes` 全套通过。覆盖 Node
+版本探针迟到 stderr、激活拒绝、子进程退出与取消、远端丢失及 Exec 不支持。
+日志 SHA256 为 `4d3d91bc35df0759d674ba8b14f274842692488246f6c1d2876068475873e38b`。
+此为本机独立运行时夹具，未复现历史在线替换 I/O；临时目录已核实清理。
+
 macOS 在真实 Native 八实例夹具补验同一竞态。活动实例的无效输入明确返回
 `INVALID_INPUT`。下一次请求在 worker 已拒绝且模型尚未处理时关闭原实例，
 其迟到结果以取消结束，其余实例及新加入的签名 Node 实例继续完成 RPC。
