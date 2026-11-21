@@ -11,6 +11,7 @@ on:
       - 'scripts/plugin-release-crypto.mjs'
       - 'scripts/plugin-release-schemas.mjs'
       - 'scripts/check-plugin-channel-url.sh'
+      - 'scripts/check-plugin-channel-directory.sh'
       - 'scripts/configure-macos-plugin-channel.py'
   workflow_dispatch: {}
 
@@ -58,7 +59,7 @@ jobs:
             fi
             exit 0
           fi
-          [[ -d "$directory" && ! -L "$directory" ]]
+          bash scripts/check-plugin-channel-directory.sh "$directory"
           if [[ -n "$CHANNEL_URL" && "${CHANNEL_URL%/}" == "${ANDROID_CHANNEL_URL%/}" ]] &&
              [[ "$CHANNEL" != "$ANDROID_CHANNEL" || "$CHANNEL_ROOT" != "$ANDROID_CHANNEL_ROOT" ]]; then
             echo "macOS and Android must use the same channel name and public key for a shared policy URL" >&2
@@ -70,12 +71,6 @@ jobs:
             CHANNEL="$ANDROID_CHANNEL"
             CHANNEL_ROOT="$ANDROID_CHANNEL_ROOT"
           fi
-          for name in channel-policy.json channel-policy.sig policy.json; do
-            [[ -f "$directory/$name" && ! -L "$directory/$name" ]] || {
-              echo "Missing regular plugin channel file: $name" >&2
-              exit 1
-            }
-          done
           python3 -B scripts/gterm-plugin release verify-policy \
             --channel "${CHANNEL:?Missing channel name}" \
             --channel-root "${CHANNEL_ROOT:?Missing channel root}" \
