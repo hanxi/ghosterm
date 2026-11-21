@@ -376,7 +376,12 @@ final class PluginDirectorySignatureTests: XCTestCase {
         } catch is CancellationError {}
 
         let review = try await controller.review(directory: package)
-        let repeated = try await controller.review(directory: package)
+        let repeated: ExtensionController.PackageReview
+        do {
+            repeated = try await controller.review(directory: package)
+        } catch {
+            return XCTFail("The same undecided review must be reusable: \(error)")
+        }
         XCTAssertEqual(repeated.digest, review.digest)
         XCTAssertFalse(repeated.sourceApproved, "Reopening a pending review cannot approve its source")
         let proof = try await controller.verifyDirectorySignature(packageID: review.id, digest: review.digest,

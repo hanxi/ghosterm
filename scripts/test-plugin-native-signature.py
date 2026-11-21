@@ -24,6 +24,19 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = 'apple/GhostermApp/Sources/GhostermAppModel/PluginDirectorySignature.swift'
 VIEW = 'apple/GhostermApp/Sources/GhostermApp/PluginSignatureReviewView.swift'
 CONTROLLER = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
+DIRECTORY_REVIEW_CASES = (
+    ('review-cancelled', CONTROLLER,
+     'try Task.checkCancellation()\n        return try await worker.review(directory: directory)',
+     'return try await worker.review(directory: directory)',
+     'A cancelled review must not enter the package worker'),
+    ('review-retry', CONTROLLER,
+     'if existing.source == .unknown, existing.managedReleaseID == nil { return existing.review }',
+     '', 'The same undecided review must be reusable'),
+    ('review-denial', CONTROLLER,
+     'if existing.source == .unknown, existing.managedReleaseID == nil { return existing.review }',
+     'if existing.managedReleaseID == nil { return existing.review }',
+     'Repeating a review must not reopen a denied source'),
+)
 TEST = 'PluginDirectorySignatureTests.'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 CONSENT_MUTATION = 'channel-consent-recheck'
@@ -169,6 +182,8 @@ def main():
         inputs['core/CMakeLists.txt'] = sha(ROOT / 'core/CMakeLists.txt')
         inputs.update({str(p.relative_to(ROOT)): sha(p) for p in (ROOT / 'cli/gterm').rglob('*') if p.is_file() and 'build' not in p.parts})
     recipes = [
+        *((label, path, old, new, TEST + 'testCLISignatureAgainstActualCoreSnapshotWithoutApproval')
+          for label, path, old, new, _ in DIRECTORY_REVIEW_CASES),
         *([(CONSENT_MUTATION, CONTROLLER,
          '                    let channelPolicyLease = try self.authorizeChannelStart(record, access: access)\n'
          '                    defer { withExtendedLifetime(channelPolicyLease?.1) {} }\n'
@@ -401,6 +416,10 @@ def main():
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError', 'Build failed']), label
                 if label == CONSENT_MUTATION + '-assertion':
                     assert 'revoked consent must not advance the Native Session' in log, (label, log[-9000:])
+                expected = next((message for name, _, _, _, message in DIRECTORY_REVIEW_CASES
+                                 if label == name + '-assertion'), None)
+                if expected:
+                    assert expected in log and 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-9000:])
             else:
                 assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, log[-9000:])
                 assert 'skipped' not in log.lower(), label
