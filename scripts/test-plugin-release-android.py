@@ -33,6 +33,22 @@ def run(command, environment, seconds=180):
     return result.stdout + result.stderr
 
 
+def report_owned_crash_buffer(selected, environment, work):
+    try:
+        crash = run([*selected, 'logcat', '-b', 'crash', '-d', '-t', '200'], environment, 20)
+    except (RuntimeError, subprocess.TimeoutExpired) as error:
+        print(f'Could not read owned Android crash buffer: {type(error).__name__}', file=sys.stderr)
+        return
+    if crash.strip():
+        receipt = work / ('android-crash-' + str(time.time_ns()) + '.log')
+        receipt.write_text(crash)
+        print(f'OWNED ANDROID CRASH RECEIPT {receipt} SHA256 {hashlib.sha256(receipt.read_bytes()).hexdigest()}',
+              file=sys.stderr, flush=True)
+        for line in crash.splitlines():
+            if 'FATAL EXCEPTION' in line or re.search(r'AndroidRuntime:\s+(?:Caused by: )?[\w.$]+(?:Exception|Error):', line):
+                print(line, file=sys.stderr, flush=True)
+
+
 def headless_dependencies(api, environment, image=None):
     sdk = Path(environment.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk')).resolve()
     image = image or sdk / f'system-images/android-{api}/google_apis/arm64-v8a'
@@ -359,7 +375,11 @@ def main():
     else:
         with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=work_tmp) as directory:
             with headless(args.headless_api, Path(directory), environment, bounded_userdata=args.capacity) as (selected, isolated):
-                execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
+                try:
+                    execute(selected, isolated, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)
+                except RuntimeError:
+                    report_owned_crash_buffer(selected, isolated, work_tmp)
+                    raise
                 if args.official_release_directory:
                     install_official_candidates(selected, isolated, args.official_release_directory)
                 if args.capacity:
