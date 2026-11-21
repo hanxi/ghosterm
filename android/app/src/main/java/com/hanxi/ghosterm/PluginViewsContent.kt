@@ -18,8 +18,7 @@ import androidx.compose.ui.unit.dp
 /** Standard components keyed by Native handle; a widget close is not a task cancel. */
 @Composable internal fun PluginViewsContent(model: PluginViewsModel) {
     val state by model.state.collectAsState()
-    val handles = state.items.map { it.handle }
-    val closeFocus = remember(handles) { handles.associateWith { FocusRequester() } }
+    val closeFocus = remember(model) { mutableMapOf<String, FocusRequester>() }
     Column(Modifier.fillMaxWidth().testTag("plugin-views"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         state.issue?.let {
             Text(it, Modifier.testTag("plugin-views-issue").semantics { liveRegion = LiveRegionMode.Polite },
@@ -27,6 +26,11 @@ import androidx.compose.ui.unit.dp
         }
         if (state.items.isEmpty() && model.available) Text("当前没有打开的插件视图", Modifier.testTag("plugin-views-empty"))
         state.items.forEachIndexed { index, item -> key(item.handle) {
+            val focusRequester = remember { FocusRequester() }
+            DisposableEffect(closeFocus, item.handle) {
+                closeFocus[item.handle] = focusRequester
+                onDispose { closeFocus.remove(item.handle) }
+            }
             var closeFocused by remember { mutableStateOf(false) }
             OutlinedCard(Modifier.fillMaxWidth().testTag("plugin-registered-view-${item.handle}")) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -41,7 +45,7 @@ import androidx.compose.ui.unit.dp
                             }
                             model.closeView(item.handle)
                         }, enabled = model.available && !item.closing,
-                            modifier = Modifier.focusRequester(closeFocus.getValue(item.handle))
+                            modifier = Modifier.focusRequester(focusRequester)
                                 .onFocusChanged { closeFocused = it.isFocused }
                                 .testTag("plugin-view-close").semantics {
                                 contentDescription = if (item.closing) "正在关闭视图 ${item.registration.viewID}"
