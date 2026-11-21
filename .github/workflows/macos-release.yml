@@ -53,6 +53,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: 检出发行验签脚本
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: 取产物
         uses: actions/download-artifact@v4
         with:
@@ -62,6 +67,8 @@ jobs:
       # BUILD-INFO.txt 里带着真实签名模式与最低系统版本，原样进正文，
       # 不额外润色（铁律 #6：不许把没做的事写成做了）。
       - name: 建草稿 Release
+        env:
+          GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           test -f dist/BUILD-INFO.txt && test -f dist/version.json
@@ -108,6 +115,8 @@ jobs:
           if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
             echo "发布标签 $TAG 与本轮构建提交不一致" >&2; exit 1
           fi
+          python3 scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
+            --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
           if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then

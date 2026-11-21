@@ -125,18 +125,41 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
     verify_update_signatures(folder, folder / zip_name, manifest['update_signature'], key)
 
 
+def local_assets(folder):
+    entries = []
+    for index, path in enumerate(sorted(folder.iterdir()), 1):
+        if path.is_symlink() or not path.is_file() or path.name not in FORMAL_MACOS:
+            raise ValueError('unexpected formal macOS asset: ' + path.name)
+        with path.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        entries.append(dict(id=index, name=path.name, size=path.stat().st_size, digest='sha256:' + digest))
+    return {'id': 1, 'assets': entries}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', default='hanxi/ghosterm')
     parser.add_argument('--tag', default='dev')
     parser.add_argument('--platform', choices=sorted(CHECK.FILES), default='macos')
     parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a formal macOS release')
+    parser.add_argument('--asset-directory', type=Path, help='verify a local formal macOS artifact before upload')
+    parser.add_argument('--commit', help='expected full commit for a local artifact')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
     if args.tag != 'dev' and (not formal or args.platform != 'macos'):
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
     if args.update_public_key is not None and not formal:
         parser.error('--update-public-key requires a formal macOS tag')
+    base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
+    if args.asset_directory is not None:
+        if not (formal and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
+            parser.error('local verification requires a formal macOS tag, a trusted update key and a full commit')
+        folder = args.asset_directory.resolve(strict=True)
+        verify_formal_macos(folder, local_assets(folder), formal[1], args.commit, base, args.update_public_key)
+        print(f'LOCAL RELEASE PASS: {args.repository}@{args.tag} ({args.commit})')
+        return
+    if args.commit is not None:
+        parser.error('--commit requires --asset-directory')
     api = f'https://api.github.com/repos/{args.repository}/releases/tags/{args.tag}'
     with urllib.request.urlopen(api, timeout=30) as response:
         release = json.load(response)
@@ -166,7 +189,6 @@ def main():
         raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:
         folder = Path(value)
-        base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
         for name in sorted(names):
             download_asset(base + '/' + name, folder / name, inventory[name]['size'])
         if formal:
