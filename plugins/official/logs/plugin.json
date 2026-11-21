@@ -6,11 +6,12 @@
   "bridgeProtocolRange": [1],
   "publisher": "Ghosterm",
   "license": "MIT",
-  "commands": [{ "path": ["logs"], "title": "Paged log search", "argsSchema": "schemas/logs.json" }],
-  "client": { "runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc"] },
+  "commands": [{ "path": ["logs"], "title": "Sample logs", "argsSchema": "schemas/logs.json", "views": ["table"] }],
+  "client": { "runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc", "ui.table"] },
   "executor": { "variants": [{ "id": "portable", "runtime": "portable-js", "entry": "executor/index.js", "requires": ["session.rpc"] }] },
   "permissions": [
     { "side": "client", "capability": "session.rpc", "purpose": "Request bounded pages of sample logs.", "scope": "instance" },
+    { "side": "client", "capability": "ui.table", "purpose": "Browse retained sample logs in the native table.", "scope": "instance" },
     { "side": "executor", "capability": "session.rpc", "purpose": "Answer scoped read-only log queries.", "scope": "instance" }
   ]
 }

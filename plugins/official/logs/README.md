@@ -1,8 +1,10 @@
 # Paged log search
 
 The Portable Executor generates deterministic sample records for `logs --count 5000`.
-It keeps at most 4096 records in memory and accepts read-only `logs.page` requests
-on the active Session. The Client currently exposes no native log view.
+It retains a logical window of up to 4096 records and generates sample text within
+each requested page. The Client browses that window using the standard native table
+on macOS and Android. A host with `logs.page` negotiated can also search the active
+Session. Search input is currently available through RPC.
 
 Start a read with `after: 0` and `through: 0`. Continue with the returned
 `cursor` as `after` and the returned `latest` as `through`. Keep the same query
