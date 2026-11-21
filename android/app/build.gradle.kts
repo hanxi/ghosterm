@@ -23,6 +23,16 @@ abstract class GenerateQuickJsLicense : DefaultTask() {
 }
 
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
+val releaseVersion = providers.gradleProperty("ghostermReleaseVersion").orNull
+val releaseVersionCode = releaseVersion?.let { version ->
+    require(version.matches(Regex("(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,2})\\.(0|[1-9][0-9]{0,2})"))) {
+        "Expected a canonical Android release version in major.minor.patch format"
+    }
+    val (major, minor, patch) = version.split('.').map(String::toLong)
+    val code = major * 1_000_000 + minor * 1_000 + patch + 2
+    require(code <= 2_100_000_000) { "Android release version exceeds the versionCode range" }
+    code.toInt()
+}
 val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
 val channelProcessFixture = providers.gradleProperty("ghostermChannelProcessFixture").orNull == "true"
 val pluginChannelName = providers.gradleProperty("ghostermPluginChannel").orNull.orEmpty()
@@ -76,8 +86,8 @@ android {
         applicationId = "com.hanxi.ghosterm"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = releaseVersionCode ?: 1
+        versionName = releaseVersion ?: "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "PLUGIN_JS_ENABLED", pluginJsEnabled.toString())
         buildConfigField("String", "PLUGIN_CHANNEL_NAME", "\"$pluginChannelName\"")

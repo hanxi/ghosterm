@@ -12,6 +12,9 @@ on:
       formal:
         type: boolean
         default: false
+      version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -33,6 +36,23 @@ jobs:
       - name: Align Gradle home with setup-java dependency caches
         run: printf 'GRADLE_USER_HOME=%s/.gradle\n' "$HOME" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ inputs.formal && '0' || '1' }}
+      - name: Resolve Android formal version
+        if: inputs.formal
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$REQUESTED_VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+          elif [[ -z "$version" ]]; then
+            version="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --match '[0-9]*')"
+            version="${version#v}"
+          fi
+          [[ "$version" =~ ^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]
+          printf 'ORG_GRADLE_PROJECT_ghostermReleaseVersion=%s\n' "$version" >> "$GITHUB_ENV"
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
@@ -105,6 +125,10 @@ jobs:
           apk=android/app/build/outputs/apk/release/app-release.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          if [ "$FORMAL_RELEASE" = true ]; then
+            badging="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")"
+            grep -Fq "versionName='${ORG_GRADLE_PROJECT_ghostermReleaseVersion}'" <<< "$badging"
+          fi
           python3 scripts/check-android-build-info.py "$apk" --expect-commit "$GITHUB_SHA" --expect-state clean
           python3 scripts/mutation-check-android-build-info.py "$apk"
           name=Ghosterm-android-arm64-dev.apk

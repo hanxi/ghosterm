@@ -49,6 +49,7 @@ jobs:
     uses: ./.github/workflows/android-release.yml
     with:
       formal: true
+      version: ${{ inputs.version }}
     secrets: inherit
 
   release:

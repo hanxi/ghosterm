@@ -22,6 +22,8 @@ shasum -a 256 -c android-SHA256SUMS
 
 正式版本的草稿工作流会从同一提交构建签名 Android APK，校验来源、摘要和构建收据后，与 macOS 附件一并上传到版本标签的草稿 Release。正式 APK 名为 `Ghosterm-android-arm64-release.apk`，附同名的 Android 校验和与构建信息文件。工作流确认 Release 仍为草稿，核对附件清单并逐一下载比对原始字节。草稿仍需发布后才可公开下载。
 
+正式 APK 的 `versionName` 对应发布标签去掉 `v` 的版本号，`versionCode` 随正式版本递增。例如 `v0.1.0` 对应 `0.1.0` 和 `1002`。滚动 dev APK 维持 `0.1.0-dev` 和版本代码 1，因此已安装正式包的设备会把 dev APK 视为降级。
+
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
 和 `build-info.json`。诊断 artifact 单独保存 R8 映射与 native 符号，均保留 14 天。
