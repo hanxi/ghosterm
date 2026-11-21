@@ -8,7 +8,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
@@ -79,21 +81,42 @@ class PluginViewsSSHAppTest {
             val attachment = if (payload.has("ipcDirectory")) ExtensionRelayBootstrap.Attachment(payload.getString("ipcDirectory"), payload.getString("ipcInstance"), authorized = true) else null
             val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), if (attachment == null) payload.getString("package") else "", hash, hash,
                 methods, command = "views demo", hostMethods = listOf("views.client.open"), attachment = attachment)
+            fun authenticateUntil(waiting: () -> Boolean) {
+                var handled: Triple<Long, Int, SSHAuthPhase>? = null
+                val deadline = SystemClock.elapsedRealtime() + 60000
+                while (main(waiting) && SystemClock.elapsedRealtime() < deadline) {
+                    val prompt = main { sessions.connecting?.auth }; val id = prompt?.let { Triple(it.request, it.hop, it.phase) }
+                    if (prompt == null || id == handled) { SystemClock.sleep(20); continue }; handled = id
+                    when (prompt.phase) {
+                        SSHAuthPhase.CREDENTIALS -> runBlocking { owner.submitSSHPrivateKey(prompt, payload.getString("pem").toByteArray(), byteArrayOf()) }
+                        SSHAuthPhase.HOSTKEY -> fail("Only explicitly pinned owned hosts may be used")
+                        SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail("Owned views SSH authentication failed")
+                        else -> SystemClock.sleep(20)
+                    }
+                }
+            }
+            if (attachment == null) {
+                var ready = false
+                val inspection = main {
+                    checkNotNull(sessions.connectExtensionBootstrap(target, "exec /bin/sleep 5") {
+                        ready = true
+                        awaitCancellation()
+                    })
+                }
+                authenticateUntil { !ready && sessions.connecting?.failed == false }
+                assertTrue("Owned SSH channel must be ready before cancellation", main { ready })
+                val job = main {
+                    val pending = checkNotNull(sessions.connecting?.job)
+                    sessions.cancelConnection(inspection)
+                    pending
+                }
+                runBlocking { withTimeout(5000) { job.join() } }
+                assertNull(main { sessions.connecting })
+            }
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
-            var handled: Triple<Long, Int, SSHAuthPhase>? = null
-            val deadline = SystemClock.elapsedRealtime() + 60000
-            while (main { extensions.activeSession == null && extensions.error == null } && SystemClock.elapsedRealtime() < deadline) {
-                val prompt = main { sessions.connecting?.auth }; val id = prompt?.let { Triple(it.request, it.hop, it.phase) }
-                if (prompt == null || id == handled) { SystemClock.sleep(20); continue }; handled = id
-                when (prompt.phase) {
-                    SSHAuthPhase.CREDENTIALS -> runBlocking { owner.submitSSHPrivateKey(prompt, payload.getString("pem").toByteArray(), byteArrayOf()) }
-                    SSHAuthPhase.HOSTKEY -> fail("Only explicitly pinned owned hosts may be used")
-                    SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail("Owned views SSH authentication failed")
-                    else -> SystemClock.sleep(20)
-                }
-            }
+            authenticateUntil { extensions.activeSession == null && extensions.error == null }
             assertNull(main { extensions.error })
             await("Views Session consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(methods, main { extensions.activeSession?.methods })
