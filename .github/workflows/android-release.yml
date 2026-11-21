@@ -46,6 +46,14 @@ jobs:
           set -euo pipefail
           version="$(bash scripts/resolve-formal-release-version.sh "$REQUESTED_VERSION")"
           printf 'ORG_GRADLE_PROJECT_ghostermReleaseVersion=%s\n' "$version" >> "$GITHUB_ENV"
+      - name: Verify plugin release channel
+        if: env.ORG_GRADLE_PROJECT_ghostermPluginJs == 'true'
+        shell: bash
+        run: |
+          bash scripts/check-plugin-channel-url.sh \
+            "$ORG_GRADLE_PROJECT_ghostermPluginChannel" \
+            "$ORG_GRADLE_PROJECT_ghostermPluginChannelRoot" \
+            "$ORG_GRADLE_PROJECT_ghostermPluginChannelUrl"
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
@@ -60,10 +68,6 @@ jobs:
           export TMPDIR="$PWD/tmp/android-ci"
           git submodule update --init --depth 1 vendor/ghostty
           if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
-            bash scripts/check-plugin-channel-url.sh \
-              "$ORG_GRADLE_PROJECT_ghostermPluginChannel" \
-              "$ORG_GRADLE_PROJECT_ghostermPluginChannelRoot" \
-              "$ORG_GRADLE_PROJECT_ghostermPluginChannelUrl"
             git submodule update --init --depth 1 vendor/quickjs-ng
           fi
           curl --fail --location --retry 3 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o tmp/android-ci/zig.tar.xz
