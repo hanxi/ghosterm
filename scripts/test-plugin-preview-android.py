@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real official Preview Client/Executor over two-hop SSH into Android Host Runtime."""
+"""Real official Preview Client/Executor over direct or two-hop SSH into Android Host Runtime."""
 from contextlib import ExitStack
 from pathlib import Path
 import argparse
@@ -38,14 +38,18 @@ def main():
     parser.add_argument("--gterm", type=Path, required=True, help="JS-enabled gterm executable")
     parser.add_argument("--apk-directory", type=Path, default=ROOT / "android/app/build/outputs/apk",
                         help="APK output directory from the explicit Android build")
+    parser.add_argument("--route", choices=["direct", "jump"], default="jump")
     parser.add_argument("--preview-format", choices=["markdown", "html", "html-unicode"], default="markdown")
     parser.add_argument("--test", help="single instrumentation class#method; default matches the fixture format")
     args = parser.parse_args()
+    hop_count = 1 if args.route == "direct" else 2
+    route_label = "direct" if hop_count == 1 else "two-hop"
+    method_prefix = "realDirect" if hop_count == 1 else "realTwoHop"
     if args.test is None:
         args.test = {
-            "markdown": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopPreviewReceiptAppearsInMainActivitySettings",
-            "html": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopHtmlAppearsInMainActivitySettings",
-            "html-unicode": "com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#realTwoHopUnicodeHtmlAppearsInMainActivitySettings",
+            "markdown": f"com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#{method_prefix}PreviewReceiptAppearsInMainActivitySettings",
+            "html": f"com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#{method_prefix}HtmlAppearsInMainActivitySettings",
+            "html-unicode": f"com.hanxi.ghosterm.PluginPreviewSettingsE2ETest#{method_prefix}UnicodeHtmlAppearsInMainActivitySettings",
         }[args.preview_format]
     gterm = args.gterm.resolve()
     package_source = ROOT / "plugins/official/preview"
@@ -77,7 +81,7 @@ def main():
     shutil.copytree(package_source, package)
     integrity = (package / "integrity.json").read_bytes()
     digest = hashlib.sha256(integrity).hexdigest()
-    fixture_markdown = b"# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
+    fixture_markdown = f"# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over {route_label} SSH\n".encode()
     workspace = work / "workspace"
     unicode_html = args.preview_format == "html-unicode"
     markdown_dir = workspace / ("docs/cafe\u0301" if unicode_html else "docs")
@@ -91,7 +95,7 @@ def main():
         image_link = "%E5%9B%BE%F0%9F%98%80.png" if unicode_html else "marker.png"
         (markdown_dir / main_name).write_text(
             f"<!doctype html><link rel='stylesheet' href='{css_link}'><img src='{image_link}'>"
-            "<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>", encoding="utf-8")
+            f"<p>Android HTML over {route_label} SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>", encoding="utf-8")
         (markdown_dir / css_name).write_bytes(b"body{background:#0000ff!important;min-height:200px}")
     # Small deterministic RGBA PNG, generated in the isolated fixture.
     width = height = 32
@@ -130,19 +134,19 @@ def main():
             if not actual or actual[0] != hashlib.sha256(archive.read_bytes()).hexdigest():
                 raise RuntimeError(f"installed APK differs from {archive.name}")
         with keys_helper.owned_agent(work, "agent") as agent:
-            host_keys = [keys_helper.add_memory_key(agent, f"preview-android-hop-{i}") for i in range(2)]
-            if len({line.split()[1] for line in host_keys}) != 2:
-                raise RuntimeError("two-hop SSH fixture host identities collided")
-            route_dir = work / "route-two"
+            host_keys = [keys_helper.add_memory_key(agent, f"preview-android-hop-{i}") for i in range(hop_count)]
+            if len({line.split()[1] for line in host_keys}) != hop_count:
+                raise RuntimeError("SSH fixture host identities collided")
+            route_dir = work / "route"
             route_dir.mkdir()
-            with routes.chain(route_dir, 2, public, host_keys, agent, "echo") as (ports, known_hosts, _):
+            with routes.chain(route_dir, hop_count, public, host_keys, agent, "echo") as (ports, known_hosts, _):
                 package_files = {
                     path.relative_to(package).as_posix(): base64.b64encode(path.read_bytes()).decode("ascii")
                     for path in sorted(package.rglob("*")) if path.is_file()
                 }
                 fixture = {
                     "previewFormat": args.preview_format,
-                    "two": {"ports": ports, "known": known_hosts.read_text()},
+                    "route": {"ports": ports, "known": known_hosts.read_text()},
                     "user": pwd.getpwuid(os.getuid()).pw_name,
                     "pem": private.decode("ascii"),
                     "previewPackageFiles": package_files,
@@ -188,10 +192,10 @@ def main():
                     fixture_port = reverse_guest(server.server_address[1])
                     guest_hop = reverse_guest(ports[0])
                     old_name = f"[route-hop-0.invalid]:{ports[0]} "
-                    if fixture["two"]["known"].count(old_name) != 1:
+                    if fixture["route"]["known"].count(old_name) != 1:
                         raise RuntimeError("Missing unique first-hop known-host port")
-                    fixture["two"]["known"] = fixture["two"]["known"].replace(old_name, f"[route-hop-0.invalid]:{guest_hop} ")
-                    fixture["two"]["ports"] = [guest_hop, *ports[1:]]
+                    fixture["route"]["known"] = fixture["route"]["known"].replace(old_name, f"[route-hop-0.invalid]:{guest_hop} ")
+                    fixture["route"]["ports"] = [guest_hop, *ports[1:]]
                     payload = json.dumps(fixture, separators=(",", ":")).encode()
                     if len(payload) > 1048576:
                         raise RuntimeError("Android fixture payload exceeds its explicit one MiB bound")
@@ -244,7 +248,7 @@ def main():
                 data = path.read_bytes()
                 if b"PRIVATE KEY-----" in data or b"openssh-key-v1\0" in data:
                     raise RuntimeError("temporary fixture serialized private-key material")
-        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, {args.preview_format} explicit attachments Settings rendering, stop/release, remote cleanup")
+        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real {route_label} SSH, consent, {args.preview_format} explicit attachments Settings rendering, stop/release, remote cleanup")
     finally:
         shutil.rmtree(work)
 

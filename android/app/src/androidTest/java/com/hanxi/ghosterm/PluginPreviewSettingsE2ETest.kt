@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.security.MessageDigest
 
-/** Real Settings page, production ExtensionPackagesViewModel and two-hop SSH fixture. */
+/** Real Settings page, production ExtensionPackagesViewModel and direct or two-hop SSH fixtures. */
 @RunWith(AndroidJUnit4::class)
 class PluginPreviewSettingsE2ETest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
@@ -103,10 +103,15 @@ class PluginPreviewSettingsE2ETest {
     @Test fun realTwoHopHtmlReturnsToSamePtyWithOpenIme() = preview(true, html = true)
     @Test fun realTwoHopHtmlReturnsToSamePtyWithoutSummoningHiddenIme() = preview(false, html = true)
     @Test fun realTwoHopUnicodeHtmlAppearsInMainActivitySettings() = preview(null, html = true, unicode = true)
-    private fun preview(returnKeyboard: Boolean?, html: Boolean = false, unicode: Boolean = false) {
+    @Test fun realDirectPreviewReceiptAppearsInMainActivitySettings() = preview(null, hopCount = 1)
+    @Test fun realDirectHtmlAppearsInMainActivitySettings() = preview(null, html = true, hopCount = 1)
+    @Test fun realDirectUnicodeHtmlAppearsInMainActivitySettings() = preview(null, html = true, unicode = true, hopCount = 1)
+
+    private fun preview(returnKeyboard: Boolean?, html: Boolean = false, unicode: Boolean = false, hopCount: Int = 2) {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture
         assertEquals("fixture format must match the requested scenario", if (unicode) "html-unicode" else if (html) "html" else "markdown", payload.getString("previewFormat"))
+        val routeLabel = if (hopCount == 1) "direct" else "two-hop"
         val directory = if (unicode) "docs/cafe\u0301" else "docs"
         val documentPath = if (unicode) "$directory/页面 #?%.html" else if (html) "docs/index.html" else "docs/preview.md"
         val cssPath = if (unicode) "$directory/主 题%.css" else "docs/theme.css"
@@ -115,8 +120,8 @@ class PluginPreviewSettingsE2ETest {
         val cssLink = if (unicode) "%E4%B8%BB%20%E9%A2%98%25.css" else "theme.css"
         val imageLink = if (unicode) "%E5%9B%BE%F0%9F%98%80.png" else "marker.png"
         val expectedDocument = if (html) "<!doctype html><link rel='stylesheet' href='$cssLink'><img src='$imageLink'>" +
-            "<p>Android HTML over two-hop SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>"
-            else "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
+            "<p>Android HTML over $routeLabel SSH</p><script>document.body.textContent='SCRIPT_RAN'</script>"
+            else "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over $routeLabel SSH\n"
         var retainedView: android.webkit.WebView? = null
         var retainedClient: android.webkit.WebViewClient? = null
         var retainedRequest: HTMLRequest? = null
@@ -135,7 +140,9 @@ class PluginPreviewSettingsE2ETest {
             retainedClient = main { retainedView!!.webViewClient }
             retainedRequest = HTMLRequest(main { java.net.URI(retainedView!!.url!!).resolve(android.net.Uri.encode(cssPath.substringAfterLast('/'))).toString() })
         }
-        val ports = payload.getJSONObject("two").getJSONArray("ports")
+        val route = payload.getJSONObject("route")
+        val ports = route.getJSONArray("ports")
+        assertEquals("fixture route must match the requested scenario", hopCount, ports.length())
         val packageFiles = payload.getJSONObject("previewPackageFiles")
         val names = packageFiles.keys()
         val providerFiles = JSONObject()
@@ -161,8 +168,8 @@ class PluginPreviewSettingsE2ETest {
         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs())
         val originalKnownHosts = knownHosts.takeIf(File::exists)?.readBytes()
         val user = payload.getString("user")
-        val target = PreparedSSH("dest", "127.0.0.1", user, ports.getInt(1), emptyList(),
-            listOf(PreparedSSH("jump", "127.0.0.1", user, ports.getInt(0), emptyList())))
+        val jumps = (0 until hopCount - 1).map { PreparedSSH("jump", "127.0.0.1", user, ports.getInt(it), emptyList()) }
+        val target = PreparedSSH("dest", "127.0.0.1", user, ports.getInt(hopCount - 1), emptyList(), jumps)
         val activity = ui.activity
         val extensions = ViewModelProvider(activity)[ExtensionPackagesViewModel::class.java]
         val sessions = ViewModelProvider(activity)[SessionsViewModel::class.java]
@@ -291,7 +298,7 @@ class PluginPreviewSettingsE2ETest {
                 ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
             }
             ui.onNodeWithTag("plugin-resource-markdown-inline-image").assertExists()
-            ui.onNodeWithText("Android Markdown over two-hop SSH", substring = true).assertExists()
+            ui.onNodeWithText("Android Markdown over $routeLabel SSH", substring = true).assertExists()
             val preview = ui.onNodeWithTag("plugin-resource-markdown").captureToImage().asAndroidBitmap()
             var redPixels = 0
             for (y in 0 until preview.height) for (x in 0 until preview.width) {
