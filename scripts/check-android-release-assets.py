@@ -32,7 +32,7 @@ def verify_apk_version(apk, version, aapt):
         raise ValueError('APK package identity or formal version mismatch')
 
 
-def verify(folder, commit, formal_version=None, aapt=None, build_tools=None):
+def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, certificate_sha256=None):
     apk_name = FORMAL_APK if formal_version is not None else APK
     apk = folder / apk_name
     if not all((folder / name).is_file() for name in (apk_name, 'android-SHA256SUMS', 'android-build-info.json')):
@@ -53,7 +53,13 @@ def verify(folder, commit, formal_version=None, aapt=None, build_tools=None):
             type(metadata[key]) is not type(value) for key, value in expected.items()):
         raise ValueError('published build info mismatch')
     if build_tools is not None:
-        subprocess.run([build_tools / 'apksigner', 'verify', apk], check=True, timeout=30)
+        result = subprocess.run([build_tools / 'apksigner', 'verify', '--print-certs', apk],
+                                capture_output=True, text=True, check=True, timeout=30)
+        if certificate_sha256 is not None:
+            fingerprints = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-f]{64})$',
+                                      result.stdout, re.M)
+            if fingerprints != [certificate_sha256]:
+                raise ValueError('APK signing certificate does not match the expected SHA-256 fingerprint')
         subprocess.run([build_tools / 'zipalign', '-c', '-P', '16', '4', apk], check=True, timeout=30)
         aapt = build_tools / 'aapt'
     if aapt is not None:
@@ -70,11 +76,15 @@ def main():
     tools.add_argument('--aapt', help='also verify the formal version in the APK manifest')
     tools.add_argument('--android-build-tools', type=Path,
                        help='verify APK signature, alignment and formal version using this Build Tools directory')
+    parser.add_argument('--android-certificate-sha256', help='expected APK signer certificate SHA-256 in lowercase hex')
     args = parser.parse_args()
     if (args.aapt or args.android_build_tools) and not args.formal_version:
         parser.error('Android Build Tools verification requires --formal-version')
+    if args.android_certificate_sha256 is not None and (
+            not args.android_build_tools or not re.fullmatch(r'[0-9a-f]{64}', args.android_certificate_sha256)):
+        parser.error('--android-certificate-sha256 requires --android-build-tools and 64 lowercase hex digits')
     print('ANDROID RELEASE ASSETS PASS:', verify(args.folder, args.expect_commit, args.formal_version,
-                                                args.aapt, args.android_build_tools))
+                                                args.aapt, args.android_build_tools, args.android_certificate_sha256))
 
 
 if __name__ == '__main__':

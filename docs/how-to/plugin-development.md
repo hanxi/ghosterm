@@ -1012,7 +1012,9 @@ python3 -B scripts/audit-public-release.py --tag "$release_tag" \
 ```
 
 审计核对两端资产清单、标签提交、macOS 更新签名以及 APK 签名、版本和 16 KiB
-对齐。通过后，在两端安装公开资产，从插件设置刷新渠道并核对代次。
+对齐。若已从可信渠道取得预期 Android 签名证书的 SHA-256，可追加
+`--android-certificate-sha256 "$android_certificate_sha256"` 核对签名身份。
+通过后，在两端安装公开资产，从插件设置刷新渠道并核对代次。
 
 GitHub Release 用于分发应用和供用户手动导入的插件包。渠道策略的三个原始
 文件应部署到能直接返回 HTTP 200 的 HTTPS 目录。两端渠道刷新会拒绝重定向，

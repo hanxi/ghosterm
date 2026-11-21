@@ -69,7 +69,8 @@ def verify_update_signatures(folder, archive, archive_signature, public_key):
                 raise ValueError('Ed25519 verification failed for ' + asset.name + ': ' + result.stderr.strip())
 
 
-def verify_formal_macos(folder, assets, version, commit, base, expected_key=None, aapt=None, build_tools=None):
+def verify_formal_macos(folder, assets, version, commit, base, expected_key=None, aapt=None,
+                        build_tools=None, certificate_sha256=None):
     inventory = CHECK.inventory(assets)
     if set(inventory) not in (FORMAL_MACOS, FORMAL_MACOS | FORMAL_ANDROID):
         raise ValueError('unexpected formal release asset inventory')
@@ -84,7 +85,7 @@ def verify_formal_macos(folder, assets, version, commit, base, expected_key=None
         raise ValueError('manifest does not match the formal release tag')
     verify_macos_update(folder, inventory, manifest, 'release', base, expected_key)
     if FORMAL_ANDROID <= inventory.keys():
-        ANDROID.verify(folder, commit, version, aapt, build_tools)
+        ANDROID.verify(folder, commit, version, aapt, build_tools, certificate_sha256)
 
 
 def verify_macos_update(folder, inventory, manifest, channel, base, expected_key):
@@ -172,6 +173,7 @@ def main():
     tools.add_argument('--aapt', help='also verify the published formal APK manifest using Android SDK aapt')
     tools.add_argument('--android-build-tools', type=Path,
                        help='verify the formal APK signature, alignment and manifest using this Build Tools directory')
+    parser.add_argument('--android-certificate-sha256', help='expected APK signer certificate SHA-256 in lowercase hex')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
     if args.tag != 'dev' and (not formal or args.platform != 'macos'):
@@ -180,6 +182,9 @@ def main():
         parser.error('--update-public-key requires macOS')
     if (args.aapt or args.android_build_tools) and (not formal or args.asset_directory is not None):
         parser.error('Android Build Tools verification requires a public formal release audit')
+    if args.android_certificate_sha256 is not None and (
+            not args.android_build_tools or not re.fullmatch(r'[0-9a-f]{64}', args.android_certificate_sha256)):
+        parser.error('--android-certificate-sha256 requires --android-build-tools and 64 lowercase hex digits')
     base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
     if args.asset_directory is not None:
         if not (args.platform == 'macos' and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
@@ -235,7 +240,7 @@ def main():
             download_asset(base + '/' + name, folder / name, inventory[name]['size'])
         if formal:
             verify_formal_macos(folder, assets, formal[1], commit, base, args.update_public_key,
-                                args.aapt, args.android_build_tools)
+                                args.aapt, args.android_build_tools, args.android_certificate_sha256)
         else:
             CHECK.verify(args.platform, folder, assets)
             if args.platform == 'macos':
