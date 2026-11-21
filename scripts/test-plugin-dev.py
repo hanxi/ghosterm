@@ -27,8 +27,9 @@ def tree(directory):
 
 
 def run_case(name, work, tools, core, execution=None):
+    env = dict(os.environ, GHOSTERM_AUTOMATION_OFFSCREEN='1')
+
     def cli(*arguments, status=0, diagnostic=None):
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1')
         result = subprocess.run(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments)], capture_output=True, env=env, timeout=160)
         assert result.returncode == status, (arguments, result.returncode, result.stdout.decode(), result.stderr.decode())
         report = json.loads(result.stdout)
@@ -507,7 +508,7 @@ export function openDevelopmentViews(context: PluginContext) {
             contract['input']={'text':'business-wait'};contractfile.write_text(json.dumps(contract))
             for number in [signal.SIGTERM,signal.SIGINT]:
                 marker=workspace/'business.pid';marker.unlink(missing_ok=True)
-                process=subprocess.Popen(['python3',str(ROOT/'scripts/gterm-plugin'),*map(str,arguments),'--allow-business-processes'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,TMPDIR=str(ROOT/'tmp'),GHOSTERM_AUTOMATION_OFFSCREEN='1'))
+                process=subprocess.Popen(['python3',str(ROOT/'scripts/gterm-plugin'),*map(str,arguments),'--allow-business-processes'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
                 try:
                     until=time.monotonic()+15
                     while process.poll() is None and not marker.exists() and time.monotonic()<until:time.sleep(.005)
@@ -744,13 +745,15 @@ const Callback = { ...Run, name: "dev.callback" };
                 (project / 'executor/index.ts').write_text(text)
             contract = json.loads(contractfile.read_text()); contract['input'] = {'text': 'wait'}
             contractfile.write_text(json.dumps(contract))
+            scratch = work / 'interrupt'
+            scratch.mkdir()
+            interrupt_env = dict(env, TMPDIR=str(scratch), TMP=str(scratch), TEMP=str(scratch))
             for number, expected_status in [(signal.SIGTERM, 143), (signal.SIGINT, 130)]:
-                existing = set((ROOT / 'tmp').glob('plugin-dev-*'))
-                process = subprocess.Popen(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments), '--allow-process-execution'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_AUTOMATION_OFFSCREEN='1'))
+                process = subprocess.Popen(['python3', str(ROOT / 'scripts/gterm-plugin'), *map(str, arguments), '--allow-process-execution'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=interrupt_env)
                 try:
                     until = time.monotonic() + 15; markers = []
                     while process.poll() is None and time.monotonic() < until:
-                        markers = [p / 'execution/entered' for p in (ROOT / 'tmp').glob('plugin-dev-*') if p not in existing and (p / 'execution/entered').is_file()]
+                        markers = list(scratch.glob('plugin-dev-*/execution/entered'))
                         if markers: break
                         time.sleep(.01)
                     assert len(markers) == 1 and process.poll() is None, 'owned handler must be live before interruption'

@@ -154,8 +154,14 @@ def capture(directory, destination, project=False):
     return observed
 
 
+def scratch_root():
+    requested = Path(os.environ.get('TMPDIR', TMP)).resolve()
+    return requested if requested.is_dir() and requested.is_relative_to(TMP.resolve()) else TMP
+
+
 def run(command, seconds=60, cooperative=False):
-    env = dict(os.environ, TMPDIR=str(TMP), npm_config_update_notifier='false')
+    scratch = str(scratch_root())
+    env = dict(os.environ, TMPDIR=scratch, TMP=scratch, TEMP=scratch, npm_config_update_notifier='false')
     if sys.platform == 'darwin' and 'DEVELOPER_DIR' not in env and Path('/Applications/Xcode.app/Contents/Developer').is_dir():
         env['DEVELOPER_DIR'] = '/Applications/Xcode.app/Contents/Developer'
     # The shared timeout kills descendants; communicate() alone cannot do so.
@@ -284,7 +290,7 @@ export function activate(context: PluginContext) {
         'plugin.pair.test.json': encoded(dict(schemaVersion=1, command=command, arguments=[], method='dev.run', methods=[dict(name='dev.run', receiver='client'), dict(name='dev.exchange', receiver='executor'), dict(name='dev.callback', receiver='client')], input={'text': 'hello'}, expected={'text': 'client:executor:callback:hello'}, errorInput={'text': 'throw'}, errorKind='unknown')),
         'README.md': b'# Portable development plugin\n\nTyped RPC scaffold; no Native view, installation or publisher authentication.\nThe throw input is an explicit harness fixture, not a successful business result.\n',
         'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes()}
-    with tempfile.TemporaryDirectory(prefix='plugin-init-', dir=TMP) as directory:
+    with tempfile.TemporaryDirectory(prefix='plugin-init-', dir=scratch_root()) as directory:
         stage = Path(directory) / 'project'; stage.mkdir()
         for name, data in files.items():
             target = stage / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data + (b'\n' if name.endswith('.json') else b''))
@@ -692,7 +698,7 @@ def main():
     source = args.project or args.package
     if hasattr(args, 'out'):
         require(not args.out.resolve().is_relative_to(source.resolve()) and not source.resolve().is_relative_to(args.out.resolve()), 'OUTPUT_SOURCE_OVERLAP')
-    with tempfile.TemporaryDirectory(prefix='plugin-dev-', dir=TMP) as directory:
+    with tempfile.TemporaryDirectory(prefix='plugin-dev-', dir=scratch_root()) as directory:
         work = Path(directory); snapshot = work / 'source'; snapshot.mkdir()
         captured = capture(source, snapshot, bool(args.project))
         host = read_json(args.host_json) if args.host_json else None
