@@ -37,7 +37,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
     devices, records, mutations = [], [], []
     # Boot before allocating a copied NDK/Gradle build: the selected AOSP image
     # checks its required free partition space at startup. Do not shrink it.
-    with helper.headless(api) as serial, ExitStack() as stack:
+    with helper.headless(api, scratch=out) as serial, ExitStack() as stack:
         for folder in ('android', 'terminal/android'):
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'), dirs_exist_ok=True)
         for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
