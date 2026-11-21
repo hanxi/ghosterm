@@ -16067,6 +16067,13 @@ Core 配置绿、恢复绿，Kotlin 类及源码摘要一致。收据 SHA256
 `b5226ea04937b059699b8bb43b5fe459386eeb4f1d74fab5c3d2149442b5f520`。
 本轮仅自有无窗口模拟器和回环 SSH；只读夹具、AVD 与临时日志均已清理。
 
+Android 以 `912ebcbf` 同源构建，在官方 API 36 Google APIs arm64 16 KiB
+镜像修订 7 上补跑扩展发行组合。核对镜像大小与官方摘要，设备实测页大小
+16384，329 项全部通过，安装的应用与测试 APK 摘要同构建一致。收据 SHA256
+`625e691a062c4f491ef1b004c56d82d5fe89985a7e8cc2fe14be0cf3f3e082c6`。
+此轮为 QuickJS 启用的 Debug/测试 APK，未替代签名 Release 或真机验收。
+模拟器以 0 退出，镜像、APK、日志及临时目录已清理。
+
 macOS arm64 / 26.6.2 对公开 dev 执行一键安装，真实下载清单、校验和与 ZIP，
 安装到本轮独占目录。随包 commit 为 `c10752dc08e5`，codesign 严格校验及
 递归 quarantine 检查通过。用同一线上下载重试，在晋升暂存包时注入失败，
