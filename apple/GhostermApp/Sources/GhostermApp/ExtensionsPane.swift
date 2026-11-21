@@ -27,7 +27,9 @@ struct ExtensionsPane: View {
     @State private var connectionToClose: ExtensionConnectionModel?
     @State private var reservationToRelease: ExtensionLocalJournalEntry?
     @State private var inspection: (entryID: String, task: Task<Void, Never>)?
-    @State private var reviewingPackage = false
+    @State private var packageReview: Task<Void, Never>?
+    @State private var visible = false
+    private var reviewingPackage: Bool { packageReview != nil }
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
@@ -404,8 +406,12 @@ struct ExtensionsPane: View {
         } message: {
             Text("将停止此连接的全部插件实例并释放资源。已经发生的操作不会撤销，未确认的结果仍按未知保留。")
         }
+        .onAppear { visible = true }
         .onDisappear {
+            visible = false
             inspection?.task.cancel()
+            packageReview?.cancel()
+            packageReview = nil
             pendingPackagePicker = nil
             restoreImportFocus = false
         }
@@ -465,14 +471,13 @@ struct ExtensionsPane: View {
     }
 
     private func selectedPackage(_ result: Result<[URL], Error>) {
-        guard !reviewingPackage else { return }
+        guard visible, !reviewingPackage else { return }
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            reviewingPackage = true
             issue = nil
-            Task {
-                defer { reviewingPackage = false }
+            packageReview = Task {
+                defer { if !Task.isCancelled { packageReview = nil } }
                 await review(url)
             }
         case .failure(let error):
@@ -526,12 +531,14 @@ struct ExtensionsPane: View {
     }
 
     private func review(_ url: URL) async {
-        guard let controller = model.extensionController else { return }
+        guard !Task.isCancelled, let controller = model.extensionController else { return }
         do {
             let value = try await controller.review(directory: url)
+            guard !Task.isCancelled else { return }
             guard !entries.contains(where: { $0.id == value.id + ":" + value.digest }) else { return }
             entries.append(Entry(review: value))
         } catch {
+            guard !Task.isCancelled else { return }
             issue = "插件包审查失败：\(error)"
         }
     }
