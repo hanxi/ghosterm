@@ -16786,6 +16786,12 @@ API 36 arm64 同档无窗口模拟器实测 `PAGE_SIZE=16384`，通过被动发�
 隔离副本在下载 Sparkle 二进制时超时，未计通过。临时目录已核实清理，
 QuickJS 开启的 macOS Release 构建在 `3877ef25` 通过。真实系统面板及焦点仍待验收。
 
+在 `a2f9c482`、`564fe4be` 和 `090e0ab6` 收紧实例检查取消边界。
+两端均验预先取消的任务不会发起连接，macOS 加验 Release 编译，Android
+QuickJS-on Release 和 app lintRelease 通过。Android API 29 / 36 无窗口
+各通过四项检查测试，API 36 使用 `d0130457` 构建。表单回调为注入夹具。
+接管真实 SSH 通道瞬间取消与替换请求竞态仍需单独验证，临时目录已清理。
+
 在 `ea0383d4` 以当前 gterm、真实 WebKit 和内存身份回环 SSH 复验 HTML
 资源链。直连 HTML、两跳 HTML、两跳 Unicode HTML 各一项离屏通过，
 另有 23 项本地资源 UI 与生命周期测试通过，包含读取期间撤销以及迟到交付。
