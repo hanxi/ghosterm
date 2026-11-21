@@ -12732,6 +12732,11 @@ Release 和 lint 构建通过。首轮调用了 JVM 模块不存在的 lint 任�
 APK 缺 SDK 资产，最终用 Gradle 的测试资产入口补齐。两台模拟器和临时目录已
 核实清理。此变更报告当前准入关闭，历史偶发运行时未激活的原因仍待定位。
 
+macOS Swift Runtime 同样在已创建但未激活或已停止时返回 `closed` 和空句柄。
+首轮 App 隔离构建与远端资源收件及 WebKit 离屏定向通过，Swift Runtime 原有
+未激活用例仍期待抛错。更新该断言后重新构建，Runtime 14 项全绿，包括未激活、
+活动 RPC 往返及停止后准入。无公共 ABI 变更，两轮临时目录均已核实清理。
+
 2026-11-21 在 `10408a0f` 上补验 API 29。用同一对开启 QuickJS 的 APK、
 新构建的 gterm 与 Node SDK，在自有无窗口 arm64 模拟器验证直连和 ProxyJump
 两项混合运行。八实例涵盖 Portable / Node / Exec 与开发目录 / 签名安装，

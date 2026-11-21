@@ -291,7 +291,7 @@ public final class ExtensionRuntime {
     public func request(method: String, input: Data,
                         timeoutMilliseconds: UInt32 = 30000) throws -> ExtensionSession.RPCAdmission {
         guard try info().phase == .active, let session else {
-            throw GhostermError.failed("插件 Runtime 未处于活动状态")
+            return .init(status: .closed, handle: nil)
         }
         return try session.requestRuntime(method: method, input: input,
                                           timeoutMilliseconds: timeoutMilliseconds)

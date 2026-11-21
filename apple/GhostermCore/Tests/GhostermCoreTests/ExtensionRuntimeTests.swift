@@ -61,6 +61,11 @@ final class ExtensionRuntimeTests: XCTestCase {
             XCTAssertEqual(completed.state, .succeeded)
             XCTAssertEqual(completed.outcome, outcome)
             XCTAssertEqual(try runtime.forgetRequest(handle: handle), .ok)
+            runtime.stop()
+            XCTAssertEqual(try runtime.step(), .stopped)
+            let stopped = try runtime.request(method: "fixture.echo", input: input)
+            XCTAssertEqual(stopped.status, .closed)
+            XCTAssertNil(stopped.handle)
             try runtimeClose(runtime); try runtimeClose(e)
         }
     }
@@ -112,7 +117,10 @@ final class ExtensionRuntimeTests: XCTestCase {
             let runtime = try ExtensionRuntime(session: h,
                 config: .init(modules: runtimeModules(hostPlugin), entry: "plugin:/entry.js",
                               role: .host, cpuMilliseconds: 500))
-            XCTAssertThrowsError(try runtime.request(method: "fixture.echo", input: Data("{}".utf8)))
+            XCTAssertEqual(try runtime.info().phase, .created)
+            let admission = try runtime.request(method: "fixture.echo", input: Data("{}".utf8))
+            XCTAssertEqual(admission.status, .closed)
+            XCTAssertNil(admission.handle)
             try runtimeClose(runtime); try runtimeClose(e)
         }
     }
