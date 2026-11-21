@@ -984,6 +984,12 @@ ExtensionPlatformServices
 
 证据口径按后文分批记录。交付范围和各项通过条件以本节各阶段及共同验收闸门为准。
 
+公开正式发行审计要求 macOS 与 Android 的完整资产清单。传入
+`--aapt /path/to/aapt` 可继续检查下载 APK 中的应用 ID、versionName 和 versionCode。
+使用本机 Build Tools 35.0.0 验证：由 aapt 编译的正式版本夹具通过，
+指定错误版本及用现有 dev APK 冒充正式版时均拒绝。这是本地 Manifest 验证，
+线上正式发行和下载仍待验收。
+
 ### 2026-11-21 退出条件补充核对
 
 | 阶段 | 本轮补齐的实测范围 | 仍待完成 |
