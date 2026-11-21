@@ -146,7 +146,15 @@ fi
 
 mkdir -p "$ROOT/tmp" "$OUT"
 OUT="$(cd "$OUT" && pwd)"   # 绝对化：脚本里有若干 ( cd "$OUT" && ... ) 子壳
-WORK="$(mktemp -d "$ROOT/tmp/package-mac-XXXXXX")"
+TMP_ROOT="$(cd "$ROOT/tmp" && pwd -P)"
+SCRATCH="$TMP_ROOT"
+if [[ -n "${TMPDIR:-}" && -d "$TMPDIR" ]]; then
+  REQUESTED_TMP="$(cd "$TMPDIR" && pwd -P)"
+  case "$REQUESTED_TMP" in
+    "$TMP_ROOT"/*) SCRATCH="$REQUESTED_TMP" ;;
+  esac
+fi
+WORK="$(mktemp -d "$SCRATCH/package-mac-XXXXXX")"
 . "$ROOT/scripts/lib/package-dmg.sh"
 MOUNT=""
 cleanup() {
@@ -159,7 +167,8 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' INT
-trap 'exit 143' TERM
+trap 'exit 143' TERM HUP
+export TMPDIR="$WORK" TMP="$WORK" TEMP="$WORK"
 
 APP="$OUT/Ghosterm.app"
 FW="$APP/Contents/Frameworks"
