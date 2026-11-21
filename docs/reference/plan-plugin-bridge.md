@@ -1005,6 +1005,10 @@ macOS 使用仓库配置的 Sparkle 公钥，ZIP 和 appcast 验签通过；Andr
 `testHTTPSRefreshAndFailurePreserveCache` 均通过。回环端同时覆盖签名文件逐字节
 回读和旧代拒绝。测试临时目录已核实清理。
 
+在 `4a4ebbe8` 复用已有本机 Debug 与测试 APK，于 API 36 专用无窗口 AVD
+运行 `PluginChannelRefreshTlsTest`，一项通过。AVD 退出码 0，临时目录已核实清理。
+这是既有 APK 的 Android 原生渠道回归，未重建 APK 或验证生产策略。
+
 远端复查：macOS Release 工作流 `44806436423` 的打包作业成功，
 草稿发布作业跳过，且该轮没有 Android 正式构建。GitHub Release 仍只有滚动
 `dev`，远端 `v0.1.0` 标签既有且指向旧提交。仓库级变量列表仅见 macOS
