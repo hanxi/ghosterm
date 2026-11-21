@@ -13328,6 +13328,12 @@ macOS 重复模式遇到一次普通 XCTest 断言失败后继续其余轮次，
 第二轮实际两跳离屏通过。核对收据失败状态、分轮退出码与两份日志摘要，临时
 目录已核实清理。合成断言只验证续跑逻辑，未记为真实资源故障。
 
+在 `a7923e2e` 重建 QuickJS / SSH / 签名启用的 gterm、Node SDK 和 macOS XCTest，
+对自有两跳 ProxyJump 连跑五轮真实离屏混合组。五轮均通过八实例与资源发布、
+在线 Node 替换及归零重开，收据无失败轮次，SHA256
+`8766aa2f5975b845d3bd3b6e1de012b794bbd91c6bb0e11b0613901811882d50`。
+临时目录已核实清理。此前偶发 I/O 和资源回执失败的归因仍未确定。
+
 在 `2a38968a` 用 ASan／UBSan 构建公共进程 Runtime，
 `test-plugin-process-runtime.py --public --processes` 全套通过。覆盖 Node
 版本探针迟到 stderr、激活拒绝、子进程退出与取消、远端丢失及 Exec 不支持。
