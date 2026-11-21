@@ -47,7 +47,7 @@ def stalled_peer():
         listener.close()
 
 @contextmanager
-def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=()):
+def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=(),destination_proxy=None):
     with ExitStack() as stack:
         require(all(isinstance(i,int) and 0 <= i < count for i in exec_hops),"invalid fixture exec hop")
         ports=[]
@@ -57,6 +57,9 @@ def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=()):
         barrier=None
         stall=mode in ('deadline','cancel-auth')
         if stall:ports[-1],barrier=stack.enter_context(stalled_peer())
+        route_ports = ports.copy()
+        if destination_proxy is not None:
+            route_ports[-1] = destination_proxy(ports[-1])
         authorized=work/'authorized_keys';authorized.write_bytes(public)
         empty=work/'empty';empty.mkdir()
         for i in range(count-(1 if stall else 0)):
@@ -68,7 +71,7 @@ def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=()):
                 'PubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\n'
                 'LogLevel ERROR\nPermitUserRC no\nAllowAgentForwarding no\nAllowStreamLocalForwarding no\n'
                 f'AllowTcpForwarding {"local" if forward else "no"}\n'
-                +(f'PermitOpen 127.0.0.1:{ports[i+1]}\n' if forward else '')
+                +(f'PermitOpen 127.0.0.1:{route_ports[i+1]}\n' if forward else '')
                 +f'MaxSessions {0 if i+1<count and i not in exec_hops else 10}\nPrintMotd no\nPrintLastLog no\nSetEnv HOME={empty} ZDOTDIR={empty} TMPDIR={work}\n')
             if sftp and i+1 == count:
                 with config.open('a') as output: output.write(f'Subsystem sftp internal-sftp -d {shlex.quote(str(work))}\n')
@@ -88,9 +91,9 @@ def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=()):
         for i in range(count):
             if i+1==count and mode in ('unknown-accept','unknown-reject'):continue
             key=keys[0] if i+1==count and mode=='wrong-pin' else keys[i]
-            data+=f'[route-hop-{i}.invalid]:{ports[i]} '.encode()+key
+            data+=f'[route-hop-{i}.invalid]:{route_ports[i]} '.encode()+key
         known.write_bytes(data)
-        yield ports,known,barrier
+        yield route_ports,known,barrier
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',type=Path,default=ROOT/'core/build/test_bridge_route')

@@ -12,9 +12,13 @@ def main():
                        help='run only the direct SSH write failure regression with a prebuilt suite')
     parser.add_argument('--discovery-hops', type=int, choices=(1, 2), default=1,
                         help='select a direct or two-hop route for --discovery-reset')
+    parser.add_argument('--reset-destination', action='store_true',
+                        help='reset the forwarded destination socket instead of the outer connection')
     args = parser.parse_args()
     if args.discovery_hops != 1 and not args.discovery_reset:
         parser.error('--discovery-hops 2 requires --discovery-reset')
+    if args.reset_destination and args.discovery_hops != 2:
+        parser.error('--reset-destination requires --discovery-hops 2')
     bundle = args.discovery_reset or args.write_reset
     if bundle:
         case = 'discovery-reset' if args.discovery_reset else 'write-reset'
@@ -25,7 +29,8 @@ def main():
             wrapper = Path(folder) / 'fixture'
             write_fixture(wrapper, test)
             subprocess.run([sys.executable, str(ROOT/'scripts/test-ssh-jump.py'),
-                            '--binary', str(wrapper), '--case', case, '--hops', str(args.discovery_hops)],
+                            '--binary', str(wrapper), '--case', case, '--hops', str(args.discovery_hops),
+                            *(['--reset-destination'] if args.reset_destination else [])],
                            cwd=ROOT, env={**os.environ, 'TMPDIR': folder, 'TMP': folder, 'TEMP': folder,
                                           'GHOSTERM_AUTOMATION_OFFSCREEN': '1'}, check=True)
         return

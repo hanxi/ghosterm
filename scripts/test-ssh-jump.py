@@ -16,11 +16,14 @@ def main():
     reset_cases = {'discovery-reset', 'write-reset'}
     parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error', *sorted(reset_cases)], action='append')
     parser.add_argument('--hops', type=int, choices=[1, 2, 3], action='append')
+    parser.add_argument('--reset-destination', action='store_true')
     parser.add_argument('--public-route-owner', action='store_true')
     parser.add_argument('--route-owner', action='store_true')
     parser.add_argument('--expect-assertion', action='store_true')
     args = parser.parse_args(); binary = args.binary.resolve(strict=True)
     reset = len(args.case or []) == 1 and args.case[0] in reset_cases
+    if args.reset_destination and (args.case != ['discovery-reset'] or args.hops != [2]):
+        parser.error('--reset-destination requires the two-hop discovery reset case')
     if 1 in (args.hops or []) or reset_cases.intersection(args.case or []):
         allowed_hops = ([1], [2]) if args.case == ['discovery-reset'] else ([1],)
         if not reset or args.hops not in allowed_hops:
@@ -41,12 +44,17 @@ def main():
         keys = [helpers.add_memory_key(agent, 'jump-'+str(i)) for i in range(3)]
         for count in args.hops or [2, 3]:
             folder = work/str(count); folder.mkdir()
-            ports, known, _ = stack.enter_context(routes.chain(folder, count, public, keys, agent, 'echo', sftp=True))
-            if reset:
-                proxy = load('jump_reset_proxy', 'lib/tmux-fault-proxy.py').SSHFaultProxy('127.0.0.1', ports[0], folder)
+            def proxy_port(port):
+                proxy = load('jump_reset_proxy', 'lib/tmux-fault-proxy.py').SSHFaultProxy('127.0.0.1', port, folder)
                 stack.callback(proxy.close)
-                known.write_text(known.read_text().replace(f']:{ports[0]} ', f']:{proxy.port} '))
-                ports = [proxy.port, *ports[1:]]
+                return proxy.port
+            ports, known, _ = stack.enter_context(routes.chain(
+                folder, count, public, keys, agent, 'echo', sftp=True,
+                destination_proxy=proxy_port if args.reset_destination else None))
+            if reset and not args.reset_destination:
+                first_port = proxy_port(ports[0])
+                known.write_text(known.read_text().replace(f']:{ports[0]} ', f']:{first_port} '))
+                ports[0] = first_port
             tmux = shutil.which('tmux')
             if 'tmux' in (args.case or []):
                 require = helpers.require if hasattr(helpers, 'require') else routes.require
@@ -80,7 +88,7 @@ def main():
     assert hashlib.sha256(binary.read_bytes()).hexdigest() == binary_hash
     for name, digest in hashes.items(): assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest() == digest
     (logs/'result.json').write_text(json.dumps({'accepted': True, 'route_owner': args.route_owner, 'public_route_owner': args.public_route_owner, 'expected_assertion': args.expect_assertion, 'cases': results,
-        'inputs_sha256': hashes, 'binary_sha256': binary_hash}, indent=2)+'\n')
+        'inputs_sha256': hashes, 'binary_sha256': binary_hash, 'reset_destination': args.reset_destination}, indent=2)+'\n')
     for child in work.iterdir():
         if child != logs:
             if child.is_dir(): shutil.rmtree(child)
