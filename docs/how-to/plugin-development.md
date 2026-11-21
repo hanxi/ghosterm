@@ -1029,6 +1029,10 @@ python3 -B scripts/gterm-plugin release verify-policy \
   `ghostermPluginChannelRoot`、`ghostermPluginChannelUrl`。Android 发布工作流分别
   从仓库变量 `ANDROID_PLUGIN_CHANNEL`、`ANDROID_PLUGIN_CHANNEL_ROOT`、
   `ANDROID_PLUGIN_CHANNEL_URL` 传入这些属性。两端默认发行档仍关闭实验插件 JS。
+- 渠道变量只提供信任与下载位置。部署后验收须使用显式开启插件运行时的两端构件，
+  分别检查构件携带的渠道名、根和 URL，再从实际设置页刷新、验签并安装。
+  普通 GitHub Release 工作流仍产出关闭插件运行时的构件。正式插件构件需另有
+  明确的构建与发行入口，使用已审阅的生产渠道配置。
 - 撤销时在 `revokedKeyIds` 列出被撤销的发布键摘要，以新代次签署并发布。
   若需恢复策略内容，用更高代次重新签署已经审阅的内容。旧代和同代不同声明
   会被已记录该渠道的客户端拒绝。
