@@ -1254,6 +1254,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 color = MaterialTheme.colorScheme.error)
         }
         PluginResourcesPanel(extensions.receivedResources)
+        extensions.pendingPluginForm?.takeIf { extensions.canInteractWithRuntime }?.let { pending ->
+            key(pending.token) {
+                PluginFormContent(pending.form, active.packageID, extensions.answeringPluginForm) { answer ->
+                    extensions.answerPluginForm(pending.token, answer)
+                }
+            }
+        }
         if (active.command == "ai codex") PluginCodexPanel(extensions)
         if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
         extensions.table?.let { PluginTableContent(it) }

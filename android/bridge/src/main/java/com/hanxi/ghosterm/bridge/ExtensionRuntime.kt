@@ -120,6 +120,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     }
     fun cancelExecutorRequest(request: Long): ExtensionSession.RPCStatus = executorRequestAction(0, request)
     fun forgetExecutorRequest(request: Long): ExtensionSession.RPCStatus = executorRequestAction(1, request)
+    fun checkHostRequest(ticket: Long): ExtensionSession.RPCStatus = executorRequestAction(2, ticket)
     private fun executorRequestAction(action: Int, request: Long): ExtensionSession.RPCStatus {
         owner()
         val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED

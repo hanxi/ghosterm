@@ -43,6 +43,11 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         private set
     internal var registeredViews: PluginViewsModel? by mutableStateOf(null)
         private set
+    internal data class PendingPluginForm(val token: Any, val form: PluginForm, val ticket: Long, val instanceID: String)
+    internal var pendingPluginForm: PendingPluginForm? by mutableStateOf(null)
+        private set
+    internal var answeringPluginForm by mutableStateOf(false)
+        private set
     private var handshakeJob: Job? = null
     private var runtimeJob: Job? = null
     private var runtimePumpGeneration = Any()
@@ -633,6 +638,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         codex.timeline.any { it.changeReference == reference }
 
     private fun invalidateExtensionCalls() {
+        clearPluginForm()
         table?.invalidate()
         diff?.invalidate()
         registeredViews?.invalidate(); task?.invalidate()
@@ -906,11 +912,13 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                         ExtensionResourceStore.Status.UNSUPPORTED)) {
                     error = "读取插件资源失败：$resourceStatus"
                 }
-                if (state.command == "ai codex" && state.info.phase == ExtensionRuntime.Phase.ACTIVE) {
-                    pumpCodexHostEvent(owner)
+                if (state.info.phase == ExtensionRuntime.Phase.ACTIVE &&
+                    (state.command == "ai codex" || PluginForm.method in activeSession?.hostMethods.orEmpty())) {
+                    pumpHostEvent(owner, state.instanceID)
                 }
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) {
+                    clearPluginForm()
                     table?.invalidate()
                     diff?.invalidate()
                     registeredViews?.invalidate(); task?.invalidate()
@@ -938,19 +946,63 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         runtimePumpGeneration = Any()
         runtimeJob?.cancel()
         launchBusy = false
+        clearPluginForm()
         table?.invalidate(); diff?.invalidate(); registeredViews?.invalidate(); task?.invalidate()
         claudeRPC?.invalidate(); claudeConversation?.invalidate(); changeReview.cancel()
         codex = codex.copy(approvals = emptyList())
         error = "插件运行观察已中断；已停用输入与批准，未确认的结果保持未知。可停止并释放。$message"
     }
 
-    private suspend fun pumpCodexHostEvent(owner: ExtensionController) {
+    private fun clearPluginForm() {
+        pendingPluginForm = null
+        answeringPluginForm = false
+    }
+
+    internal fun answerPluginForm(token: Any, answer: PluginForm.Answer) {
+        val owner = controller ?: return
+        val pending = pendingPluginForm ?: return
+        if (pending.token !== token || !canInteractWithRuntime || answeringPluginForm) return
+        val outcome = runCatching { pending.form.outcome(answer) }.getOrNull() ?: return
+        answeringPluginForm = true
+        viewModelScope.launch {
+            try {
+                owner.scopedHostRPC(pending.instanceID, pending.ticket, outcome)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (pendingPluginForm?.token === token) error = "无法答复插件表单：${failure.message}"
+            } finally {
+                if (pendingPluginForm?.token === token) clearPluginForm()
+            }
+        }
+    }
+
+    private suspend fun pumpHostEvent(owner: ExtensionController, instanceID: String) {
         val generation = sessionGeneration
         val pumpGeneration = runtimePumpGeneration
+        fun current() = generation === sessionGeneration && pumpGeneration === runtimePumpGeneration && runtimeObservationIssue == null
+        val pending = pendingPluginForm
+        if (pending != null && !answeringPluginForm) {
+            val status = owner.scopedHostRPC(pending.instanceID, pending.ticket)
+            if (!current()) return
+            if (status != ExtensionSession.RPCStatus.OK && pendingPluginForm === pending && !answeringPluginForm) clearPluginForm()
+        }
         val (status, request) = owner.takeRuntimeRequest()
-        if (generation !== sessionGeneration || pumpGeneration !== runtimePumpGeneration || runtimeObservationIssue != null) return
+        if (!current()) return
         if (status == ExtensionSession.RPCStatus.WAIT) return
-        check(status == ExtensionSession.RPCStatus.OK && request != null) { "读取 Codex Host RPC 失败：$status" }
+        check(status == ExtensionSession.RPCStatus.OK && request != null) { "读取 Executor Host RPC 失败：$status" }
+        if (request.method == PluginForm.method && PluginForm.method in activeSession?.hostMethods.orEmpty()) {
+            val form = if (pendingPluginForm == null) runCatching { PluginForm.decode(request.input) }.getOrNull() else null
+            if (form != null) {
+                val checked = owner.scopedHostRPC(instanceID, request.ticket)
+                if (current() && checked == ExtensionSession.RPCStatus.OK) {
+                    pendingPluginForm = PendingPluginForm(Any(), form, request.ticket, instanceID)
+                }
+            } else {
+                val failure = """{"kind":"failed","error":{"code":"DENIED","message":"Invalid form or another form is pending","effect":"none"}}"""
+                owner.scopedHostRPC(instanceID, request.ticket, failure.toByteArray(Charsets.UTF_8))
+            }
+            return
+        }
         if (request.method != "codex.event" || "codex.event" !in activeSession?.hostMethods.orEmpty()) {
             respondCodexEvent(owner, request.ticket, false, "Host method is not registered")
             return

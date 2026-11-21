@@ -3887,8 +3887,10 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 即使 Session 同时交付成功回答也不会把值交给 Executor。呈现端 helper 在等待前后
 核对原 Session 请求。macOS 对启动时明确登记的 Host 方法接通运行页内联表单，
 单次运行至多保留一个待答请求。提交前在原 owner 队列复核 Runtime 身份和票据，
-Session 撤销后清除界面和草稿。macOS 应用构建通过；Android 接线、通用能力声明、
-实际界面和真实双端 Session 验收仍待完成。
+Session 撤销后清除界面和草稿。Android 运行页也接通同一方法，复用 JNI 已有的
+Session 票据检查，按 Runtime 身份及表单令牌绑定答复。macOS 应用、Android
+QuickJS-on Debug 与测试 APK 构建通过。通用能力声明、实际界面和真实双端
+Session 验收仍待完成。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、

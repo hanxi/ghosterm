@@ -646,6 +646,15 @@ class ExtensionController private constructor(private val shared: Shared, privat
         current.respondHostRequest(ticket, outcome.copyOf())
     }
 
+    internal suspend fun scopedHostRPC(instanceID: String, ticket: Long, outcome: ByteArray? = null): ExtensionSession.RPCStatus = onWorker {
+        val current = runtime ?: return@onWorker ExtensionSession.RPCStatus.CLOSED
+        if (runtimeInstanceID != instanceID || current.info().phase != ExtensionRuntime.Phase.ACTIVE) {
+            return@onWorker ExtensionSession.RPCStatus.CLOSED
+        }
+        val status = current.checkHostRequest(ticket)
+        if (status == ExtensionSession.RPCStatus.OK && outcome != null) current.respondHostRequest(ticket, outcome) else status
+    }
+
     suspend fun requestRuntimeExecutor(method: String, input: ByteArray,
         timeoutMilliseconds: Int = 30000): ExtensionSession.RPCAdmission {
         val copy = input.copyOf()
