@@ -55,7 +55,7 @@ struct PluginViewRegistrySnapshot: Equatable {
 @MainActor public final class PluginViewItem: ObservableObject, Identifiable {
     public enum Content { case table(PluginTableModel), diff(PluginDiffModel), task(PluginTaskModel) }
     public let registration: PluginViewRegistration
-    public var id: String { registration.handle }
+    public nonisolated var id: String { registration.handle }
     public let content: Content
     @Published public private(set) var closing = false
     @Published public private(set) var closeIssue: String?
