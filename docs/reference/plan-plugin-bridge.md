@@ -990,6 +990,11 @@ ExtensionPlatformServices
 指定错误版本及用现有 dev APK 冒充正式版时均拒绝。这是本地 Manifest 验证，
 线上正式发行和下载仍待验收。
 
+在 `74f51bec` 用一次性渠道配置实际构建 macOS arm64 QuickJS-on 正式形态包。
+ad-hoc 签名通过，DMG 实际挂载复验且无 SKIP；外部、签名 App 内及 ZIP 内
+三份构建收据字节相同，记录完整的干净提交 SHA。未生成生产签名更新清单，
+未发布资产。临时目录和测试包已核实清理。
+
 正式草稿作业也以 Build Tools 35.0.0 复验上传前的 Android 安装包。本地用相同命令
 核对带内嵌来源收据的 APK、SHA256SUMS 和外部构建收据；三者一致时通过。
 只把外部收据和期望版本改为另一版本时，摘要仍吻合，但真实 APK Manifest 检查拒绝。
