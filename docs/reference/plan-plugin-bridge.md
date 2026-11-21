@@ -16211,6 +16211,12 @@ API 29 arm64 / 4 KiB 页同档无窗口模拟器通过 Kitty Canvas 与动画引
 每组实际编译触发预期断言，同 APK Core 对照及恢复后复验通过，源文件 SHA256 一致。
 模拟器以 0 退出，临时目录已清理。
 
+关闭 QuickJS 的默认终端在 API 29 / 36 arm64 无窗口各通过 33 项 Kitty、
+OSC 52 和回环 SSH 控件测试，APK 内许可检查确认 QuickJS 未打包。首轮测试通过
+但每台单独构建导致 APK 摘要不同。随后用 `ANDROID_SSH_APK_DIRECTORY`
+复用同一对构件，确认两端安装字节与构建一致。该入口拒绝变异模式，保留变异
+实际重编要求。两台模拟器和两个试跑的临时目录均已清理，真机仍待验收。
+
 ### P1 Android API 36 16 KiB 页终端联合复验（2026-11-21）
 
 官方 Google APIs arm64 16 KiB 系统镜像修订 7，API 36 / extension 17，

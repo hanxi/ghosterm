@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Private test fixture over adb loopback. Secrets only travel in memory to the test process."""
-import hmac,json,os,secrets,socketserver,subprocess,sys,threading,importlib.util,signal,shlex
+import hashlib,hmac,json,os,secrets,socketserver,subprocess,sys,threading,importlib.util,signal,shlex
 from contextlib import ExitStack
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
@@ -42,6 +42,12 @@ def main():
     if len(sys.argv)!=6: raise SystemExit('Use test-android-ssh.sh with the isolated sshd fixture')
     host,port,user,key,work=sys.argv[1:]
     serial=os.environ['ANDROID_SERIAL'];adb=['adb','-s',serial]
+    apk_directory = os.environ.get('ANDROID_SSH_APK_DIRECTORY') or None
+    if apk_directory:
+        apk_directory = Path(apk_directory).resolve(strict=True)
+        if any(name.startswith('ANDROID_') and name.endswith('_MUTATE') and value == '1'
+               for name, value in os.environ.items()):
+            raise RuntimeError('Prebuilt APKs are only available for baseline device tests')
     night_class='com.hanxi.ghosterm.SettingsScreenTest'
     night_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_PTY_FIXTURE_MUTATE')=='1' or
                  any(value in (night_class,night_class+'#systemAppearanceTracksAndroidNightModeInBothDirections')
@@ -193,9 +199,20 @@ def main():
                 logs = Path(work) / 'android-ssh-tests'
                 logs.mkdir()
                 def build(label):
-                    (logs/(label+'-build.log')).write_text(run(['bash',ROOT/'scripts/build-android.sh'],900))
-                    for path in ('apk/debug/app-debug.apk','apk/androidTest/debug/app-debug-androidTest.apk'):
-                        run([*adb,'install','-r','-t',ROOT/'android/app/build/outputs'/path])
+                    if apk_directory is None:
+                        (logs/(label+'-build.log')).write_text(run(['bash',ROOT/'scripts/build-android.sh'],900))
+                    directory = apk_directory or ROOT/'android/app/build/outputs/apk'
+                    for name, path in (('com.hanxi.ghosterm', 'debug/app-debug.apk'),
+                                       ('com.hanxi.ghosterm.test', 'androidTest/debug/app-debug-androidTest.apk')):
+                        apk = directory / path
+                        run([*adb,'install','-r','-t',apk])
+                        if apk_directory is not None:
+                            installed = run([*adb,'shell','pm','path',name]).strip()
+                            if not installed.startswith('package:/data/app/') or '\n' in installed:
+                                raise RuntimeError('Unexpected installed APK: ' + name)
+                            actual = run([*adb,'shell','sha256sum',installed.removeprefix('package:')]).split()
+                            if not actual or actual[0] != hashlib.sha256(apk.read_bytes()).hexdigest():
+                                raise RuntimeError('Installed APK does not match the prebuilt artifact: ' + path)
                 def test(label,selection,green):
                     args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
