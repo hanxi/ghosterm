@@ -134,11 +134,11 @@ def verify_macos_update(folder, inventory, manifest, channel, base, expected_key
     verify_update_signatures(folder, folder / zip_name, manifest['update_signature'], key)
 
 
-def local_assets(folder):
+def local_assets(folder, names):
     entries = []
     for index, path in enumerate(sorted(folder.iterdir()), 1):
-        if path.is_symlink() or not path.is_file() or path.name not in FORMAL_MACOS:
-            raise ValueError('unexpected formal macOS asset: ' + path.name)
+        if path.is_symlink() or not path.is_file() or path.name not in names:
+            raise ValueError('unexpected macOS asset: ' + path.name)
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         entries.append(dict(id=index, name=path.name, size=path.stat().st_size, digest='sha256:' + digest))
@@ -151,7 +151,7 @@ def main():
     parser.add_argument('--tag', default='dev')
     parser.add_argument('--platform', choices=sorted(CHECK.FILES), default='macos')
     parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a macOS release')
-    parser.add_argument('--asset-directory', type=Path, help='verify a local formal macOS artifact before upload')
+    parser.add_argument('--asset-directory', type=Path, help='verify a local macOS artifact before upload')
     parser.add_argument('--commit', help='expected full commit for a local artifact')
     args = parser.parse_args()
     formal = re.fullmatch(r'v([0-9]+\.[0-9]+\.[0-9]+)', args.tag)
@@ -161,10 +161,18 @@ def main():
         parser.error('--update-public-key requires macOS')
     base = f'https://github.com/{args.repository}/releases/download/{args.tag}'
     if args.asset_directory is not None:
-        if not (formal and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
-            parser.error('local verification requires a formal macOS tag, a trusted update key and a full commit')
+        if not (args.platform == 'macos' and args.update_public_key and re.fullmatch(r'[0-9a-f]{40}', args.commit or '')):
+            parser.error('local verification requires macOS, a trusted update key and a full commit')
         folder = args.asset_directory.resolve(strict=True)
-        verify_formal_macos(folder, local_assets(folder), formal[1], args.commit, base, args.update_public_key)
+        if formal:
+            verify_formal_macos(folder, local_assets(folder, FORMAL_MACOS), formal[1], args.commit, base, args.update_public_key)
+        else:
+            assets = local_assets(folder, CHECK.FILES['macos'])
+            CHECK.verify('macos', folder, assets)
+            manifest = json.loads((folder / 'version.json').read_text())
+            if manifest.get('git_commit') != args.commit:
+                raise ValueError('dev manifest does not match the expected commit')
+            verify_macos_update(folder, CHECK.inventory(assets), manifest, 'dev', base, args.update_public_key)
         print(f'LOCAL RELEASE PASS: {args.repository}@{args.tag} ({args.commit})')
         return
     if args.commit is not None:
