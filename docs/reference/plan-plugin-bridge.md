@@ -3902,7 +3902,11 @@ RPC 逐次检查这一能力。Portable 表单样例通过打包，展示文本�
 遗漏暂存目录、测试 Host profile 缺少资源目录而在启动前失败，修正后 1 项通过。
 Android API 36 无窗口模拟器的生产 Compose 表单组件通过两项交互，验证 Unicode
 长度、复选框语义、单选、提交中禁用和取消时不回传草稿，安装 APK 摘要一致，AVD
-退出 0。macOS 实际控件输入、两端读屏与 Android 真实 Session 跨实例验证仍待完成。
+退出 0。同档通过生产设置页、固定包审批、真实直连 SSH / QuickJS Executor、
+原生字段输入与提交，Executor `form.status` 确认收到回答，随后停止并释放。
+同轮表格回归报告 24 项通过，旧包装脚本按 23 项检查而退出 1。脚本已更新计数并
+提供 `--form` 入口。macOS 实际控件输入、两端读屏和 Android 跨实例 / 取消、
+ProxyJump 验证仍待完成。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、

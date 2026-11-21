@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copied Android Native table, owned no-window AVDs and loopback SSH Executors.
+"""Copied Android Native table or form, owned no-window AVDs and loopback SSH Executors.
 
 No user AVD, account, endpoint, filesystem tree or foreground window is used.
 Mutations require a compiled ordinary assertion, same-APK Core control and restore.
@@ -34,6 +34,8 @@ CONTROL = 'com.hanxi.ghosterm.ConfigIdentityTest#identitySourcesUseCoreOrderingA
 RUNNER = 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'
 TESTS = 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest'
 ACTUAL = 'com.hanxi.ghosterm.PluginTableSSHAppTest#officialTableThroughViewModelConsentAndNativePaging'
+FORM_TESTS = 'com.hanxi.ghosterm.PluginFormUiTest'
+FORM_ACTUAL = 'com.hanxi.ghosterm.PluginFormSSHAppTest#officialFormThroughViewModelConsentAndNativeControls'
 
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -51,8 +53,12 @@ def main():
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--api', action='append', choices=('29', '36'))
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--form', action='store_true', help='run the Native form controls and SSH form scenario')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
     args = parser.parse_args()
+    if args.form and (args.mutate or args.case): parser.error('table mutation cases require the table package')
+    selected_tests, expected_tests = (FORM_TESTS, 2) if args.form else (TESTS, 24)
+    actual_test = FORM_ACTUAL if args.form else ACTUAL
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
     for path in (build, package, receipt):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('build, package and receipt must use project tmp/')
@@ -60,7 +66,8 @@ def main():
     if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
         parser.error('build explicit JS/SSH-on gterm first')
     inputs = {}
-    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'packages/plugin-sdk', 'plugins/official/table'):
+    sample = 'plugins/official/form' if args.form else 'plugins/official/table'
+    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'packages/plugin-sdk', sample):
         for path in (ROOT / folder).rglob('*'):
             if path.is_file() and not any(part in ('build', '.gradle', '.kotlin', '.cxx') for part in path.relative_to(ROOT / folder).parts):
                 if path.name != 'local.properties': inputs[str(path.relative_to(ROOT))] = sha(path)
@@ -141,7 +148,7 @@ def main():
                                 if not remote.startswith('package:/data/app/') or '\n' in remote: raise RuntimeError('Unexpected installed APK path')
                                 actual = run(label + '-sha-' + str(index), [*adb, 'shell', 'sha256sum', remote[len('package:'):]]).split()[0]
                                 if actual != sha(apks[index]): raise RuntimeError('Installed APK mismatch')
-                        def test(label, selected=TESTS, count=23, red=False, extra=()):
+                        def test(label, selected=selected_tests, count=expected_tests, red=False, extra=()):
                             text = run(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                                               *extra, RUNNER])
                             if red:
@@ -158,7 +165,7 @@ def main():
                         page = run('api' + api + '-pagesize', [*adb, 'shell', 'getconf', 'PAGE_SIZE']).strip()
                         if actual_api != api or abi != 'arm64-v8a': raise RuntimeError('Wrong owned device profile')
                         test('api' + api + '-baseline')
-                        print('PASS API' + api + ': 23 Native model/codec/UI tests', flush=True)
+                        print(f'PASS API{api}: {expected_tests} Native model/codec/UI tests', flush=True)
 
                         def actual(label, route, count, red=False):
                             token = secrets.token_hex(24); mappings = []
@@ -198,7 +205,7 @@ def main():
                                     payload['ports'][first] = reverse(ports[first])
                                     fixture_port = reverse(server.server_address[1])
                                     thread = threading.Thread(target=server.serve_forever); thread.start()
-                                    try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
+                                    try: test(label, actual_test, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
                                     finally: server.shutdown(); thread.join(5)
                                     if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
                             finally:
@@ -206,7 +213,7 @@ def main():
                             if not red: records.append(dict(api=api, route=route, count=count))
 
                         for route in ('direct', 'jump'):
-                            for count in (1000000, 0):
+                            for count in ((0,) if args.form else (1000000, 0)):
                                 actual('api' + api + '-' + route + '-' + str(count), route, count)
                                 print('PASS API' + api + ': actual Native ' + route + ' count=' + str(count), flush=True)
                         scroll_header = '''Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).horizontalScroll(rememberScrollState())
@@ -261,7 +268,7 @@ def main():
         receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')
-    print('ANDROID NATIVE TABLE PASS', flush=True)
+    print('ANDROID NATIVE FORM PASS' if args.form else 'ANDROID NATIVE TABLE PASS', flush=True)
 
 
 if __name__ == '__main__':
