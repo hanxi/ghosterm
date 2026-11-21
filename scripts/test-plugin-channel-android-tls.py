@@ -131,7 +131,14 @@ def main():
     parser.add_argument('--serial', help='use an explicitly authorized test device without Ghosterm installed')
     parser.add_argument('--api', type=int, choices=(29, 36), default=36,
                         help='headless AVD API level (default: 36)')
+    parser.add_argument('--system-image', type=Path, help='use this installed system image for the headless AVD')
+    parser.add_argument('--expect-page-size', type=int, choices=(4096, 16384),
+                        help='require this actual device memory page size')
     args = parser.parse_args()
+    if args.serial and args.system_image:
+        parser.error('--system-image requires a headless AVD')
+    if args.system_image:
+        args.system_image = args.system_image.resolve(strict=True)
     if args.apks:
         if args.settings_cache:
             parser.error('--settings-cache requires a fresh build with this fixture’s channel root')
@@ -182,8 +189,12 @@ def main():
             else:
                 device = work / 'device'
                 device.mkdir()
-                target = runner.headless(args.api, device, env)
+                target = runner.headless(args.api, device, env, args.system_image)
             with target as (adb, device_env), ExitStack() as cleanup:
+                page_size = runner.run([*adb, 'shell', 'getconf', 'PAGE_SIZE'], device_env).strip()
+                if args.expect_page_size is not None and page_size != str(args.expect_page_size):
+                    raise RuntimeError(f'Expected page size {args.expect_page_size}, got {page_size}')
+                print(f'ANDROID PAGE_SIZE={page_size}', flush=True)
                 packages = ('com.hanxi.ghosterm', 'com.hanxi.ghosterm.test')
                 if args.serial:
                     aapt_tools = sorted(sdk.glob('build-tools/*/aapt'))
