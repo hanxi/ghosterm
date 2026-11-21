@@ -142,20 +142,19 @@ jobs:
           if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
             echo "发布标签 $TAG 与本轮构建提交不一致" >&2; exit 1
           fi
-          python3 scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
-            --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY"
-          mv dist-android/SHA256SUMS dist-android/android-SHA256SUMS
-          mv dist-android/build-info.json dist-android/android-build-info.json
+          mv dist-android/Ghosterm-android-arm64-release.apk dist/
+          mv dist-android/SHA256SUMS dist/android-SHA256SUMS
+          mv dist-android/build-info.json dist/android-build-info.json
           CERTIFICATE_ARGS=()
           if [[ -n "$ANDROID_RELEASE_CERT_SHA256" ]]; then
             CERTIFICATE_ARGS=(--android-certificate-sha256 "$ANDROID_RELEASE_CERT_SHA256")
           fi
-          python3 -B scripts/check-android-release-assets.py dist-android \
-            --formal-version "$VERSION" --expect-commit "$GITHUB_SHA" \
+          python3 -B scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
+            --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY" \
             --android-build-tools "$ANDROID_HOME/build-tools/35.0.0" "${CERTIFICATE_ARGS[@]}"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
-          ASSETS+=(dist-android/Ghosterm-android-arm64-release.apk dist-android/android-SHA256SUMS dist-android/android-build-info.json)
+          ASSETS+=(dist/Ghosterm-android-arm64-release.apk dist/android-SHA256SUMS dist/android-build-info.json)
           if DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             if [[ "$DRAFT" != true ]]; then
               echo "发布 $TAG 已公开，拒绝覆盖资产" >&2; exit 1
