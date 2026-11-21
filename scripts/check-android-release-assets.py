@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Verify the three downloaded Android Release assets agree with this CI commit.
 
-This checks publication integrity and source identity. Signing, R8, resource
-shrinking and native alignment are verified by the build workflow separately.
+This checks publication integrity and source identity. With Android Build Tools
+it also verifies the signature, alignment, and manifest and native ABI metadata.
 """
 import argparse
 import hashlib
@@ -28,11 +28,17 @@ def verify_apk_version(apk, version, aapt):
         expected_code = major * 1000000 + minor * 1000 + patch + 2
     result = subprocess.run([aapt, 'dump', 'badging', apk], capture_output=True,
                             text=True, check=True, timeout=30)
-    packages = [line for line in result.stdout.splitlines() if line.startswith('package:')]
+    lines = result.stdout.splitlines()
+    packages = [line for line in lines if line.startswith('package:')]
     if len(packages) != 1 or not re.match(
             r"^package: name='com\.hanxi\.ghosterm' versionCode='"
             + str(expected_code) + r"' versionName='" + re.escape(version) + r"'(?: |$)", packages[0]):
         raise ValueError('APK package identity or release version mismatch')
+    if [line.strip() for line in lines if line.startswith('sdkVersion:')] != ["sdkVersion:'29'"]:
+        raise ValueError('APK minimum Android SDK does not match the release metadata')
+    abi = [line.removeprefix('native-code:').split() for line in lines if line.startswith('native-code:')]
+    if abi != [["'arm64-v8a'"]]:
+        raise ValueError('APK native ABI does not match the arm64 release metadata')
 
 
 def verify(folder, commit, formal_version=None, aapt=None, build_tools=None, certificate_sha256=None):
