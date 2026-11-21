@@ -58,3 +58,30 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify public plugin channel after deployment
+        env:
+          PAGES_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          if [[ ! -d site/plugins ]]; then exit 0; fi
+          case "$PAGES_URL" in
+            http://*) PAGES_URL="https://${PAGES_URL#http://}" ;;
+            https://*) ;;
+            *) echo "Missing Pages URL" >&2; exit 1 ;;
+          esac
+          mkdir -p tmp
+          download="$(mktemp -d "$PWD/tmp/pages-channel-XXXXXX")"
+          trap 'rm -rf -- "$download"' EXIT
+          for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072; do
+            name="${entry%:*}"
+            limit="${entry##*:}"
+            status="$(curl --disable --silent --show-error --proto '=https' --globoff \
+              --connect-timeout 10 --max-time 30 --max-filesize "$limit" \
+              --output "$download/$name" --write-out '%{http_code}' \
+              "${PAGES_URL%/}/plugins/$name")"
+            if [[ "$status" != 200 ]]; then
+              echo "Plugin channel returned HTTP $status for $name" >&2
+              exit 1
+            fi
+            cmp "site/plugins/$name" "$download/$name"
+          done

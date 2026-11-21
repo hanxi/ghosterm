@@ -6,8 +6,9 @@
 
 插件渠道可将签名策略的三个公开文件放入 `site/plugins/`。部署前使用仓库变量
 `MACOS_PLUGIN_CHANNEL` 和 `MACOS_PLUGIN_CHANNEL_ROOT` 核对签名、代次与有效期。
-部署后从 `https://hanxi.cc/ghosterm/plugins/` 复验实际响应，再配置应用出包使用
-的渠道地址。渠道签发和撤销流程见[插件开发指南](../docs/how-to/plugin-development.md)。
+部署后工作流要求公开 HTTPS 地址直接返回 HTTP 200，并逐字节比对三个文件。
+复验通过后可使用 `https://hanxi.cc/ghosterm/plugins/` 配置应用出包的渠道地址。
+渠道签发和撤销流程见[插件开发指南](../docs/how-to/plugin-development.md)。
 
 本地预览（工程根目录执行）：
 
