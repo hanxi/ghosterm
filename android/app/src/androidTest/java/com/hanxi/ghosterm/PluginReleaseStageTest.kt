@@ -189,6 +189,29 @@ class PluginReleaseStageTest {
             assertFalse(File(root, id).exists()); assertTrue(journal(root).isFile)
         } finally { PluginInstallTestFiles.clean(root) }
     }
+    @Test fun changedMemberDuringFinalAuthorizationCannotPublish() {
+        val root = PluginInstallTestFiles.root()
+        try {
+            var member: File? = null
+            val failure = runCatching {
+                PluginReleaseStage.create(root, id).use { candidate ->
+                    candidate.write("payload/a", byteArrayOf(1))
+                    candidate.publish { rename ->
+                        val file = File(stage(root), "payload/a")
+                        Os.chmod(file.path, 384)
+                        file.writeBytes(byteArrayOf(2, 3))
+                        Os.chmod(file.path, 256)
+                        member = file
+                        rename()
+                    }
+                }
+            }.exceptionOrNull()
+            assertTrue("A member changed during final authorization must not publish: $failure", failure is PluginReleaseStage.Rejected)
+            assertFalse(File(root, id).exists())
+            assertTrue(journal(root).isFile)
+            assertArrayEquals(byteArrayOf(2, 3), checkNotNull(member).readBytes())
+        } finally { PluginInstallTestFiles.clean(root) }
+    }
     @Test fun writableNestedDirectoryAfterFreezeIsRejected() {
         val root = PluginInstallTestFiles.root()
         try {

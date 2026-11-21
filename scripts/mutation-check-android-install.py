@@ -76,6 +76,8 @@ def main():
          '    private fun verifyRecord() {' + record, '    private fun verifyRecord() { }\n'),
         ('stage-stamp', st + 'changedFileAndUnknownEntryArePreservedAndNeverPublished', stage,
          'files[path] == stamp(value)', 'true'),
+        ('stage-final-snapshot', st + 'changedMemberDuringFinalAuthorizationCannotPublish', stage,
+         '            tree(freeze = false, frozen = true)', '            Unit'),
         ('stage-complete', st + 'missingKnownFileCannotPublishEvenWhenAllRemainingEntriesAreSafe', stage,
          'demand(fileCount == files.size && seen == directories.keys)', 'demand(true)'),
         ('stage-freeze', st + 'publishesCompleteReadonlyTreeAndRetiresIntent', stage,
@@ -170,6 +172,7 @@ def main():
             'controller-declarations-target': 'changed preview was accepted',
             'controller-cancellation-target': 'cancelled install left owned state',
             'stage-durable-version-target': 'A replaced version cannot report durable installation',
+            'stage-final-snapshot-target': 'A member changed during final authorization must not publish',
             'controller-descriptor-target': 'signed installation metadata missing: release.json',
             'controller-signature-target': 'signed installation metadata missing: release.sig',
             'controller-policy-target': 'signed installation metadata missing: policy.json'}.get(label)
