@@ -12757,6 +12757,15 @@ Android 八实例夹具在同一活动实例先验证无效 RPC 输入返回 `IN
 首轮在复制源码期间调整了断言，摘要检查拒绝该轮；固定源码重跑后通过。两轮
 目录与模拟器已核实清理。此轮未在 macOS 注入同类迟到回执。
 
+Android API 29 迟到拒绝回执变异闭环通过，常驻入口为
+`--android-api 29 --mutate --android-mutation-case android-rejected-admission-generation`。
+直连、两跳基线均通过；移除代次检查后重编命中指定单条断言，同 APK Core 对照、
+恢复直连和 Kotlin 类及源码 SHA256 均通过。收据
+`697126d8f4fe3d029d671d2137f47ebf2fc844e4fc992408de79fd0cb7853791`。
+首轮增量编译恢复后两份类摘要不同，改用非增量重编。第二轮父连接推进恢复时
+在线替换实例出现 PROTOCOL / PEER、执行端 execution-error=3，未计绿，原因仍待
+定位；第三轮定向变异未重跑该配方。三轮无窗口模拟器和临时目录均已核实清理。
+
 macOS 在真实 Native 八实例夹具补验同一竞态。活动实例的无效输入明确返回
 `INVALID_INPUT`。下一次请求在 worker 已拒绝且模型尚未处理时关闭原实例，
 其迟到结果以取消结束，其余实例及新加入的签名 Node 实例继续完成 RPC。

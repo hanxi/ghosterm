@@ -27,7 +27,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source, revocation):
+def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source, revocation, *, mutation_case=None):
     helper = load('mixed_avd', 'test-plugin-codex-patch-android.py')
     keys = load('mixed_android_keys', 'test-plugin-ssh.py')
     streams = load('mixed_android_streams', 'test-plugin-ssh-stream.py')
@@ -57,10 +57,10 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         if revocation:
             gradle += ['-PghostermPluginChannel=fixture', '-PghostermPluginChannelRoot=' + revocation['root'],
                        '-PghostermPluginChannelUrl=https://localhost.invalid/', '-PghostermChannelProcessFixture=true']
-            if mutate:
-                # Compare complete Kotlin outputs across rounds. Incremental
-                # recompiles can reorder metadata in otherwise unchanged classes.
-                gradle += ['-Pkotlin.incremental=false']
+        if mutate:
+            # Compare complete Kotlin outputs across rounds. Incremental
+            # recompiles can reorder metadata in otherwise unchanged classes.
+            gradle += ['-Pkotlin.incremental=false']
         app = source / 'android/app/build/outputs/apk'
         apks = [app / 'debug/app-debug.apk', app / 'androidTest/debug/app-debug-androidTest.apk']
         adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
@@ -88,7 +88,7 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
                     raise RuntimeError(label + ': expected one compiled ordinary assertion\n' + text[-10000:])
                 if expected_assertion:
                     if expected_assertion not in text:
-                        raise RuntimeError(label + ': expected revocation assertion\n' + text[-10000:])
+                        raise RuntimeError(label + ': expected targeted assertion\n' + text[-10000:])
                     return
                 publication_failed = any(mark in text for mark in (
                     'publish:failed:EXPIRED', 'publish:unknown:RESOURCE_RESULT_UNKNOWN'))
@@ -248,7 +248,13 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
              'released connection must preserve unconfirmed remote exit', True),
         ] if revocation else [
             ('android-parent-pump', 'ExtensionController', b'            parent?.multiplexer?.step()\n', b'', 2, None, False),
+            ('android-rejected-admission-generation', 'ExtensionPackagesViewModel',
+             b'if (admission.status != ExtensionSession.RPCStatus.OK) {\n            checkRPCGeneration(generation)\n',
+             b'if (admission.status != ExtensionSession.RPCStatus.OK) {\n', 1,
+             'late rejected admission must cancel with its original run', False),
         ]
+        if mutation_case:
+            recipes = [recipe for recipe in recipes if recipe[0] == mutation_case]
         restored = baseline
         for label, stem, anchor, replacement, occurrences, assertion, disconnect in recipes if mutate else []:
             filename = f'android/app/src/main/java/com/hanxi/ghosterm/{stem}.kt'

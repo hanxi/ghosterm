@@ -391,10 +391,9 @@ class ExtensionMixedConnectionTest {
             main { uncertain.stopRuntime() }
             main { reply.run() }
             assertTrue("late admission must finish after the captured continuation resumes", lateRejection.isCompleted)
-            val cancelled = assertThrows(CancellationException::class.java) {
-                runBlocking { lateRejection.await() }
-            }
-            assertEquals("Plugin Session changed", cancelled.message)
+            val failure = runCatching { runBlocking { lateRejection.await() } }.exceptionOrNull()
+            assertTrue("late rejected admission must cancel with its original run",
+                failure is CancellationException && failure.message == "Plugin Session changed")
             await("explicit stop resumes only cleanup observation") {
                 main { uncertain.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED && !uncertain.launchBusy }
             }

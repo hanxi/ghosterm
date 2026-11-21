@@ -62,10 +62,14 @@ def main():
     parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
     parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
     parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
+    parser.add_argument('--android-mutation-case', choices=('android-parent-pump', 'android-rejected-admission-generation'),
+                        help='run one Android mixed-group mutation after the baseline')
     parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
     parser.add_argument('--macos-stop-disconnect', action='store_true', help='reset the owned macOS SSH route after explicit Runtime stop starts')
     parser.add_argument('--macos-group-revocation', action='store_true', help='stop a managed macOS SSH group instance from Settings after revocation')
     args = parser.parse_args()
+    if args.android_mutation_case and (not args.android_api or not args.mutate or args.android_revocation):
+        parser.error('--android-mutation-case requires Android mixed-group mutation mode')
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
     if args.android_revocation and not args.android_api:
@@ -250,7 +254,8 @@ export function activate(ctx){
         if args.android_api:
             backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
             report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
-                policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source, revocation)
+                policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source, revocation,
+                mutation_case=args.android_mutation_case)
             verify_inputs(inputs)
             for path in logs.iterdir():
                 if b'PRIVATE KEY-----' in path.read_bytes(): raise RuntimeError('fixture private material leaked to a log')
