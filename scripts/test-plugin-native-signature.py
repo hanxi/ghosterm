@@ -37,6 +37,17 @@ DIRECTORY_REVIEW_CASES = (
      'if existing.managedReleaseID == nil { return existing.review }',
      'Repeating a review must not reopen a denied source'),
 )
+CHANNEL_PUBLICATION = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseCatalog.swift'
+CHANNEL_PUBLICATION_CASES = (
+    ('channel-before-publish', CHANNEL_PUBLICATION,
+     'publishRecord(raw, as: name, beforeRename: { try beforeRename?() })',
+     'publishRecord(raw, as: name)',
+     'A channel write must stop on its prepublication error'),
+    ('channel-parent-sync', CHANNEL_PUBLICATION,
+     'guard try publishRecord(raw, as: name, beforeRename: { try beforeRename?() }) else { throw Failure.io }',
+     '_ = try publishRecord(raw, as: name, beforeRename: { try beforeRename?() })',
+     'A failed channel directory sync cannot report durable publication'),
+)
 TEST = 'PluginDirectorySignatureTests.'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 CONSENT_MUTATION = 'channel-consent-recheck'
@@ -184,6 +195,8 @@ def main():
     recipes = [
         *((label, path, old, new, TEST + 'testCLISignatureAgainstActualCoreSnapshotWithoutApproval')
           for label, path, old, new, _ in DIRECTORY_REVIEW_CASES),
+        *((label, path, old, new, TEST + 'testChannelPublicationKeepsOldRecordAndReconcilesUncertainSync')
+          for label, path, old, new, _ in CHANNEL_PUBLICATION_CASES),
         *([(CONSENT_MUTATION, CONTROLLER,
          '                    let channelPolicyLease = try self.authorizeChannelStart(record, access: access)\n'
          '                    defer { withExtendedLifetime(channelPolicyLease?.1) {} }\n'
@@ -416,7 +429,7 @@ def main():
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError', 'Build failed']), label
                 if label == CONSENT_MUTATION + '-assertion':
                     assert 'revoked consent must not advance the Native Session' in log, (label, log[-9000:])
-                expected = next((message for name, _, _, _, message in DIRECTORY_REVIEW_CASES
+                expected = next((message for name, _, _, _, message in (*DIRECTORY_REVIEW_CASES, *CHANNEL_PUBLICATION_CASES)
                                  if label == name + '-assertion'), None)
                 if expected:
                     assert expected in log and 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-9000:])

@@ -198,9 +198,12 @@ final class PluginDirectorySignatureTests: XCTestCase {
             let before = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             let record = try XCTUnwrap(before.first { $0.lastPathComponent.hasPrefix("channel-policy-v1-") })
             let oldBytes = try Data(contentsOf: record)
-            XCTAssertThrowsError(try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true,
-                                                                beforeRename: { throw POSIXError(.ENOSPC) })) {
-                XCTAssertEqual(($0 as? POSIXError)?.code, .ENOSPC)
+            do {
+                try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true,
+                                              beforeRename: { throw POSIXError(.ENOSPC) })
+                return XCTFail("A channel write must stop on its prepublication error")
+            } catch {
+                XCTAssertEqual((error as? POSIXError)?.code, .ENOSPC)
             }
             XCTAssertEqual(try Data(contentsOf: record), oldBytes)
             XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path)
@@ -208,7 +211,8 @@ final class PluginDirectorySignatureTests: XCTestCase {
         }
         do {
             let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true, parentSync: { _ in -1 }))
-            XCTAssertThrowsError(try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true)) {
+            XCTAssertThrowsError(try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true),
+                                 "A failed channel directory sync cannot report durable publication") {
                 XCTAssertEqual($0 as? PluginReleaseCatalog.Failure, .io)
             }
         }
