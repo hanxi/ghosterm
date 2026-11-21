@@ -80,7 +80,14 @@ internal data class PluginForm(val id: String, val title: String, val fields: Li
         }
         private fun checkedText(value: PluginViewValue.Value?, maximum: Int, required: Boolean): String = with(PluginViewValue) {
             value.text(maximum).also { text ->
-                require(text.none { it.code < 32 || it.code == 127 } && (!required || text.isNotBlank()))
+                require(text.none { it.code < 32 || it.code == 127 })
+                // Use the Portable SDK's ECMAScript trim set after rejecting controls.
+                require(!required || text.any { c ->
+                    when (c.code) {
+                        0x20, 0xA0, 0x1680, in 0x2000..0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF -> false
+                        else -> true
+                    }
+                })
             }
         }
     }

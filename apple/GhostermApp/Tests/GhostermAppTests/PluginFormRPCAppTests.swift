@@ -103,6 +103,10 @@ import XCTest
 
         let controlForm = try PluginFormRequest.decode(Data(
             #"{"requestId":"1","title":"Name","fields":[{"kind":"text","id":"name","label":"Name","required":true,"maxLength":3},{"kind":"toggle","id":"flag","label":"Summary"},{"kind":"choice","id":"layout","label":"Layout","options":[{"id":"compact","label":"Compact"},{"id":"wide","label":"Wide"}]}]}"#.utf8))
+        XCTAssertThrowsError(try controlForm.outcome(.submitted(
+            ["name": .text("\u{FEFF}"), "flag": .toggle(false), "layout": .text("wide")])))
+        XCTAssertNoThrow(try controlForm.outcome(.submitted(
+            ["name": .text("\u{0085}"), "flag": .toggle(false), "layout": .text("wide")])))
         var submitted: PluginFormRequest.Answer?
         let textPane = NSHostingView(rootView: PluginFormView(
             request: controlForm, pluginName: "org.ghosterm.form", answering: false) { submitted = $0 })

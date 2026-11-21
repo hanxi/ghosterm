@@ -28,6 +28,11 @@ class PluginFormUiTest {
 
     @Test fun nativeControlsValidateAndSubmitTypedValues() {
         val form = PluginForm.decode(schema.toByteArray())
+        fun answer(name: String) = PluginForm.Answer.Submitted(mapOf(
+            "name" to PluginViewValue.Value.Text(name), "summary" to PluginViewValue.Value.Bool(false),
+            "layout" to PluginViewValue.Value.Text("compact")))
+        assertTrue(runCatching { form.outcome(answer("\uFEFF")) }.isFailure)
+        assertTrue(runCatching { form.outcome(answer("\u0085")) }.isSuccess)
         val busy = mutableStateOf(false)
         val replies = mutableListOf<PluginForm.Answer>()
         ui.setContent { MaterialTheme { PluginFormContent(form, "org.ghosterm.form", busy.value, replies::add) } }

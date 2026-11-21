@@ -57,9 +57,7 @@ public struct PluginFormRequest: Identifiable, Equatable, Sendable {
             for field in fields {
                 switch (field.kind, supplied[field.id]) {
                 case (.text(let required, let maxLength), .text(let text)):
-                    guard (!required || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
-                          try Self.checkedText(text, maximum: maxLength) == text else { throw Failure.invalidResponse }
-                    result[field.id] = text
+                    result[field.id] = try Self.checkedText(text, maximum: maxLength, required: required)
                 case (.toggle, .toggle(let enabled)):
                     result[field.id] = enabled
                 case (.choice(let options), .text(let selected)):
@@ -105,16 +103,21 @@ public struct PluginFormRequest: Identifiable, Equatable, Sendable {
         return .init(id: try key(field["id"]), label: try label(field["label"]), kind: kind)
     }
 
-    private static func checkedText(_ value: Any?, maximum: Int) throws -> String {
+    private static func checkedText(_ value: Any?, maximum: Int, required: Bool) throws -> String {
         let text = try PluginViewValue.text(value, maximum: maximum)
         guard text.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }) else { throw Failure.invalidResponse }
+        // Use the Portable SDK's ECMAScript trim set after rejecting controls.
+        if required && text.unicodeScalars.allSatisfy({ scalar in
+            switch scalar.value {
+            case 0x20, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF: return true
+            default: return false
+            }
+        }) { throw Failure.invalidResponse }
         return text
     }
 
     private static func label(_ value: Any?) throws -> String {
-        let text = try checkedText(value, maximum: 96)
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Failure.invalidResponse }
-        return text
+        try checkedText(value, maximum: 96, required: true)
     }
 
     private static func key(_ value: Any?) throws -> String {

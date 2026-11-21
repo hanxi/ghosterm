@@ -3942,6 +3942,9 @@ macOS 同一后台应用专项新增第三个真实 Runtime，通过原生无障
 Android API 36 的组件断言检查同一个系统 polite live region 更新，首尾各 2 项，
 真实直连 / ProxyJump 表单各一项通过。此轮核对界面与系统无障碍节点，实际
 VoiceOver / TalkBack 播报仍待完成。
+两端原生表单的必填空白判据已与 Portable SDK 对齐，U+FEFF 视为空白、
+U+0085 保留。macOS 离屏应用专项与 API 29 无窗口 AVD 的组件首尾各 2 项、
+直连 / ProxyJump 实例流程通过，AVD 正常退出。
 
 日志样例已通过真实 Core / QuickJS Executor 与原生 Session 对端的五项
 请求探针：单行、四条响应上限及淘汰提示、无命中页仍推进游标、下一页命中、
