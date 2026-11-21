@@ -41,6 +41,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.inputs.outputs.version }}
+      android_certificate_sha256: ${{ steps.inputs.outputs.android_certificate_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +58,7 @@ jobs:
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 || '15875e9401bf5be2bd1232e3989d5e5cc5382af17bbee89a1c3b1ef1e0f01a1c' }}
         run: |
           set -euo pipefail
           version="$(bash scripts/resolve-formal-release-version.sh "$REQUESTED_VERSION")"
@@ -74,7 +76,12 @@ jobs:
             fi
           done
           if (( missing )); then exit 1; fi
+          if [[ ! "$ANDROID_RELEASE_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Android 发行证书指纹必须是 64 位小写十六进制" >&2
+            exit 1
+          fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'android_certificate_sha256=%s\n' "$ANDROID_RELEASE_CERT_SHA256" >> "$GITHUB_OUTPUT"
 
   package:
     needs: preflight
@@ -142,7 +149,7 @@ jobs:
         env:
           FORMAL_RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
-          ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ needs.preflight.outputs.android_certificate_sha256 }}
           MACOS_PLUGIN_JS: ${{ vars.MACOS_PLUGIN_JS }}
           ANDROID_PLUGIN_JS: ${{ vars.ANDROID_PLUGIN_JS }}
         run: |
@@ -206,13 +213,10 @@ jobs:
           android_profile=disabled
           if [[ "$ANDROID_PLUGIN_JS" == true ]]; then android_profile=enabled; fi
           python3 -B scripts/check-android-plugin-license.py dist/Ghosterm-android-arm64-release.apk --plugin-js "$android_profile"
-          CERTIFICATE_ARGS=()
-          if [[ -n "$ANDROID_RELEASE_CERT_SHA256" ]]; then
-            CERTIFICATE_ARGS=(--android-certificate-sha256 "$ANDROID_RELEASE_CERT_SHA256")
-          fi
           python3 -B scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY" \
-            --android-build-tools "$ANDROID_HOME/build-tools/35.0.0" "${CERTIFICATE_ARGS[@]}"
+            --android-build-tools "$ANDROID_HOME/build-tools/35.0.0" \
+            --android-certificate-sha256 "$ANDROID_RELEASE_CERT_SHA256"
           NOTES="$(cat dist/BUILD-INFO.txt)"
           ASSETS=(dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json dist/appcast.xml)
           ASSETS+=(dist/Ghosterm-android-arm64-release.apk dist/android-SHA256SUMS dist/android-build-info.json)

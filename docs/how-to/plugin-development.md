@@ -1014,8 +1014,8 @@ python3 -B scripts/audit-public-release.py --tag "$release_tag" \
 审计核对两端资产清单、标签提交、macOS 更新签名以及 APK 签名、版本和 16 KiB
 对齐。若已从可信渠道取得预期 Android 签名证书的 SHA-256，可追加
 `--android-certificate-sha256 "$android_certificate_sha256"` 核对签名身份。
-仓库变量 `ANDROID_RELEASE_CERT_SHA256` 若已配置，正式草稿工作流也会在上传前
-用该指纹核对 APK。
+正式草稿工作流在上传前默认使用公开 dev APK 沿用的发行证书指纹核对正式 APK。
+如已安排证书轮换，可用仓库变量 `ANDROID_RELEASE_CERT_SHA256` 指定已确认的新指纹。
 通过后，在两端安装公开资产，从插件设置刷新渠道并核对代次。
 
 GitHub Release 用于分发应用和供用户手动导入的插件包。渠道策略的三个原始
