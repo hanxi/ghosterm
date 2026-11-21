@@ -48,14 +48,22 @@ jobs:
         run: |
           set -euo pipefail
           directory=site/plugins
-          if [[ ! -e "$directory" && ! -L "$directory" ]]; then exit 0; fi
+          pages_policy_url="https://${PAGES_BASE_URL#*://}"
+          pages_policy_url="${pages_policy_url%/}/plugins"
+          if [[ ! -e "$directory" && ! -L "$directory" ]]; then
+            if [[ "${CHANNEL_URL%/}" == "$pages_policy_url" ||
+                  "${ANDROID_CHANNEL_URL%/}" == "$pages_policy_url" ]]; then
+              echo "Configured Pages plugin policy directory is missing: $directory" >&2
+              exit 1
+            fi
+            exit 0
+          fi
           [[ -d "$directory" && ! -L "$directory" ]]
           if [[ -n "$CHANNEL_URL" && "${CHANNEL_URL%/}" == "${ANDROID_CHANNEL_URL%/}" ]] &&
              [[ "$CHANNEL" != "$ANDROID_CHANNEL" || "$CHANNEL_ROOT" != "$ANDROID_CHANNEL_ROOT" ]]; then
             echo "macOS and Android must use the same channel name and public key for a shared policy URL" >&2
             exit 1
           fi
-          pages_policy_url="${PAGES_BASE_URL%/}/plugins"
           if [[ "${ANDROID_CHANNEL_URL%/}" == "$pages_policy_url" &&
                 "${CHANNEL_URL%/}" != "$pages_policy_url" ]] ||
              [[ -z "$CHANNEL" && -z "$CHANNEL_ROOT" ]]; then
