@@ -130,7 +130,7 @@ def execute(args, serial=None):
                 objects = source / 'apple/GhostermApp/.build'
                 before_objects = {str(p): sha(p) for p in objects.rglob(compiled_file.stem + '.o')} if compiled_file else {}
                 code, output = run(label, ['swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected], red=red, timeout=300)
-                count = 1 if target or control else 26 if args.local else 7
+                count = 1 if target or control else 27 if args.local else 7
                 assertion = 'XCTAssert' in output or re.search(r': error: .* : failed - [^\n]+', output)
                 valid = (code == 1 and 'Executed 1 test, with 1 failure (0 unexpected)' in output and assertion) if red else (
                     code == 0 and f'Executed {count} test' in output and 'with 0 failures' in output)

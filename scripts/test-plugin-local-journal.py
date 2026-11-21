@@ -128,7 +128,7 @@ def main():
 
         package = source / 'apple/GhostermApp'
         selection = 'LocalJournalTests|LocalTemporaryDirectoryTests|LocalExtensionTests|ExecutorExecutionTests'
-        def test(label, selected=selection, count=42, red=False):
+        def test(label, selected=selection, count=43, red=False):
             text = run(label, ['swift', 'test', '--package-path', package, '--filter', selected], red=red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text):
                 raise RuntimeError(label + ': exact discovery/no-skip mismatch\n' + text)
