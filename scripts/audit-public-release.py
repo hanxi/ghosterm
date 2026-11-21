@@ -154,7 +154,7 @@ def local_assets(folder, names):
     entries = []
     for index, path in enumerate(sorted(folder.iterdir()), 1):
         if path.is_symlink() or not path.is_file() or path.name not in names:
-            raise ValueError('unexpected macOS asset: ' + path.name)
+            raise ValueError('unexpected release asset: ' + path.name)
         with path.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         entries.append(dict(id=index, name=path.name, size=path.stat().st_size, digest='sha256:' + digest))
@@ -167,7 +167,8 @@ def main():
     parser.add_argument('--tag', default='dev')
     parser.add_argument('--platform', choices=sorted(CHECK.FILES), default='macos')
     parser.add_argument('--update-public-key', help='require this trusted Sparkle public key for a macOS release')
-    parser.add_argument('--asset-directory', type=Path, help='verify a local macOS artifact before upload')
+    parser.add_argument('--asset-directory', type=Path,
+                        help='verify local macOS assets and optionally the complete formal Android set before upload')
     parser.add_argument('--commit', help='expected full commit for a local artifact')
     tools = parser.add_mutually_exclusive_group()
     tools.add_argument('--aapt', help='also verify the published formal APK manifest using Android SDK aapt')
@@ -180,8 +181,8 @@ def main():
         parser.error('expected dev or a stable macOS tag vX.Y.Z')
     if args.update_public_key is not None and args.platform != 'macos':
         parser.error('--update-public-key requires macOS')
-    if (args.aapt or args.android_build_tools) and (not formal or args.asset_directory is not None):
-        parser.error('Android Build Tools verification requires a public formal release audit')
+    if (args.aapt or args.android_build_tools) and not formal:
+        parser.error('Android Build Tools verification requires a formal release audit')
     if args.android_certificate_sha256 is not None and (
             not args.android_build_tools or not re.fullmatch(r'[0-9a-f]{64}', args.android_certificate_sha256)):
         parser.error('--android-certificate-sha256 requires --android-build-tools and 64 lowercase hex digits')
@@ -191,7 +192,12 @@ def main():
             parser.error('local verification requires macOS, a trusted update key and a full commit')
         folder = args.asset_directory.resolve(strict=True)
         if formal:
-            verify_formal_macos(folder, local_assets(folder, FORMAL_MACOS), formal[1], args.commit, base, args.update_public_key)
+            assets = local_assets(folder, FORMAL_MACOS | FORMAL_ANDROID)
+            inventory = CHECK.inventory(assets)
+            if (args.aapt or args.android_build_tools) and not FORMAL_ANDROID <= inventory.keys():
+                raise ValueError('Android Build Tools verification requires all formal Android assets')
+            verify_formal_macos(folder, assets, formal[1], args.commit, base, args.update_public_key,
+                                args.aapt, args.android_build_tools, args.android_certificate_sha256)
         else:
             assets = local_assets(folder, CHECK.FILES['macos'])
             CHECK.verify('macos', folder, assets)
