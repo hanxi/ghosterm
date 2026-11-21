@@ -1101,6 +1101,13 @@ actionlint 1.7.7 通过。临时工具和资产已清理，正式构件仍待云
 `SFTPBrowserTests/testDualPaneBrowseAndDownload` 以 134 退出，完整闸门未通过。
 此处保留独立故障记录，尚无证据与旧标签失败同因。临时目录已清理。
 
+通过离屏 XCTest 的 Objective-C 异常断点定位本地 134：隔离运行器把
+`GHOSTERM_APP_TEST_TMP` 放到了快照根之外，收尾时 `AppModelFixture` 的
+Keychain 路径校验拒绝处理该引用。撤回试探性的 SFTP 用例改动，改用隔离
+快照自己的 `tmp/` 后，原 SFTP 三项、PTY、本机真 SSH、表单播报共六项
+通过，required 闸门的三条指定收据及真实 WebKit 探针通过。各轮磁盘临时
+目录已清理，失败轮的 Keychain 收尾未确认，完整云端闸门另验。
+
 Pages 发布预检增加渠道目录文件检查，只接受声明、签名和策略三个普通文件。
 本地夹具覆盖正确目录、额外文件、隐藏文件、链接文件 / 目录与嵌套目录，工作流
 通过 actionlint 1.7.7。生产渠道仍需正式根签发的策略及公开 HTTPS 回读。
