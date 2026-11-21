@@ -212,6 +212,8 @@ def main():
         names = FORMAL_MACOS | FORMAL_ANDROID
     if not names <= inventory.keys():
         raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
+    if formal and inventory.keys() != names:
+        raise ValueError('unexpected published assets: ' + ', '.join(sorted(inventory.keys() - names)))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:
         folder = Path(value)
         for name in sorted(names):

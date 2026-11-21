@@ -26,7 +26,8 @@ def verify(folder, commit, formal_version=None):
     receipt = source.read_metadata(apk)
     if receipt['git_commit'] != commit or receipt['source_state'] != 'clean':
         raise ValueError('published APK source mismatch')
-    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+    with apk.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     if (folder / 'android-SHA256SUMS').read_bytes() != (digest + '  ' + apk_name + '\n').encode():
         raise ValueError('published APK checksum mismatch')
     metadata = json.loads((folder / 'android-build-info.json').read_text(), object_pairs_hook=source.distinct_object)
