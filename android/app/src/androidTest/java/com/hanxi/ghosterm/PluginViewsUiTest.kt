@@ -69,6 +69,7 @@ class PluginViewsUiTest {
         assertTrue(!alpha.state.value.valid && m.state.value.items.any { (it.content as? PluginViewItem.Content.Table)?.model === beta })
         ui.runOnIdle { f.entries += f.entry(5, "table-a", "table", "alpha"); f.revision++; m.apply(f.data()) }
         ui.onAllNodesWithTag("plugin-view-close").assertCountEquals(4)
+        ui.onNodeWithContentDescription("关闭视图 table-b，不取消任务").assertIsFocused()
         val fresh = (m.state.value.items.last().content as PluginViewItem.Content.Table).model
         await { fresh.state.value.page != null }; assertEquals(0, fresh.state.value.page?.offset)
     }
