@@ -27,7 +27,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source, revocation, *, mutation_case=None):
+def execute(api, selected_routes, mutate, build, node, sdk, out, package, installed, policy, sdk_digest, node_version, run, env, load, inputs, source, revocation, *, mutation_case=None, repeat=1):
     helper = load('mixed_avd', 'test-plugin-codex-patch-android.py')
     keys = load('mixed_android_keys', 'test-plugin-ssh.py')
     streams = load('mixed_android_streams', 'test-plugin-ssh-stream.py')
@@ -217,13 +217,23 @@ def execute(api, selected_routes, mutate, build, node, sdk, out, package, instal
         completed = []
         failures = []
         for route in selected_routes or ('direct', 'jump'):
-            try:
-                actual(route, 'android-' + route)
-                if revocation:
-                    actual(route, 'android-' + route + '-active', active_revocation=True)
-                    actual(route, 'android-' + route + '-disconnect', active_revocation=True, disconnect=True)
-            except RuntimeError as failure:
-                failures.append(f'{route}: {failure}')
+            route_failures = []
+            for attempt in range(1, repeat + 1):
+                label = 'android-' + route
+                if repeat > 1:
+                    label += '-' + str(attempt)
+                try:
+                    actual(route, label)
+                    if revocation:
+                        actual(route, label + '-active', active_revocation=True)
+                        actual(route, label + '-disconnect', active_revocation=True, disconnect=True)
+                except RuntimeError as failure:
+                    route_failures.append(f'{label}: {failure}')
+                else:
+                    if repeat > 1:
+                        print(f'PASS Android API{api} mixed {route} attempt {attempt}/{repeat}', flush=True)
+            if route_failures:
+                failures.extend(route_failures)
             else:
                 completed.append(route)
                 print('PASS Android API' + api + ' mixed ' + route, flush=True)

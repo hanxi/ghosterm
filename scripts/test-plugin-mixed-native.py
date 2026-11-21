@@ -62,6 +62,8 @@ def main():
     parser.add_argument('--mutate', action='store_true', help='compiled copied-worker regression, independent control, restore and hashes')
     parser.add_argument('--project', type=Path, help='explicit owned copied-project cache with its mixed-fixture marker')
     parser.add_argument('--android-api', choices=('29', '36'), help='run the owned no-window Android backend instead of macOS')
+    parser.add_argument('--android-repeat', type=int, choices=range(1, 11), default=1, metavar='1–10',
+                        help='repeat each Android baseline route with the same AVD and APKs')
     parser.add_argument('--android-mutation-case', choices=('android-parent-pump', 'android-rejected-admission-generation'),
                         help='run one Android mixed-group mutation after the baseline')
     parser.add_argument('--android-revocation', action='store_true', help='exercise a signed managed Android Session revoked before consent')
@@ -72,6 +74,8 @@ def main():
         parser.error('--android-mutation-case requires Android mixed-group mutation mode')
     if args.android_api and 'local' in (args.route or ()):
         parser.error('Android uses direct/jump routes')
+    if args.android_repeat > 1 and (not args.android_api or args.mutate or args.android_revocation):
+        parser.error('--android-repeat requires an Android baseline without mutations or revocation')
     if args.android_revocation and not args.android_api:
         parser.error('--android-revocation requires --android-api')
     if args.macos_stop_disconnect and (args.android_api or 'local' in (args.route or ())):
@@ -257,7 +261,7 @@ export function activate(ctx){
             backend = load('mixed_android_backend', 'lib/plugin-mixed-android.py')
             report = backend.execute(args.android_api, args.route, args.mutate, build, node, sdk, out, package, installed,
                 policy, sdk_hash.hexdigest(), node_version, run, env, load, inputs, source, revocation,
-                mutation_case=args.android_mutation_case)
+                mutation_case=args.android_mutation_case, repeat=args.android_repeat)
             verify_inputs(inputs)
             for path in logs.iterdir():
                 if b'PRIVATE KEY-----' in path.read_bytes(): raise RuntimeError('fixture private material leaked to a log')
