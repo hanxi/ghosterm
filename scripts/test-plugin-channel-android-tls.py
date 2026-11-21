@@ -3,6 +3,7 @@
 import argparse
 import base64
 from contextlib import contextmanager, ExitStack, nullcontext
+import hashlib
 import http.server
 import importlib.util
 import json
@@ -199,9 +200,18 @@ def main():
                     runner.run([*adb, 'reverse', '--no-rebind', port, port], device_env)
                     cleanup.callback(runner.run, [*adb, 'reverse', '--remove', port], device_env)
                 for package, apk in zip(packages, apks):
+                    with apk.open('rb') as source:
+                        expected_digest = hashlib.file_digest(source, 'sha256').hexdigest()
                     runner.run([*adb, 'install', '-t', apk], device_env)
                     if args.serial:
                         cleanup.callback(runner.run, [*adb, 'uninstall', package], device_env)
+                    installed = runner.run([*adb, 'shell', 'pm', 'path', package], device_env).splitlines()
+                    if len(installed) != 1 or not installed[0].startswith('package:'):
+                        raise RuntimeError(f'Expected a single installed APK for {package}')
+                    digest = runner.run([*adb, 'shell', 'sha256sum', installed[0].removeprefix('package:')], device_env).split()
+                    if not digest or digest[0] != expected_digest:
+                        raise RuntimeError(f'Installed APK digest does not match the input for {package}')
+                    print(f'INSTALLED APK SHA256 {package} {expected_digest}', flush=True)
                 output = runner.run([*adb, 'shell', 'am', 'instrument', '-w', '-e', 'class',
                     test, *extras,
                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], device_env)
