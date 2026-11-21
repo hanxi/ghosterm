@@ -37,6 +37,7 @@ if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNo
     val endpoint = URI(pluginChannelUrl)
     require(endpoint.scheme == "https" && endpoint.host != null && endpoint.userInfo == null &&
         endpoint.rawFragment == null && endpoint.rawQuery == null &&
+        !endpoint.rawAuthority.endsWith(":") &&
         (endpoint.port == -1 || endpoint.port in 1..65535)) { "Expected an HTTPS channel directory" }
 }
 val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
