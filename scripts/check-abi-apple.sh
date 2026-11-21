@@ -12,8 +12,19 @@
 #      ALLOW_UNBOUND 里并写明理由——**新增遗漏会红**，逼着你显式登记。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMP="$ROOT/tmp"
-mkdir -p "$TMP"
+mkdir -p "$ROOT/tmp" || exit 2
+TMP_ROOT="$(cd "$ROOT/tmp" && pwd -P)" || exit 2
+SCRATCH="$TMP_ROOT"
+if [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ]; then
+  REQUESTED_TMP="$(cd "$TMPDIR" && pwd -P)" || exit 2
+  case "$REQUESTED_TMP" in
+    "$TMP_ROOT"/*) SCRATCH="$REQUESTED_TMP" ;;
+  esac
+fi
+TMP="$(mktemp -d "$SCRATCH/apple-abi-XXXXXX")" || exit 2
+trap 'rm -rf -- "$TMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # 故意未绑定到 Apple 的 core 符号（每行 "符号 理由"）。
 # 口径：未实现的子系统（M4 的 SFTP）与宿主尚未使用的基础设施。
