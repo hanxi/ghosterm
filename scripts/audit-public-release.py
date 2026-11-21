@@ -209,7 +209,7 @@ def main():
     inventory = CHECK.inventory(assets)
     names = CHECK.FILES[args.platform]
     if formal:
-        names = FORMAL_MACOS | (FORMAL_ANDROID & inventory.keys())
+        names = FORMAL_MACOS | FORMAL_ANDROID
     if not names <= inventory.keys():
         raise ValueError('missing published assets: ' + ', '.join(sorted(names - inventory.keys())))
     with tempfile.TemporaryDirectory(prefix='ghosterm-release-audit-', dir=scratch) as value:
