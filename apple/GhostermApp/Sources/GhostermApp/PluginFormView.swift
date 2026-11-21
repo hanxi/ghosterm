@@ -32,11 +32,15 @@ struct PluginFormView: View {
                     TextField(required ? "\(field.label)（必填）" : field.label, text: text(field.id))
                 case .toggle:
                     Toggle(field.label, isOn: toggle(field.id))
+                        .accessibilityIdentifier("plugin-form-field-\(field.id)")
                 case .choice(let options):
                     Picker(field.label, selection: text(field.id)) {
                         Text("请选择").tag("")
-                        ForEach(options) { Text($0.label).tag($0.id) }
+                        ForEach(options) { option in
+                            Text(option.label).tag(option.id)
+                        }
                     }
+                    .pickerStyle(.radioGroup)
                 }
             }
             ViewThatFits(in: .horizontal) {

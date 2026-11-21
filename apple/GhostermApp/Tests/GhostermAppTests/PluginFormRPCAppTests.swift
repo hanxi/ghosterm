@@ -101,11 +101,11 @@ import XCTest
         let dismissed = try await status(third)
         XCTAssertEqual(dismissed, "dismissed")
 
-        let textOnly = try PluginFormRequest.decode(Data(
-            #"{"requestId":"1","title":"Name","fields":[{"kind":"text","id":"name","label":"Name","required":true,"maxLength":3}]}"#.utf8))
+        let controlForm = try PluginFormRequest.decode(Data(
+            #"{"requestId":"1","title":"Name","fields":[{"kind":"text","id":"name","label":"Name","required":true,"maxLength":3},{"kind":"toggle","id":"flag","label":"Summary"},{"kind":"choice","id":"layout","label":"Layout","options":[{"id":"compact","label":"Compact"},{"id":"wide","label":"Wide"}]}]}"#.utf8))
         var submitted: PluginFormRequest.Answer?
         let textPane = NSHostingView(rootView: PluginFormView(
-            request: textOnly, pluginName: "org.ghosterm.form", answering: false) { submitted = $0 })
+            request: controlForm, pluginName: "org.ghosterm.form", answering: false) { submitted = $0 })
         textPane.frame = pane.frame
         window.contentView = textPane
         textPane.layoutSubtreeIfNeeded()
@@ -121,6 +121,17 @@ import XCTest
         }
         try await until { editableField(in: textPane) != nil && submitButton() != nil }
         let field = try XCTUnwrap(editableField(in: textPane))
+        let elements = PluginTableRendering.elements(textPane)
+        let toggle = try XCTUnwrap(elements.first {
+            PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-form-field-flag"
+        })
+        let compact = try XCTUnwrap(elements.first { element in
+            ["accessibilityLabel", "accessibilityTitle"].contains { attribute in
+                PluginTableRendering.attribute(element, attribute) == "Compact"
+            }
+        })
+        XCTAssertTrue(PluginTableRendering.press(toggle))
+        XCTAssertTrue(PluginTableRendering.press(compact))
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         editor.insertText("甲乙丙丁", replacementRange: editor.selectedRange())
@@ -131,7 +142,7 @@ import XCTest
         editor.insertText("甲乙丙", replacementRange: editor.selectedRange())
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(submitButton())))
-        XCTAssertEqual(submitted, .submitted(["name": .text("甲乙丙")]))
+        XCTAssertEqual(submitted, .submitted(["name": .text("甲乙丙"), "flag": .toggle(true), "layout": .text("compact")]))
     }
 
     private func until(_ predicate: () -> Bool) async throws {
