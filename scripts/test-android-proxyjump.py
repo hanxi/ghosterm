@@ -17,6 +17,8 @@ def main():
         parser.error('--reset requires the two-hop product authentication test')
     if args.expect_assertion and not (args.method and args.hops): parser.error('one method and hop count required for mutation')
     sources=[p for scope in ['android/app/src','android/bridge/src','core/src','core/include'] for p in (ROOT/scope).rglob('*') if p.is_file()]
+    sources += [Path(__file__).resolve(), *(ROOT/'scripts'/name for name in
+                ('test-plugin-route.py', 'test-plugin-ssh.py', 'test-plugin-ssh-stream.py', 'lib/tmux-fault-proxy.py'))]
     hashes={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     serial = os.environ['ANDROID_SERIAL']
     adb = [str(ROOT/'build/android-toolchain/sdk/platform-tools/adb'), '-s', serial]
@@ -26,6 +28,7 @@ def main():
     routes=load('aj_routes','test-plugin-route.py'); helpers=load('aj_keys','test-plugin-ssh.py'); streams=load('aj_streams','test-plugin-ssh-stream.py')
     private, public=streams.memory_identity()
     token=secrets.token_hex(24); payload={}; proxy=None
+    results = []
     def run(args, label):
         result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True,timeout=180)
         (logs/(label+'.log')).write_text(result.stdout+result.stderr)
@@ -76,8 +79,12 @@ def main():
             if not valid: raise RuntimeError((logs,output))
             control=run([*adb,'shell','am','instrument','-w','-r','-e','class','com.hanxi.ghosterm.ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig','com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],f'{count}-control')
             if 'OK (1 test)' not in control: raise RuntimeError(control)
+            results.append(dict(hops=count, method=args.method, reset=args.reset,
+                                test_log_sha256=hashlib.sha256((logs/f'{count}-tests.log').read_bytes()).hexdigest(),
+                                control_log_sha256=hashlib.sha256((logs/f'{count}-control.log').read_bytes()).hexdigest()))
     for name,digest in hashes.items(): assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest()==digest
     apks={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [ROOT/'android/app/build/outputs/apk/debug/app-debug.apk',ROOT/'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk']}
-    (logs/'receipt.json').write_text(json.dumps(dict(expected_assertion=args.expect_assertion,sources_sha256=hashes,apk_sha256=apks),indent=2)+'\n')
+    (logs/'receipt.json').write_text(json.dumps(dict(expected_assertion=args.expect_assertion, runs=results,
+        sources_sha256=hashes, apk_sha256=apks),indent=2)+'\n')
     print('ANDROID PROXYJUMP PASS: '+str(logs))
 if __name__=='__main__': main()
