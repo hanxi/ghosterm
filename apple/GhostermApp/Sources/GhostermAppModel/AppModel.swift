@@ -1426,12 +1426,15 @@ public final class AppModel: ObservableObject {
             return value
         } catch {
             if opened || localLaunch != nil {
-                if opened { try? await extensionController.stopSSHChannel() }
-                do { try await extensionController.releaseFinished() }
-                catch { extensionInstance.recordInspectionIssue("前台检查资源仍待释放：\(error.localizedDescription)") }
-                if localLaunch != nil {
-                    await extensionInstance.captureLocalCleanup()
-                }
+                // Keep the bounded release retry alive even if the inspection was cancelled.
+                await Task { @MainActor in
+                    if opened { try? await extensionController.stopSSHChannel() }
+                    do { try await extensionController.releaseFinished() }
+                    catch { extensionInstance.recordInspectionIssue("前台检查资源仍待释放：\(error.localizedDescription)") }
+                    if localLaunch != nil {
+                        await extensionInstance.captureLocalCleanup()
+                    }
+                }.value
             }
             throw error
         }
