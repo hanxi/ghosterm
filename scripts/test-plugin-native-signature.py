@@ -51,6 +51,10 @@ CHANNEL_PUBLICATION_CASES = (
      'guard try channelHistoryBytes(name) == previousBytes else { throw Failure.conflict }',
      '_ = previousBytes',
      'Channel publication must preserve a changed record'),
+    ('channel-commit-root', CHANNEL_PUBLICATION,
+     'try beforeRename()\n        try validate()\n        guard renameat',
+     'try beforeRename()\n        guard renameat',
+     'A detached channel directory must reject publication'),
 )
 TEST = 'PluginDirectorySignatureTests.'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'

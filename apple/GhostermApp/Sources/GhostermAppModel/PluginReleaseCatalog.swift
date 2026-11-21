@@ -316,7 +316,8 @@ final class PluginReleaseCatalog {
             }
         }
         guard fsync(output) == 0 else { throw Failure.io }
-        try validate(); try beforeRename()
+        try beforeRename()
+        try validate()
         guard renameat(fd, name, fd, destination) == 0 else { throw Failure.io }
         published = true
         return parentSync(fd) == 0

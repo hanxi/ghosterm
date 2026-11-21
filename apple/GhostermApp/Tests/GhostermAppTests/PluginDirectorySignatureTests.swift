@@ -217,6 +217,31 @@ final class PluginDirectorySignatureTests: XCTestCase {
                 XCTAssertEqual(error as? PluginReleaseCatalog.Failure, .conflict)
             }
             XCTAssertEqual(try Data(contentsOf: record), externallyUpdated)
+            let moved = directory.appendingPathExtension("detached")
+            do {
+                defer {
+                    if FileManager.default.fileExists(atPath: moved.path) {
+                        try? FileManager.default.removeItem(at: directory)
+                        try? FileManager.default.moveItem(at: moved, to: directory)
+                    }
+                }
+                do {
+                    try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true, beforeRename: {
+                        try FileManager.default.moveItem(at: directory, to: moved)
+                        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                                attributes: [.posixPermissions: 0o700])
+                    })
+                    return XCTFail("A detached channel directory must reject publication")
+                } catch {
+                    guard (error as? PluginReleaseCatalog.Failure) == .changed else {
+                        return XCTFail("A detached channel directory must reject publication: \(error)")
+                    }
+                }
+                let detachedRecord = moved.appendingPathComponent(record.lastPathComponent)
+                XCTAssertEqual(try Data(contentsOf: detachedRecord), externallyUpdated)
+                XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: moved.path)
+                    .contains { $0.hasPrefix(".selection-") })
+            }
         }
         do {
             let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true, parentSync: { _ in -1 }))
