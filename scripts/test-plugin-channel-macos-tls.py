@@ -21,6 +21,10 @@ def main():
     work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
     with tempfile.TemporaryDirectory(dir=work_tmp, prefix='macos-channel-tls-') as path:
         env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
+        core_cache = ROOT / 'core/build/CMakeCache.txt'
+        if core_cache.is_file():
+            quickjs_enabled = 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in core_cache.read_text().splitlines()
+            env['GHOSTERM_CORE_TEST_PLUGIN_JS'] = '1' if quickjs_enabled else '0'
         with helper.tls_fixture(Path(path), env, '127.0.0.1') as (origin, certificate, root):
             der = subprocess.check_output(['openssl', 'x509', '-in', certificate, '-outform', 'DER'], env=env)
             env.update(GHOSTERM_TEST_CHANNEL_ORIGIN=origin, GHOSTERM_TEST_CHANNEL_ROOT=root,
