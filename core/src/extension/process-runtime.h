@@ -37,6 +37,7 @@ typedef struct {
 
 typedef struct {
     gt_process_runtime_phase_t phase;
+    gt_process_runtime_phase_t failure_phase;
     gt_status_t error, cleanup_error;
     gt_ext_session_end_t session_end;
     gt_status_t session_error;
@@ -66,6 +67,7 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **,
 gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *);
 void gt__process_runtime_stop(gt_process_runtime_t *);
 bool gt__process_runtime_info(const gt_process_runtime_t *, gt_process_runtime_info_t *);
+const char *gt__ext_runtime_failure_stage(const gt_ext_runtime_t *);
 gt_status_t gt__process_runtime_transport_process_info(const gt_process_runtime_t *,
                                                        gt_ext_transport_process_info_t *);
 gt_ext_close_t gt__process_runtime_close(gt_process_runtime_t *);

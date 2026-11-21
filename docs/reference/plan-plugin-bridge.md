@@ -12839,6 +12839,12 @@ Android 混合运行脚本新增 `--android-repeat`，只用于无变异的设�
 日志 SHA256 为 `4d3d91bc35df0759d674ba8b14f274842692488246f6c1d2876068475873e38b`。
 此为本机独立运行时夹具，未复现历史在线替换 I/O；临时目录已核实清理。
 
+外部进程 Runtime 在首次失败时记住原阶段，gterm 多实例执行端输出
+`prepare / stage / probe / start / active` 之一。阶段经私有 C 接口读取，
+不改公共 ABI。ASan／UBSan 公共运行时组合验证探针拒绝仍记为 `probe`、
+业务 stdout 提前关闭记为 `start`。现编 gterm、297 个 C 文件格式检查及
+默认 Core 闸门 612 项与 207 ABI 通过。临时目录已核实清理。历史故障归因另验。
+
 macOS 在真实 Native 八实例夹具补验同一竞态。活动实例的无效输入明确返回
 `INVALID_INPUT`。下一次请求在 worker 已拒绝且模型尚未处理时关闭原实例，
 其迟到结果以取消结束，其余实例及新加入的签名 Node 实例继续完成 RPC。

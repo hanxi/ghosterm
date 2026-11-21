@@ -61,6 +61,29 @@ static gt_ext_runtime_error_t ext_runtime_error(gt_runtime_error_t error) {
 
 #include "extension/runtime-process-api.inc"
 
+const char *gt__ext_runtime_failure_stage(const gt_ext_runtime_t *r) {
+    gt_process_runtime_info_t info;
+    if (!r || !r->process || !gt__process_runtime_info(r->process, &info) || info.error == GT_OK) {
+        return NULL;
+    }
+    switch (info.failure_phase) {
+        case GT_PROCESS_RUNTIME_CREATED:
+            return "prepare";
+        case GT_PROCESS_RUNTIME_STAGING:
+            return "stage";
+        case GT_PROCESS_RUNTIME_PROBING:
+            return "probe";
+        case GT_PROCESS_RUNTIME_STARTING:
+            return "start";
+        case GT_PROCESS_RUNTIME_ACTIVE:
+            return "active";
+        case GT_PROCESS_RUNTIME_STOPPING:
+        case GT_PROCESS_RUNTIME_CLOSED:
+            return NULL;
+    }
+    return NULL;
+}
+
 gt_status_t gt_ext_runtime_views_enable(gt_ext_runtime_t *r, uint32_t kinds) {
     if (!r) {
         return GT_ERR_INVALID_ARG;

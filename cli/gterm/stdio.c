@@ -4,6 +4,7 @@
 #include "release.h"
 #include "catalog.h"
 #include "stdio.h"
+#include "extension/process-runtime.h"
 #include "extension/wire.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -917,6 +918,10 @@ static void job_step(stdio_job_t *job, volatile sig_atomic_t *cancelled) {
                       : info.session_end == GT_EXT_END_LOST                               ? 7
                                                                                           : 5;
         if (job->result) {
+            const char *failure_stage = gt__ext_runtime_failure_stage(job->runtime);
+            if (failure_stage) {
+                fprintf(stderr, "gterm: external runtime failure stage=%s\n", failure_stage);
+            }
             fprintf(stderr,
                     "gterm: runtime phase=%u error=%u execution-error=%d child-exit=%d "
                     "child-signal=%d session-end=%u session-error=%d cleanup=%d\n",

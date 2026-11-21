@@ -189,6 +189,7 @@ static void runtime_fail(gt_process_runtime_t *r, gt_status_t error, uint64_t no
     }
     if (r->info.error == GT_OK) {
         r->info.error = error;
+        r->info.failure_phase = r->info.phase;
     }
     gt_ext_session_info_t session;
     if (gt_ext_session_info(r->session, &session)) {

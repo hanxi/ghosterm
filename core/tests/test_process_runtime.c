@@ -897,6 +897,12 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "probe-stderr")) {
             CHECK(!info.activated && !info.probe_verified && info.error == GT_ERR_AUTH &&
                   info.stderr_bytes == 32768);
+            if (public_mode) {
+                const char *stage = gt__ext_runtime_failure_stage(public_runtime);
+                CHECK(stage && !strcmp(stage, "probe"));
+            } else {
+                CHECK(info.failure_phase == GT_PROCESS_RUNTIME_PROBING);
+            }
         }
         if (!strcmp(mode, "activation-timeout")) {
             CHECK(!info.activated && info.error == GT_ERR_CANCELLED && info.probe_verified &&
@@ -905,6 +911,12 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "stdout-eof")) {
             CHECK(!info.activated && info.child_exited && info.error == GT_ERR_IO &&
                   info.term_signal == SIGTERM);
+            if (public_mode) {
+                const char *stage = gt__ext_runtime_failure_stage(public_runtime);
+                CHECK(stage && !strcmp(stage, "start"));
+            } else {
+                CHECK(info.failure_phase == GT_PROCESS_RUNTIME_STARTING);
+            }
         }
         if (!strcmp(mode, "lifetime")) {
             CHECK(info.activated && info.error == GT_ERR_CANCELLED && info.child_exited);
