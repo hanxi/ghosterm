@@ -13,23 +13,31 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def verify_release_preflight(work, env, origin, certificate, root):
     curl_env = dict(env, CURL_CA_BUNDLE=str(certificate))
+    command = ['bash', ROOT / 'scripts/check-plugin-channel-url.sh', 'fixture', root]
+    invalid = subprocess.run(
+        [*command, f'{origin}/valid/', work / 'preflight.sqlite', 'unexpected'],
+        cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=10)
+    if invalid.returncode != 2 or 'Usage:' not in invalid.stderr:
+        raise RuntimeError('Channel preflight accepted an extra argument')
     for route, expected in (
         ('valid', '"generation":"2"'),
         ('redirect', 'HTTP 302'),
+        ('oversized', ('curl: (63)', 'exceeds 131072 bytes for policy.json')),
         ('mixed', 'CHANNEL_POLICY_DIGEST'),
         ('expired', 'CHANNEL_POLICY_FRESHNESS'),
         ('revoked', '"generation":"3"'),
         ('valid', 'CHANNEL_POLICY_ROLLBACK'),
     ):
         result = subprocess.run(
-            ['bash', ROOT / 'scripts/check-plugin-channel-url.sh', 'fixture', root,
-             f'{origin}/{route}/', work / 'preflight.sqlite'],
+            [*command, f'{origin}/{route}/', work / 'preflight.sqlite'],
             cwd=ROOT, env=curl_env, capture_output=True, text=True, timeout=110)
         output = result.stdout + result.stderr
-        wants_success = expected.startswith('"generation":')
-        if (result.returncode == 0) != wants_success or expected not in output:
+        markers = (expected,) if isinstance(expected, str) else expected
+        wants_success = markers[0].startswith('"generation":')
+        if (result.returncode == 0) != wants_success or not any(marker in output for marker in markers):
             raise RuntimeError(f'Channel preflight {route}: {output}')
-    print('CHANNEL RELEASE PREFLIGHT PASS: TLS / redirect / digest / expiry / revocation / rollback', flush=True)
+    print('CHANNEL RELEASE PREFLIGHT PASS: arguments / TLS / redirect / size / digest / expiry / revocation / rollback',
+          flush=True)
 
 
 def main():

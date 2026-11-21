@@ -3,6 +3,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+  echo "Usage: $0 CHANNEL ROOT_KEY HTTPS_DIRECTORY [STATE_FILE]" >&2
+  exit 2
+fi
 CHANNEL="${1:?expected channel name}"
 ROOT_KEY="${2:?expected channel public key}"
 DIRECTORY="${3:?expected HTTPS channel directory}"
@@ -27,6 +31,11 @@ for entry in channel-policy.json:65536 channel-policy.sig:64 policy.json:131072;
     --output "$WORK/$name" --write-out '%{http_code}' "${DIRECTORY%/}/$name")"
   if [ "$status" != 200 ]; then
     echo "Plugin channel returned HTTP $status for $name" >&2
+    exit 1
+  fi
+  size="$(wc -c < "$WORK/$name")"
+  if [ "$size" -gt "$limit" ]; then
+    echo "Plugin channel response exceeds $limit bytes for $name" >&2
     exit 1
   fi
 done
