@@ -25,9 +25,13 @@ def main():
         if MARK in p.read_text():
             print('residual mutation: '+str(p)); raise SystemExit(2)
     hashes = {str(p.relative_to(ROOT)): sha(p) for p in inputs}
-    work = Path(tempfile.mkdtemp(prefix='plugin-sdk-', dir=ROOT/'tmp')); logs = work/'logs'; logs.mkdir()
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    work = Path(tempfile.mkdtemp(prefix='plugin-sdk-', dir=work_tmp)); logs = work/'logs'; logs.mkdir()
     source = work/'source'; commands = []
-    env = dict(os.environ, TMPDIR=str(work), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work),
+               ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
     def run(label, command, budget=180, assertion=False):
         shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-sdk; shift; gt_timeout "$@"'
         p = subprocess.run(['bash', '-c', shell, 'plugin-sdk', str(ROOT), str(budget), *map(str, command)],
@@ -46,7 +50,9 @@ def main():
         for name, entry in lock['packages'].items():
             if name and (not entry['resolved'].startswith('https://registry.npmjs.org/') or not entry['integrity'].startswith('sha512-')): raise RuntimeError('unpinned tool')
         npmrc = work/'empty.npmrc'; npmrc.touch(); env['NPM_CONFIG_USERCONFIG'] = str(npmrc)
-        command = ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund', '--cache', ROOT/'tmp/plugin-sdk-npm-cache', '--registry', 'https://registry.npmjs.org']
+        scoped_fetch = args.fetch and work_tmp != project_tmp
+        npm_cache = work / 'npm-cache' if scoped_fetch else project_tmp / 'plugin-sdk-npm-cache'
+        command = ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund', '--cache', npm_cache, '--registry', 'https://registry.npmjs.org']
         if not args.fetch: command.append('--offline')
         run('tools', command)
         shutil.copytree(sdk, source/'packages/plugin-sdk')
@@ -55,7 +61,8 @@ def main():
         run('projection', ['python3', ROOT/'scripts/generate-plugin-sdk.py', '--check'])
         spec = importlib.util.spec_from_file_location('sdk_engine_probe', ROOT/'scripts/test-plugin-js.py')
         engine = importlib.util.module_from_spec(spec); spec.loader.exec_module(engine)
-        engine_root = engine.unpack(engine.ENGINES['quickjs-ng'], work, args.fetch)
+        engine_cache = work / 'engine-cache' if scoped_fetch else None
+        engine_root = engine.unpack(engine.ENGINES['quickjs-ng'], work, args.fetch, cache=engine_cache)
         cc, flags, objects, target = engine.build_engine('quickjs-ng', engine_root, work, False)
         core = work/'core-build'
         run('core-configure', ['cmake', '-S', source/'core', '-B', core, '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DCMAKE_BUILD_TYPE=Debug', '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])

@@ -65,8 +65,8 @@ def checked(args, **kwargs):
     return result
 
 
-def unpack(engine, work, fetch):
-    cache = ROOT / 'tmp/plugin-js-sources'
+def unpack(engine, work, fetch, cache=None):
+    cache = cache if cache is not None else ROOT / 'tmp/plugin-js-sources'
     cache.mkdir(exist_ok=True)
     archive = cache / engine['archive']
     if not archive.exists():

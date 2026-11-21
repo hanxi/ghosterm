@@ -14753,6 +14753,14 @@ JS-on 10,297,276 字节，SHA256
 
 ### P5 Portable SDK 当前版本回归（2026-11-19）
 
+2026-11-21 在 `2cbe98cf` 叠加临时目录调整重跑 `test-plugin-sdk.py --fetch --mutate`。
+17 项 Portable 场景、独立本机归属场景、36 项 schema 对拍及 15 组变异通过，
+271 份输入摘要一致。每组重新链接 TS/C、命中目标断言、独立对照绿及恢复绿。
+启用 ASan 和 UBSan。收据 SHA256
+`6aac4f9c260475b6cbcc83448f1ed6dccc52d3a4e378c9d7aa7903f7aee1ea5a`。
+锁定下载、测试产物和临时目录已确认清理。范围为 Portable SDK 与 C/QuickJS，
+原生平台交互另验。
+
 固定 `058dec6e`，`test-plugin-sdk.py --fetch --mutate` 后台通过。锁定依赖
 与 QuickJS-NG 构建后，17 项 TS/C 场景、36 项 schema 对拍和 15 组变异均通过。
 每组验证正常断言红、独立对照、重建复原及 SHA256，启用 AddressSanitizer 与
