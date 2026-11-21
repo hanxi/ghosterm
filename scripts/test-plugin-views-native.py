@@ -83,14 +83,15 @@ def main():
         cases = [case for case in cases if case[0] in args.mutation_case]
     for label, filename, old, _new, _test in cases:
         assert (ROOT / filename).read_text().count(old) == 1, label
-    with tempfile.TemporaryDirectory(prefix='mv-', dir=ROOT / 'tmp') as temporary:
+    args.receipt.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='mv-', dir=args.receipt.resolve().parent) as temporary:
         work = Path(temporary); source = work / 'h'; logs = work / 'logs'; logs.mkdir()
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
             shutil.copytree(ROOT / directory, source / directory, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
         (source / 'core').mkdir(); shutil.copytree(ROOT / 'core/include', source / 'core/include'); (source / 'core/build').symlink_to(build / 'core', target_is_directory=True)
         for directory in ['build', 'patches']: (source / directory).symlink_to(ROOT / directory, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
         commands, groups, actual = [], [], []
         def test(label, selected, count=1, red=False, expected=None):
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require views-native; shift; exec "$gt_timeout_bin" "$@"', 'views-native', ROOT, 300, 'swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected]
