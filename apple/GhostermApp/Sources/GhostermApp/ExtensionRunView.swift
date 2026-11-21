@@ -109,9 +109,15 @@ struct ExtensionRunView: View {
         .padding(DS.Padding.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .announcePluginStatus(formAnnouncement)
         .onChange(of: model.extensionRun?.receivedResources.map(\.resourceID) ?? []) { identifiers in
             resourceSelection.reconcile(identifiers)
         }
+    }
+
+    private var formAnnouncement: String? {
+        guard let pending = model.pendingPluginForm, model.canInteractWithRuntime else { return nil }
+        return model.answeringPluginForm ? "正在发送表单答复…" : "插件请求输入：\(pending.request.title)"
     }
 
     @ViewBuilder

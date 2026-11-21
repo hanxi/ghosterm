@@ -47,6 +47,7 @@ struct PluginFormView: View {
                 HStack { actions }
                 VStack(alignment: .leading) { actions }
             }
+            if answering { ProgressView("正在发送表单答复…") }
         }
         .disabled(answering)
         .accessibilityElement(children: .contain)

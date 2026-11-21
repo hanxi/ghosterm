@@ -6,8 +6,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.hanxi.ghosterm.PluginViewValue.Value
@@ -26,7 +28,9 @@ import com.hanxi.ghosterm.PluginViewValue.Value
     }.toMap()
     val submission = PluginForm.Answer.Submitted(supplied)
     Column(Modifier.fillMaxWidth().testTag("plugin-form"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("插件 $pluginName 请求输入", style = MaterialTheme.typography.bodySmall)
+        Text(if (answering) "正在发送表单答复…" else "插件 $pluginName 请求输入",
+            Modifier.testTag("plugin-form-status").semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodySmall)
         Text(form.title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         form.fields.forEach { field ->
             when (val kind = field.kind) {

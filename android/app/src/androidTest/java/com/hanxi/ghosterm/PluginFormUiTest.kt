@@ -33,6 +33,7 @@ class PluginFormUiTest {
         ui.setContent { MaterialTheme { PluginFormContent(form, "org.ghosterm.form", busy.value, replies::add) } }
         val input = ui.onNodeWithTag("plugin-form-field-name")
         val submit = ui.onNodeWithTag("plugin-form-submit")
+        val status = ui.awaitNativePluginLiveRegion("插件 org.ghosterm.form 请求输入")
         submit.assertIsNotEnabled()
         input.performTextInput("甲乙丙丁")
         ui.onNodeWithTag("plugin-form-field-layout").performClick()
@@ -53,6 +54,7 @@ class PluginFormUiTest {
         }
         submit.assertIsNotEnabled()
         ui.onNodeWithTag("plugin-form-dismiss").assertIsNotEnabled()
+        assertEquals(status, ui.awaitNativePluginLiveRegion("正在发送表单答复…"))
     }
 
     @Test fun dismissReturnsOnlyTheOriginalRequestId() {
