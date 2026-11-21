@@ -382,7 +382,8 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tools',type=Path,required=True)
+    parser.add_argument('--tools', type=Path, required=True,
+                        help='installed tools matching scripts/fixtures/plugin-dev-tools')
     parser.add_argument('--sdk-tools', type=Path, help='also build and verify the official Portable samples')
     parser.add_argument('--ai-packages', nargs=2, type=Path, metavar=('CODEX', 'CLAUDE'),
                         help='verify signed archives of the two built official AI packages')
