@@ -24,6 +24,10 @@ shasum -a 256 -c android-SHA256SUMS
 
 正式 APK 的 `versionName` 对应发布标签去掉 `v` 的版本号，`versionCode` 随正式版本递增。例如 `v0.1.0` 对应 `0.1.0` 和 `1002`。滚动 dev APK 维持 `0.1.0-dev` 和版本代码 1，因此已安装正式包的设备会把 dev APK 视为降级。
 
+API 29 无窗口模拟器用同一测试证书验证了 dev → 正式版本覆盖安装。覆盖后应用
+UID 和首次安装时间保持不变，反向安装返回 `INSTALL_FAILED_VERSION_DOWNGRADE`。
+这是本地版本迁移证据，GitHub 发行签名及实际下载另验。
+
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
 和 `build-info.json`。诊断 artifact 单独保存 R8 映射与 native 符号，均保留 14 天。
