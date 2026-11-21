@@ -116,8 +116,8 @@ if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then
     || fail "--experimental-plugin-js 须用于显式 --out 的本地 dev ad-hoc 包"
 fi
 if [ "$RELEASE_PLUGIN_JS" -eq 1 ]; then
-  [ -n "${GHOSTERM_PLUGIN_CHANNEL:-}" ] && [ -n "${GHOSTERM_PLUGIN_CHANNEL_ROOT:-}" ] &&
-    [ -n "${GHOSTERM_PLUGIN_CHANNEL_URL:-}" ] || fail "--plugin-js 需要完整的插件渠道配置"
+  python3 "$ROOT/scripts/configure-macos-plugin-channel.py" --check-required ||
+    fail "--plugin-js 需要有效的插件渠道配置"
 fi
 PLUGIN_JS=$((EXPERIMENTAL_PLUGIN_JS + RELEASE_PLUGIN_JS))
 
