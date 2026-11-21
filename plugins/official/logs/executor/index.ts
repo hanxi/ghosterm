@@ -1,11 +1,16 @@
 import { commandArguments, integer, option, TableDescribeMethod, TablePageMethod } from "@ghosterm/plugin-sdk";
 import type { Disposable, PluginContext } from "@ghosterm/plugin-sdk";
 import { LogStore } from "./log-store.js";
-import { LogPageMethod } from "../shared.js";
+import { LogPageMethod, TableSearchMethod } from "../shared.js";
 
 const Arguments = commandArguments({ count: option(integer(1, 10000), "count", 5000) });
 const Retention = 4096;
 const PageSize = 4;
+
+function logRow({ sequence, message }: { sequence: number; message: string }) {
+  const id = String(sequence);
+  return { id, cells: [id, message] };
+}
 
 export function activate(context: PluginContext): Disposable {
   if (context.side !== "executor" || context.invocation?.command !== "logs" ||
@@ -43,10 +48,18 @@ export function activate(context: PluginContext): Disposable {
     }
     const page = store.page(first - 1 + offset, limit);
     request.check();
-    return { viewId, revision, offset, total, rows: page.entries.map(({ sequence, message }) => {
-      const id = String(sequence);
-      return { id, cells: [id, message] };
-    }) };
+    return { viewId, revision, offset, total, rows: page.entries.map(logRow) };
+  });
+  context.session.register(TableSearchMethod, (input, request) => {
+    request.check();
+    check();
+    if (input.viewId !== viewId || input.revision !== revision || !input.query) {
+      throw new Error("Stale or invalid log table search");
+    }
+    const { entries, cursor, latest, truncated } =
+      store.page(input.after, PageSize, input.query, input.through || count);
+    request.check();
+    return { viewId, revision, cursor, latest, truncated, rows: entries.map(logRow) };
   });
   context.session.register(LogPageMethod, (input, request) => {
     request.check();

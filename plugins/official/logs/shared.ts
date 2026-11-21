@@ -19,3 +19,24 @@ export const LogPageMethod: Method<ReturnType<typeof LogRead.parse>, LogPage> = 
   input: LogRead,
   output: page,
 });
+
+const searchInput = object({ viewId: text(64), revision: text(20),
+  after: sequence, through: sequence, query: text(64) });
+const cell = text(256);
+const row = object({ id: text(64), cells: {
+  schema: snapshot({ type: "array", maxItems: 8, items: cell.schema }),
+  parse(value: unknown) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 8) throw new RangeError("Invalid search cells");
+    return Object.freeze(value.map(item => cell.parse(item)));
+  },
+} });
+const searchOutput = object({ viewId: text(64), revision: text(20), cursor: sequence,
+  latest: sequence, truncated: boolean(), rows: {
+    schema: snapshot({ type: "array", maxItems: 4, items: row.schema }),
+    parse(value: unknown) {
+      if (!Array.isArray(value) || value.length > 4) throw new RangeError("Invalid search rows");
+      return Object.freeze(value.map(item => row.parse(item)));
+    },
+  } });
+export const TableSearchMethod: Method<ReturnType<typeof searchInput.parse>, ReturnType<typeof searchOutput.parse>> =
+  Object.freeze({ name: "view.table.search", input: searchInput, output: searchOutput });
