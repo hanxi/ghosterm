@@ -99,7 +99,7 @@ jobs:
 
   release:
     name: 建 GitHub Release（草稿）
-    needs: [package, android]
+    needs: [preflight, package, android]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_release
     # Tag pushes and branch-based dispatches can target the same release.
     concurrency:
@@ -140,6 +140,7 @@ jobs:
       # 不额外润色（铁律 #6：不许把没做的事写成做了）。
       - name: 建草稿 Release
         env:
+          FORMAL_RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
           ANDROID_RELEASE_CERT_SHA256: ${{ vars.ANDROID_RELEASE_CERT_SHA256 }}
           MACOS_PLUGIN_JS: ${{ vars.MACOS_PLUGIN_JS }}
@@ -164,6 +165,8 @@ jobs:
           version = value.get('version')
           if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
               raise SystemExit('version.json 版本号无效')
+          if version != os.environ['FORMAL_RELEASE_VERSION']:
+              raise SystemExit('version.json 版本号与正式发行预检不一致')
           dist = Path('dist')
           dmgs, zips = list(dist.glob('*.dmg')), list(dist.glob('*.zip'))
           if len(dmgs) != 1 or len(zips) != 1:
