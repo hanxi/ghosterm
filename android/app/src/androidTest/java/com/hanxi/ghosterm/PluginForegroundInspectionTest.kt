@@ -7,7 +7,15 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import android.os.SystemClock
+import android.app.Application
 import com.hanxi.ghosterm.bridge.NativeTerminalSession
+import com.hanxi.ghosterm.bridge.PreparedSSH
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -25,6 +33,30 @@ import kotlin.coroutines.suspendCoroutine
 class PluginForegroundInspectionTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
     private val instance = "1".repeat(32)
+
+    @Test fun cancelledInspectionDoesNotCreateAConnection() {
+        runBlocking(Dispatchers.Main) {
+            val application = ApplicationProvider.getApplicationContext<Application>()
+            val model = ExtensionPackagesViewModel(application, null)
+            val sessions = SessionsViewModel(application, monitorSessions = false, settings = null)
+            var observedCancellation = false
+            launch {
+                coroutineContext.cancel()
+                try {
+                    model.inspectForeground(
+                        PreparedSSH("fixture", "127.0.0.1", "fixture", 22, emptyList()),
+                        "", "", instance, sessions,
+                    )
+                    fail("A cancelled inspection must not start")
+                } catch (_: CancellationException) {
+                    observedCancellation = true
+                }
+            }.join()
+            assertTrue(observedCancellation)
+            assertNull(sessions.connecting)
+            assertFalse(model.launchBusy)
+        }
+    }
     private fun declaration(): ByteArray = JSONObject().apply {
         put("schemaVersion", 1); put("instance", instance); put("runtime", "portable-js")
         put("executorDigest", "b".repeat(64)); put("clientDigest", "a".repeat(64)); put("command", "fixture")
