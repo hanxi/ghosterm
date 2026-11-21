@@ -38,9 +38,8 @@ jobs:
     with:
       channel: release
       gates: full
-      # tag push 不传版本号：让 package-mac.sh 用 git describe 自己认（它会剥掉前导 v，
-      # 且只认版本形态的 tag）；手动 dispatch 才显式指定。
       version: ${{ inputs.version }}
+      formal_release: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.upload_release || false }}
       notarize: ${{ inputs.notarize || false }}
     secrets: inherit
 

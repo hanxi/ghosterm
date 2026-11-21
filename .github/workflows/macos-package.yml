@@ -34,6 +34,9 @@ on:
         type: boolean
         required: false
         default: false
+      formal_release:
+        type: boolean
+        default: false
     secrets:
       MACOS_UPDATE_PRIVATE_KEY:
         required: false
@@ -91,6 +94,13 @@ jobs:
         run: |
           bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
             "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
+
+      - name: 核对正式发行标签
+        if: inputs.formal_release
+        run: |
+          set -euo pipefail
+          version="$(bash scripts/resolve-formal-release-version.sh "$INPUT_VERSION")"
+          printf 'INPUT_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
 
       - name: 取 vendor pin
         run: bash scripts/fetch-vendor-pin.sh
