@@ -1007,7 +1007,10 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
                 return r->info.phase;
             }
         }
-        if (process.exited && (r->stdout_eof || r->info.phase == GT_PROCESS_RUNTIME_STOPPING)) {
+        /* Probe stderr is part of version verification. It may still have
+         * unread bytes even after the leader exited and stdout reached EOF. */
+        bool output_complete = r->stdout_eof && (!r->probing || r->stderr_eof);
+        if (process.exited && (output_complete || r->info.phase == GT_PROCESS_RUNTIME_STOPPING)) {
             if (gt__ext_process_poll(r->child, &process) != GT_OK) {
                 runtime_fail(r, GT_ERR_IO, now);
                 return r->info.phase;

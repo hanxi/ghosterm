@@ -187,7 +187,10 @@ def main():
     cases = [c for c in available if not args.case or c[0] in args.case]
     for label, name, old, _, _ in cases:
         assert (ROOT / name).read_text().count(old) == 1, label
-    work = Path(tempfile.mkdtemp(prefix='process-runtime-', dir=ROOT / 'tmp'))
+    project_tmp = (ROOT / 'tmp').resolve()
+    requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
+    work = Path(tempfile.mkdtemp(prefix='process-runtime-', dir=work_tmp))
     source, build, logs = work / 'source', work / 'build', work / 'logs'
     logs.mkdir()
     env = {**os.environ, 'TMPDIR': str(work), 'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1',
