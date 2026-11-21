@@ -247,6 +247,15 @@ final class PluginReleaseCatalog {
         "channel-policy-v1-" + sha(Data(channel.utf8)) + ".json"
     }
 
+    private func channelHistoryBytes(_ name: String) throws -> Data? {
+        var info = stat()
+        if fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 {
+            return try Self.read(fd, name: name, limit: Self.channelHistoryLimit)
+        }
+        guard errno == ENOENT else { throw Failure.io }
+        return nil
+    }
+
     func readChannelEnvelope(_ channel: String) throws -> (envelope: PluginDirectorySignatureVerifier.ChannelEnvelope, generation: UInt64, digest: String, root: String, observed: UInt64) {
         try validate()
         let raw = try Self.read(fd, name: Self.channelHistoryName(channel), limit: Self.channelHistoryLimit)
@@ -263,9 +272,8 @@ final class PluginReleaseCatalog {
             throw PluginDirectorySignatureVerifier.Failure.channelFreshness
         }
         let name = Self.channelHistoryName(policy.channel)
-        var info = stat()
-        if fstatat(fd, name, &info, AT_SYMLINK_NOFOLLOW) == 0 {
-            let raw = try Self.read(fd, name: name, limit: Self.channelHistoryLimit)
+        let previousBytes = try channelHistoryBytes(name)
+        if let raw = previousBytes {
             let previous = try JSONDecoder().decode(ChannelHistory.self, from: raw)
             typealias Verifier = PluginDirectorySignatureVerifier
             guard previous.root == policy.rootSHA256, previous.observed > 0, now >= previous.observed,
@@ -279,7 +287,6 @@ final class PluginReleaseCatalog {
                 throw Verifier.Failure.channelHistory
             }
         } else {
-            guard errno == ENOENT else { throw Failure.io }
             guard !requireHistory else { throw PluginDirectorySignatureVerifier.Failure.channelHistory }
         }
         let encoder = JSONEncoder()
@@ -287,7 +294,11 @@ final class PluginReleaseCatalog {
         let raw = try encoder.encode(ChannelHistory(root: policy.rootSHA256, generation: policy.generation,
             digest: policy.statementSHA256, observed: now, envelope: policy.envelope))
         guard raw.count <= Self.channelHistoryLimit else { throw Failure.invalid }
-        guard try publishRecord(raw, as: name, beforeRename: { try beforeRename?() }) else { throw Failure.io }
+        let durable = try publishRecord(raw, as: name) {
+            try beforeRename?()
+            guard try channelHistoryBytes(name) == previousBytes else { throw Failure.conflict }
+        }
+        guard durable else { throw Failure.io }
     }
 
     private func publishRecord(_ raw: Data, as destination: String, beforeRename: () throws -> Void = {}) throws -> Bool {

@@ -208,6 +208,15 @@ final class PluginDirectorySignatureTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: record), oldBytes)
             XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path)
                 .contains { $0.hasPrefix(".selection-") })
+            let externallyUpdated = oldBytes + Data([0x0a])
+            do {
+                try owner.recordChannelPolicy(candidate, now: 151, requireHistory: true,
+                                              beforeRename: { try externallyUpdated.write(to: record) })
+                return XCTFail("Channel publication must preserve a changed record")
+            } catch {
+                XCTAssertEqual(error as? PluginReleaseCatalog.Failure, .conflict)
+            }
+            XCTAssertEqual(try Data(contentsOf: record), externallyUpdated)
         }
         do {
             let owner = try XCTUnwrap(PluginReleaseCatalog(directory: directory, exclusive: true, parentSync: { _ in -1 }))

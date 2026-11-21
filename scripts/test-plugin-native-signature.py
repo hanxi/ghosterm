@@ -40,13 +40,17 @@ DIRECTORY_REVIEW_CASES = (
 CHANNEL_PUBLICATION = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseCatalog.swift'
 CHANNEL_PUBLICATION_CASES = (
     ('channel-before-publish', CHANNEL_PUBLICATION,
-     'publishRecord(raw, as: name, beforeRename: { try beforeRename?() })',
-     'publishRecord(raw, as: name)',
+     'try beforeRename?()\n            guard try channelHistoryBytes(name)',
+     'guard try channelHistoryBytes(name)',
      'A channel write must stop on its prepublication error'),
     ('channel-parent-sync', CHANNEL_PUBLICATION,
-     'guard try publishRecord(raw, as: name, beforeRename: { try beforeRename?() }) else { throw Failure.io }',
-     '_ = try publishRecord(raw, as: name, beforeRename: { try beforeRename?() })',
+     'guard durable else { throw Failure.io }',
+     '_ = durable',
      'A failed channel directory sync cannot report durable publication'),
+    ('channel-commit-cas', CHANNEL_PUBLICATION,
+     'guard try channelHistoryBytes(name) == previousBytes else { throw Failure.conflict }',
+     '_ = previousBytes',
+     'Channel publication must preserve a changed record'),
 )
 TEST = 'PluginDirectorySignatureTests.'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
