@@ -160,13 +160,20 @@ class PluginReleaseStageTest {
         }
     }
     @Test fun changedFileAndUnknownEntryArePreservedAndNeverPublished() {
-        for (change in listOf("content", "extra", "link")) {
+        for (change in listOf("content", "identity", "extra", "link")) {
             val root = PluginInstallTestFiles.root(); var changed: File? = null
             try {
                 rejected { PluginReleaseStage.create(root, id, { phase -> if (phase == "before-rename") {
                     val payload = File(stage(root), "payload")
                     when (change) {
                         "content" -> File(payload, "a").also { Os.chmod(it.path, 384); it.writeText("changed"); Os.chmod(it.path, 256); changed = it }
+                        "identity" -> {
+                            Os.chmod(payload.path, 448)
+                            val replacement = File(payload, "replacement")
+                            replacement.writeBytes(byteArrayOf(1))
+                            Os.chmod(replacement.path, 256)
+                            changed = File(payload, "a").also { Os.rename(replacement.path, it.path) }
+                        }
                         "extra" -> File(payload, "extra").also { Os.chmod(payload.path, 448); it.writeText("unknown"); Os.chmod(it.path, 256); changed = it }
                         else -> File(payload, "link").also { Os.chmod(payload.path, 448); Os.symlink("a", it.path); changed = it }
                     }
@@ -199,7 +206,7 @@ class PluginReleaseStageTest {
                     candidate.publish { rename ->
                         val file = File(stage(root), "payload/a")
                         Os.chmod(file.path, 384)
-                        file.writeBytes(byteArrayOf(2, 3))
+                        file.writeBytes(byteArrayOf(2))
                         Os.chmod(file.path, 256)
                         member = file
                         rename()
@@ -209,7 +216,7 @@ class PluginReleaseStageTest {
             assertTrue("A member changed during final authorization must not publish: $failure", failure is PluginReleaseStage.Rejected)
             assertFalse(File(root, id).exists())
             assertTrue(journal(root).isFile)
-            assertArrayEquals(byteArrayOf(2, 3), checkNotNull(member).readBytes())
+            assertArrayEquals(byteArrayOf(2), checkNotNull(member).readBytes())
         } finally { PluginInstallTestFiles.clean(root) }
     }
     @Test fun writableNestedDirectoryAfterFreezeIsRejected() {

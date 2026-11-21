@@ -11,6 +11,7 @@ import com.hanxi.ghosterm.bridge.PluginInstallFiles
 import org.json.JSONObject
 import java.io.File
 import java.io.FileDescriptor
+import java.security.MessageDigest
 import java.util.UUID
 
 /** One private, locked destination-filesystem transaction. Names alone never
@@ -53,6 +54,7 @@ internal class PluginReleaseStage private constructor(
     private var published = false
     private var closed = false
     private val files = linkedMapOf<String, Stamp>()
+    private val fileDigests = mutableMapOf<String, ByteArray>()
     private val directories = linkedMapOf<String, Identity>()
     private val parentFD get() = checkNotNull(parent)
     private val rootFD get() = checkNotNull(directory)
@@ -201,9 +203,11 @@ internal class PluginReleaseStage private constructor(
             files[path] = stamp(Os.fstat(output.fileDescriptor))
             try {
                 checkpoint("after-file-create")
+                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
                 writeAll(output.fileDescriptor, bytes)
                 Os.fchmod(output.fileDescriptor, if (executable) 320 else 256)
                 Os.fsync(output.fileDescriptor)
+                fileDigests[path] = digest
             } finally { files[path] = stamp(Os.fstat(output.fileDescriptor)) }
         } }
         checkpoint("after-file-write")
@@ -216,6 +220,7 @@ internal class PluginReleaseStage private constructor(
     }
     private fun tree(freeze: Boolean, remove: Boolean = false, frozen: Boolean = false) {
         var visited = 0; var fileCount = 0; val seen = mutableSetOf<String>()
+        val buffer = if (!freeze) ByteArray(16384) else null
         fun walk(current: ParcelFileDescriptor, prefix: String, depth: Int) {
             demand(depth <= 34)
             if (frozen) demand(Os.fstat(current.fileDescriptor).st_mode and 146 == 0)
@@ -234,17 +239,36 @@ internal class PluginReleaseStage private constructor(
                 } else {
                     demand(OsConstants.S_ISREG(value.st_mode) && value.st_nlink == 1L && value.st_uid == Process.myUid() && files[path] == stamp(value))
                     if (freeze || frozen) demand(value.st_mode and 146 == 0)
-                    fileCount++
-                    if (remove) LocalPublicationFile.retainedCandidate(current.fd, name).use { input ->
-                        demand(stamp(Os.fstat(input.fileDescriptor)) == files[path])
-                        demand(LocalPublicationFile.remove(current.fd, input.fd, name) == 0, Reason.IO)
+                    val expected = fileDigests[path]
+                    if (frozen) demand(expected != null)
+                    if (buffer != null && (expected != null || remove)) {
+                        LocalPublicationFile.retainedCandidate(current.fd, name).use { input ->
+                            val observed = stamp(value)
+                            demand(stamp(Os.fstat(input.fileDescriptor)) == observed)
+                            if (expected != null) verifyContent(input.fileDescriptor, observed, expected, buffer)
+                            if (remove) demand(LocalPublicationFile.remove(current.fd, input.fd, name) == 0, Reason.IO)
+                        }
                     }
+                    fileCount++
                 }
             }
             if (freeze) { Os.fchmod(current.fileDescriptor, 320); Os.fsync(current.fileDescriptor) }
         }
         walk(rootFD, "", 0)
         demand(fileCount == files.size && seen == directories.keys)
+    }
+    private fun verifyContent(fd: FileDescriptor, expectedStamp: Stamp, expected: ByteArray, buffer: ByteArray) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var remaining = expectedStamp.size
+        while (remaining > 0) {
+            val count = try { Os.read(fd, buffer, 0, minOf(remaining, buffer.size.toLong()).toInt()) }
+                catch (error: ErrnoException) { if (error.errno == OsConstants.EINTR) continue else throw error }
+            demand(count > 0)
+            digest.update(buffer, 0, count)
+            remaining -= count
+        }
+        demand(stamp(Os.fstat(fd)) == expectedStamp)
+        demand(digest.digest().contentEquals(expected))
     }
     fun publish(authorizePublication: (() -> Int) -> Int = { it() }): Publication {
         validate(); tree(freeze = true)
