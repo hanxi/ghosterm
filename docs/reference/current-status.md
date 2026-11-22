@@ -7,11 +7,13 @@
 | 范围 | 核对结果 |
 |---|---|
 | 2026-11-04 产品源码基线 | `07b278e`，已包含 Android 设备存储浏览、触屏/连发、文件连接复用、专注终端与菜单输入法修正 |
-| 2026-11-22 线上 macOS dev 快照 | `912ebcbf` / build 156 / arm64 / 最低 macOS 15.0 / ad-hoc / 未公证 |
-| 2026-11-22 线上 Android dev 快照 | `912ebcbf` / clean / release / arm64-v8a / min SDK 29（Android 10），8,968,397 字节，R8 与资源裁剪开启 |
+| 2026-11-22 线上 macOS dev 快照 | `ef15c168` / build 157 / arm64 / 最低 macOS 15.0 / ad-hoc / 未公证 |
+| 2026-11-22 线上 Android dev 快照 | `ef15c168` / clean / release / arm64-v8a / min SDK 29（Android 10），8,968,725 字节，R8 与资源裁剪开启 |
 | 发行查询来源 | [macOS version.json](https://github.com/hanxi/ghosterm/releases/download/dev/version.json)、[Android build-info](https://github.com/hanxi/ghosterm/releases/download/dev/android-build-info.json)，2026-11-22 实际读取 |
 
 GitHub 线上仅有 `dev` 预发布。两端已发布资产各自通过签名与来源审计。现有 `v0.1.0` 标签指向 `c10752dc`，正式 Release 尚未创建，生产插件渠道尚未配置。2026-11-04 的 macOS `3345893` 和 Android `d9ef45a` 属历史发行快照。
+
+手动触发的 [macOS 0.1.1 候选构建](https://github.com/hanxi/ghosterm/actions/runs/45010306745) 关闭了草稿上传，在 `ef15c168` 的 Core 闸门遇到 SSH PTY resize 断言失败。测试改为等待不可由输入回显伪造的就绪标记，并对实际 PTY 尺寸有界采样。先行修订通过默认 Core 612 项及 207 ABI，最终精确尺寸匹配再通过三次定向复验。隔离编译改用错误尺寸 `40 1000` 时触发唯一目标断言，恢复后通过。临时目录已核实清理，修订仍待云端复验。
 
 ## 产品范围
 

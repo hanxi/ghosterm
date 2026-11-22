@@ -294,18 +294,32 @@ int main(int argc, char **argv) {
          * 远端 shell 起来要时间（负载高时更久），直接 write 可能落在
          * shell 还没读 stdin 的那一段。**不能用提示符当握手信号**——
          * 非交互 shell 未必打印提示符（实测这里就没有，等到超时也等不到）。
-         * 用一条 `echo READY` 当握手：它不依赖提示符，回显到了就说明
-         * shell 已在处理命令，后面两条关键断言（命令回显 / resize）才稳。 */
+         * 就绪标记由 printf 拼接，避免把 PTY 的输入回显误认为远端已执行。 */
                 char buf[4096];
-                gt_transport_write(t, (const uint8_t *)"echo READY\n", 11);
-                CHECK(read_until(t, "READY", buf, sizeof buf, 15000),
-                      "远端 shell 已就绪（echo READY 有回显）");
+                const char *ready = "printf 'SHELL_%s\\n' READY\n";
+                CHECK(gt_transport_write(t, (const uint8_t *)ready, strlen(ready)) == GT_OK,
+                      "shell readiness command accepted");
+                CHECK(read_until(t, "SHELL_READY", buf, sizeof buf, 15000),
+                      "远端 shell 已执行就绪命令");
                 gt_transport_write(t, (const uint8_t *)"echo MARK_$((6*7))\n", 19);
                 CHECK(read_until(t, "MARK_42", buf, sizeof buf, 15000), "shell 回显命令输出（42）");
                 CHECK(gt_transport_resize(t, 100, 40, 0, 0) == GT_OK, "ssh shell resize 返回 OK");
-                gt_transport_write(t, (const uint8_t *)"stty size\n", 10);
-                CHECK(read_until(t, "40 100", buf, sizeof buf, 15000),
-                      "resize 后 stty size 反映新尺寸（40 100）");
+                /* The window-change request has no remote acknowledgement. Sample
+                 * the actual PTY with a bounded wait and emit only the final size. */
+                const char *size_command =
+                    "n=0; target=$(printf '%s %s' 40 100); "
+                    "while :; do size=$(stty size); "
+                    "[ \"$size\" = \"$target\" ] && break; "
+                    "n=$((n+1)); [ \"$n\" -ge 40 ] && break; sleep 0.1; done; "
+                    "printf 'PTY_%s <%s>\\n' SIZE \"$size\"\n";
+                CHECK(gt_transport_write(t, (const uint8_t *)size_command, strlen(size_command)) ==
+                          GT_OK,
+                      "PTY size query accepted");
+                int resized = read_until(t, "PTY_SIZE <40 100>", buf, sizeof buf, 15000);
+                if (!resized) {
+                    fprintf(stderr, "SSH PTY size query output: %s\n", buf);
+                }
+                CHECK(resized, "resize 后 stty size 反映新尺寸（40 100）");
 
                 /* Zero means poll, not libssh2's zero (= infinite blocking). Keep the
          * remote silent behind a read barrier; only a later input can release it. */
