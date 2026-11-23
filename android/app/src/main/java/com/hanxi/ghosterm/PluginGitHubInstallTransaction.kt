@@ -36,5 +36,5 @@ class PluginGitHubInstallTransaction(private val context: Context) {
 }
 private fun ByteArray.writeAtomic(target: File) {
     val temporary = File(target.parentFile, ".${target.name}.tmp-${System.nanoTime()}")
-    writeBytes(temporary); if (!temporary.renameTo(target)) { temporary.delete(); error("原子写入失败") }
+    temporary.writeBytes(this); if (!temporary.renameTo(target)) { temporary.delete(); error("原子写入失败") }
 }
