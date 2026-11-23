@@ -110,7 +110,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         val plan = extensions.githubInstallPlan()
         AlertDialog(onDismissRequest={ githubPlanVisible = false }, title={ Text("插件安装计划") }, text={
             if (plan == null) Text("安装计划无效，请重新读取仓库并选择插件。") else Column { Text("来源：${plan.source.repositoryPath}"); Text("Release：${plan.releaseTag}"); Text("发布者：${plan.publisher}"); plan.items.forEach { item -> Text("${item.id} · ${item.version} · ${item.role}"); if (item.permissions.isNotEmpty()) Text("权限：${item.permissions.joinToString()}", style=MaterialTheme.typography.bodySmall); if (item.capabilities.isNotEmpty()) Text("能力：${item.capabilities.joinToString()}", style=MaterialTheme.typography.bodySmall) }; Text("需要的权限和能力将在安装前再次确认。") }
-        }, confirmButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("返回修改") } }, dismissButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("取消") } })
+        }, confirmButton={ Button(onClick={ extensions.installGitHubPlan(); githubPlanVisible = false }, enabled=!extensions.githubInstallBusy) { Text(if (extensions.githubInstallBusy) "正在安装…" else "安装选中插件") } }, dismissButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("返回修改") } })
     }
     savedSections.SaveableStateProvider(model.section?.name ?: "overview") {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=GhostermDimensions.page,vertical=4.dp)) {
@@ -268,6 +268,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     OutlinedTextField(value=githubAddress, onValueChange={ githubAddress=it }, label={ Text("GitHub 仓库") }, singleLine=true, modifier=Modifier.fillMaxWidth().testTag("plugin-github-address"))
                     Button(onClick={ extensions.readGitHubSource(githubAddress) }, enabled=!extensions.githubBusy && githubAddress.isNotBlank(), modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("plugin-github-read")) { Text(if (extensions.githubBusy) "正在读取…" else "读取 GitHub 仓库") }
                     extensions.githubError?.let { SettingsNotice(it) {} }
+                    extensions.githubInstallResult?.let { SettingsNotice(it) {} }
                     extensions.githubIndex?.let { value ->
                         Text("${value.repository} · Release ${value.releaseTag} · ${value.publisher}", Modifier.testTag("plugin-github-index"))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp)) {

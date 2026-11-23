@@ -111,6 +111,31 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     fun toggleGitHubPlugin(id: String, selected: Boolean) { if (selected) { if (id !in githubSelectedIds) githubSelectedIds.add(id) } else githubSelectedIds.remove(id) }
     fun selectAllGitHubPlugins() { githubIndex?.plugins?.mapTo(githubSelectedIds) { it.id } }
     fun clearGitHubSelection() { githubSelectedIds.clear() }
+    var githubInstallBusy by mutableStateOf(false)
+        private set
+    var githubInstallResult: String? by mutableStateOf(null)
+        private set
+    fun installGitHubPlan() {
+        val plan = githubInstallPlan() ?: run { githubInstallResult = "安装计划无效"; return }
+        val index = githubIndex ?: return
+        val source = plan.source
+        githubInstallBusy = true; githubInstallResult = null
+        viewModelScope.launch {
+            try {
+                val client = PluginGitHubClient()
+                val assets = plan.items.map { item ->
+                    val entry = index.plugins.first { it.id == item.id }
+                    client.fetchVerifiedAssets(entry, source, index.releaseTag)
+                }
+                val transaction = PluginGitHubInstallTransaction(getApplication())
+                val staged = transaction.stage(plan, assets)
+                transaction.commit(staged, java.io.File(getApplication<Application>().filesDir, "plugins-active"))
+                githubInstallResult = "已安装 ${plan.items.size} 个插件"
+            } catch (failure: Throwable) { githubInstallResult = failure.message ?: "插件安装失败" }
+            finally { githubInstallBusy = false }
+        }
+    }
+
     fun githubInstallPlan(): PluginInstallPlan? {
         val index = githubIndex ?: return null
         val source = PluginGitHubSource.parse("${index.repository}${index.releaseTag.let { "@$it" }}").getOrNull() ?: return null
