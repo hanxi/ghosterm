@@ -46,10 +46,10 @@ private extension PluginGitHubClient {
 }
 
 extension PluginGitHubClient {
-    struct VerifiedAssets: Sendable {
-        let archive: Data
-        let releaseJSON: Data
-        let releaseSignature: Data
+    public struct VerifiedAssets: Sendable {
+        public let archive: Data
+        public let releaseJSON: Data
+        public let releaseSignature: Data
     }
     public func fetchAssets(for entry: PluginIndexEntry, source: PluginGitHubSource, releaseTag: String) async throws -> VerifiedAssets {
         guard let archiveURL = source.assetURL(named: entry.archive, tag: releaseTag),

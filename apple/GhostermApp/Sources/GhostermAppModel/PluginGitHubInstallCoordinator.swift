@@ -27,7 +27,7 @@ public struct PluginGitHubInstallCoordinator {
         }
     }
     func discard(_ material: Material) { try? fileManager.removeItem(at: material.directory) }
-    func prepareAndInstallUsingConfiguredChannel(_ assets: PluginGitHubClient.VerifiedAssets, using controller: ExtensionController) async throws -> ExtensionController.InstalledRelease {
+    public func prepareAndInstallUsingConfiguredChannel(_ assets: PluginGitHubClient.VerifiedAssets, using controller: ExtensionController) async throws -> ExtensionController.InstalledRelease {
         let material = try stage(assets)
         do {
             let prepared = try await controller.prepareReleaseUsingConfiguredChannel(artifact: material.archive, descriptor: material.descriptor, signature: material.signature)
