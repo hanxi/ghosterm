@@ -101,10 +101,17 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     var fontPreview by remember { mutableStateOf<Int?>(null) }
     var launchSelection by remember { mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null) }
     var githubAddress by rememberSaveable { mutableStateOf("") }
+    var githubPlanVisible by rememberSaveable { mutableStateOf(false) }
     val savedSections = rememberSaveableStateHolder()
     val p = model.candidate
     val enabled = model.canEdit
     LaunchedEffect(model.section,p.fontFamily) { if(model.section==SettingsSection.APPEARANCE) fonts.refresh() }
+    if (githubPlanVisible) {
+        val plan = extensions.githubInstallPlan()
+        AlertDialog(onDismissRequest={ githubPlanVisible = false }, title={ Text("插件安装计划") }, text={
+            if (plan == null) Text("安装计划无效，请重新读取仓库并选择插件。") else Column { Text("来源：${plan.source.repositoryPath}"); Text("Release：${plan.releaseTag}"); Text("发布者：${plan.publisher}"); plan.items.forEach { Text("${it.id} · ${it.version} · ${it.role}") }; Text("需要的权限和能力将在安装前再次确认。") }
+        }, confirmButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("返回修改") } }, dismissButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("取消") } })
+    }
     savedSections.SaveableStateProvider(model.section?.name ?: "overview") {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=GhostermDimensions.page,vertical=4.dp)) {
         val status = when {
@@ -273,7 +280,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                                 Text("${entry.name} · ${entry.version} · ${entry.role}", Modifier.padding(start=8.dp), style=MaterialTheme.typography.bodySmall)
                             }
                         }
-                        Button(onClick={}, enabled=extensions.githubSelectedIds.isNotEmpty(), modifier=Modifier.fillMaxWidth().testTag("plugin-github-install-plan")) { Text("查看安装计划（${extensions.githubSelectedIds.size}）") }
+                        Button(onClick={ githubPlanVisible = true }, enabled=extensions.githubSelectedIds.isNotEmpty(), modifier=Modifier.fillMaxWidth().testTag("plugin-github-install-plan")) { Text("查看安装计划（${extensions.githubSelectedIds.size}）") }
                     }
                     if (extensions.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
                     extensions.error?.let { SettingsNotice(it) {} }
