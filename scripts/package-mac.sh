@@ -17,7 +17,7 @@
 #   --out DIR          产物目录（默认 <repo>/dist）
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
 #   --experimental-plugin-lua 本地 dev ad-hoc 包启用 Lua；须指定 --out 和 GHOSTERM_LUA_ARCHIVE
-#   --plugin-lua       发行包启用 Lua 运行时；须配置插件渠道及根公钥和 HTTPS 目录
+#   --plugin-lua       发行包启用 Lua 运行时（正式版须配置插件渠道及根公钥和 HTTPS 目录）
 #   --app-only         跳过 DMG（ZIP 仍默认生成）
 #   --no-zip           不出 .zip
 #   --adhoc            ad-hoc 签名（默认）
@@ -111,7 +111,9 @@ note() { echo "   $*"; }
 
 case "$PACKAGE_CHANNEL" in dev|release) ;; *) fail "未知打包渠道：${PACKAGE_CHANNEL}（只接受 dev/release）" ;; esac
 
-if [ "$RELEASE_PLUGIN_LUA" -eq 1 ]; then
+if [ "$RELEASE_PLUGIN_LUA" -eq 1 ] &&
+  { [ "$PACKAGE_CHANNEL" = release ] ||
+    [ -n "${GHOSTERM_PLUGIN_CHANNEL:-}${GHOSTERM_PLUGIN_CHANNEL_ROOT:-}${GHOSTERM_PLUGIN_CHANNEL_URL:-}" ]; }; then
   python3 "$ROOT/scripts/configure-macos-plugin-channel.py" --check-required ||
     fail "--plugin-lua 需要有效的插件渠道配置"
 fi

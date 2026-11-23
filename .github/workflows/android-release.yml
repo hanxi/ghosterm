@@ -47,7 +47,10 @@ jobs:
           version="$(bash scripts/resolve-formal-release-version.sh "$REQUESTED_VERSION")"
           printf 'ORG_GRADLE_PROJECT_ghostermReleaseVersion=%s\n' "$version" >> "$GITHUB_ENV"
       - name: Verify plugin release channel
-        if: env.ORG_GRADLE_PROJECT_ghostermPluginLua == 'true'
+        if: >-
+          env.ORG_GRADLE_PROJECT_ghostermPluginLua == 'true' &&
+          (inputs.formal || vars.ANDROID_PLUGIN_CHANNEL != '' ||
+           vars.ANDROID_PLUGIN_CHANNEL_ROOT != '' || vars.ANDROID_PLUGIN_CHANNEL_URL != '')
         shell: bash
         run: |
           bash scripts/check-plugin-channel-url.sh \
