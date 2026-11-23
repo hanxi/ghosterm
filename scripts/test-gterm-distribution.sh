@@ -8,8 +8,8 @@ mkdir -p "$work/mock" "$work/web" "$work/home"
 export HOME="$work/home" TMPDIR="$work" TMP="$work" TEMP="$work"
 export GTERM_TEST_WEB="$work/web"
 export PATH="$work/mock:$PATH"
-tag1=gterm-v0.0.1
-tag2=gterm-v0.0.2
+tag1=gterm-v0.1.1
+tag2=gterm-v0.1.2
 platform=${archive##*/gterm-}
 platform=${platform%.tar.gz}
 stable="$work/web/gterm-stable"
@@ -60,7 +60,7 @@ if GTERM_TEST_DOWNLOAD=interrupted sh "$bootstrap" --prefix "$work/interrupted";
 test ! -e "$work/interrupted/bin/gterm"
 if GTERM_TEST_DOWNLOAD=corrupt-asset sh "$bootstrap" --prefix "$work/corrupt"; then exit 1; fi
 test ! -e "$work/corrupt/bin/gterm"
-mkdir -p "$work/wrong/bin" "$work/web/gterm-v0.0.3"
+mkdir -p "$work/wrong/bin" "$work/web/gterm-v0.1.3"
 cat > "$work/wrong/bin/gterm" <<'WRONG'
 #!/bin/sh
 case "$1" in
@@ -69,14 +69,31 @@ case "$1" in
 esac
 WRONG
 chmod +x "$work/wrong/bin/gterm"
-tar -C "$work/wrong" -czf "$work/web/gterm-v0.0.3/gterm-$platform.tar.gz" bin
-python3 "$root/scripts/prepare-gterm-release.py" gterm-v0.0.3 "$work/web/gterm-v0.0.3" --platform "$platform"
-if sh "$work/web/gterm-v0.0.3/install-gterm.sh" --prefix "$work/wrong-arch"; then exit 1; fi
+tar -C "$work/wrong" -czf "$work/web/gterm-v0.1.3/gterm-$platform.tar.gz" bin
+python3 "$root/scripts/prepare-gterm-release.py" gterm-v0.1.3 "$work/web/gterm-v0.1.3" --platform "$platform"
+if sh "$work/web/gterm-v0.1.3/install-gterm.sh" --prefix "$work/wrong-arch"; then exit 1; fi
 test ! -e "$work/wrong-arch/bin/gterm"
 export XDG_DATA_HOME="$work/xdg"
 "$entry" plugin list
 "$entry" plugin versions
 test -d "$XDG_DATA_HOME/gterm/catalog" && test -d "$XDG_DATA_HOME/gterm/packages"
+# Install a dev build over stable, then reinstall stable over the same entry.
+dev="$work/web/gterm-dev"
+mkdir "$dev"
+cp "$archive" "$dev/"
+dev_version=gterm-dev-123-1
+python3 "$root/scripts/prepare-gterm-release.py" "$dev_version" "$dev" --dev --platform "$platform"
+stable_version_path="$HOME/.local/lib/gterm/versions/$tag1/bin/gterm"
+sh "$dev/install-gterm.sh"
+test "$(current)" = gterm-v0.0.123000001
+test -x "$stable_version_path"
+test "$(readlink "$entry")" = ../lib/gterm/current/bin/gterm
+"$entry" rollback
+test "$(current)" = "$tag1"
+sh "$dev/install-gterm.sh"
+sh "$bootstrap"
+test "$(current)" = "$tag1"
+
 if [[ ${3:-} == --bootstrap-only ]]; then
     printf 'PASS production bootstrap on %s\n' "$platform"
     exit 0
@@ -107,6 +124,12 @@ touch "$work/web/resume"
 wait "$running"
 trap - EXIT
 test "$(current)" = "$tag2"
+sh "$dev/install-gterm.sh"
+test "$(current)" = gterm-v0.0.123000001
+"$entry" upgrade
+test "$(current)" = "$tag2"
+sh "$bootstrap"
+sh "$work/web/$tag2/install-gterm.sh"
 "$entry" upgrade
 "$entry" rollback
 test "$(current)" = "$tag1"

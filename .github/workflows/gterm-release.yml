@@ -3,11 +3,23 @@ name: gterm distribution
 on:
   pull_request:
   push:
-    tags: ['gterm-v*']
+    branches: [main]
+    tags: ['gterm-v*', 'gterm-dev', 'gterm-dev-build-*']
+    paths:
+      - 'cli/gterm/**'
+      - 'core/**'
+      - 'scripts/install-gterm.sh'
+      - 'scripts/package-gterm.sh'
+      - 'scripts/prepare-gterm-release.py'
+      - 'scripts/test-gterm-distribution.sh'
+      - '.github/workflows/gterm-release.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  GTERM_DEVELOPMENT: ${{ github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/gterm-v') }}
 
 jobs:
   package:
@@ -52,14 +64,14 @@ jobs:
           bash scripts/package-gterm.sh "$run/build-test" "$run/test-assets" "$test_key"
           printf '%s\n' "$test_private" |
             bash scripts/test-gterm-distribution.sh "$run/test" "$run/test-assets/gterm-$GTERM_PLATFORM.tar.gz"
-          if [[ $GITHUB_REF == refs/tags/gterm-v* ]]; then
+          if [[ $GITHUB_REF == refs/tags/gterm-v* || $GTERM_DEVELOPMENT == true ]]; then
             : "${GTERM_PRODUCTION_KEY:?configure the distribution public key}"
             bash scripts/package-gterm.sh "$run/build-release" "$PWD/tmp/gterm-assets" "$GTERM_PRODUCTION_KEY"
             bash scripts/test-gterm-distribution.sh "$run/test-release" \
               "$PWD/tmp/gterm-assets/gterm-$GTERM_PLATFORM.tar.gz" --bootstrap-only
           fi
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/gterm-v')
+        if: startsWith(github.ref, 'refs/tags/gterm-v') || env.GTERM_DEVELOPMENT == 'true'
         with:
           name: gterm-${{ matrix.platform }}
           path: tmp/gterm-assets/gterm-${{ matrix.platform }}.tar.gz
@@ -114,4 +126,46 @@ jobs:
           else
             gh release create gterm-stable --verify-tag --prerelease --latest=false \
               --title 'gterm stable channel' "$assets/index" "$assets/index.sig"
+          fi
+
+  publish-dev:
+    if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/gterm-v')
+    needs: package
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: gterm-dev-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gterm-*
+          path: tmp/gterm-assets
+          merge-multiple: true
+      - name: Publish rolling gterm dev assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=tmp/gterm-assets
+          build="gterm-dev-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          python3 scripts/prepare-gterm-release.py "$build" "$assets" --dev
+          notes="Commit: $GITHUB_SHA
+          Build: $build
+
+          Install: curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/gterm-dev/install-gterm.sh | sh"
+          if gh release view gterm-dev >/dev/null 2>&1; then
+            previous=$(gh release view gterm-dev --json body --jq '.body' | awk '$1=="Build:" {print $2}')
+            if [[ -n $previous && $(printf '%s\n%s\n' "$previous" "$build" | sort -V | tail -1) != "$build" ]]; then
+              exit 0
+            fi
+            gh release upload gterm-dev "$assets"/gterm-*.tar.gz --clobber
+            gh release upload gterm-dev "$assets/install-gterm.sh" --clobber
+            gh release edit gterm-dev --notes "$notes"
+          else
+            gh release create gterm-dev --verify-tag --prerelease --latest=false --title 'gterm dev' \
+              --notes "$notes" "$assets"/gterm-*.tar.gz "$assets/install-gterm.sh"
           fi

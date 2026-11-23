@@ -19,6 +19,10 @@ Ubuntu 22.04（glibc 2.35）构建，macOS 设置 13.0 部署目标。生产发�
 `GTERM_UPDATE_SIGNING_KEY`（对应 PEM 私钥）。首次发行前需推送 `gterm-stable` 渠道标签，发布工作流会在该标签上维护签名索引。
 安装脚本的资产摘要随发布版本固定。
 
+滚动 dev 包使用 `gterm-dev` Release 的安装脚本，与稳定版共用安装前缀和插件库。
+重跑对应渠道的安装脚本即可切换，`gterm upgrade` 切到签名的稳定渠道。
+dev 构建的本地版本号保留在 `gterm-v0.0.*` 范围，已发布的稳定安装器也可以覆盖。
+
 ## 构建和检查
 
 从仓库根目录执行。将 `GHOSTERM_LUA_ARCHIVE` 设为本机 Lua 5.5.1 源码归档的绝对路径。CMake 核对归档摘要。启用签名安装需要可用的 OpenSSL 和 zlib。

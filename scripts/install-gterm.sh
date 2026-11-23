@@ -4,6 +4,7 @@ set -eu
 # CI fills these literals in the versioned bootstrap. The installed copy uses
 # the running gterm to authenticate the update index.
 bootstrap_version='@GTERM_VERSION@'
+bootstrap_source=''
 bootstrap_macos_arm64='@MACOS_ARM64@'
 bootstrap_linux_x86_64='@LINUX_X86_64@'
 bootstrap_linux_arm64='@LINUX_ARM64@'
@@ -142,7 +143,11 @@ if [ "$mode" != rollback ]; then
         [ "$(cat "$target/asset.sha256")" = "$digest" ] || die "asset changed for $version"
     else
         asset=gterm-$platform.tar.gz
-        download "$repository/$version/$asset" "$stage/$asset" 134217728
+        source_tag=$version
+        if [ "$mode" = install ] && [ -n "$bootstrap_source" ]; then
+            source_tag=$bootstrap_source
+        fi
+        download "$repository/$source_tag/$asset" "$stage/$asset" 134217728
         actual=$(digest_file "$stage/$asset")
         [ "${actual%% *}" = "$digest" ] || die 'release asset digest mismatch'
         mkdir "$stage/payload"
