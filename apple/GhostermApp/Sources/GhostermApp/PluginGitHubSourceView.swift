@@ -15,6 +15,12 @@ struct PluginGitHubSourceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("从 GitHub 添加插件").font(.title2)
+            Text("精选插件").font(.headline)
+            ForEach(PluginCatalog.builtIn, id: \.displayName) { entry in
+                Button { address = entry.source.repositoryPath; load() } label: {
+                    VStack(alignment: .leading) { Text(entry.displayName); Text("${entry.source.repositoryPath} · ${entry.defaultRole}").font(.caption) }
+                }.buttonStyle(.plain).accessibilityIdentifier("plugin-featured-\(entry.source.repository)")
+            }
             TextField("owner/repo 或 GitHub 仓库 URL", text: $address)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("plugin-github-address")
