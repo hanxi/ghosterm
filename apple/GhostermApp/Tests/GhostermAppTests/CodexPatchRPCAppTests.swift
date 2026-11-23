@@ -7,7 +7,7 @@ import SwiftUI
 @testable import GhostermAppModel
 import XCTest
 
-/// Real Native/SSH/QuickJS RPC; the explicitly mapped app-server is a no-model protocol fixture.
+/// Real Native/SSH/Lua RPC; the explicitly mapped app-server is a no-model protocol fixture.
 @MainActor
 final class CodexPatchRPCAppTests: XCTestCase {
     private final class FixtureWindow: NSWindow {

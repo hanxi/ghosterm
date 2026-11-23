@@ -156,9 +156,9 @@ struct ExtensionsPane: View {
             }
 
             if model.extensionController == nil {
-                Label("此构建未启用 Portable JS 插件运行时。", systemImage: "exclamationmark.circle")
+                Label("此构建未启用 Lua 插件运行时。", systemImage: "exclamationmark.circle")
                     .foregroundStyle(.secondary)
-                SettingsNote("普通 Ghosterm 构建默认关闭插件运行时；当前不能审查或启动 Client 插件。")
+                SettingsNote("审查和启动 Client 插件需要启用 Lua 的 Ghosterm 构建。")
             } else if entries.isEmpty {
                 SettingsNote("选择插件包文件夹后，Ghosterm 会检查固定内容摘要、兼容性和命令。审查不会自动批准或启动插件。")
             }
