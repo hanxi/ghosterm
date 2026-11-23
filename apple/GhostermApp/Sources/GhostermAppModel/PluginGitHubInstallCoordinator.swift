@@ -28,3 +28,17 @@ struct PluginGitHubInstallCoordinator {
     }
     func discard(_ material: Material) { try? fileManager.removeItem(at: material.directory) }
 }
+
+extension PluginGitHubInstallCoordinator {
+    func prepareAndInstall(_ assets: PluginGitHubClient.VerifiedAssets, using controller: ExtensionController, trustedPolicy: URL) async throws -> ExtensionController.InstalledRelease {
+        let material = try stage(assets)
+        do {
+            let prepared = try await controller.prepareSignedRelease(artifact: material.archive, descriptor: material.descriptor, signature: material.signature, trustedPolicy: trustedPolicy)
+            do { return try await controller.installPreparedRelease(id: prepared.id) }
+            catch { try? await controller.discardPreparedRelease(id: prepared.id); throw error }
+        } catch {
+            discard(material)
+            throw error
+        }
+    }
+}
