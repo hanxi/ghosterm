@@ -1,11 +1,11 @@
 import Foundation
 
 /// Canonical public GitHub source accepted by the plugin installer.
-struct PluginGitHubSource: Codable, Hashable, Sendable {
-    let owner: String
-    let repository: String
-    let plugin: String?
-    let tag: String?
+public struct PluginGitHubSource: Codable, Hashable, Sendable {
+    public let owner: String
+    public let repository: String
+    public let plugin: String?
+    public let tag: String?
 
     enum Failure: Error, Equatable {
         case invalidAddress
@@ -16,7 +16,7 @@ struct PluginGitHubSource: Codable, Hashable, Sendable {
         case invalidTag
     }
 
-    init(_ input: String) throws {
+    public init(_ input: String) throws {
         var value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { throw Failure.invalidAddress }
         if value.hasPrefix("https://") || value.hasPrefix("http://") {
@@ -52,27 +52,27 @@ struct PluginGitHubSource: Codable, Hashable, Sendable {
         !value.isEmpty && value.utf8.count <= 128 && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_ .".contains($0)) && $0 != " " }
     }
     var repositoryPath: String { "\(owner)/\(repository)" }
-    func indexURL() -> URL {
+    public func indexURL() -> URL {
         let base = "https://github.com/\(repositoryPath)/releases/"
         let path = tag.map { "download/\($0)/plugin-index.json" } ?? "latest/download/plugin-index.json"
         return URL(string: base + path)!
     }
-    func assetURL(named name: String, tag: String) -> URL? {
+    public func assetURL(named name: String, tag: String) -> URL? {
         guard !name.isEmpty, !name.contains(".."), !name.contains("/") else { return nil }
         return URL(string: "https://github.com/\(repositoryPath)/releases/download/\(tag)/\(name)")
     }
 }
 
-struct PluginIndex: Codable, Sendable {
-    let schemaVersion: Int
-    let repository: String
-    let releaseTag: String
-    let publisher: String
-    let publisherFingerprint: String
-    let publisherPublicKey: String
-    let plugins: [PluginIndexEntry]
-    let signatureDomain: String
-    let signature: String
+public struct PluginIndex: Codable, Sendable {
+    public let schemaVersion: Int
+    public let repository: String
+    public let releaseTag: String
+    public let publisher: String
+    public let publisherFingerprint: String
+    public let publisherPublicKey: String
+    public let plugins: [PluginIndexEntry]
+    public let signatureDomain: String
+    public let signature: String
 
     func validate(for source: PluginGitHubSource) throws {
         guard schemaVersion == 1, repository == source.repositoryPath,
@@ -83,16 +83,16 @@ struct PluginIndex: Codable, Sendable {
     }
 }
 
-struct PluginIndexEntry: Codable, Sendable {
-    let id: String
-    let name: String
-    let version: String
-    let role: String
-    let archive: String
-    let releaseJSON: String
-    let releaseSignature: String
-    let archiveBytes: UInt64
-    let archiveSHA256: String
+public struct PluginIndexEntry: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let version: String
+    public let role: String
+    public let archive: String
+    public let releaseJSON: String
+    public let releaseSignature: String
+    public let archiveBytes: UInt64
+    public let archiveSHA256: String
     let permissions: [String]
     let capabilities: [String]
 

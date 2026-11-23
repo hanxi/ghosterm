@@ -1,7 +1,7 @@
 import Foundation
 import GhostermCore
 
-struct PluginGitHubClient: Sendable {
+public struct PluginGitHubClient: Sendable {
     enum Failure: Error, LocalizedError, Equatable {
         case invalidStatus(Int)
         case responseTooLarge
@@ -10,9 +10,10 @@ struct PluginGitHubClient: Sendable {
             switch self { case .invalidStatus(let code): return "GitHub 返回 HTTP \(code)。"; case .responseTooLarge: return "GitHub 响应超过允许大小。"; case .invalidResponse: return "GitHub 返回内容无效。" }
         }
     }
-    var session: URLSession = .shared
-    var maxBytes = 4 * 1024 * 1024
-    func fetch(_ url: URL) async throws -> Data {
+    public var session: URLSession = .shared
+    public var maxBytes: Int
+    public init(session: URLSession = .shared, maxBytes: Int = 4 * 1024 * 1024) { self.session = session; self.maxBytes = maxBytes }
+    public func fetch(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url); request.httpMethod = "GET"; request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw Failure.invalidResponse }
@@ -24,7 +25,7 @@ struct PluginGitHubClient: Sendable {
         }
         return data
     }
-    func fetchIndex(for source: PluginGitHubSource) async throws -> PluginIndex {
+    public func fetchIndex(for source: PluginGitHubSource) async throws -> PluginIndex {
         let raw = try await fetch(source.indexURL())
         let index = try JSONDecoder().decode(PluginIndex.self, from: raw)
         try index.validate(for: source)

@@ -15,6 +15,7 @@ struct ExtensionsPane: View {
     // completion; selecting a directory never approves or activates a package.
     var packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)? = nil
     @State private var importing = false
+    @State private var showingGitHubSource = false
     @FocusState private var importButtonFocused: Bool
     @State private var restoreImportFocus = false
     @State private var pendingPackagePicker: UUID?
@@ -137,6 +138,9 @@ struct ExtensionsPane: View {
                     .accessibilityIdentifier("plugin-package-import")
             }
 
+            Button("从 GitHub 添加…") { showingGitHubSource = true }
+                .disabled(model.extensionController == nil)
+                .accessibilityIdentifier("plugin-github-open")
             PluginReleaseInstallView(controller: model.extensionController) { installed in
                 let entryID = installed.review.id + ":" + installed.review.digest
                 if let index = entries.firstIndex(where: { $0.id == entryID }) { entries[index].installation = installed }
