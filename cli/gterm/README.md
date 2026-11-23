@@ -2,6 +2,22 @@
 
 `gterm` 是独立的插件执行端程序。它检查 Lua 插件包、管理执行端目录，并为原生宿主启动 Lua Executor。普通命令由已登记的包提供。
 
+## 安装目录与更新
+
+版本化 Release 附带 `install-gterm.sh`。安装器默认将入口放在
+`~/.local/bin/gterm`，用 `--prefix DIRECTORY` 选择其他前缀。版本放在前缀下的
+`lib/gterm/versions/`，入口由原子切换的符号链接指向当前版本。
+
+`gterm upgrade` 校验独立稳定渠道的 Ed25519 签名索引，再核对本机平台的资产
+SHA-256 和 `doctor`。`gterm rollback` 检查并切回上一版本。插件库位于独立的数据目录。
+安装器和升级使用系统的 `curl`、`tar` 与 SHA-256 工具，开发子命令需要 Python 3。
+
+发行工作流在 PR 上测试 macOS arm64、Linux x86_64 和 Linux arm64。Linux 以
+Ubuntu 22.04（glibc 2.35）构建，macOS 设置 13.0 部署目标。生产发布使用独立
+`gterm-vMAJOR.MINOR.PATCH` 标签与 `gterm-release` 环境。在发布前设置仓库变量
+`GTERM_UPDATE_PUBLIC_KEY`（32 字节 Ed25519 公钥的小写十六进制）及同一环境中的
+`GTERM_UPDATE_SIGNING_KEY`（对应 PEM 私钥）。安装脚本的资产摘要随发布版本固定。
+
 ## 构建和检查
 
 从仓库根目录执行。将 `GHOSTERM_LUA_ARCHIVE` 设为本机 Lua 5.5.1 源码归档的绝对路径。CMake 核对归档摘要。启用签名安装需要可用的 OpenSSL 和 zlib。
@@ -44,6 +60,10 @@ Host 明确选择包和 Client 摘要、协商方法并批准能力，再启动 
 需要外部 CLI 的 Lua 包通过 `--process-program NAME ABSOLUTE_PATH VERSION SHA256` 配置已安装程序。名称与 Lua 包声明一致。可用 `--process-argument NAME VALUE` 传入固定前缀参数，用 `--process-environment NAME` 选择额外环境变量名。程序映射、访问范围和本次 Session 授权分别校验。
 
 ## 登记和安装
+
+Executor 默认在 `${XDG_DATA_HOME:-$HOME/.local/share}/gterm/` 下保存 `catalog/` 和
+`packages/`。普通命令自动读取默认库，也可用 `--catalog` 或 `GTERM_CATALOG`
+选定独立目录。安装与版本维护可通过 `--store` 选定独立包目录。
 
 已确认完整性摘要的开发包可用 `plugin register-development` 登记。签名包可用 `plugin install` 安装并登记。
 

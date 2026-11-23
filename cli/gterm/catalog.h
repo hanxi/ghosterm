@@ -29,6 +29,8 @@ bool gterm_catalog_digest(const char *);
 bool gterm_catalog_utf8(const unsigned char *, size_t);
 void gterm_catalog_entry_clear(gterm_catalog_entry_t *);
 /* Private native CLI format; no Core ABI, discovery or permission grant. */
+const char *gterm_catalog_default(bool create);
+const char *gterm_store_default(bool create);
 int gterm_catalog_open(gterm_catalog_t *, const char *, bool);
 int gterm_catalog_save(gterm_catalog_t *, uint64_t, volatile sig_atomic_t *);
 bool gterm_catalog_release(gterm_catalog_t *);

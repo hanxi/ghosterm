@@ -1,0 +1,117 @@
+name: gterm distribution
+
+on:
+  pull_request:
+  push:
+    tags: ['gterm-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: ubuntu-22.04
+            platform: linux-x86_64
+          - runner: ubuntu-22.04-arm
+            platform: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libssl-dev libicu-dev zlib1g-dev pkg-config
+      - name: Build and exercise the distribution
+        env:
+          GTERM_PLATFORM: ${{ matrix.platform }}
+          GTERM_PRODUCTION_KEY: ${{ vars.GTERM_UPDATE_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          run=$(mktemp -d "$PWD/tmp/agent-XXXXXX")
+          trap 'rm -rf -- "$run"' EXIT
+          export TMPDIR="$run" TMP="$run" TEMP="$run"
+          if [[ $RUNNER_OS == macOS ]]; then
+            export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+          fi
+          test_private=$(openssl genpkey -algorithm ED25519)
+          test_key=$(printf '%s\n' "$test_private" | openssl pkey -pubout -outform DER |
+            tail -c 32 | od -An -v -tx1 | tr -d ' \n')
+          bash scripts/package-gterm.sh "$run/build-test" "$run/test-assets" "$test_key"
+          printf '%s\n' "$test_private" |
+            bash scripts/test-gterm-distribution.sh "$run/test" "$run/test-assets/gterm-$GTERM_PLATFORM.tar.gz"
+          if [[ $GITHUB_REF == refs/tags/gterm-v* ]]; then
+            : "${GTERM_PRODUCTION_KEY:?configure the distribution public key}"
+            bash scripts/package-gterm.sh "$run/build-release" "$PWD/tmp/gterm-assets" "$GTERM_PRODUCTION_KEY"
+            bash scripts/test-gterm-distribution.sh "$run/test-release" \
+              "$PWD/tmp/gterm-assets/gterm-$GTERM_PLATFORM.tar.gz" --bootstrap-only
+          fi
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/gterm-v')
+        with:
+          name: gterm-${{ matrix.platform }}
+          path: tmp/gterm-assets/gterm-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/gterm-v')
+    needs: package
+    runs-on: ubuntu-22.04
+    environment: gterm-release
+    concurrency:
+      group: gterm-stable-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gterm-*
+          path: tmp/gterm-assets
+          merge-multiple: true
+      - name: Publish versioned assets and signed stable channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GTERM_SIGNING_KEY: ${{ secrets.GTERM_UPDATE_SIGNING_KEY }}
+          GTERM_PUBLIC_KEY: ${{ vars.GTERM_UPDATE_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${GTERM_SIGNING_KEY:?configure the distribution signing key}"
+          actual=$(printf '%s\n' "$GTERM_SIGNING_KEY" | openssl pkey -pubout -outform DER |
+            tail -c 32 | od -An -v -tx1 | tr -d ' \n')
+          test "$actual" = "$GTERM_PUBLIC_KEY"
+          assets=tmp/gterm-assets
+          python3 scripts/prepare-gterm-release.py "$GITHUB_REF_NAME" "$assets"
+          printf '%s\n' "$GTERM_SIGNING_KEY" |
+            openssl pkeyutl -sign -rawin -inkey /dev/stdin -in "$assets/index-message" -out "$assets/index.sig"
+          if gh release view gterm-stable >/dev/null 2>&1; then
+            gh release download gterm-stable --pattern index --output "$assets/previous-index"
+            read -r format previous < "$assets/previous-index"
+            test "$format" = gterm-stable-v1
+            test "$(printf '%s\n%s\n' "$previous" "$GITHUB_REF_NAME" | sort -V | tail -1)" = "$GITHUB_REF_NAME"
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest=false \
+            --title "$GITHUB_REF_NAME" "$assets"/gterm-*.tar.gz "$assets/install-gterm.sh"
+          if gh release view gterm-stable >/dev/null 2>&1; then
+            gh release upload gterm-stable "$assets/index" "$assets/index.sig" --clobber
+          else
+            gh release create gterm-stable --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title 'gterm stable channel' "$assets/index" "$assets/index.sig"
+          fi

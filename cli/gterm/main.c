@@ -6,6 +6,7 @@
 #include "ipc.h"
 #include "catalog.h"
 #include "release.h"
+#include "distribution.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -36,6 +37,7 @@ static void pipe_disconnected(int number) {
 
 static int usage(void) {
     fputs("usage: gterm doctor\n"
+          "       gterm upgrade | rollback\n"
           "       gterm plugin {init,check,test,build,pack,release} [development arguments...]\n"
           "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
           "DIGEST [DIRECTORY DIGEST]...\n"
@@ -135,23 +137,28 @@ static bool development_verb(const char *verb) {
 
 /* Resolve the companion relative to the running executable. The workspace and
  * plugin package never supply the tool location. Executor verbs stay native. */
-static int development_command(char **argv) {
-    char image[4096], executable[4096], companion[4096];
+static bool executable_path(char executable[4096]) {
+    char image[4096];
 #ifdef __APPLE__
     uint32_t size = sizeof(image);
     if (_NSGetExecutablePath(image, &size) != 0) {
-        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+        return false;
     }
 #elif defined(__linux__)
     const ssize_t read_size = readlink("/proc/self/exe", image, sizeof(image) - 1);
     if (read_size <= 0 || (size_t)read_size >= sizeof(image) - 1) {
-        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+        return false;
     }
     image[read_size] = '\0';
 #else
-    return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    return false;
 #endif
-    if (!realpath(image, executable)) {
+    return realpath(image, executable) != NULL;
+}
+
+static int development_command(char **argv) {
+    char executable[4096], companion[4096];
+    if (!executable_path(executable)) {
         return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
     }
     char *name = strrchr(executable, '/');
@@ -573,7 +580,21 @@ int main(int argc, char **argv) {
         sigaction(SIGHUP, &action, NULL) || sigaction(SIGPIPE, &pipe_action, NULL)) {
         return 5;
     }
+    if (argc == 2 && !strcmp(argv[1], "_distribution-platform")) {
+        return gterm_distribution_platform();
+    }
+    if (argc == 4 && !strcmp(argv[1], "_verify-update-index")) {
+        return gterm_verify_update_index(argv[2], argv[3]);
+    }
+    if (argc == 2 && (!strcmp(argv[1], "upgrade") || !strcmp(argv[1], "rollback"))) {
+        char executable[4096];
+        if (executable_path(executable)) {
+            return gterm_distribution_command(executable, argv[1]);
+        }
+        return failure("unsupported", "GTERM_DISTRIBUTION_UNAVAILABLE", 4);
+    }
     int result;
+    const char *default_catalog = gterm_catalog_default(false);
     if (argc >= 4 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--listen")) {
         return gterm_ipc_listen(argv[3], argc - 4, argv + 4, &interrupted);
     }
@@ -627,7 +648,8 @@ int main(int argc, char **argv) {
         result = development_command(argv);
     } else if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--help"))) {
         result = usage();
-    } else if (getenv("GTERM_CATALOG") || (argc > 1 && argv[1][0] == '-')) {
+    } else if (getenv("GTERM_CATALOG") || (default_catalog && access(default_catalog, F_OK) == 0) ||
+               argv[1][0] == '-') {
         result = gterm_catalog_dispatch(argc - 1, argv + 1, &interrupted);
     } else {
         result = failure("unsupported", "COMMAND_ACTIVATION_UNAVAILABLE", 4);

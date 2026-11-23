@@ -34,7 +34,7 @@ def module(name, filename):
 
 ipc = module('gterm_release_ipc', 'test-gterm-ipc.py')
 release = module('gterm_release_fixture', 'test-plugin-release.py')
-CASES = ['roundtrip', 'deflate', 'bad-signature', 'revoked', 'scope', 'duplicate-policy',
+CASES = ['roundtrip', 'default-layout', 'deflate', 'bad-signature', 'revoked', 'scope', 'duplicate-policy',
          'fractional', 'wrong-artifact', 'wrong-package', 'zip-path', 'zip-tail',
          'conflict', 'partial-register', 'changed-policy', 'waiting-policy', 'tampered-payload',
          'store-link', 'umask']
@@ -499,9 +499,13 @@ def exercise(build, case, work):
                    if p.is_file() and p.name != 'integrity.json']
         (package / 'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=members)))
         digest = release.sha((package / 'integrity.json').read_bytes())
-    catalog = work / 'catalog'; catalog.mkdir(mode=0o700)
+    catalog = work / 'catalog'
+    if case == 'default-layout':
+        catalog = work / 'xdg' / 'gterm' / 'catalog'
+    else:
+        catalog.mkdir(mode=0o700)
     endpoint = work / 'e'; endpoint.mkdir(mode=0o700)
-    store = work / 'store'
+    store = catalog.with_name('packages') if case == 'default-layout' else work / 'store'
     host = work / 'host.json'
     facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'], capabilities=['session.rpc'])
     host.write_text(json.dumps(facts))
@@ -523,6 +527,9 @@ def exercise(build, case, work):
     env = {k: v for k, v in os.environ.items() if not k.startswith(('GTERM_', 'GT_GTERM_'))}
     env.update(TMPDIR=str(work), GTERM_CATALOG=str(catalog), GTERM_ENDPOINT=str(endpoint),
                GHOSTERM_AUTOMATION_OFFSCREEN='1')
+    if case == 'default-layout':
+        env.pop('GTERM_CATALOG')
+        env['XDG_DATA_HOME'] = str(work / 'xdg')
     binary = build / 'gterm'
 
     def run(arguments, expected=0, catalog_io=None):
@@ -567,6 +574,8 @@ def exercise(build, case, work):
         options = ['--catalog', catalog, '--expect-revision', '0', '--store', store,
                    '--artifact', artifact, '--descriptor', descriptor, '--signature', signature,
                    '--policy', policy, '--host-json', host]
+        if case == 'default-layout':
+            options = options[2:4] + options[6:]
         expected = 6 if case in ('bad-signature', 'revoked', 'scope', 'wrong-artifact', 'wrong-package') else \
                    2 if case in ('duplicate-policy', 'fractional', 'zip-path', 'zip-tail', 'partial-register', 'nfd-policy', 'base64-policy') else \
                    5 if case == 'store-link' else 0
@@ -601,7 +610,7 @@ def exercise(build, case, work):
                  '--policy', policy, '--host-json', host, '--', installed_version, *profile])
         else:
             require(result['committed'] and result['durabilityConfirmed'] and result['publisherAuthenticated'] != development, 'authenticated durable registration')
-        listing = run(['plugin', 'list', '--catalog', catalog])
+        listing = run(['plugin', 'list'] if case == 'default-layout' else ['plugin', 'list', '--catalog', catalog])
         require(listing['entries'][0]['source'] == ('explicit-development-digest' if development else 'signed-release-record') and not listing['publisherAuthenticated'], 'listing is a declaration, not current authentication')
         if case.startswith('residue-'):
             residue_workflow(run, build, work, catalog, store, env, installed_version, case,

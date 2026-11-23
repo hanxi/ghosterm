@@ -259,6 +259,64 @@ static bool decode(gterm_catalog_t *c, buffer_t *b) {
     return b->at == b->size;
 }
 
+/* Only build the standard data layout. Explicit paths keep their existing
+ * validation and lifecycle. Ancestors may include an intentional home symlink. */
+static bool ensure_parents(char *path) {
+    for (char *part = path + 1;; part++) {
+        if (*part == '/' || !*part) {
+            char separator = *part;
+            *part = 0;
+            int made = mkdir(path, 0700);
+            int saved = errno;
+            *part = separator;
+            if (made && saved != EEXIST) {
+                return false;
+            }
+            if (!separator) {
+                return true;
+            }
+        }
+    }
+}
+
+static const char *default_directory(char path[4096], const char *leaf, bool create) {
+    const char *base = getenv("XDG_DATA_HOME");
+    const char *suffix = "";
+    if (!base || base[0] != '/') {
+        base = getenv("HOME");
+        suffix = "/.local/share";
+    }
+    if (!base || base[0] != '/') {
+        return NULL;
+    }
+    size_t length = strlen(base);
+    while (length && base[length - 1] == '/') {
+        length--;
+    }
+    if (length > 4000) {
+        return NULL;
+    }
+    int size = snprintf(path, 4096, "%.*s%s/gterm/%s", (int)length, base, suffix, leaf);
+    if (size < 0 || size >= 4096 || !gterm_catalog_path(path)) {
+        return NULL;
+    }
+    if (create && !ensure_parents(path)) {
+        return NULL;
+    }
+    return path;
+}
+
+const char *gterm_catalog_default(bool create) {
+    static char path[4096];
+    const char *configured = getenv("GTERM_CATALOG");
+    return configured ? configured : default_directory(path, "catalog", create);
+}
+
+const char *gterm_store_default(bool create) {
+    static char path[4096];
+    return default_directory(path, "packages", create);
+}
+
 int gterm_catalog_open(gterm_catalog_t *c, const char *path, bool writing) {
     memset(c, 0, sizeof(*c));
     c->directory = c->lock = -1;

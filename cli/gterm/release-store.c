@@ -87,7 +87,7 @@ static bool current(const store_t *s) {
            named(s->root, ".store.lock", &s->locked);
 }
 
-static int store_open(store_t *s, const char *path, bool writing) {
+static int store_open(store_t *s, const char *path, bool writing, bool initialize) {
     memset(s, 0, sizeof(*s));
     s->root = s->lock = -1;
     s->path = path;
@@ -99,7 +99,14 @@ static int store_open(store_t *s, const char *path, bool writing) {
         (s->identity.st_mode & 07777) != 0700) {
         return 5;
     }
-    s->lock = openat(s->root, ".store.lock", O_RDWR | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    int flags = O_RDWR | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC;
+    if (initialize) {
+        mode_t previous = umask(0077);
+        s->lock = openat(s->root, ".store.lock", flags | O_CREAT, 0600);
+        umask(previous);
+    } else {
+        s->lock = openat(s->root, ".store.lock", flags);
+    }
     if (s->lock < 0 || fstat(s->lock, &s->locked) || !private_file(&s->locked, 0600) ||
         !current(s)) {
         return 5;
@@ -206,7 +213,7 @@ int gterm_release_pin_profile(int argc, char **argv, int *reference) {
             goto done;
         }
         if (managed) {
-            result = store_open(&store, *parent ? parent : "/", false);
+            result = store_open(&store, *parent ? parent : "/", false, false);
             if (result) {
                 goto done;
             }
@@ -1463,7 +1470,11 @@ int gterm_release_manage(const char *operation,
         *field = argv[i + 1];
     }
     if (!path) {
-        path = getenv("GTERM_CATALOG");
+        path = gterm_catalog_default(true);
+    }
+    bool default_store = !store;
+    if (default_store) {
+        store = gterm_store_default(listing);
     }
     uint64_t expected = 0;
     if (!gterm_catalog_path(path) || !gterm_catalog_path(store) || strlen(store) > 3500 ||
@@ -1490,7 +1501,7 @@ int gterm_release_manage(const char *operation,
         code = "CATALOG_REVISION";
         goto done;
     }
-    result = store_open(&r.store, store, removing);
+    result = store_open(&r.store, store, removing, default_store && listing);
     code = "VERSION_STORE";
     if (result) {
         goto done;

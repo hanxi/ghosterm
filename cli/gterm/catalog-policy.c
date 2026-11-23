@@ -278,7 +278,7 @@ int gterm_catalog_review_policy(const char *operation,
         *field = argv[i + 1];
     }
     if (!path) {
-        path = getenv("GTERM_CATALOG");
+        path = gterm_catalog_default(true);
     }
     uint64_t expected_revision = 0;
     if (!gterm_catalog_path(path) || !gterm_catalog_path(policy) ||

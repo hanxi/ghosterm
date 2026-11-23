@@ -338,7 +338,10 @@ int gterm_catalog_manage(const char *operation,
         *value = argv[at + 1];
     }
     if (!path) {
-        path = getenv("GTERM_CATALOG");
+        path = gterm_catalog_default(true);
+    }
+    if (installing && !store) {
+        store = gterm_store_default(true);
     }
     bool listing = !strcmp(operation, "list"), removing = !strcmp(operation, "unregister");
     uint64_t expected = 0;
@@ -644,8 +647,8 @@ static int matched_tokens(const char *command, int argc, char **argv) {
 }
 
 int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancelled) {
-    const char *path = getenv("GTERM_CATALOG"), *endpoint = getenv("GTERM_ENDPOINT"), *id = NULL,
-               *digest = NULL, *canonical = NULL;
+    const char *path = gterm_catalog_default(false), *endpoint = getenv("GTERM_ENDPOINT"),
+               *id = NULL, *digest = NULL, *canonical = NULL;
     bool supplied_path = false, supplied_endpoint = false;
     int at = 0;
     for (; at < argc;) {
