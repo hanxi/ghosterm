@@ -101,6 +101,22 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         private set
     var error: String? by mutableStateOf(null)
         private set
+    var githubIndex: PluginIndex? by mutableStateOf(null)
+        private set
+    var githubBusy by mutableStateOf(false)
+        private set
+    var githubError: String? by mutableStateOf(null)
+        private set
+    fun readGitHubSource(address: String) {
+        githubBusy = true; githubError = null; githubIndex = null
+        viewModelScope.launch {
+            try {
+                val source = PluginGitHubSource.parse(address).getOrThrow()
+                githubIndex = PluginGitHubClient().fetchIndex(source)
+            } catch (failure: Throwable) { githubError = failure.message ?: "无法读取 GitHub 插件索引" }
+            finally { githubBusy = false }
+        }
+    }
     var entries: List<Entry> by mutableStateOf(emptyList())
         private set
     var activeSession: ActiveSession? by mutableStateOf(null)
