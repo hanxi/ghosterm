@@ -261,7 +261,20 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     OutlinedTextField(value=githubAddress, onValueChange={ githubAddress=it }, label={ Text("GitHub 仓库") }, singleLine=true, modifier=Modifier.fillMaxWidth().testTag("plugin-github-address"))
                     Button(onClick={ extensions.readGitHubSource(githubAddress) }, enabled=!extensions.githubBusy && githubAddress.isNotBlank(), modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("plugin-github-read")) { Text(if (extensions.githubBusy) "正在读取…" else "读取 GitHub 仓库") }
                     extensions.githubError?.let { SettingsNotice(it) {} }
-                    extensions.githubIndex?.let { value -> Text("${value.repository} · Release ${value.releaseTag} · ${value.publisher}", Modifier.testTag("plugin-github-index")); value.plugins.forEach { entry -> Text("${entry.name} · ${entry.version} · ${entry.role}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall) } }
+                    extensions.githubIndex?.let { value ->
+                        Text("${value.repository} · Release ${value.releaseTag} · ${value.publisher}", Modifier.testTag("plugin-github-index"))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick={ extensions.selectAllGitHubPlugins() }) { Text("全选") }
+                            TextButton(onClick={ extensions.clearGitHubSelection() }) { Text("清除") }
+                        }
+                        value.plugins.forEach { entry ->
+                            Row(Modifier.fillMaxWidth().toggleable(entry.id in extensions.githubSelectedIds, role=Role.Checkbox) { extensions.toggleGitHubPlugin(entry.id, it) }.padding(horizontal=8.dp), verticalAlignment=Alignment.CenterVertically) {
+                                Checkbox(entry.id in extensions.githubSelectedIds, onCheckedChange=null)
+                                Text("${entry.name} · ${entry.version} · ${entry.role}", Modifier.padding(start=8.dp), style=MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Button(onClick={}, enabled=extensions.githubSelectedIds.isNotEmpty(), modifier=Modifier.fillMaxWidth().testTag("plugin-github-install-plan")) { Text("查看安装计划（${extensions.githubSelectedIds.size}）") }
+                    }
                     if (extensions.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
                     extensions.error?.let { SettingsNotice(it) {} }
                     extensions.entries.forEach { entry ->

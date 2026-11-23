@@ -107,8 +107,12 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         private set
     var githubError: String? by mutableStateOf(null)
         private set
+    val githubSelectedIds = androidx.compose.runtime.mutableStateListOf<String>()
+    fun toggleGitHubPlugin(id: String, selected: Boolean) { if (selected) { if (id !in githubSelectedIds) githubSelectedIds.add(id) } else githubSelectedIds.remove(id) }
+    fun selectAllGitHubPlugins() { githubIndex?.plugins?.mapTo(githubSelectedIds) { it.id } }
+    fun clearGitHubSelection() { githubSelectedIds.clear() }
     fun readGitHubSource(address: String) {
-        githubBusy = true; githubError = null; githubIndex = null
+        githubBusy = true; githubError = null; githubIndex = null; githubSelectedIds.clear()
         viewModelScope.launch {
             try {
                 val source = PluginGitHubSource.parse(address).getOrThrow()
