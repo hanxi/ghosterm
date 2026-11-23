@@ -8,7 +8,7 @@ import java.nio.file.StandardCopyOption
 class PluginGitHubInstallTransaction(private val context: Context) {
     fun stage(plan: PluginInstallPlan, assets: List<Triple<ByteArray, ByteArray, ByteArray>>): File {
         require(plan.isValid && assets.size == plan.items.size)
-        val root = File(context.cacheDir, "plugin-install-${System.nanoTime()}")
+        val root = File(context.filesDir, ".plugin-install-${System.nanoTime()}")
         require(root.mkdirs())
         try {
             plan.items.zip(assets).forEach { (item, bytes) ->
