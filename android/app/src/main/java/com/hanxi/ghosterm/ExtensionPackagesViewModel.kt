@@ -111,6 +111,14 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     fun toggleGitHubPlugin(id: String, selected: Boolean) { if (selected) { if (id !in githubSelectedIds) githubSelectedIds.add(id) } else githubSelectedIds.remove(id) }
     fun selectAllGitHubPlugins() { githubIndex?.plugins?.mapTo(githubSelectedIds) { it.id } }
     fun clearGitHubSelection() { githubSelectedIds.clear() }
+    fun githubInstallPlan(): PluginInstallPlan? {
+        val index = githubIndex ?: return null
+        val source = PluginGitHubSource.parse("${index.repository}${index.releaseTag.let { "@$it" }}").getOrNull() ?: return null
+        val items = index.plugins.filter { it.id in githubSelectedIds }.map {
+            PluginInstallPlan.Item(it.id, it.version, when (it.role) { "client" -> PluginInstallPlan.Role.CLIENT; "executor" -> PluginInstallPlan.Role.EXECUTOR; else -> PluginInstallPlan.Role.BOTH }, it.archiveBytes, it.archiveSHA256, it.permissions, it.capabilities, null, false)
+        }
+        return PluginInstallPlan(source, index.releaseTag, index.publisher, index.publisherFingerprint, items, emptyList(), false).takeIf { it.isValid }
+    }
     fun readGitHubSource(address: String) {
         githubBusy = true; githubError = null; githubIndex = null; githubSelectedIds.clear()
         viewModelScope.launch {
