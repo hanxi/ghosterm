@@ -1,0 +1,51 @@
+name: Recover gterm stable index
+
+on:
+  push:
+    tags: ['gterm-recover-v0.1.0']
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-22.04
+    environment: gterm-release
+    concurrency:
+      group: gterm-stable-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sign the index for the verified public release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GTERM_SIGNING_KEY: ${{ secrets.GTERM_UPDATE_SIGNING_KEY }}
+          GTERM_PUBLIC_KEY: ${{ vars.GTERM_UPDATE_PUBLIC_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view gterm-stable >/dev/null 2>&1; then
+            exit 0
+          fi
+          mkdir -p tmp
+          run=$(mktemp -d "$PWD/tmp/agent-XXXXXX")
+          trap 'rm -rf -- "$run"' EXIT
+          export TMPDIR="$run" TMP="$run" TEMP="$run"
+          gh run view 45199913111 --json jobs \
+            --jq '[.jobs[] | select(.name | startswith("package ")) | .conclusion] | length == 3 and all(. == "success")' |
+            grep -Fx true
+          gh release download gterm-v0.1.0 --dir "$run" --pattern 'gterm-*.tar.gz' --pattern install-gterm.sh
+          mv "$run/install-gterm.sh" "$run/published-install.sh"
+          python3 scripts/prepare-gterm-release.py gterm-v0.1.0 "$run"
+          cmp "$run/published-install.sh" "$run/install-gterm.sh"
+          actual=$(printf '%s\n' "$GTERM_SIGNING_KEY" | openssl pkey -pubout -outform DER |
+            tail -c 32 | od -An -v -tx1 | tr -d ' \n')
+          test -n "$GTERM_PUBLIC_KEY"
+          test "$actual" = "$GTERM_PUBLIC_KEY"
+          printf '%s\n' "$GTERM_SIGNING_KEY" |
+            openssl pkeyutl -sign -rawin -inkey /dev/stdin -in "$run/index-message" -out "$run/index.sig"
+          gh release create gterm-stable --verify-tag --prerelease --latest=false \
+            --title 'gterm stable channel' "$run/index" "$run/index.sig"
