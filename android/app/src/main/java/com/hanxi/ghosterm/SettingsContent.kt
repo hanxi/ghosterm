@@ -100,6 +100,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
     var launchSelection by remember { mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null) }
+    var githubAddress by rememberSaveable { mutableStateOf("") }
     val savedSections = rememberSaveableStateHolder()
     val p = model.candidate
     val enabled = model.canEdit
@@ -257,6 +258,10 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     Button(onClick=onPickPlugin, enabled=!extensions.busy, modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {
                         Text("选择插件文件夹")
                     }
+                    OutlinedTextField(value=githubAddress, onValueChange={ githubAddress=it }, label={ Text("GitHub 仓库") }, singleLine=true, modifier=Modifier.fillMaxWidth().testTag("plugin-github-address"))
+                    Button(onClick={ extensions.readGitHubSource(githubAddress) }, enabled=!extensions.githubBusy && githubAddress.isNotBlank(), modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("plugin-github-read")) { Text(if (extensions.githubBusy) "正在读取…" else "读取 GitHub 仓库") }
+                    extensions.githubError?.let { SettingsNotice(it) {} }
+                    extensions.githubIndex?.let { value -> Text("${value.repository} · Release ${value.releaseTag} · ${value.publisher}", Modifier.testTag("plugin-github-index")); value.plugins.forEach { entry -> Text("${entry.name} · ${entry.version} · ${entry.role}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall) } }
                     if (extensions.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
                     extensions.error?.let { SettingsNotice(it) {} }
                     extensions.entries.forEach { entry ->
