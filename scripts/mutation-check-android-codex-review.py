@@ -34,11 +34,19 @@ def main():
     serial = os.environ.get('ANDROID_SERIAL')
     if not serial:
         parser.error('Set ANDROID_SERIAL to the dedicated test emulator/device')
-    (ROOT / 'tmp').mkdir(exist_ok=True)
+    archive = Path(os.environ.get('GHOSTERM_LUA_ARCHIVE', '')).resolve()
+    if not archive.is_file():
+        parser.error('Set GHOSTERM_LUA_ARCHIVE to the pinned Lua source archive')
+    workspace_tmp = ROOT / 'tmp'
+    workspace_tmp.mkdir(exist_ok=True)
+    scratch = Path(os.environ.get('TMPDIR', str(workspace_tmp))).resolve()
+    if not scratch.is_relative_to(workspace_tmp) or not scratch.is_dir():
+        scratch = workspace_tmp
     sdk = ROOT / 'build/android-toolchain/sdk'
     jdk = ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'
-    os.environ.update(TMPDIR=str(ROOT / 'tmp'), JAVA_HOME=str(jdk), ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
-    os.environ['JAVA_TOOL_OPTIONS'] = os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -Djava.io.tmpdir=' + str(ROOT / 'tmp')
+    os.environ.update(TMPDIR=str(scratch), TMP=str(scratch), TEMP=str(scratch),
+                      JAVA_HOME=str(jdk), ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(sdk))
+    os.environ['JAVA_TOOL_OPTIONS'] = os.environ.get('JAVA_TOOL_OPTIONS', '') + ' -Djava.io.tmpdir=' + str(scratch)
     adb = [str(sdk / 'platform-tools/adb'), '-s', serial]
     helper.require(helper.run([*adb, 'get-state']))
     originals = {SOURCE / case[1]: (SOURCE / case[1]).read_bytes() for case in CASES}
@@ -57,7 +65,7 @@ def main():
             if hashlib.sha256(path.read_bytes()).digest() != hashlib.sha256(value).digest():
                 raise RuntimeError('Restored source SHA256 mismatch')
 
-    with tempfile.TemporaryDirectory(prefix='android-codex-review-mutations-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='agent-', dir=scratch) as temporary:
         work = Path(temporary)
 
         def run(label, command, seconds=120):
@@ -68,7 +76,8 @@ def main():
             return output
 
         def build(label):
-            run(label + '-build', [ROOT / 'android/gradlew', '-p', ROOT / 'android', '-PghostermPluginJs=true',
+            run(label + '-build', [ROOT / 'android/gradlew', '-p', ROOT / 'android', '-PghostermPluginLua=true',
+                f'-PghostermLuaArchive={archive}',
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
             for name in ('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk'):
                 run(label + '-install-' + Path(name).name, [*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / name])

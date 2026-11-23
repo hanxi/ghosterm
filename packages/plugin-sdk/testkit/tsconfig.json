@@ -1,4 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "include": ["../portable/**/*.ts", "./portable-session.ts", "./type-boundary.ts"]
-}

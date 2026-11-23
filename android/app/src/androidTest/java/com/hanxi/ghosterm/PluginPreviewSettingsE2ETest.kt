@@ -18,7 +18,6 @@ import com.hanxi.ghosterm.bridge.SSHAuthPhase
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,11 +30,12 @@ class PluginPreviewSettingsE2ETest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
-    private val fixture: JSONObject by lazy {
+    private val fixture: JSONObject by lazy { fixtureMessage() }
+    private fun fixtureMessage(command: String = ""): JSONObject {
         val args = InstrumentationRegistry.getArguments()
-        java.net.Socket("127.0.0.1", args.getString("fixturePort")!!.toInt()).use { socket ->
+        return java.net.Socket("127.0.0.1", args.getString("fixturePort")!!.toInt()).use { socket ->
             socket.soTimeout = 5000
-            socket.getOutputStream().write((args.getString("fixtureToken") + "\n").toByteArray())
+            socket.getOutputStream().write((args.getString("fixtureToken") + command + "\n").toByteArray())
             val stream = java.io.DataInputStream(socket.getInputStream())
             val size = stream.readInt()
             check(size in 1..1_048_576)
@@ -106,9 +106,21 @@ class PluginPreviewSettingsE2ETest {
     @Test fun realDirectPreviewReceiptAppearsInMainActivitySettings() = preview(null, hopCount = 1)
     @Test fun realDirectHtmlAppearsInMainActivitySettings() = preview(null, html = true, hopCount = 1)
     @Test fun realDirectUnicodeHtmlAppearsInMainActivitySettings() = preview(null, html = true, unicode = true, hopCount = 1)
+    @Test fun luaClientPublicationUsesApprovedWorkspaceAndRuntime() =
+        preview(null, hopCount = 1, clientPublication = true)
+    @Test fun luaClientPublicationRejectsLinkedWorkspace() =
+        preview(null, hopCount = 1, clientPublication = true, linkedWorkspace = true)
+    @Test fun luaDenialDoesNotActivateOnDirectSSH() = preview(null, hopCount = 1, denyConsent = true)
+    @Test fun luaDenialDoesNotActivateOnProxyJump() = preview(null, denyConsent = true)
+    @Test fun luaTmuxForegroundAttachmentOverDirectSSH() = preview(null, hopCount = 1, tmuxForeground = true)
+    @Test fun luaTmuxForegroundAttachmentOverProxyJump() = preview(null, tmuxForeground = true)
 
-    private fun preview(returnKeyboard: Boolean?, html: Boolean = false, unicode: Boolean = false, hopCount: Int = 2) {
-        assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
+    private fun preview(returnKeyboard: Boolean?, html: Boolean = false, unicode: Boolean = false, hopCount: Int = 2,
+                        clientPublication: Boolean = false, linkedWorkspace: Boolean = false, denyConsent: Boolean = false,
+                        tmuxForeground: Boolean = false) {
+        org.junit.Assume.assumeTrue("requires the owned Preview fixture",
+            InstrumentationRegistry.getArguments().containsKey("fixturePort"))
+        assertTrue(BuildConfig.PLUGIN_RUNTIME_ENABLED)
         val payload = fixture
         assertEquals("fixture format must match the requested scenario", if (unicode) "html-unicode" else if (html) "html" else "markdown", payload.getString("previewFormat"))
         val routeLabel = if (hopCount == 1) "direct" else "two-hop"
@@ -175,7 +187,15 @@ class PluginPreviewSettingsE2ETest {
         val sessions = ViewModelProvider(activity)[SessionsViewModel::class.java]
         val controller = checkNotNull(extensions.controller)
         val terminalProbe = PluginTerminalReturnProbe(ui)
+        val clientRoot = if (clientPublication) File(targetContext.cacheDir, "client-" + java.util.UUID.randomUUID()) else null
+        val clientFile = clientRoot?.resolve("client.txt")
+        val linkedRoot = clientRoot?.takeIf { linkedWorkspace }?.let { it.resolveSibling(it.name + "-link") }
         try {
+            clientRoot?.let {
+                check(it.mkdir())
+                clientFile!!.writeText("Client publication over Lua SSH")
+            }
+            if (linkedRoot != null) android.system.Os.symlink(checkNotNull(clientRoot).absolutePath, linkedRoot.absolutePath)
             val originalTerminal = returnKeyboard?.let {
                 terminalProbe.begin().also { terminalProbe.leaveToPlugins(returnKeyboard) }
             }
@@ -214,18 +234,41 @@ class PluginPreviewSettingsE2ETest {
                 !extensions.busy &&
                     extensions.entries.singleOrNull { it.review.id == "org.ghosterm.preview" }?.decision == "已批准（本进程）"
             }
+            if (returnKeyboard == false && originalTerminal != null) {
+                terminalProbe.returnFromPlugins(originalTerminal, false)
+                ui.onNodeWithTag("terminal-menu").performClick()
+                ui.onNodeWithTag("terminal-plugin-commands").performScrollTo().performClick()
+                ui.onNodeWithTag("terminal-plugin-command-preview").performClick()
+                ui.onNodeWithContentDescription("取消插件启动").performClick()
+                ui.onNodeWithText("关闭").performClick()
+                terminalProbe.assertReturned(originalTerminal, false)
+                terminalProbe.leaveToPlugins(false)
+            }
             val entry = main { extensions.entries.single { it.review.id == "org.ghosterm.preview" } }
             val review = entry.review
             val command = review.commands.single { it.path == "preview" }
+            val attachment = if (tmuxForeground) ExtensionRelayBootstrap.Attachment(
+                payload.getString("foregroundDirectory"), payload.getString("foregroundInstance"),
+                authorized = true, scopedFiles = true) else null
             val request = ExtensionRelayBootstrap.Request(
-                executable = payload.getString("previewGtermWrapper"), executorDirectory = payload.getString("previewPackageDirectory"),
+                executable = payload.getString("previewGtermWrapper"),
+                executorDirectory = if (attachment == null) payload.getString("previewPackageDirectory") else "",
                 executorDigest = digest, clientDigest = digest, methods = emptyList(), command = "preview",
                 arguments = listOf(documentPath, "--assets", assetPaths),
-                workspaceRootDirectory = payload.getString("previewWorkspace"))
+                workspaceRootDirectory = if (attachment == null) payload.getString("previewWorkspace") else null,
+                attachment = attachment)
 
             System.out.println("Preview launch id=${entry.review.id} digestMatches=${entry.review.digest == request.clientDigest} " +
                 "decision=${entry.decision} command=${command.path} args=${request.arguments.size}:${request.arguments.firstOrNull()}")
-            main { extensions.launch(entry, command, target, request, sessions) }
+            val clientWorkspace = (linkedRoot ?: clientRoot)?.let {
+                if (!linkedWorkspace) {
+                    val unapproved = ExtensionController.ClientWorkspace(it.absolutePath, authorized = false)
+                    assertTrue("Lua Client publication requires a workspace grant",
+                        runCatching { unapproved.validate(review.requiredCapabilities) }.exceptionOrNull() is IllegalArgumentException)
+                }
+                ExtensionController.ClientWorkspace(it.absolutePath, authorized = true)
+            }
+            main { extensions.launch(entry, command, target, request, sessions, clientWorkspace) }
             val authDeadline = SystemClock.elapsedRealtime() + 90_000
             var handledPrompt: Triple<Long, Int, SSHAuthPhase>? = null
             while (main { extensions.activeSession == null && extensions.error == null } &&
@@ -253,14 +296,48 @@ class PluginPreviewSettingsE2ETest {
                 "error=${main { extensions.error }}", main { extensions.activeSession })
             assertEquals("{\"assets\":\"$assetPaths\",\"maxBytes\":262144,\"path\":\"$documentPath\"}",
                 main { extensions.activeSession!!.decodedArguments })
+            val invocation = main { extensions.activeSession!!.invocationContext }
+            if (originalTerminal != null) {
+                assertEquals(originalTerminal.id.toString(), invocation?.workspaceID)
+                assertEquals(originalTerminal.id.toString(), invocation?.paneID)
+            }
+            assertNull(invocation?.directory)
             await("Settings page did not reach Session consent: session=${main { extensions.activeSession?.info }} " +
                 "error=${main { extensions.error }}") {
                 extensions.activeSession?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT
             }
             ui.onNodeWithTag("plugin-consent-remote-command")
                 .assertTextEquals(extensions.activeSession!!.remoteCommand)
-            ui.onNodeWithText("需要能力：resource.receive, file.readScoped").assertExists()
+            if (attachment != null) {
+                assertEquals(attachment, main { extensions.activeSession?.executorAttachment })
+                assertTrue(main { extensions.activeSession!!.remoteCommand.contains("'--attach'") })
+            }
+            val required = main { extensions.activeSession!!.requiredCapabilities }
+            assertEquals(setOf("session.rpc", "resource.receive", "file.readScoped"), required.toSet())
+            ui.onNodeWithText("需要能力：${required.joinToString()}").assertExists()
+            if (denyConsent) {
+                ui.onNodeWithTag("plugin-consent-deny").performClick()
+                await("Refused Lua Session did not end") {
+                    val phase = extensions.activeSession?.info?.phase
+                    phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED ||
+                        phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED
+                }
+                assertNull("Refused Lua Client must never activate", main { extensions.activeRuntime })
+                assertTrue(extensions.receivedResources.isEmpty())
+                assertNull(extensions.error)
+                ui.onNodeWithText("释放插件 Session").performScrollTo().performClick()
+                await("Refused Lua Session was not released") { extensions.activeSession == null }
+                assertNull(extensions.error)
+                return
+            }
             ui.onNodeWithText("允许并启动").performClick()
+            if (linkedWorkspace) {
+                await("Client workspace validation produced no outcome") {
+                    extensions.error != null || extensions.activeRuntime != null
+                }
+                assertNotNull("Lua Client publication must reject a linked workspace", main { extensions.error })
+                return
+            }
 
             val resourceDeadline = SystemClock.elapsedRealtime() + 60_000
             while (extensions.receivedResources.none { it.descriptor.displayName == documentPath } &&
@@ -278,6 +355,51 @@ class PluginPreviewSettingsE2ETest {
             assertEquals(if (html) "text/html" else "text/markdown", received.descriptor.mime)
             val image = extensions.receivedResources.single { it.descriptor.displayName == imagePath }
             assertEquals("image/png", image.descriptor.mime)
+            assertEquals("received PNG byte count", payload.getInt("previewImageBytes"), image.bytes.size)
+            val imageDigest = MessageDigest.getInstance("SHA-256").digest(image.bytes)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            assertEquals("received PNG digest", payload.getString("previewImageSHA256"), imageDigest)
+            if (payload.optBoolean("killActivePane")) {
+                val pending = runBlocking {
+                    controller.requestRuntimeExecutor("preview.open", """{"path":"pending","assets":"","maxBytes":3}""".toByteArray())
+                }
+                val handle = checkNotNull(pending.handle)
+                await("Lua executor did not publish pending readiness") {
+                    extensions.receivedResources.any { it.descriptor.displayName == "pending.bin" }
+                }
+                assertTrue(fixtureMessage(" kill-active").getBoolean("closed"))
+                await("Disconnected Preview Runtime did not fail") {
+                    extensions.activeRuntime?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED
+                }
+                val result = runBlocking { controller.runtimeExecutorRequestResult(handle) }.second
+                assertEquals(com.hanxi.ghosterm.bridge.ExtensionSession.RPCState.UNKNOWN, result?.state)
+                assertFalse(checkNotNull(result).confirmed)
+                runBlocking { controller.forgetRuntimeExecutorRequest(handle) }
+                ui.onNodeWithText("释放插件资源").performScrollTo().performClick()
+                await("Disconnected Preview owner was not released") { extensions.activeRuntime == null && extensions.activeSession == null }
+                return
+            }
+            if (clientPublication) {
+                val active = checkNotNull(main { extensions.activeRuntime })
+                val path = checkNotNull(clientFile).name
+                val stale = runBlocking {
+                    runCatching { controller.publishClientResource(java.util.UUID.randomUUID().toString(), path) }
+                }
+                assertTrue("Lua Client publication must reject a stale Runtime identity", stale.exceptionOrNull() is IllegalStateException)
+                val publication = runBlocking {
+                    var state = controller.publishClientResource(active.instanceID, path)
+                    val deadline = SystemClock.elapsedRealtime() + 10_000
+                    while (state.publication?.confirmed != true && SystemClock.elapsedRealtime() < deadline) {
+                        kotlinx.coroutines.delay(20)
+                        state = controller.stepRuntime()
+                    }
+                    state.publication
+                }
+                assertTrue("Lua Executor must confirm the Native Client resource", publication?.confirmed == true)
+                val digest = MessageDigest.getInstance("SHA-256").digest(clientFile.readBytes())
+                    .joinToString("") { "%02x".format(it.toInt() and 255) }
+                assertEquals(digest, publication?.sha256)
+            }
             ui.onNodeWithTag("plugin-runtime-state").assertExists()
             ui.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").performScrollTo().assertExists()
             if (html) {
@@ -353,6 +475,9 @@ class PluginPreviewSettingsE2ETest {
             terminalProbe.close()
             var closeFailure: Throwable? = null
             try { runBlocking { controller.close() } } catch (failure: Throwable) { closeFailure = failure }
+            linkedRoot?.delete()
+            clientFile?.delete()
+            clientRoot?.delete()
             if (originalKnownHosts == null) knownHosts.delete() else knownHosts.writeBytes(originalKnownHosts)
             targetContext.contentResolver.call(providerUri, "cleanup", null, Bundle().apply {
                 putString("uri", treeUri.toString()); putInt("flags", grantFlags)

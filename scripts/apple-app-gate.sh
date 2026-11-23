@@ -39,19 +39,19 @@ fi
 echo "== 0/4 C ABI 绑定对拍（Apple 侧引用 ↔ 头文件声明） =="
 bash "$ROOT/scripts/check-abi-apple.sh" || exit $?
 
-PLUGIN_JS_PROFILE=0
+PLUGIN_LUA_PROFILE=0
 if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
   if [ ! -x "$GHOSTERM_TEST_GTERM" ]; then
     echo "apple-app-gate: GHOSTERM_TEST_GTERM is not executable" >&2; exit 2
   fi
-  PLUGIN_JS_PROFILE=1
+  PLUGIN_LUA_PROFILE=1
 fi
-# SwiftPM resolves QuickJS linkage during test discovery and compilation.
-export GHOSTERM_CORE_TEST_PLUGIN_JS="$PLUGIN_JS_PROFILE"
+# SwiftPM resolves Lua linkage during test discovery and compilation.
+export GHOSTERM_CORE_TEST_PLUGIN_LUA="$PLUGIN_LUA_PROFILE"
 
 echo "== 构建 C 核心（宿主经 GhostermCore 链接它） =="
-if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
-  GHOSTERM_BUILD_PLUGIN_JS=1 bash "$ROOT/scripts/build-core.sh" >"$TMP/apple-app-core.log" 2>&1 || {
+if [ "$PLUGIN_LUA_PROFILE" = 1 ]; then
+  GHOSTERM_BUILD_PLUGIN_LUA=1 bash "$ROOT/scripts/build-core.sh" >"$TMP/apple-app-core.log" 2>&1 || {
     tail -20 "$TMP/apple-app-core.log" >&2; exit 1
   }
 else
@@ -81,9 +81,9 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The QuickJS core profile omits C test targets. Build the standalone child
+# The Lua core profile omits C test targets. Build the standalone child
 # used by the Swift local process tests.
-if [ "$PLUGIN_JS_PROFILE" = 1 ] && [ -z "${GHOSTERM_PROCESS_CHANNEL_CHILD:-}" ]; then
+if [ "$PLUGIN_LUA_PROFILE" = 1 ] && [ -z "${GHOSTERM_PROCESS_CHANNEL_CHILD:-}" ]; then
   PROCESS_FIXTURE="$(mktemp -d "$TMP/apple-app-child-XXXXXX")"
   PROCESS_FIXTURE="$(cd "$PROCESS_FIXTURE" && pwd)"
   export GHOSTERM_PROCESS_CHANNEL_CHILD="$PROCESS_FIXTURE/process-channel-child"
@@ -162,17 +162,24 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
       ENVARGS+=(GHOSTERM_SSH_JUMP_HOST=127.0.0.1 GHOSTERM_SSH_JUMP_PORT="$JUMP_PORT")
       echo "== Owned SSH jump fixture: 127.0.0.1:${JUMP_PORT} -> 127.0.0.1:${PORT} =="
     fi
-    if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
-      ENVARGS+=(GHOSTERM_CORE_TEST_PLUGIN_JS=1)
+    if [ "$PLUGIN_LUA_PROFILE" = 1 ]; then
+      ENVARGS+=(GHOSTERM_CORE_TEST_PLUGIN_LUA=1)
     fi
     if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
       ENVARGS+=(GHOSTERM_TEST_GTERM="$GHOSTERM_TEST_GTERM")
     fi
     if [ -n "${GHOSTERM_TEST_GTERM:-}" ] &&
        { [ -z "${GHOSTERM_APP_TEST_FILTER:-}" ] ||
-         [[ "$GHOSTERM_APP_TEST_FILTER" == *testAppModelReceivesScopedResourceFromRemoteGterm* ]]; }; then
-      HTML_CAPTURE="$WORK/html-preview-capture"
-      ENVARGS+=(GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE")
+         [[ "$GHOSTERM_APP_TEST_FILTER" == *testAppModelReceivesScopedResourceFromRemoteGterm* ||
+            "$GHOSTERM_APP_TEST_FILTER" == *PluginPaneFlowTests* ]]; }; then
+      PREVIEW_PACKAGE="$WORK/preview-package"
+      python3 -B "$ROOT/scripts/gterm-plugin" build "$ROOT/plugins/official/preview" --out "$PREVIEW_PACKAGE" || exit $?
+      ENVARGS+=(GHOSTERM_TEST_LUA_PREVIEW_PACKAGE="$PREVIEW_PACKAGE")
+      if [ -z "${GHOSTERM_APP_TEST_FILTER:-}" ] ||
+         [[ "$GHOSTERM_APP_TEST_FILTER" == *testAppModelReceivesScopedResourceFromRemoteGterm* ]]; then
+        HTML_CAPTURE="$WORK/html-preview-capture"
+        ENVARGS+=(GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE")
+      fi
     fi
     echo "== SSH e2e：真 sshd 已在 127.0.0.1:$PORT =="
   else
@@ -192,8 +199,12 @@ echo "== 3/3 GhostermApp 构建 + 测试 =="
 (
   cd "$PKG"
   : >"$TMP/apple-app-test.log"
+  SWIFT_FLAGS=()
+  if [ "$PKG" != "$ROOT/apple/GhostermApp" ]; then
+    SWIFT_FLAGS=(--cache-path "$TMP/swift-cache" --disable-keychain --disable-netrc)
+  fi
   SUITES=()
-  if ! DISCOVERED_TESTS=$(gt_timeout 300 swift test --list-tests 2>>"$TMP/apple-app-test.log"); then
+  if ! DISCOVERED_TESTS=$(gt_timeout 300 swift test ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} --list-tests 2>>"$TMP/apple-app-test.log"); then
     echo "apple-app-gate: Swift 测试发现失败" >&2
     exit 1
   fi
@@ -211,7 +222,7 @@ echo "== 3/3 GhostermApp 构建 + 测试 =="
       printf '%s\n' "$DISCOVERED_TESTS" | sed -nE 's#^([A-Za-z0-9_]+\.[A-Za-z0-9_]+)/.*#\1#p' | sort -u
     fi)
   [ "${#SUITES[@]}" -gt 0 ] || { echo "apple-app-gate: 未发现 Swift 测试套件" >&2; exit 1; }
-  swift build --build-tests --enable-xctest --enable-swift-testing >/dev/null
+  swift build ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} --build-tests --enable-xctest --enable-swift-testing >/dev/null
   TEST_BUNDLE="$(find .build -name '*.xctest' -print -quit)"
   [ -d "$TEST_BUNDLE" ] || { echo "apple-app-gate: 测试包不存在: $TEST_BUNDLE" >&2; exit 1; }
   # AppKit view tests can inherit a stale SwiftPM/XCTest process state after
@@ -230,8 +241,9 @@ echo "== 3/3 GhostermApp 构建 + 测试 =="
       -u GHOSTERM_SSH_HOST -u GHOSTERM_SSH_PORT -u GHOSTERM_SSH_USER \
       -u GHOSTERM_SSH_KEY -u GHOSTERM_SSH_KNOWN_HOSTS \
       -u GHOSTERM_SSH_JUMP_HOST -u GHOSTERM_SSH_JUMP_PORT \
-      -u GHOSTERM_TEST_GTERM -u GHOSTERM_CORE_TEST_PLUGIN_JS \
+      -u GHOSTERM_TEST_GTERM -u GHOSTERM_CORE_TEST_PLUGIN_LUA \
       -u GHOSTERM_TEST_KEYCHAIN_OWNED_REFERENCE -u GHOSTERM_HTML_PROBE_CAPTURE \
+      -u GHOSTERM_TEST_LUA_PREVIEW_PACKAGE \
       ${ENVARGS[@]+"${ENVARGS[@]}"} \
       GHOSTERM_AUTOMATION_OFFSCREEN=1 xcrun xctest -XCTest "$suite" "$TEST_BUNDLE" \
       >>"$TMP/apple-app-test.log" 2>&1 || {
@@ -264,7 +276,7 @@ if [ -n "$HTML_CAPTURE" ]; then
     fi
   done
   GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE" bash "$ROOT/scripts/test-plugin-html-webkit.sh" || exit $?
-else
+elif [ -z "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
   bash "$ROOT/scripts/test-plugin-html-webkit.sh" || exit $?
 fi
 

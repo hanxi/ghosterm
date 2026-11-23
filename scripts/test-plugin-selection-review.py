@@ -62,13 +62,13 @@ def compile_native(package, work, label, baseline=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mutate', action='store_true'); parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build', help='use a separate QuickJS-disabled Core build')
+    parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build', help='use a separate Lua-disabled Core build')
     args = parser.parse_args()
     base.TMP.mkdir(exist_ok=True); out = args.out.resolve(); assert base.TMP in out.parents
     core_build = args.core_build.resolve(strict=True)
     if core_build != ROOT / 'core/build' and not core_build.is_relative_to(base.TMP.resolve()):
         parser.error('--core-build must be the workspace build or an owned build under tmp/')
-    assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' in (core_build / 'CMakeCache.txt').read_text()
+    assert 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=OFF' in (core_build / 'CMakeCache.txt').read_text()
     inputs = {str(p.relative_to(ROOT)): base.sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'scripts']
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in p.parts for part in ['.build', '.swiftpm', '__pycache__'])}
     tools = [Path(subprocess.check_output(['/usr/bin/xcrun', '--find', 'xctest'], env=base.environment(), text=True).strip()),

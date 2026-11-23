@@ -14,7 +14,7 @@ final class PluginSelectionReviewUITests: XCTestCase {
         let input = URL(fileURLWithPath: path), root = sessionTestDirectory().appendingPathComponent("selection-ui-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         addTeardownBlock { try PluginReleaseInstallTests.thaw(root) }
-        let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
+        let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
         addTeardownBlock { let done = await controller.close(); XCTAssertTrue(done) }
         var versions: [ExtensionController.InstalledRelease] = []
         for url in [input, input.appendingPathComponent("upgrade")] {
@@ -64,7 +64,8 @@ final class PluginSelectionReviewUITests: XCTestCase {
         XCTAssertFalse(try enabled("plugin-selection-confirm"))
         let before = try await controller.installedVersions(); XCTAssertEqual(before.selections.first?.releaseID, versions[0].signature.descriptorSHA256)
         let words = PluginTableRendering.elements(pane).flatMap { node in ["accessibilityValue", "accessibilityLabel"].compactMap { PluginTableRendering.attribute(node, $0) } }.joined(separator: "\n")
-        XCTAssertTrue(words.contains("Review changed declaration before a version switch."))
+        XCTAssertTrue(words.contains("process.spawn") && words.contains("preview-review"))
+        XCTAssertTrue(words.contains("file.readScoped"))
         try press("plugin-selection-acknowledge"); try press("plugin-selection-cancel")
         guard try await until({ node("plugin-selection-confirm") == nil && (try? enabled(button)) == true }) else { XCTFail("cancel did not finish releasing comparison"); return }
         XCTAssertTrue(changed.isEmpty)

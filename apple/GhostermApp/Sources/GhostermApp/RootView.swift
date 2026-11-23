@@ -40,6 +40,7 @@ struct RootView: View {
     }
     @State private var editError: String?
     @State private var panel: WindowPanel?
+    @State private var pluginWorkspaceID: UUID?
     @State private var pendingConnection: ConnectionRequest?
     init(model: AppModel) {
         self.model = model
@@ -100,6 +101,8 @@ struct RootView: View {
                 }, manageHosts: { panel = .hosts })
             case .hosts:
                 HostManagerView(model: model)
+            case .plugins:
+                PluginCommandPalette(model: model, workspaceID: pluginWorkspaceID) { panel = nil }
             case .tabs:
                 TabSearchView(tabs: tabs, select: { id in
                     guard let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
@@ -119,6 +122,22 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghostermSearchTabs)) { _ in
             guard model.tmuxChooser == nil else { return }
             panel = .tabs
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghostermPluginCommands, object: model)) { _ in
+            guard model.tmuxChooser == nil, panel == nil else { return }
+            pluginWorkspaceID = tabs.activeTab?.id
+            panel = .plugins
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghostermPluginShortcut, object: model)) { _ in
+            guard model.tmuxChooser == nil, panel == nil else { return }
+            let workspace = tabs.activeTab?.id
+            Task { @MainActor in
+                let invoked = await model.invokeExtensionShortcut(workspaceID: workspace)
+                if !invoked, panel == nil, tabs.activeTab?.id == workspace {
+                    pluginWorkspaceID = workspace
+                    panel = .plugins
+                }
+            }
         }
         // 设置：**独立窗口**（⌘, 或主菜单），不是 sheet——理由见
         // SettingsWindow 的说明。菜单与界面都只发意图，窗口的开关归这里。
@@ -190,7 +209,7 @@ struct RootView: View {
 }
 
 private enum WindowPanel: String, Identifiable {
-    case chooser, hosts, tabs
+    case chooser, hosts, tabs, plugins
     var id: Self { self }
 }
 

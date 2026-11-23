@@ -22,7 +22,7 @@ GitHub 线上仅有 `dev` 预发布。两端已发布资产各自通过签名与
 - iOS、Windows、Linux、HarmonyOS、Web 原生客户端尚未交付。落地页是产品介绍网站，不是 Web 终端。
 - 默认普通终端，远端主机统一面板可自动查询 tmux，普通终端无需等待；创建/attach 仍由用户显式选择。本地默认和普通终端快捷入口不探测。自有 sessiond、私有恢复协议及随包 runtime 已退役。
 - 非插件后续源码：Android 已有固定会话按钮/同窗口覆盖面板与切换保持 IME（§9.207–§9.208）、字形裁切/半圆接缝（§9.209/§9.212–§9.213）；两端 ProxyJump 已接普通终端/SFTP/tmux（§9.214）。macOS 已接用户选择下载/重启的 Sparkle/Ed25519 更新与清单/渠道校验，见[更新说明](../how-to/macos-updates.md)。这些本地实现与专项不更新上方历史发行快照。
-- 插件源码候选 `560e85ac` 已接共享 C 通道、Portable／Node／Exec、原生预览和标准视图、签名安装、版本选择、撤销与回滚。gterm 支持显式 relay、IPC 和开发包命令入口。普通 App 默认关闭 QuickJS。系统选包、VoiceOver 和生产发行仍待验，Claude 与 Codex 真实后端联调按用户安排暂缓。具体范围见[插件计划](plan-plugin-bridge.md)。
+- 插件候选已切换至 Lua 5.5.1。九个官方包可从 Lua 声明构建、签名与校验。Preview 已通过本机、SSH 多跳资源链路和两端原生专项。macOS 已取得 Table、Diff、Task、Form 和 Views 的专项证据。普通 App 默认关闭插件运行时。Android 矩阵、剩余脚本清理、真实 AI 后端及生产发行分别跟踪。详见[插件计划](plan-plugin-bridge.md)。
 
 详细平台差异见[能力矩阵](capability-matrix.md)。
 

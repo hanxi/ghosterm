@@ -148,22 +148,6 @@ def authorize(api, trusted, keys, release):
     return key
 
 
-def verify_signature(api, work, key, payload, signature, *, kind='release'):
-    api.require(len(payload) <= 65536 and len(signature) == 64, 'RELEASE_SIGNATURE_SIZE')
-    request = work / 'crypto-request.json'
-    request.write_bytes(api.encoded(dict(kind=kind, publicKey=key['publicKey'], payload=base64.b64encode(payload).decode(),
-                                        signature=base64.b64encode(signature).decode())))
-    result = api.decode(api.run(['node', api.ROOT / 'scripts/plugin-release-crypto.mjs', request], 10))
-    api.require(isinstance(result, dict) and set(result) == {'valid'} and result['valid'] is True, 'RELEASE_SIGNATURE', 6)
-
-
-def schema_check(api, work, tools, trusted, release=None):
-    request = work / 'schema-request.json'
-    request.write_bytes(api.encoded(dict(tools=str(tools), policy=trusted, descriptor=release)))
-    result = api.decode(api.run(['node', api.ROOT / 'scripts/plugin-release-schemas.mjs', request], 10))
-    api.require(isinstance(result, dict) and set(result) == {'valid'} and result['valid'] is True, 'RELEASE_SCHEMA')
-
-
 def unpack(api, archive, destination, size):
     """ZIP32, no extras/descriptors/gaps; stored and raw DEFLATE are bounded.
 
@@ -251,10 +235,10 @@ def signer(api, work, config, message):
     api.require(isinstance(names, list) and len(names) <= 32 and all(isinstance(n, str) and re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,63}', n) for n in names) and
                 len(names) == len(set(names)) and all(n in os.environ for n in names), 'RELEASE_SIGNER_ENVIRONMENT')
     environment = {name: os.environ[name] for name in names}
-    environment['TMPDIR'] = str(api.TMP)
+    environment['TMPDIR'] = str(api.scratch_root())
     # Resolve the shared host timeout before dropping the caller environment.
-    timeout = api.run(['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-release; command -v "$gt_timeout_bin"',
-                       'plugin-release', api.ROOT], 5).decode().strip()
+    timeout = api.run(['bash', '-c', '. "$1/lib/gt-timeout.sh"; gt_timeout_require plugin-release; command -v "$gt_timeout_bin"',
+                       'plugin-release', api.TOOLS], 5).decode().strip()
     api.require(Path(timeout).is_absolute(), 'RELEASE_TIMEOUT_TOOL')
     command = [timeout, '--kill-after=3', '15', str(executable), *arguments]
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -338,10 +322,10 @@ def sign_channel_policy(args, api):
     statement = dict(schemaVersion=1, channel=args.channel, generation=args.generation,
                      issuedAt=args.issued_at, expiresAt=args.expires_at, policySHA256=api.sha(policy_bytes))
     payload = api.encoded(statement) + b'\n'
-    with tempfile.TemporaryDirectory(prefix='channel-sign-', dir=api.TMP) as temporary:
+    with tempfile.TemporaryDirectory(prefix='channel-sign-', dir=api.scratch_root()) as temporary:
         work = Path(temporary)
         signature = signer(api, work, api.read_json(args.signer_json), CHANNEL_DOMAIN + payload)
-        verify_signature(api, work, {'publicKey': args.channel_root}, payload, signature, kind='channel-policy')
+        verify_signature(api, work, {'publicKey': args.channel_root}, payload, signature, domain=CHANNEL_DOMAIN)
         output = work / 'channel'
         output.mkdir()
         (output / 'channel-policy.json').write_bytes(payload)
@@ -372,9 +356,9 @@ def check_channel_statement(api, channel, channel_root, statement_path, signatur
     generation = positive_decimal(api, statement['generation'])
     issued = positive_decimal(api, statement['issuedAt'])
     expires = positive_decimal(api, statement['expiresAt'])
-    with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.TMP) as temporary:
+    with tempfile.TemporaryDirectory(prefix='channel-policy-', dir=api.scratch_root()) as temporary:
         verify_signature(api, Path(temporary), {'publicKey': channel_root}, statement_bytes, signature,
-                         kind='channel-policy')
+                         domain=CHANNEL_DOMAIN)
     api.require(api.sha(root) not in {key['id'] for key in trusted['keys']}, 'CHANNEL_ROOT_IS_PUBLISHER', 6)
     api.require(statement['channel'] == trusted['channel'] == channel, 'RELEASE_CHANNEL_MISMATCH', 6)
     api.require(digest_value(api, statement['policySHA256']) == api.sha(policy_bytes), 'CHANNEL_POLICY_DIGEST', 6)
@@ -422,10 +406,55 @@ def record_channel_policy(api, path, channel, root, generation, digest, issued, 
         raise api.Failure('CHANNEL_POLICY_STATE', 6) from error
 
 
+def verify_signature(api, work, key, payload, signature, *, domain=DOMAIN):
+    api.require(len(payload) <= 65536 and len(signature) == 64, 'RELEASE_SIGNATURE_SIZE')
+    # RFC 8410 SubjectPublicKeyInfo for a raw Ed25519 public key.
+    public = work / 'release-public.der'
+    message = work / 'release-message'
+    signed = work / 'release-signature'
+    public.write_bytes(bytes.fromhex('302a300506032b6570032100') + public_key(api, key['publicKey']))
+    message.write_bytes(domain + payload)
+    signed.write_bytes(signature)
+    result = subprocess.run(
+        ['openssl', 'pkeyutl', '-verify', '-pubin', '-keyform', 'DER', '-inkey', str(public),
+         '-rawin', '-in', str(message), '-sigfile', str(signed)],
+        cwd=work, capture_output=True, timeout=10,
+    )
+    api.require(result.returncode == 0, 'RELEASE_SIGNATURE', 6)
+
+
+def checked_lua_archive(api, package, host):
+    from plugin_lua_manifest import release_manifest
+
+    files = {p.relative_to(package).as_posix(): p.read_bytes()
+             for p in package.rglob('*') if p.is_file()}
+    api.require({'main.lua', 'manifest.json', 'integrity.json'} <= files.keys(), 'LUA_PACKAGE')
+    metadata, members = release_manifest(files['main.lua'], files, api.member)
+    manifest = files['manifest.json']
+    api.require(api.decode(manifest) == metadata, 'LUA_RELEASE_MANIFEST')
+    included = set(members) | {'manifest.json'}
+    api.require(files.keys() == included | {'integrity.json'}, 'LUA_RELEASE_MEMBERS')
+    integrity = dict(schemaVersion=1, members=[
+        dict(path=path, bytes=len(files[path]), sha256=api.sha(files[path]))
+        for path in sorted(included)
+    ])
+    api.require(public_json(api, files['integrity.json']) == integrity, 'LUA_RELEASE_INTEGRITY')
+    if host is None:
+        return metadata, 'unknown'
+    side = host.get('side') if isinstance(host, dict) else None
+    role = metadata.get(side) if isinstance(side, str) else None
+    api.require(side in {'client', 'executor'} and isinstance(role, dict) and
+                host.get('sdkVersion') == '1.0.0' and isinstance(host.get('protocols'), list) and
+                1 in host['protocols'] and isinstance(host.get('runtimes'), list) and
+                'lua' in host['runtimes'] and isinstance(host.get('capabilities'), list) and
+                all(capability in host['capabilities'] for capability in role['requires']),
+                'RELEASE_HOST_INCOMPATIBLE', 4)
+    return metadata, 'compatible'
+
+
 def checked_release(args, api):
     if args.release_action == 'sign':
         api.require(not args.out.exists() and not args.out.is_symlink(), 'OUTPUT_EXISTS')
-    tools = api.tools_path(args.tools)
     policy_bytes = stable_file(api, args.policy, 131072)
     trusted = public_json(api, policy_bytes)
     keys = policy(api, trusted)
@@ -436,33 +465,28 @@ def checked_release(args, api):
             api.require(all(value is not None for value in statement_args), 'CHANNEL_POLICY_OPTIONS')
             channel_statement = statement_args
     channel_receipt = check_channel_statement(api, *channel_statement, trusted, policy_bytes) if channel_statement else None
-    with tempfile.TemporaryDirectory(prefix='plugin-release-', dir=api.TMP) as temporary:
+    with tempfile.TemporaryDirectory(prefix='plugin-release-', dir=api.scratch_root()) as temporary:
         work = Path(temporary)
         archive = work / 'plugin.zip'
         size, digest = stable_file(api, args.artifact, ARCHIVE_LIMIT, archive)
-        schema_check(api, work, tools, trusted)
         host = api.read_json(args.host_json) if args.host_json else None
         payload = signature = release = key = None
         if args.release_action == 'verify':
             payload = stable_file(api, args.descriptor, 65536)
             release = descriptor(api, public_json(api, payload))
-            schema_check(api, work, tools, trusted, release)
             key = authorize(api, trusted, keys, release)
             signature = stable_file(api, args.signature, 64)
             verify_signature(api, work, key, payload, signature)
             api.require((release['artifact']['bytes'], release['artifact']['sha256']) == (size, digest), 'RELEASE_ARTIFACT_MISMATCH', 6)
         package = work / 'package'
         unpack(api, archive, package, size)
-        report = api.worker(work, tools, package, host=host)
-        api.require(host is None or report.get('exitCode', 0) == 0, 'RELEASE_HOST_INCOMPATIBLE', 4)
-        manifest = api.decode((package / 'plugin.json').read_bytes())
+        manifest, compatibility = checked_lua_archive(api, package, host)
         identity = dict(pluginId=manifest['id'], pluginVersion=manifest['pluginVersion'], publisher=manifest['publisher'],
                         packageSHA256=api.sha((package / 'integrity.json').read_bytes()))
         if args.release_action == 'sign':
             release = dict(schemaVersion=1, channel=trusted['channel'], keyId=args.key_id, **identity,
                            artifact=dict(format='zip-v1', bytes=size, sha256=digest))
             descriptor(api, release)
-            schema_check(api, work, tools, trusted, release)
             key = authorize(api, trusted, keys, release)
             payload = api.encoded(release) + b'\n'
             signature = signer(api, work, api.read_json(args.signer_json), DOMAIN + payload)
@@ -480,7 +504,7 @@ def checked_release(args, api):
                     channel=release['channel'], keyId=release['keyId'], **identity,
                     artifactSHA256=digest, artifactBytes=size, publisherAuthenticated=True,
                     policySHA256=api.sha(policy_bytes), trustSource='explicit-policy-snapshot',
-                    authorization='not-granted', installation=False, compatibility=report['compatibility'])
+                    authorization='not-granted', installation=False, compatibility=compatibility)
         if channel_receipt is not None:
             # Archive validation can take long enough to cross the expiry or
             # for another process to commit a newer signed statement.

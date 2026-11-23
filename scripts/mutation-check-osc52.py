@@ -70,6 +70,10 @@ def verify(parser, args, work, owned_serial=None):
 
     apple_discovery = args.platform == 'apple' and any(case in DISCOVERY_CASES for case in (args.case or ()))
     if apple_discovery:
+        archive_path = env.get('GHOSTERM_LUA_ARCHIVE')
+        if not archive_path or not Path(archive_path).is_file():
+            parser.error('Apple discovery cases require GHOSTERM_LUA_ARCHIVE pointing to the pinned Lua archive')
+        lua_archive = Path(archive_path).resolve(strict=True)
         for directory in ('GhostermApp', 'GhostermCore', 'GhostermTerminal'):
             shutil.copytree(ROOT / 'apple' / directory, work / 'apple' / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -78,7 +82,9 @@ def verify(parser, args, work, owned_serial=None):
         (work / 'core').mkdir()
         (work / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
         (work / 'tmp').mkdir()
-        env.update(DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+        core_build = work / 'core/build'
+        env.update(DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
+                   GHOSTERM_CORE_TEST_PLUGIN_LUA='1', GHOSTERM_CORE_BUILD_DIR=str(core_build))
         cases = {
             'discovery-feed': ('SessionController.swift',
                 'try bytes.withUnsafeBytes { try observer.feed($0, now:',
@@ -109,15 +115,17 @@ def verify(parser, args, work, owned_serial=None):
         source_root = Path('apple/GhostermApp/Sources/GhostermAppModel')
         def build(label):
             if label != 'baseline': return
-            directory = work / 'core/build'
-            for command in (['cmake', '-S', str(ROOT / 'core'), '-B', str(directory), '-DGHOSTERM_BUILD_TESTS=OFF',
-                             '-DGHOSTERM_WITH_PLUGIN_JS=ON', '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0'],
-                            ['cmake', '--build', str(directory), '--target', 'ghosterm_core', '-j', '8']):
+            for command in (['cmake', '-S', str(ROOT / 'core'), '-B', str(core_build), '-DGHOSTERM_BUILD_TESTS=OFF',
+                             '-DGHOSTERM_WITH_PLUGIN_LUA=ON', '-DGHOSTERM_LUA_ARCHIVE=' + str(lua_archive),
+                             '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0'],
+                            ['cmake', '--build', str(core_build), '--target', 'ghosterm_core', '-j', '8']):
                 result = run(command, 'core-' + command[1].lstrip('-'), env)
                 if result.returncode: raise RuntimeError(result.stdout[-12000:])
         def probe(test, label, red=False, assertion_message=None):
             name = 'HostListTests.testReadingDoesNotMutateConfig' if test == 'control' else 'DefaultSessionTests.' + test
-            result = run(['xcrun', 'swift', 'test', '--package-path', work / 'apple/GhostermApp', '--filter', name], label, env)
+            result = run(['xcrun', 'swift', 'test', '--package-path', work / 'apple/GhostermApp',
+                          '--cache-path', work / 'swift-cache', '--disable-keychain', '--disable-netrc',
+                          '--filter', name], label, env)
             text = result.stdout
             success = result.returncode == 0 and 'Executed 1 test, with 0 failures' in text and 'skipped' not in text.lower()
             assertion = (result.returncode == 1 and 'Build complete!' in text and
@@ -214,7 +222,7 @@ def verify(parser, args, work, owned_serial=None):
                 env.update(ANDROID_HOME=str(sdk / 'sdk'), GRADLE_USER_HOME=str(sdk / 'gradle-home'),
                     JAVA_HOME=str(sdk / 'jdk-17.0.21+9/Contents/Home'), JAVA_TOOL_OPTIONS=f'-Djava.io.tmpdir={work}')
                 command = [str(project / 'android/gradlew'), '-p', str(project / 'android'),
-                    '--offline', '--no-daemon', '--max-workers=2', '-PghostermPluginJs=true']
+                    '--offline', '--no-daemon', '--max-workers=2', '-PghostermPluginLua=true', '-PghostermLuaArchive=' + str(Path(os.environ['GHOSTERM_LUA_ARCHIVE']).resolve(strict=True))]
             result = run([*command, ':app:assembleDebug', ':app:assembleDebugAndroidTest'], label+'-build', env)
             if result.returncode:
                 raise RuntimeError(label + ': compile failed; not an assertion red\n' + result.stdout[-12000:])

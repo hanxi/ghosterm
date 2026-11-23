@@ -72,9 +72,9 @@ int main(int argc, char **argv) {
     }
     table_check(info.phase == GT_EXT_PACKAGE_CAPTURED, "table fixed bytes captured");
     const char *executor = "{\"side\":\"executor\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],"
-                           "\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
+                           "\"runtimes\":[\"lua\"],\"capabilities\":[\"session.rpc\"]}";
     const char *host = "{\"side\":\"client\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],"
-                       "\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
+                       "\"runtimes\":[\"lua\"],\"capabilities\":[\"session.rpc\"]}";
     gt_ext_package_check_config_t facts = {.host_json = client ? host : executor};
     gt_ext_package_phase_t checked = gt_ext_package_check(package, &facts);
     if (client) {

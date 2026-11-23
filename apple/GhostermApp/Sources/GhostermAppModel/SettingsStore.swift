@@ -274,6 +274,7 @@ public struct AppPreferences {
         case rememberDirectories = "Ghosterm.rememberDirectories"
         case lockTabsOnLaunch = "Ghosterm.lockTabsOnLaunch"
         case tabPlacement = "Ghosterm.tabPlacement"
+        case pluginCommandShortcut = "Ghosterm.pluginCommandShortcut"
     }
 
     private let defaults: UserDefaults
@@ -283,6 +284,11 @@ public struct AppPreferences {
     public var tabPlacement: TabPlacement {
         get { defaults.string(forKey: Key.tabPlacement.rawValue).flatMap(TabPlacement.init(rawValue:)) ?? .sidebar }
         set { defaults.set(newValue.rawValue, forKey: Key.tabPlacement.rawValue) }
+    }
+
+    var pluginCommandShortcut: [String]? {
+        get { defaults.stringArray(forKey: Key.pluginCommandShortcut.rawValue) }
+        set { defaults.set(newValue, forKey: Key.pluginCommandShortcut.rawValue) }
     }
 
     /// 启动时是否新建一个本地 shell（关掉就是空窗口等用户操作，

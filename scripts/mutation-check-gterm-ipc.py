@@ -55,13 +55,16 @@ def main():
         if set(args.group)-{label for label,_,_ in cases}:raise RuntimeError('Unknown IPC mutation group')
         cases=[case for case in cases if case[0] in args.group]
     inputs={str(p.relative_to(ROOT)):sha(p) for folder in ['cli/gterm','core/src','core/include'] for p in (ROOT/folder).rglob('*') if p.is_file()}
-    for p in [Path(__file__),ROOT/'scripts/test-gterm-ipc.py',ROOT/'scripts/test-gterm.py']:inputs[str(p.relative_to(ROOT))]=sha(p)
+    for p in [Path(__file__), ROOT/'scripts/test-gterm-ipc.py', ROOT/'scripts/test-gterm-stdio.py',
+              ROOT/'scripts/test-gterm.py']:inputs[str(p.relative_to(ROOT))]=sha(p)
     archive=build/'core/libghosterm_core.a';archive_digest=sha(archive)
-    with tempfile.TemporaryDirectory(prefix='gterm-ipc-mutations-',dir=ROOT/'tmp') as temporary:
+    scratch = os.environ['TMPDIR']
+    with tempfile.TemporaryDirectory(prefix='ipc-', dir=scratch) as temporary:
         work=Path(temporary);source=work/'source';shutil.copytree(ROOT/'cli/gterm',source)
         binary=work/'bin';binary.mkdir();logs=work/'logs';logs.mkdir()
         (binary/'test_gterm_stdio').symlink_to(build/'test_gterm_stdio')
-        env={**os.environ,'TMPDIR':str(ROOT/'tmp'),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
+        env={**os.environ,'TMPDIR':scratch,'TMP':scratch,'TEMP':scratch,
+             'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
         def run(label,command,red=False):
             # Keep timeout and its children in the private group created below;
             # timeout's default extra group would escape cancellation cleanup.
@@ -84,7 +87,10 @@ def main():
             elif p.returncode:raise RuntimeError(label+'\n'+output)
             return output
         compiler=shlex.split((build/'CMakeFiles/gterm.dir/link.txt').read_text())[0]
-        flags=[compiler,'-std=c11','-g','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-fno-sanitize-recover=all','-fno-omit-frame-pointer','-I'+str(ROOT/'core/include'),'-DGTERM_SDK_VERSION="1.0.0"','-DGTERM_PROTOCOL="1"']
+        flags=[compiler,'-std=c11','-g','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',
+               '-fno-sanitize-recover=all','-fno-omit-frame-pointer','-I'+str(ROOT/'core/include'),
+               '-I'+str(ROOT/'core/src'),'-DGTERM_SDK_VERSION="1.0.0"','-DGTERM_PROTOCOL="1"',
+               '-DGTERM_NATIVE_RUNTIME="lua"']
         # Match every current production object; catalog / inspection helpers
         # are part of the CLI even when the target mutation is confined to IPC.
         helpers=[p.stem for p in sorted(source.glob('*.c')) if p.stem not in ('main','ipc')]

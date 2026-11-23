@@ -81,7 +81,7 @@ def main():
     shutil.copytree(ROOT / 'core', source, ignore=shutil.ignore_patterns('build', 'build-*'))
     run('configure', ['cmake', '-S', source, '-B', build, '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
                       '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -g -UNDEBUG',
-                      '-DGHOSTERM_WITH_LIBSSH2=ON', '-DGHOSTERM_WITH_PLUGIN_JS=OFF',
+                      '-DGHOSTERM_WITH_LIBSSH2=ON', '-DGHOSTERM_WITH_PLUGIN_LUA=OFF',
                       '-DGHOSTERM_BUILD_TESTS=ON',
                       '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
     rebuild('baseline')

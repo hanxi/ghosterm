@@ -19,7 +19,7 @@ final class PluginPolicyReviewSignedTests: XCTestCase {
         return (input, root, controller, installed)
     }
     private func other(_ root: URL) throws -> ExtensionController {
-        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
+        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
     }
     private func revoked(_ input: URL, root: URL, keyID: String) throws -> URL {
         let path = root.appendingPathComponent("revoked.json")
@@ -66,7 +66,7 @@ final class PluginPolicyReviewSignedTests: XCTestCase {
     }
     func testChangedPayloadCannotBeReportedAcceptedFromStoredSignature() async throws {
         let (input, _, controller, release) = try await setup()
-        let file = release.directory.appendingPathComponent("client/index.js")
+        let file = release.directory.appendingPathComponent("main.lua")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         try Data("changed content".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)

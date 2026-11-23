@@ -56,8 +56,8 @@ def main():
     for path in (build, package, args.receipt.resolve()):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('use owned project tmp builds, package and receipt')
     cache = (build / 'CMakeCache.txt').read_text()
-    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
-        parser.error('build explicit JS/SSH-on gterm first')
+    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2')):
+        parser.error('build explicit Lua/SSH-on gterm first')
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ('apple/GhostermApp/Sources', 'apple/GhostermApp/Tests',
         'apple/GhostermCore', 'apple/GhostermTerminal/Sources', 'core/include', 'cli/gterm', 'plugins/official/task')
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in ('.build', '.swiftpm') for part in p.parts)}
@@ -79,7 +79,8 @@ def main():
         (source / 'tmp').mkdir()
         env = {**os.environ, 'TMPDIR': temporary, 'TMP': temporary, 'TEMP': temporary,
             'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
-            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_JS': '1'}
+            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_LUA': '1',
+            'GHOSTERM_CORE_BUILD_DIR': str(build / 'core')}
         commands = []
 
         def run(label, command, red=False, seconds=300):
@@ -173,7 +174,7 @@ def main():
                     payload = dict(route=route, scenario=scenario, limit=limit, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'),
                         ports=ports, hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode())
                     with ExitStack() as attached:
-                        frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'task', ['--limit', str(limit)], env)) if args.attach else None
+                        frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'task primes', ['--limit', str(limit)], env)) if args.attach else None
                         if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
                         class Handler(socketserver.StreamRequestHandler):
                             def handle(self):
@@ -202,7 +203,7 @@ def main():
                 native = [
                     ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("task"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(sessionMethods + PluginTaskModel.methods)).sorted()', 'methods', 'local'),
-                    ('native-outcome', APP, 'command: command, returnTerminalOutcome: true)', 'command: command, returnTerminalOutcome: false)', 'local'),
+                    ('native-outcome', APP, 'returnTerminalOutcome: true, onRejectedAdmission: onRejectedAdmission)', 'returnTerminalOutcome: false, onRejectedAdmission: onRejectedAdmission)', 'local'),
                     ('native-render', PANE, 'if let task = model.extensionTask {', 'if let task = model.extensionTask, false {', 'local'),
                 ]
                 for label, filename, old, new, route in native if args.mutate and not args.mutation_case else []:
@@ -224,7 +225,7 @@ def main():
         record = dict(accepted=True, foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=records,
             binary=sha(build / 'gterm'), core=sha(build / 'core/libghosterm_core.a'),
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
-            scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
+            scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/Lua; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
         print('NATIVE TASK PASS: 28 Native tests / 16 legacy table + 15 diff tests / ' + str(len(records)) + ' actual scenarios / ' + str(len(groups)) + ' mutations', flush=True)
 

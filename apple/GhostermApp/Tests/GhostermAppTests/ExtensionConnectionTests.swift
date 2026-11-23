@@ -53,7 +53,7 @@ import XCTest
         }
     }
     func testInvocationFacadesCloseWithoutClosingSharedCatalogOwner() async throws {
-        let root = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: []))
+        let root = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: []))
         let first = try await root.makeInvocationController(), second = try await root.makeInvocationController()
         let closed = await first.close(); XCTAssertTrue(closed)
         do {
@@ -158,7 +158,7 @@ import XCTest
             let widened = ExtensionGroupInvocation(packageID: review.id,
                 request: .init(executable: binary, executorDirectory: directory, executorDigest: review.digest, clientDigest: review.digest,
                     methods: [], processEnvironmentNames: ["GHOSTERM_UNGRANTED"],
-                    execution: .init(runtime: .exec, temporaryDirectory: stage.path, authorized: true), command: original.command, arguments: original.arguments),
+                    command: original.command, arguments: original.arguments),
                 sshAlias: "mux-target", localLaunch: launch, clientWorkspace: nil, temporaryDirectory: stage.path)
             let rejected = await connection.add(widened, app: app); XCTAssertFalse(rejected)
             let unchanged = try await connection.controller.stepMultiplexConnection(); XCTAssertEqual(unchanged.instances, 7)

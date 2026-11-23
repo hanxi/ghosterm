@@ -50,8 +50,8 @@ def main():
     for path in (build, package, args.receipt.resolve()):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('use owned project tmp builds, package and receipt')
     cache = (build / 'CMakeCache.txt').read_text()
-    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
-        parser.error('build explicit JS/SSH-on gterm first')
+    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2')):
+        parser.error('build explicit Lua/SSH-on gterm first')
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ('apple/GhostermApp/Sources', 'apple/GhostermApp/Tests',
         'apple/GhostermCore', 'apple/GhostermTerminal/Sources', 'core/include', 'cli/gterm', 'plugins/official/diff')
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in ('.build', '.swiftpm') for part in p.parts)}
@@ -71,7 +71,8 @@ def main():
         (source / 'tmp').mkdir()
         env = {**os.environ, 'TMPDIR': temporary, 'TMP': temporary, 'TEMP': temporary,
             'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
-            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_JS': '1'}
+            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_LUA': '1',
+            'GHOSTERM_CORE_BUILD_DIR': str(build / 'core')}
         commands = []
 
         def run(label, command, red=False, seconds=300):
@@ -192,7 +193,7 @@ def main():
         record = dict(accepted=True, inputs=inputs, commands=commands, mutations=groups, actual=records,
             binary=sha(build / 'gterm'), core=sha(build / 'core/libghosterm_core.a'),
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
-            scope='macOS Native diff models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
+            scope='macOS Native diff models, process-local AX/pixels and actual local/direct/jump Core/Lua; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
         print('NATIVE DIFF PASS: 15 Native tests / 16 legacy table tests / 11 actual routes / ' + str(len(groups)) + ' mutations', flush=True)
 

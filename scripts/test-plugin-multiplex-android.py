@@ -37,18 +37,20 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
+    parser.add_argument('--lua-archive', type=Path, required=True, help='Pinned Lua 5.5.1 source archive')
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--api', choices=['29', '36'], default='36')
     parser.add_argument('--route', choices=['direct', 'jump'], action='append')
-    parser.add_argument('--baseline-only', action='store_true', help='rerun the 24 existing regressions on the same compiled APK without route cases')
+    parser.add_argument('--baseline-only', action='store_true', help='rerun the 25 existing regressions on the same compiled APK without route cases')
     args = parser.parse_args()
     build, work = args.build.resolve(strict=True), args.work.resolve(strict=True)
+    lua_archive = args.lua_archive.resolve(strict=True)
     assert work.is_relative_to(ROOT / 'tmp') and work.is_dir()
     source, logs = work / 'project', work / 'logs'; logs.mkdir(exist_ok=True)
     if not source.exists():
         for folder in ['android', 'terminal/android']:
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
-        for folder in ['core', 'vendor', 'build', 'assets', 'packages', 'patches', 'runtime-payload', 'scripts']:
+        for folder in ['core', 'vendor', 'build', 'assets', 'patches', 'runtime-payload', 'scripts']:
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
     inputs = {str(path.relative_to(source)): sha(path) for folder in ['android', 'terminal/android']
@@ -83,8 +85,8 @@ def main():
 
     package = work / 'table-package'
     if not package.exists():
-        run('package', ['python3', ROOT / 'scripts/build-plugin-sample.py', '--source', ROOT / 'plugins/official/table',
-            '--tools', ROOT / 'build/plugin-sdk-tools', '--out', package])
+        run('package', ['python3', '-B', ROOT / 'scripts/gterm-plugin', 'build',
+            ROOT / 'plugins/official/table', '--out', package])
     helper = load('mux_avd', 'scripts/test-plugin-release-android.py')
     keys = load('mux_keys', 'scripts/test-plugin-ssh.py')
     streams = load('mux_streams', 'scripts/test-plugin-ssh-stream.py')
@@ -97,7 +99,8 @@ def main():
         device_work = Path(tempfile.mkdtemp(prefix='avd-', dir=work))
         with helper.headless(int(args.api), device_work, env) as (adb, _):
             # Boot before the copied build uses disk space needed by userdata.
-            run('build', [source / 'android/gradlew', '-p', source / 'android', '--offline', '-PghostermPluginJs=true',
+            run('build', [source / 'android/gradlew', '-p', source / 'android', '--offline', '-PghostermPluginLua=true',
+                f'-PghostermLuaArchive={lua_archive}',
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
             for i, relative in enumerate(['android/app/build/outputs/apk/debug/app-debug.apk', 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk']):
                 apk = source / relative; artifacts[relative] = sha(apk)
@@ -168,16 +171,16 @@ def main():
             baseline = run('baseline', [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.ClaudeLaunchTest,com.hanxi.ghosterm.ExtensionControllerTest',
                 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
-            assert 'OK (24 tests)' in baseline and 'INSTRUMENTATION_STATUS: numtests=24\n' in baseline and not any(
+            assert 'OK (25 tests)' in baseline and 'INSTRUMENTATION_STATUS: numtests=25\n' in baseline and not any(
                 marker in baseline for marker in ['INSTRUMENTATION_FAILED', 'INSTRUMENTATION_STATUS_CODE: -4', 'FAILURES'])
-            print('PASS existing 24 model/launch/controller tests on the same APK', flush=True)
+            print('PASS existing 25 model/launch/controller tests on the same APK', flush=True)
     finally:
         run('adb-stop', [*daemon, 'kill-server'])
     for name, digest in inputs.items():
         assert sha(source / name) == digest and sha(ROOT / name) == digest, name
     for path in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in path.read_bytes()
     (work / 'receipt.json').write_text(json.dumps(dict(inputs_sha256=inputs, artifacts=artifacts, profile=profile,
-        routes=[] if args.baseline_only else (args.route or ['direct', 'jump']), baseline_tests=24,
+        routes=[] if args.baseline_only else (args.route or ['direct', 'jump']), baseline_tests=25,
         logs_sha256={p.name: sha(p) for p in logs.glob('*.log')}, gterm_sha256=sha(build / 'gterm'),
         scope='owned offscreen Android fixed eight-instance direct/two-hop SSH; no full product/device/mutation matrix'), indent=2) + '\n')
 

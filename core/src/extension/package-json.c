@@ -42,6 +42,7 @@ bool gt__package_json_open(const gt_allocator_t *allocator, gt_package_json_t **
 
 static gt_package_json_error_t
 json_check(gt_package_json_t *d, const void *bytes, size_t size, bool integers) {
+    json_buffers_free(d);
     gt_allocator_t a = d->allocator;
     gt__secure_erase(d, sizeof(*d));
     d->allocator = a;
@@ -80,10 +81,91 @@ gt__package_json_check(gt_package_json_t *d, const void *bytes, size_t size, boo
         return GT_PACKAGE_JSON_SYNTAX;
     }
     gt_package_json_error_t result = json_check(d, bytes, size, integers);
-    /* No parsed views escape lexical preflight. Release even on parse/OOM failure,
-  * before another document or JS engine starts; a large input is never cached. */
-    json_buffers_free(d);
+    gt__package_json_reset(d);
     return result;
+}
+
+gt_package_json_error_t
+gt__package_json_parse(gt_package_json_t *d, const void *bytes, size_t size) {
+    if (!d) {
+        return GT_PACKAGE_JSON_SYNTAX;
+    }
+    gt_package_json_error_t result = json_check(d, bytes, size, true);
+    if (result != GT_PACKAGE_JSON_OK) {
+        gt__package_json_reset(d);
+    }
+    return result;
+}
+
+#ifdef GT_HAVE_PLUGIN_LUA
+gt_package_json_error_t
+gt__package_json_parse_lua(gt_package_json_t *d, const void *bytes, size_t size) {
+    return json_check(d, bytes, size, false);
+}
+
+bool gt__package_json_lua_node(const gt_package_json_t *d,
+                               uint16_t id,
+                               gt_bridge_json_node_t *out) {
+    if (!d->valid || !id || id > d->used) {
+        return false;
+    }
+    const json_node_t *node = &d->nodes[id];
+    const gt_bridge_json_kind_t kinds[] = {
+        [J_OBJECT] = GT_BRIDGE_JSON_OBJECT,
+        [J_ARRAY] = GT_BRIDGE_JSON_ARRAY,
+        [J_STRING] = GT_BRIDGE_JSON_STRING,
+        [J_NUMBER] = GT_BRIDGE_JSON_NUMBER,
+        [J_TRUE] = GT_BRIDGE_JSON_TRUE,
+        [J_FALSE] = GT_BRIDGE_JSON_FALSE,
+        [J_NULL] = GT_BRIDGE_JSON_NULL,
+    };
+    const uint8_t *strings = d->strings ? d->strings : (const uint8_t *)"";
+    *out = (gt_bridge_json_node_t){
+        .kind = kinds[node->kind],
+        .child = node->child,
+        .next = node->next,
+        .count = node->count,
+        .key = strings + node->key,
+        .key_size = node->key_size,
+        .text = node->kind == J_NUMBER ? d->input + node->start : strings + node->text,
+        .text_size = node->kind == J_NUMBER ? node->bytes : node->size,
+    };
+    return true;
+}
+#endif
+
+bool gt__package_json_node(const gt_package_json_t *d, uint16_t id, gt_package_json_node_t *out) {
+    if (!d || !d->valid || !id || id > d->used || !out) {
+        return false;
+    }
+    const json_node_t *node = &d->nodes[id];
+    *out = (gt_package_json_node_t){
+        .kind = node->kind == J_OBJECT   ? GT_PACKAGE_JSON_OBJECT
+                : node->kind == J_ARRAY  ? GT_PACKAGE_JSON_ARRAY
+                : node->kind == J_STRING ? GT_PACKAGE_JSON_STRING
+                                         : GT_PACKAGE_JSON_OTHER,
+        .child = node->child,
+        .next = node->next,
+        .count = node->count,
+        .key = node->key_size ? d->strings + node->key : NULL,
+        .text = node->size ? d->strings + node->text : NULL,
+        .key_size = node->key_size,
+        .text_size = node->size,
+    };
+    return true;
+}
+
+bool gt__package_json_uint(const gt_package_json_t *d, uint16_t id, uint64_t *out) {
+    return d && d->valid && id && id <= d->used && out && node_uint(d, id, out);
+}
+
+void gt__package_json_reset(gt_package_json_t *d) {
+    if (d) {
+        json_buffers_free(d);
+        d->valid = false;
+        d->input = NULL;
+        d->input_size = 0;
+    }
 }
 
 void gt__package_json_destroy(gt_package_json_t **out) {

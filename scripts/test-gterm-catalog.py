@@ -29,7 +29,7 @@ CASES = ['persist', 'roundtrip', 'deny', 'cancel', 'preview', 'conflict', 'prefi
          'directory-mode', 'directory-link', 'data-mode', 'data-link', 'data-hardlink',
          'data-fifo', 'lock-link', 'lock-hardlink', 'busy', 'truncated', 'trailing',
          'profile-overflow', 'relative-root', 'injected-trust', 'bad-client',
-         'unknown-host', 'namespace', 'profile-node-approval']
+         'invalid-host', 'namespace', 'profile-retired-runtime']
 CASES += ['multi-token', 'identity', 'catalog-size', 'profile-bytes', 'string-limit',
           'revision-zero', 'magic', 'bad-utf8', 'bad-digest', 'umask', 'explicit-command',
           'wrong-command', 'invalid-prefix-package', 'cwd-preview']
@@ -59,10 +59,10 @@ def execute(build, case, work):
     package, digest = ipc.package(parent)
     host = work / 'host.json'
     facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1],
-                 runtimes=['portable-js'], capabilities=['session.rpc'])
+                 runtimes=['lua'], capabilities=['session.rpc'])
     host.write_text(json.dumps(facts))
     env = {k: v for k, v in os.environ.items() if not k.startswith(('GTERM_', 'GT_GTERM_'))}
-    env.update(TMPDIR=str(ROOT / 'tmp'), GTERM_CATALOG=str(catalog), GTERM_ENDPOINT=str(endpoint))
+    env.update(TMPDIR=str(work), TMP=str(work), TEMP=str(work), GTERM_CATALOG=str(catalog), GTERM_ENDPOINT=str(endpoint))
     profile = ['--client-digest', 'd' * 64, '--method', 'fixture.echo']
     data_file = catalog / 'executor-catalog-v1'
 
@@ -88,13 +88,13 @@ def execute(build, case, work):
     def changed_package(name='two', command=None, same_id=False):
         parent = work / name; parent.mkdir()
         other, _ = ipc.package(parent)
-        m = json.loads((other / 'plugin.json').read_text())
+        m = json.loads((other / 'manifest.json').read_text())
         if not same_id:
             m['id'] = 'org.ghosterm.' + name
         m['pluginVersion'] = '0.2.0'
         if command:
             m['commands'][0]['path'] = command
-        (other / 'plugin.json').write_text(json.dumps(m))
+        (other / 'manifest.json').write_text(json.dumps(m))
         return other, rehash(other)
 
     def frontend(mode='roundtrip', args=ipc.CALL, selection=(), chosen=package, sha=digest, fixture_extra=(), canonical='fixture', cwd=None):
@@ -115,8 +115,8 @@ def execute(build, case, work):
                     capture_output=True, env={**env, 'GT_GTERM_FIXTURE_ATTACH': str(endpoint),
                     'GT_GTERM_FIXTURE_ATTACH_INSTANCE': instance,
                     'GT_GTERM_FIXTURE_COMMAND': canonical,
-                    'GT_GTERM_FIXTURE_PLUGIN_ID': json.loads((chosen / 'plugin.json').read_text())['id'],
-                    'GT_GTERM_FIXTURE_PLUGIN_VERSION': json.loads((chosen / 'plugin.json').read_text())['pluginVersion']}, timeout=25)
+                    'GT_GTERM_FIXTURE_PLUGIN_ID': json.loads((chosen / 'manifest.json').read_text())['id'],
+                    'GT_GTERM_FIXTURE_PLUGIN_VERSION': json.loads((chosen / 'manifest.json').read_text())['pluginVersion']}, timeout=25)
                 if result.returncode < 0 or b'ABNORMAL' in result.stderr or b'AddressSanitizer' in result.stderr:
                     raise RuntimeError((result.returncode, result.stderr))
                 require(result.returncode == 0 and ('PASS stdio ' + mode).encode() in result.stdout,
@@ -146,15 +146,14 @@ def execute(build, case, work):
         register(sha='0' * 64, expected=6)
         require(not data_file.exists(), 'source approval must match the captured package digest'); return
     if case == 'invalid-prefix-package':
-        m = json.loads((package / 'plugin.json').read_text())
+        m = json.loads((package / 'manifest.json').read_text())
         m['commands'].append({**m['commands'][0], 'path': ['fixture', 'sub']})
-        (package / 'plugin.json').write_text(json.dumps(m))
+        (package / 'manifest.json').write_text(json.dumps(m))
         register(sha=rehash(package), expected=5)
         require(not data_file.exists(), 'an invalid intra-package prefix must remain rejected'); return
     if case in ('explicit-command', 'wrong-command'):
         register()
         other, _ = changed_package(command=['fixture', 'sub'])
-        code = other / 'executor/index.js'; code.write_text(code.read_text().replace("command!=='fixture'", "command!=='fixture sub'"))
         sha = rehash(other); register('1', directory=other, sha=sha)
         selection = ['--select', 'org.ghosterm.two', sha, '--command', 'fixture sub' if case == 'explicit-command' else 'fixture']
         if case == 'wrong-command':
@@ -163,29 +162,37 @@ def execute(build, case, work):
             frontend(args=['fixture', 'sub', *ipc.CALL[1:]], sha=sha, canonical='fixture sub', chosen=other, selection=selection)
         return
     if case == 'multi-token':
-        m = json.loads((package / 'plugin.json').read_text()); m['commands'][0]['path'] = ['fixture', 'sub']
-        (package / 'plugin.json').write_text(json.dumps(m))
-        code = package / 'executor/index.js'; code.write_text(code.read_text().replace("command!=='fixture'", "command!=='fixture sub'"))
+        m = json.loads((package / 'manifest.json').read_text()); m['commands'][0]['path'] = ['fixture', 'sub']
+        (package / 'manifest.json').write_text(json.dumps(m))
         sha = rehash(package); register(sha=sha)
         frontend(args=['fixture', 'sub', *ipc.CALL[1:]], sha=sha, canonical='fixture sub'); return
-    if case in ('relative-root', 'injected-trust', 'bad-client', 'profile-node-approval'):
+    if case in ('relative-root', 'injected-trust', 'bad-client', 'profile-retired-runtime'):
         launch = list(profile)
         if case == 'relative-root': launch += ['--root', 'workspace', '.']
         elif case == 'injected-trust': launch += ['--trust-development-digest', digest]
         elif case == 'bad-client': launch[1] = 'bad'
         else: launch += ['--runtime', 'node']
-        register(launch=launch, expected=6 if case == 'profile-node-approval' else 2)
+        register(launch=launch, expected=4 if case == 'profile-retired-runtime' else 2)
         require(not data_file.exists(), 'invalid startup profile must not commit a catalog')
         return
-    if case == 'unknown-host':
-        host.write_text('{}'); register(expected=3)
-        require(not data_file.exists(), 'unknown compatibility must not persist approval'); return
+    if case == 'invalid-host':
+        host.write_text('{}'); register(expected=5)
+        require(not data_file.exists(), 'invalid compatibility facts must not persist approval'); return
     if case == 'namespace':
-        m = json.loads((package / 'plugin.json').read_text()); m['commands'][0]['path'] = ['relay']
-        (package / 'plugin.json').write_text(json.dumps(m))
-        register(sha=rehash(package), expected=5); return
+        path = package / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        fixture = manifest['commands'][0]
+        for reserved in (['relay'], ['plugin', 'sub'], ['doctor']):
+            manifest['commands'] = [fixture, dict(fixture, path=reserved)]
+            path.write_text(json.dumps(manifest))
+            register(sha=rehash(package), expected=5)
+            require(not data_file.exists(), 'reserved command must not commit a catalog')
+        return
     if case in ('preview', 'cwd-preview'):
-        package = ROOT / 'plugins/official/preview'
+        package = work / 'preview-package'
+        subprocess.run(['python3', '-B', ROOT / 'scripts/gterm-plugin', 'build',
+                        ROOT / 'plugins/official/preview', '--out', package],
+                       cwd=ROOT, check=True, timeout=30)
         digest = hashlib.sha256((package / 'integrity.json').read_bytes()).hexdigest()
         workspace = work / 'workspace'; site = workspace / 'site'; site.mkdir(parents=True)
         (site / 'index.md').write_text('# Preview runtime fixture\n')
@@ -198,7 +205,7 @@ def execute(build, case, work):
             (registration / 'site').mkdir(parents=True)
             (registration / 'site/index.md').write_text('different registration cwd')
         register(directory=package, sha=digest,
-                 launch=['--client-digest', 'd' * 64, '--root', 'workspace',
+                 launch=['--client-digest', 'd' * 64, '--method', 'preview.open', '--root', 'workspace',
                          '@cwd' if case == 'cwd-preview' else str(workspace)],
                  cwd=registration if case == 'cwd-preview' else None)
         frontend('preview', ['preview', 'site/index.md', '--assets', 'site/theme\\,dark.css'],
@@ -219,7 +226,7 @@ def execute(build, case, work):
                 'catalog publication must retain private files without temporary siblings')
     elif case in ('roundtrip', 'deny', 'cancel'):
         if case == 'deny':
-            code = package / 'executor/index.js'; code.write_text("throw Error('MUST_NOT_ACTIVATE');" + code.read_text())
+            code = package / 'executor.lua'; code.write_text("error('MUST_NOT_ACTIVATE');" + code.read_text())
             new_digest = rehash(package)
             register('1', sha=new_digest, extra=['--expect-digest', digest])
             frontend('deny', sha=new_digest)
@@ -237,7 +244,7 @@ def execute(build, case, work):
             env.pop('GTERM_ENDPOINT')
             run(['--select', 'org.ghosterm.missing' if case == 'missing-select' else 'org.ghosterm.two', digest, *ipc.CALL], 9)
         else:
-            (other / 'README').write_text('changed')
+            (other / 'executor.lua').write_text('changed')
             run(['--select', 'org.ghosterm.fixture', digest, *ipc.CALL], 5)
     elif case == 'stale-revision':
         other, other_digest = changed_package()
@@ -260,9 +267,9 @@ def execute(build, case, work):
              '--id', 'org.ghosterm.fixture', '--expect-digest', digest])
         listed = run(['plugin', 'list', '--catalog', catalog])
         require(listed['revision'] == '2' and listed['entries'] == [], 'removal must persist without deleting the development directory')
-        run(ipc.CALL, 10); require((package / 'README').is_file(), 'unregister must retain user package files')
+        run(ipc.CALL, 10); require((package / 'executor.lua').is_file(), 'unregister must retain user package files')
     elif case in ('tamper', 'digest-change'):
-        (package / 'README').write_text('changed')
+        (package / 'executor.lua').write_text('changed')
         if case == 'digest-change': rehash(package); env.pop('GTERM_ENDPOINT')
         run(ipc.CALL, 6 if case == 'digest-change' else 5)
         require(not list(endpoint.iterdir()), 'changed package must fail before creating an IPC endpoint')
@@ -339,7 +346,10 @@ def main():
     parser.add_argument('--faults', action='store_true', help='include three cases requiring the explicit IO fault build')
     args = parser.parse_args()
     for case in args.case or (CASES + FAULTS if args.faults else CASES):
-        with tempfile.TemporaryDirectory(prefix='gterm-catalog-', dir=ROOT / 'tmp') as temporary:
+        scratch = Path(os.environ.get('TMPDIR', ROOT / 'tmp')).resolve()
+        if not scratch.is_dir() or not scratch.is_relative_to(ROOT / 'tmp'):
+            scratch = ROOT / 'tmp'
+        with tempfile.TemporaryDirectory(prefix='gterm-catalog-', dir=scratch) as temporary:
             execute(args.build.resolve(), case, Path(temporary))
         print('PASS catalog ' + case, flush=True)
 

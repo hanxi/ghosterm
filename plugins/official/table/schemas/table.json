@@ -1,7 +1,16 @@
 {
   "type": "object",
-  "properties": { "count": { "type": "integer", "minimum": 0, "maximum": 1000000 } },
-  "required": ["count"],
+  "properties": {
+    "count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "project": { "type": "string", "maxLength": 16 }
+  },
+  "required": ["count", "project"],
   "additionalProperties": false,
-  "x-ghosterm-cli": { "version": 1, "fields": { "count": { "option": "count", "default": 1000 } } }
+  "x-ghosterm-cli": {
+    "version": 1,
+    "fields": {
+      "count": { "option": "count", "default": 1000 },
+      "project": { "option": "project", "default": "" }
+    }
+  }
 }

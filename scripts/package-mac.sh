@@ -16,8 +16,8 @@
 #   --build N          构建号（默认 git rev-list --count HEAD）
 #   --out DIR          产物目录（默认 <repo>/dist）
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
-#   --experimental-plugin-js  本地 dev ad-hoc 包启用插件运行时；须显式指定 --out
-#   --plugin-js        发行包启用插件运行时；须配置插件渠道及根公钥和 HTTPS 目录
+#   --experimental-plugin-lua 本地 dev ad-hoc 包启用 Lua；须指定 --out 和 GHOSTERM_LUA_ARCHIVE
+#   --plugin-lua       发行包启用 Lua 运行时；须配置插件渠道及根公钥和 HTTPS 目录
 #   --app-only         跳过 DMG（ZIP 仍默认生成）
 #   --no-zip           不出 .zip
 #   --adhoc            ad-hoc 签名（默认）
@@ -64,8 +64,9 @@ BUILD_NUMBER=""
 PACKAGE_CHANNEL="dev"
 OUT="$ROOT/dist"
 EXPLICIT_OUT=0
-EXPERIMENTAL_PLUGIN_JS=0
-RELEASE_PLUGIN_JS=0
+EXPERIMENTAL_PLUGIN_LUA=0
+SWIFT_BUILD_DIR="${GHOSTERM_MAC_SWIFT_BUILD_DIR:-$ROOT/apple/GhostermApp/.build}"
+RELEASE_PLUGIN_LUA=0
 ARCH="$(uname -m)"
 APP_ONLY=0
 MAKE_ZIP=1
@@ -83,8 +84,8 @@ while [ $# -gt 0 ]; do
     --channel) PACKAGE_CHANNEL="${2:?--channel 需要值}"; shift 2 ;;
     --build) BUILD_NUMBER="${2:?--build 需要值}"; shift 2 ;;
     --out) OUT="${2:?--out 需要目录}"; EXPLICIT_OUT=1; shift 2 ;;
-    --experimental-plugin-js) EXPERIMENTAL_PLUGIN_JS=1; shift ;;
-    --plugin-js) RELEASE_PLUGIN_JS=1; shift ;;
+    --experimental-plugin-lua) EXPERIMENTAL_PLUGIN_LUA=1; shift ;;
+    --plugin-lua) RELEASE_PLUGIN_LUA=1; shift ;;
     --arch) ARCH="${2:?--arch 需要值}"; shift 2 ;;
     --app-only) APP_ONLY=1; shift ;;
     --no-zip) MAKE_ZIP=0; shift ;;
@@ -110,16 +111,20 @@ note() { echo "   $*"; }
 
 case "$PACKAGE_CHANNEL" in dev|release) ;; *) fail "未知打包渠道：${PACKAGE_CHANNEL}（只接受 dev/release）" ;; esac
 
-if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then
-  [ "$RELEASE_PLUGIN_JS" -eq 0 ] || fail "--experimental-plugin-js 与 --plugin-js 互斥"
-  [ "$EXPLICIT_OUT" -eq 1 ] && [ "$PACKAGE_CHANNEL" = dev ] && [ "$SIGN_MODE" = adhoc ] && [ -z "$NOTARIZE_PROFILE" ] \
-    || fail "--experimental-plugin-js 须用于显式 --out 的本地 dev ad-hoc 包"
-fi
-if [ "$RELEASE_PLUGIN_JS" -eq 1 ]; then
+if [ "$RELEASE_PLUGIN_LUA" -eq 1 ]; then
   python3 "$ROOT/scripts/configure-macos-plugin-channel.py" --check-required ||
-    fail "--plugin-js 需要有效的插件渠道配置"
+    fail "--plugin-lua 需要有效的插件渠道配置"
 fi
-PLUGIN_JS=$((EXPERIMENTAL_PLUGIN_JS + RELEASE_PLUGIN_JS))
+PLUGIN_LUA=$((EXPERIMENTAL_PLUGIN_LUA + RELEASE_PLUGIN_LUA))
+[ "$PLUGIN_LUA" -le 1 ] || fail "--experimental-plugin-lua 与 --plugin-lua 互斥"
+if [ "$PLUGIN_LUA" -eq 1 ]; then
+  [ -n "${GHOSTERM_LUA_ARCHIVE:-}" ] && [ -f "$GHOSTERM_LUA_ARCHIVE" ] \
+    || fail "Lua 插件档需要本地锁定源码 GHOSTERM_LUA_ARCHIVE"
+fi
+if [ "$EXPERIMENTAL_PLUGIN_LUA" -eq 1 ]; then
+  [ "$EXPLICIT_OUT" -eq 1 ] && [ "$PACKAGE_CHANNEL" = dev ] && [ "$SIGN_MODE" = adhoc ] && [ -z "$NOTARIZE_PROFILE" ] \
+    || fail "--experimental-plugin-lua 须用于显式 --out 的本地 dev ad-hoc 包"
+fi
 
 # 签名档位要按**证书本身的类**记账，不能拿「钥匙串里有这串名字」当「有 Developer ID」。
 # 免费个人账号签出来的是 `Apple Development: …`：不能公证（Apple 侧也拒），Gatekeeper
@@ -214,14 +219,14 @@ GHOSTTY_LIB="$XCFW/macos-${ARCH}/libghostty-internal.a"
 note "GhosttyKit ${ARCH} 切片 $(du -h "$GHOSTTY_LIB" | awk '{print $1}')"
 
 # ------------------------------------------------------------------ 2. C 核心
-export GHOSTERM_BUILD_PLUGIN_JS="$PLUGIN_JS" GHOSTERM_CORE_TEST_PLUGIN_JS="$PLUGIN_JS"
+export GHOSTERM_BUILD_PLUGIN_LUA="$PLUGIN_LUA" GHOSTERM_CORE_TEST_PLUGIN_LUA="$PLUGIN_LUA"
 step "2/9 构建 C 核心"
 bash "$ROOT/scripts/build-core.sh" || fail "core 构建失败"
-note "core/build/libghosterm_core.a"
+note "${GHOSTERM_CORE_BUILD_DIR:-$ROOT/core/build}/libghosterm_core.a"
 
 # ------------------------------------------------------------------ 3. release 构建
 step "3/9 SwiftPM release 构建"
-( cd "$ROOT/apple/GhostermApp" && swift build -c release --arch "$ARCH" ) >"$WORK/swift-build.log" 2>&1 \
+( cd "$ROOT/apple/GhostermApp" && swift build -c release --arch "$ARCH" --scratch-path "$SWIFT_BUILD_DIR" ) >"$WORK/swift-build.log" 2>&1 \
   || {
     if grep -qE 'error:|fatal error:' "$WORK/swift-build.log"; then
       grep -n -B3 -A6 -E 'error:|fatal error:' "$WORK/swift-build.log" | tail -120 >&2
@@ -230,7 +235,7 @@ step "3/9 SwiftPM release 构建"
     fi
     fail "swift build 失败（完整日志 $WORK/swift-build.log）"
   }
-BIN="$ROOT/apple/GhostermApp/.build/release/GhostermApp"
+BIN="$SWIFT_BUILD_DIR/release/GhostermApp"
 [ -x "$BIN" ] || fail "找不到 release 产物 $BIN"
 note "${BIN}（$(du -h "$BIN" | awk '{print $1}')）"
 
@@ -239,17 +244,17 @@ step "4/9 组装 .app（图标 / Info.plist / 可执行）"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$FW"
 cp "$BIN" "$MAIN_EXE"
-SPARKLE_ROOT="$ROOT/apple/GhostermApp/.build/artifacts/sparkle/Sparkle"
+SPARKLE_ROOT="$SWIFT_BUILD_DIR/artifacts/sparkle/Sparkle"
 SPARKLE_FRAMEWORK="$SPARKLE_ROOT/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 [ -d "$SPARKLE_FRAMEWORK" ] || fail "缺锁定的 Sparkle.framework"
 ditto "$SPARKLE_FRAMEWORK" "$FW/Sparkle.framework"
 # Preserve the upstream helper signatures for ad-hoc builds; hardened runtime
 # distributions re-sign every nested component with their own identity below.
-cp "$ROOT/apple/GhostermApp/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+cp "$SWIFT_BUILD_DIR/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 chmod 644 "$APP/Contents/Resources/Sparkle-LICENSE.txt"
-if [ "$PLUGIN_JS" -eq 1 ]; then
-  cp "$ROOT/vendor/quickjs-ng/LICENSE" "$APP/Contents/Resources/QuickJSNG-MIT.txt"
-  chmod 644 "$APP/Contents/Resources/QuickJSNG-MIT.txt"
+if [ "$PLUGIN_LUA" -eq 1 ]; then
+  cp "$ROOT/core/cmake/Lua-MIT.txt" "$APP/Contents/Resources/Lua-MIT.txt"
+  chmod 644 "$APP/Contents/Resources/Lua-MIT.txt"
 fi
 # SwiftPM does not stage resource bundles into a hand-built .app automatically.
 FONT_BUNDLE_NAME="GhostermApp_GhostermAppModel.bundle"
@@ -347,7 +352,7 @@ UPDATE_VERSION="$(date -u +%s)"
 sed -e "s/@UPDATE_VERSION@/${UPDATE_VERSION}/" -e "s/@VERSION@/${VERSION}/" -e "s/@BUILD@/${BUILD_NUMBER}/" -e "s/@MIN_OS@/${MIN_OS}/" \
   "$TEMPLATE" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist 不合法"
-if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then
+if [ "$EXPERIMENTAL_PLUGIN_LUA" -eq 1 ]; then
   GHOSTERM_UPDATE_PUBLIC_KEY="" python3 "$ROOT/scripts/configure-macos-update.py" "$APP/Contents/Info.plist" "$PACKAGE_CHANNEL"
 else
   python3 "$ROOT/scripts/configure-macos-update.py" "$APP/Contents/Info.plist" "$PACKAGE_CHANNEL"
@@ -369,8 +374,8 @@ BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "更新序号:    ${UPDATE_VERSION}"
   echo "构建时刻:    ${BUILD_STAMP}"
   echo "架构:        ${ARCH}"
-  if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then echo "插件运行时:  experimental QuickJS-NG"; fi
-  if [ "$RELEASE_PLUGIN_JS" -eq 1 ]; then echo "插件运行时:  QuickJS-NG"; fi
+  if [ "$RELEASE_PLUGIN_LUA" -eq 1 ]; then echo "插件运行时:  Lua 5.5.1"; fi
+  if [ "$EXPERIMENTAL_PLUGIN_LUA" -eq 1 ]; then echo "插件运行时:  experimental Lua 5.5.1"; fi
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
   echo "签名:        ${SIGN_MODE}${SIGN_ID:+ ${SIGN_ID}}"
   echo "公证:        ${NOTARIZE_PROFILE:-无（GitHub Release 采用 ad-hoc + 独立 Ed25519 更新签名）}"
@@ -510,7 +515,7 @@ fi
 # ------------------------------------------------------------------ 9. 产物
 step "9/9 产物（dmg / zip / 校验和 / 构建信息）"
 BASE="Ghosterm-macos-${ARCH}-${PACKAGE_CHANNEL}"
-if [ "$EXPERIMENTAL_PLUGIN_JS" -eq 1 ]; then BASE="${BASE}-plugin-js"; fi
+if [ "$EXPERIMENTAL_PLUGIN_LUA" -eq 1 ]; then BASE="${BASE}-plugin-lua"; fi
 cp "$INFO" "$OUT/BUILD-INFO.txt"
 note "$(basename "$OUT/BUILD-INFO.txt")"
 

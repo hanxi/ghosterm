@@ -72,7 +72,7 @@ def main():
     parser.add_argument('--mutate', action='store_true'); parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
     base.TMP.mkdir(exist_ok=True); out = args.out.resolve(); assert base.TMP in out.parents
-    assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' in (ROOT / 'core/build/CMakeCache.txt').read_text()
+    assert 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=OFF' in (ROOT / 'core/build/CMakeCache.txt').read_text()
     inputs = {str(p.relative_to(ROOT)): base.sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'scripts']
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in p.parts for part in ['.build', '.swiftpm', '__pycache__'])}
     tools = [Path(subprocess.check_output(['/usr/bin/xcrun', '--find', 'xctest'], env=base.environment(), text=True).strip()),

@@ -232,7 +232,7 @@ final class ExtensionControllerTests: XCTestCase {
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
-            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "resource.receive"])
+            protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"])
         XCTAssertThrowsError(try ExtensionController(profile: profile))
     }
 
@@ -302,7 +302,7 @@ final class ExtensionControllerTests: XCTestCase {
 
     func testControllerWithoutResourceCapabilityCannotTakeResources() async throws {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
-            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"])
+            protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc"])
         let controller = try ExtensionController(profile: profile)
         do {
             _ = try await controller.takeSessionResource()
@@ -424,7 +424,7 @@ final class ExtensionControllerTests: XCTestCase {
         }
         let address: [UInt8] = [127, 0, 0, 1] + Array(repeating: 0, count: 12)
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
-            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"])
+            protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc"])
         let controller = try ExtensionController(profile: profile)
         var finished = false
         let deadline = ProcessInfo.processInfo.systemUptime + 20
@@ -543,14 +543,14 @@ final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testReviewDoesNotApproveAndResolutionRequiresExactApproval() async throws {
         guard ExtensionRuntime.supportStatus == 0 else {
-            throw XCTSkip("requires the explicit JS-enabled Core profile")
+            throw XCTSkip("requires the explicit Lua Core profile")
         }
         let root = sessionTestDirectory().appendingPathComponent("extension-controller-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let manifest: [String: Any] = [
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "id": "org.ghosterm.controller-fixture",
             "pluginVersion": "0.1.0",
             "sdkApiRange": "^1.0.0",
@@ -558,16 +558,16 @@ final class ExtensionControllerTests: XCTestCase {
             "publisher": "fixture",
             "license": "MIT",
             "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
-            "client": ["runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc", "resource.receive"]],
+            "client": ["entry": "client.lua", "requires": ["session.rpc", "resource.receive"]],
             "permissions": [],
         ]
         let schema = #"{"type":"object","properties":{"wrap":{"type":"boolean"}},"required":["wrap"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"wrap":{"option":"wrap","default":false}}}}"#
         var files: [String: Data] = [
-            "plugin.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
+            "manifest.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
             "README": Data("fixture".utf8),
             "LICENSES/MIT.txt": Data("fixture".utf8),
             "schemas/input.json": Data(schema.utf8),
-            "client/index.js": Data("export function activate(){return {dispose(){}}}".utf8),
+            "client.lua": Data("return { fixture = function() return true end }".utf8),
         ]
         func writePackage(_ files: [String: Data], to directory: URL) throws {
             var members: [[String: Any]] = []
@@ -589,13 +589,13 @@ final class ExtensionControllerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: secondRoot) }
         var secondManifest = manifest
         secondManifest["id"] = "org.ghosterm.controller-second"
-        files["plugin.json"] = try JSONSerialization.data(withJSONObject: secondManifest, options: [.sortedKeys])
+        files["manifest.json"] = try JSONSerialization.data(withJSONObject: secondManifest, options: [.sortedKeys])
         try writePackage(files, to: secondRoot)
 
         let resourceDirectory = root.appendingPathComponent("resources")
         try FileManager.default.createDirectory(at: resourceDirectory, withIntermediateDirectories: true)
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
-                                                          protocols: [1], runtimes: ["portable-js"],
+                                                          protocols: [1], runtimes: ["lua"],
                                                           capabilities: ["session.rpc", "resource.receive"])
         let controller = try ExtensionController(profile: profile, resourceDirectory: resourceDirectory)
         defer { Task { await controller.close() } }
@@ -604,7 +604,7 @@ final class ExtensionControllerTests: XCTestCase {
         let secondReview = try await controller.review(directory: secondRoot)
         XCTAssertEqual(review.id, "org.ghosterm.controller-fixture")
         XCTAssertEqual(review.commands.map(\.path), ["fixture"])
-        XCTAssertEqual(review.runtime, "portable-js")
+        XCTAssertEqual(review.runtime, "lua")
         XCTAssertEqual(review.requiredCapabilities, ["session.rpc", "resource.receive"])
         XCTAssertTrue(review.optionalMissingCapabilities.isEmpty)
         XCTAssertFalse(review.authorizationGranted)
@@ -655,26 +655,36 @@ final class ExtensionControllerTests: XCTestCase {
 
     @MainActor
     func testAppModelReceivesScopedResourceFromRemoteGterm() async throws {
+        let environment = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0,
-              let gterm = ProcessInfo.processInfo.environment["GHOSTERM_TEST_GTERM"],
-              let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
-              let port = ProcessInfo.processInfo.environment["GHOSTERM_SSH_PORT"],
-              let keyPath = ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"],
-              let user = ProcessInfo.processInfo.environment["GHOSTERM_SSH_USER"] else {
-            throw XCTSkip("requires JS-enabled Core and isolated gterm/sshd fixture")
+              let gterm = environment["GHOSTERM_TEST_GTERM"],
+              let packagePath = environment["GHOSTERM_TEST_LUA_PREVIEW_PACKAGE"],
+              let host = environment["GHOSTERM_SSH_HOST"],
+              let port = environment["GHOSTERM_SSH_PORT"],
+              let keyPath = environment["GHOSTERM_SSH_KEY"],
+              let user = environment["GHOSTERM_SSH_USER"] else {
+            throw XCTSkip("requires Lua Core and the isolated gterm/sshd fixture")
         }
 
-        let base = sessionTestDirectory().appendingPathComponent("gterm-resource-" + UUID().uuidString)
-        let repositoryRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let package = repositoryRoot.appendingPathComponent("plugins/official/preview", isDirectory: true)
+        let package = URL(fileURLWithPath: packagePath, isDirectory: true)
+        let base = package.deletingLastPathComponent().appendingPathComponent("gterm-resource-" + UUID().uuidString)
         let sourceRoot = base.appendingPathComponent("source", isDirectory: true)
         let imageDirectory = sourceRoot.appendingPathComponent("site/images", isDirectory: true)
         let webDirectory = sourceRoot.appendingPathComponent("site/web", isDirectory: true)
         try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: webDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
+        let remoteTemporary = base.appendingPathComponent("relay-tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: remoteTemporary, withIntermediateDirectories: false)
+        let launcher = base.appendingPathComponent("gterm-fixture")
+        func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+        let script = """
+        #!/bin/sh
+        export TMPDIR=\(quote(remoteTemporary.path))
+        exec \(quote(gterm)) "$@"
+        """
+        try Data((script + "\n").utf8).write(to: launcher)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: launcher.path)
 
         let markdownBytes = Data("![sample](images/sample.png)\nresource from AppModel over SSH\n".utf8)
         let imageBytes = try solidRedPNG()
@@ -700,7 +710,7 @@ final class ExtensionControllerTests: XCTestCase {
         try Data().write(to: knownHosts)
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: knownHosts.path)
         guard let controller = model.extensionController else {
-            throw XCTSkip("QuickJS-enabled AppModel plugin owner is unavailable")
+            throw XCTSkip("Lua AppModel plugin owner is unavailable")
         }
         defer { Task { await model.stopExtensionRun(); await controller.close() } }
         model.interaction = AcceptAllInteraction()
@@ -711,7 +721,7 @@ final class ExtensionControllerTests: XCTestCase {
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
             command: "preview", arguments: ["site/index.md", "--assets", "site/images/sample.png"],
             sshAlias: "plugin-resource-fixture",
-            executable: gterm, executorDirectory: package.path,
+            executable: launcher.path, executorDirectory: package.path,
             executorDigest: executorDigest,
             methods: [], hostMethods: [],
             scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
@@ -793,7 +803,7 @@ final class ExtensionControllerTests: XCTestCase {
             command: "preview", arguments: ["site/web/index.html", "--assets",
                 "site/web/style.css,site/web/image.png"],
             sshAlias: "plugin-resource-fixture",
-            executable: gterm, executorDirectory: package.path,
+            executable: launcher.path, executorDirectory: package.path,
             executorDigest: executorDigest, methods: [], hostMethods: [],
             scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
         guard model.extensionRunIssue == nil, let htmlConsent = model.extensionRun,
@@ -848,6 +858,13 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue)
         let closed = await controller.close()
         XCTAssertTrue(closed)
+        let cleanupDeadline = ProcessInfo.processInfo.systemUptime + 10
+        var remaining = try FileManager.default.contentsOfDirectory(atPath: remoteTemporary.path)
+        while !remaining.isEmpty && ProcessInfo.processInfo.systemUptime < cleanupDeadline {
+            try await Task.sleep(for: .milliseconds(50))
+            remaining = try FileManager.default.contentsOfDirectory(atPath: remoteTemporary.path)
+        }
+        XCTAssertTrue(remaining.isEmpty, "Remote Preview resources survived release: \(remaining)")
     }
 
     private func solidRedPNG() throws -> Data {

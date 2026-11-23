@@ -34,6 +34,7 @@ typedef struct {
     char path[520], title[1025], args_schema[17][256];
     char views[8][16];
     uint32_t view_count;
+    bool toggle_panel;
 } gt_ext_package_command_t;
 
 /* Snapshot getters never execute code. Failure clears output. */

@@ -25,7 +25,7 @@ public struct PluginForegroundDeclaration: Sendable, Equatable, Decodable {
         guard value.schemaVersion == 1, !value.authorizationGranted,
               hexadecimal(value.instance, count: 32), value.instance == expectedInstance,
               hexadecimal(value.executorDigest, count: 64), hexadecimal(value.clientDigest, count: 64),
-              ["portable-js", "node", "exec"].contains(value.runtime),
+              value.runtime == ExtensionRuntime.runtimeName,
               !value.command.isEmpty, value.command.utf8.count <= 519,
               !value.command.utf8.contains(0), value.arguments.count <= 32,
               value.arguments.allSatisfy({ $0.utf8.count <= 4096 && !$0.utf8.contains(0) }),

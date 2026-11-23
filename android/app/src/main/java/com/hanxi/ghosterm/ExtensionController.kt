@@ -40,18 +40,21 @@ import java.net.InetAddress
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal fun luaVersionDirectory(context: Context) =
+    File(context.applicationContext.filesDir, "lua-plugin-releases")
+
 /** App-side Client package owner. Native package and registry calls stay on one
- * non-UI worker. Reviewing never grants source trust or activates JavaScript. */
+ * non-UI worker. Reviewing never grants source trust or activates Lua. */
 class ExtensionController private constructor(private val shared: Shared, private val ownsLibrary: Boolean,
     private val parent: ExtensionController? = null) {
     constructor(profile: HostProfile, context: Context,
-        versionDirectory: File = File(context.applicationContext.filesDir, "plugin-releases")) : this(Shared(profile, context, versionDirectory), true)
+        versionDirectory: File = luaVersionDirectory(context)) : this(Shared(profile, context, versionDirectory), true)
     internal constructor(profile: HostProfile, context: Context, versionDirectory: File,
         channelStore: PluginChannelPolicyStore, channelClock: (() -> ULong)? = null) :
         this(Shared(profile, context, versionDirectory, channelStore, channelClock), true)
 
     internal constructor(profile: HostProfile, context: Context, refresh: PluginChannelRefresh) :
-        this(Shared(profile, context, File(context.applicationContext.filesDir, "plugin-releases"),
+        this(Shared(profile, context, luaVersionDirectory(context),
             refresh.store, channelRefresh = refresh), true)
 
     internal val hasConfiguredChannel: Boolean get() = shared.channelStore != null
@@ -117,7 +120,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
         val reviewDescription get() = "Native 只读发布目录：$directory · 单文件上限 256 KiB"
     }
 
-    data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>)
+    data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>,
+                       val togglePanel: Boolean = false)
     data class Review(
         val id: String, val version: String, val publisher: String, val license: String,
         val digest: String, val runtime: String, val requiredCapabilities: List<String>,
@@ -567,7 +571,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
      * is resolved against the exact approved package snapshot before runtime
      * adopts the Session. */
     suspend fun activateClient(pluginID: String, packageDigest: String, command: String,
-        arguments: List<String>, clientWorkspace: ClientWorkspace? = null): RuntimeState = onWorker {
+        arguments: List<String>, clientWorkspace: ClientWorkspace? = null,
+        context: ExtensionRuntime.Invocation.Context? = null): RuntimeState = onWorker {
         val current = checkNotNull(session) { "插件 Session 尚未接管" }
         check(current.info().phase == ExtensionSession.Phase.ACTIVE) { "插件 Session 尚未获得授权" }
         check(sessionPackageKey == Key(pluginID, packageDigest)) { "插件 Session 与所选包不匹配" }
@@ -609,7 +614,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
             rootFD?.let { check(Os.fstat(it).st_mode and OsConstants.S_IFMT == OsConstants.S_IFDIR) { "本机资源路径不是目录" } }
             ExtensionRuntime.adoptPackage(current, record.packageBytes, ExtensionSession.Role.HOST, associated = true,
                 cpuMilliseconds = CLIENT_RUNTIME_CPU_MILLISECONDS,
-                invocation = ExtensionRuntime.Invocation(command, arguments.toList())).also {
+                invocation = ExtensionRuntime.Invocation(command, arguments.toList(), context)).also {
                 clientRootFD = rootFD; rootFD = null
             }
         } finally { rootFD?.let(Os::close) }
@@ -684,7 +689,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         current.forgetExecutorRequest(request)
     }
 
-    /** Explicit Native UI action. Client JS gets no local file root or Source. */
+    /** Explicit native UI action using the directory granted to this instance. */
     suspend fun publishClientResource(instanceID: String, relativePath: String, root: String = "client"): RuntimeState = onWorker {
         val current = checkNotNull(runtime)
         check(current.info().phase == ExtensionRuntime.Phase.ACTIVE && runtimeInstanceID == instanceID && clientSource == null) { "资源发布尚未就绪或已有发布" }
@@ -840,7 +845,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         return Review(metadata.id, metadata.version, metadata.publisher, metadata.license,
             metadata.packageDigest, metadata.runtime, metadata.requires.toList(), metadata.optionalMissing.toList(),
             metadata.authorizationGranted, metadata.publisherAuthenticated,
-            packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views) })
+            packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views, it.togglePanel) })
     }
 
     private fun captureCheckedPackage(directory: File): ExtensionPackage {
@@ -862,7 +867,9 @@ class ExtensionController private constructor(private val shared: Shared, privat
             }
             check(phase == ExtensionPackage.Phase.CAPTURED) { "固定包快照失败：${packageBytes.info().code}" }
             check(packageBytes.check(hostJSON) == ExtensionPackage.Phase.CHECKED) {
-                "插件包与 Android Client 能力不兼容：${packageBytes.info().code}"
+                val code = packageBytes.info().code
+                if (code == "LEGACY_PACKAGE_REINSTALL") "此包使用旧插件格式，请重新安装 Lua 版。"
+                else "插件包与 Android Client 能力不兼容：$code"
             }
             return packageBytes
         } catch (error: Throwable) {
@@ -930,7 +937,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
         var manifest: ByteArray? = null
         archive.visit { member, content ->
             checkpoint()
-            if (member.path == "plugin.json") {
+            if (member.path == PluginReleaseDeclarations.manifestName) {
                 require(content.size <= 65536) { "插件清单超过 64 KiB 上限" }
                 manifest = content.copyOf()
             }
@@ -1054,7 +1061,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
                 val metadata = bytes.metadata()
                 val identity = PluginReleaseSignature.Identity(metadata.id, metadata.version, metadata.publisher, metadata.packageDigest)
                 if (identity != authenticated.identity) throw PluginReleaseSignature.Rejected(PluginReleaseSignature.Failure.IDENTITY)
-                val declarations = PluginReleaseDeclarations.decode(version.readPayload("plugin.json", 65536), metadata)
+                val declarations = PluginReleaseDeclarations.decode(version.readPayload(PluginReleaseDeclarations.manifestName, 65536), metadata)
                 owner.validateVersion(version, payload)
                 return CheckedVersion(bytes, SignedArchiveReview(packageReview(bytes), authenticated.proof, declarations, channel?.statementSHA256, channel?.generation), fsIdentity(payload.fileDescriptor))
             } catch (failure: Throwable) { bytes.close(); throw failure }
@@ -1462,7 +1469,8 @@ class ExtensionController private constructor(private val shared: Shared, privat
             val metadata = selectedPackage.metadata()
             val contribution = selection.command ?: return@onWorker Resolution(ExtensionRegistry.Status.NOT_FOUND)
             Resolution(ExtensionRegistry.Status.OK, metadata.id, metadata.packageDigest,
-                Command(contribution.path, contribution.title, contribution.argsSchema, contribution.views))
+                Command(contribution.path, contribution.title, contribution.argsSchema, contribution.views,
+                    contribution.togglePanel))
         } finally {
             selectedPackage.close()
         }
@@ -1627,9 +1635,7 @@ class ExtensionController private constructor(private val shared: Shared, privat
     companion object {
         private const val CAPTURE_STEP_LIMIT = 100_000
         private const val RESOURCE_BYTES = 1L * 1024 * 1024
-        // Runtime executes on its dedicated worker. This bounded slice covers
-        // cold QuickJS module startup on 16 KiB arm64 systems without running
-        // plugin code on the UI thread.
+        // Budget each Lua execution slice on the dedicated worker.
         private const val CLIENT_RUNTIME_CPU_MILLISECONDS = 100
         private const val RESOURCE_SESSION_BYTES = 8L * 1024 * 1024
         private const val TREE_ENTRY_LIMIT = 4096

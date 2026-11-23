@@ -47,7 +47,8 @@ def load(name, filename):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build', type=Path, required=True, help='JS/SSH-enabled host gterm build')
+    parser.add_argument('--build', type=Path, required=True, help='Lua/SSH-enabled host gterm build')
+    parser.add_argument('--lua-archive', type=Path, required=True, help='Pinned Lua 5.5.1 source archive')
     parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--api', action='append', choices=('29', '36'))
@@ -59,10 +60,11 @@ def main():
     for path in (build, package, receipt):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('build, package and receipt must use project tmp/')
     cache = (build / 'CMakeCache.txt').read_text()
-    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
-        parser.error('build explicit JS/SSH-on gterm first')
+    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2')):
+        parser.error('build explicit Lua/SSH-on gterm first')
+    lua_archive = args.lua_archive.resolve(strict=True)
     inputs = {}
-    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'packages/plugin-sdk', 'plugins/official/task'):
+    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'core/cmake', 'plugins/official/task'):
         for path in (ROOT / folder).rglob('*'):
             if path.is_file() and not any(part in ('build', '.gradle', '.kotlin', '.cxx') for part in path.relative_to(ROOT / folder).parts):
                 if path.name != 'local.properties': inputs[str(path.relative_to(ROOT))] = sha(path)
@@ -75,7 +77,8 @@ def main():
     inputs['scripts/fixtures/plugin-native-ipc.py'] = sha(ROOT / 'scripts/fixtures/plugin-native-ipc.py')
     ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     package_hashes = {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}
-    binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}
+    binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a'),
+                'luaArchive': sha(lua_archive)}
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.with_suffix('.inputs.json').write_text(json.dumps(dict(accepted=False, inputs=inputs,
         package=package_hashes, binaries=binaries), indent=2) + '\n')
@@ -90,7 +93,7 @@ def main():
         work = Path(temporary); source = work / 'h'
         for folder in ('android', 'terminal/android'):
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
-        for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
+        for folder in ('core', 'vendor', 'build', 'assets', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
         env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary,
@@ -125,7 +128,7 @@ def main():
         apks = [app / 'debug/app-debug.apk', app / 'androidTest/debug/app-debug-androidTest.apk']
         def compile_apks(label):
             run(label, [source / 'android/gradlew', '-p', source / 'android', '--offline', '--no-daemon', '--max-workers=2',
-                '-Dorg.gradle.parallel=false', '-PghostermPluginJs=true', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
+                '-Dorg.gradle.parallel=false', '-PghostermPluginLua=true', f'-PghostermLuaArchive={lua_archive}', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
             return [sha(p) for p in apks]
         baseline = compile_apks('build-baseline')
 
@@ -164,7 +167,7 @@ def main():
                         page = run('api' + api + '-pagesize', [*adb, 'shell', 'getconf', 'PAGE_SIZE']).strip()
                         if actual_api != api or abi != 'arm64-v8a': raise RuntimeError('Wrong owned device profile')
                         test('api' + api + '-baseline')
-                        test('api' + api + '-legacy-table', 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest', 23)
+                        test('api' + api + '-legacy-table', 'com.hanxi.ghosterm.PluginTableTest,com.hanxi.ghosterm.PluginTableUiTest', 24)
                         test('api' + api + '-legacy-diff', 'com.hanxi.ghosterm.PluginDiffTest,com.hanxi.ghosterm.PluginDiffUiTest', 27)
                         print('PASS API' + api + ': 34 Native model/codec/UI tests', flush=True)
 
@@ -274,7 +277,9 @@ def main():
                         devices.append(dict(api=api, abi=abi, pageSize=int(page), noWindow=True, apks=[sha(p) for p in apks]))
         if any(sha(ROOT / n) != h for n, h in inputs.items()): raise RuntimeError('Root input changed')
         if package_hashes != {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}: raise RuntimeError('Package changed')
-        if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}: raise RuntimeError('Shared binary changed')
+        if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a'),
+                'luaArchive': sha(lua_archive)}:
+            raise RuntimeError('Shared binary or Lua archive changed')
         receipt.write_text(json.dumps(dict(accepted=True, foregroundAttachment=args.attach, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')

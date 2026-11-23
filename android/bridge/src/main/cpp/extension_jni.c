@@ -2886,7 +2886,8 @@ static jlongArray runtime_open(JNIEnv *e,
                                jlong package_id,
                                jboolean associated,
                                jbyteArray command,
-                               jobjectArray arguments) {
+                               jobjectArray arguments,
+                               jobjectArray invocation_context) {
     (void)self;
     if (!names || !sources || !digests || !entry || !limits || !root_names || !root_fds ||
         !root_limits) {
@@ -2930,13 +2931,13 @@ static jlongArray runtime_open(JNIEnv *e,
          *bootstrap = NULL;
     size_t total = 0;
     gt_status_t status = GT_ERR_INVALID_ARG;
-    char *invocation_command = NULL, *invocation_args[32] = {0};
+    char *invocation_command = NULL, *invocation_args[32] = {0}, *invocation_fields[3] = {0};
     gt_ext_invocation_t invocation = {0};
     gt_ext_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     char *root_ids[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     jint descriptors[GT_EXT_RUNTIME_ROOTS_MAX];
     jlong root_budgets[GT_EXT_RUNTIME_ROOTS_MAX];
-    if ((command == NULL) != (arguments == NULL)) {
+    if ((command == NULL) != (arguments == NULL) || (invocation_context && !command)) {
         extension_error(e, "命令调用缺少成对参数");
         goto done;
     }
@@ -2962,8 +2963,33 @@ static jlongArray runtime_open(JNIEnv *e,
                 goto done;
             }
         }
-        invocation = (gt_ext_invocation_t){
-            invocation_command, (const char *const *)invocation_args, (size_t)n};
+        if (invocation_context) {
+            if ((*e)->GetArrayLength(e, invocation_context) != 3) {
+                extension_error(e, "运行时调用上下文无效");
+                goto done;
+            }
+            const size_t limits[] = {64, 64, 4096};
+            for (jsize i = 0; i < 3; i++) {
+                jbyteArray field = (*e)->GetObjectArrayElement(e, invocation_context, i);
+                if ((*e)->ExceptionCheck(e)) {
+                    goto done;
+                }
+                if (!field) {
+                    continue;
+                }
+                invocation_fields[i] = extension_text(e, field, limits[i]);
+                (*e)->DeleteLocalRef(e, field);
+                if (!invocation_fields[i]) {
+                    goto done;
+                }
+            }
+        }
+        invocation = (gt_ext_invocation_t){.command = invocation_command,
+                                           .argv = (const char *const *)invocation_args,
+                                           .argc = (size_t)n,
+                                           .workspace_id = invocation_fields[0],
+                                           .pane_id = invocation_fields[1],
+                                           .directory = invocation_fields[2]};
     }
     if (root_count) {
         (*e)->GetIntArrayRegion(e, root_fds, 0, root_count, descriptors);
@@ -3039,8 +3065,7 @@ static jlongArray runtime_open(JNIEnv *e,
                                      .process_environment_count = 0,
                                      .process_lifetime_ms = 0,
                                      .process_output_bytes = 0,
-                                     .invocation = command ? &invocation : NULL,
-                                     .execution = NULL};
+                                     .invocation = command ? &invocation : NULL};
         extension_slot_t *p = package_id ? package_pin(e, package_id, true, false) : NULL;
         if (package_id && !p) {
             goto done;
@@ -3082,6 +3107,9 @@ static jlongArray runtime_open(JNIEnv *e,
     }
 done:
     free(invocation_command);
+    for (size_t i = 0; i < 3; i++) {
+        free(invocation_fields[i]);
+    }
     for (size_t i = 0; i < 32; i++) {
         free(invocation_args[i]);
     }
@@ -3116,7 +3144,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,
                                                            jintArray root_fds,
                                                            jlongArray root_limits,
                                                            jbyteArray command,
-                                                           jobjectArray arguments) {
+                                                           jobjectArray arguments,
+                                                           jobjectArray invocation_context) {
     return runtime_open(e,
                         self,
                         id,
@@ -3131,7 +3160,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,
                         0,
                         false,
                         command,
-                        arguments);
+                        arguments,
+                        invocation_context);
 }
 
 JNIEXPORT jlongArray JNICALL
@@ -3145,7 +3175,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_openPackage(JNIEnv *e,
                                                                   jintArray root_fds,
                                                                   jlongArray root_limits,
                                                                   jbyteArray command,
-                                                                  jobjectArray arguments) {
+                                                                  jobjectArray arguments,
+                                                                  jobjectArray invocation_context) {
     if (package_id <= 0) {
         extension_error(e, "插件包句柄无效");
         return NULL;
@@ -3178,7 +3209,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_openPackage(JNIEnv *e,
                                      package_id,
                                      associated,
                                      command,
-                                     arguments);
+                                     arguments,
+                                     invocation_context);
     (*e)->DeleteLocalRef(e, entry);
     (*e)->DeleteLocalRef(e, empty);
     return result;
@@ -3272,7 +3304,7 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_transportProcessObservatio
 JNIEXPORT jlongArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject self, jlong id) {
     (void)self;
-    jlongArray result = (*e)->NewLongArray(e, 20);
+    jlongArray result = (*e)->NewLongArray(e, 10);
     if (!result) {
         return NULL;
     }
@@ -3287,7 +3319,7 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject se
         extension_error(e, "运行时观察无效");
         return NULL;
     }
-    jlong values[20] = {i.phase,
+    jlong values[10] = {i.phase,
                         i.error,
                         i.cleanup_error,
                         i.session_end,
@@ -3296,18 +3328,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject se
                         i.engine_released,
                         (jlong)i.steps,
                         (jlong)i.jobs,
-                        (jlong)i.module_bytes,
-                        i.external_process,
-                        i.activated,
-                        i.child_exited,
-                        i.probe_verified,
-                        i.execution_error,
-                        i.exit_code,
-                        i.term_signal,
-                        i.group_signal_error,
-                        (jlong)i.stdout_bytes,
-                        (jlong)i.stderr_bytes};
-    (*e)->SetLongArrayRegion(e, result, 0, 20, values);
+                        (jlong)i.module_bytes};
+    (*e)->SetLongArrayRegion(e, result, 0, 10, values);
     return result;
 }
 
@@ -3670,16 +3692,17 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPac
     if (!bytes) {
         return NULL;
     }
-    jobjectArray result = (*e)->NewObjectArray(e, 3 + (jsize)c.view_count, bytes, NULL);
+    jobjectArray result = (*e)->NewObjectArray(e, 4 + (jsize)c.view_count, bytes, NULL);
     (*e)->DeleteLocalRef(e, bytes);
     if (!result) {
         return NULL;
     }
-    const char *fields[11] = {c.path, c.title, (const char *)c.args_schema};
+    const char *fields[12] = {
+        c.path, c.title, (const char *)c.args_schema, c.toggle_panel ? "1" : "0"};
     for (uint32_t i = 0; i < c.view_count; i++) {
-        fields[3 + i] = c.views[i];
+        fields[4 + i] = c.views[i];
     }
-    for (jsize i = 0; i < 3 + (jsize)c.view_count; i++) {
+    for (jsize i = 0; i < 4 + (jsize)c.view_count; i++) {
         jbyteArray value = package_bytes(e, fields[i]);
         if (!value) {
             return NULL;

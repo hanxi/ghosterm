@@ -12,7 +12,7 @@ import XCTest
         let env = ProcessInfo.processInfo.environment
         guard let binary = env["GHOSTERM_LOGS_GTERM"], let packagePath = env["GHOSTERM_LOGS_PACKAGE"],
               let scratch = env["GHOSTERM_LOGS_SCRATCH"] else {
-            throw XCTSkip("requires the owned QuickJS logs fixture")
+            throw XCTSkip("requires the owned Lua logs fixture")
         }
         XCTAssertEqual(ExtensionRuntime.supportStatus, 0)
         let root = URL(fileURLWithPath: scratch), package = URL(fileURLWithPath: packagePath)
@@ -28,7 +28,7 @@ import XCTest
         let stage = work.appendingPathComponent("stage")
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
-            runtimes: ["portable-js"], capabilities: ["session.rpc", "ui.table"]),
+            runtimes: ["lua"], capabilities: ["session.rpc", "ui.table"]),
             localJournalDirectory: work.appendingPathComponent("journal"))
         let model = ExtensionInstanceModel(controller: controller)
         addTeardownBlock { await model.stopExtensionRun(); let closed = await controller.close(); XCTAssertTrue(closed) }

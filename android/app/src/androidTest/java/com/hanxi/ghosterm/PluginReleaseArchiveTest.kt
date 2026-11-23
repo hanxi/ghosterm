@@ -229,7 +229,7 @@ class PluginReleaseArchiveTest {
             catch (e: PluginReleaseArchive.Rejected) { assertEquals(PluginReleaseArchive.Failure.CLOSED, e.reason) }
         }
     }
-    @Test fun publicNodeSignaturesBindBothStoredAndDeflatedArchiveBytes() {
+    @Test fun publicSignaturesBindBothStoredAndDeflatedLuaArchiveBytes() {
         val fixture = JSONObject(InstrumentationRegistry.getInstrumentation().context.assets.open("plugin-release/archive.json").bufferedReader().use { it.readText() })
         val vectors = fixture.getJSONArray("vectors")
         for (index in 0..1) {
@@ -238,7 +238,7 @@ class PluginReleaseArchiveTest {
                 Base64.getDecoder().decode(vector.getString("signature")), fixture.getString("policy").toByteArray())
             val bytes = Base64.getDecoder().decode(vector.getString("archive"))
             withFile(bytes) { _, fd -> PluginReleaseArchive.open(fd, authenticated.proof).use { archive ->
-                assertTrue(archive.members.any { it.path == "plugin.json" }); archive.visit { _, _ -> }
+                assertTrue(archive.members.any { it.path == "manifest.json" }); archive.visit { _, _ -> }
             } }
         }
     }

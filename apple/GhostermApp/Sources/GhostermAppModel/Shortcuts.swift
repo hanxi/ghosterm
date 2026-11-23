@@ -43,6 +43,8 @@ public enum ShortcutCatalog {
             ShortcutItem(title: "关闭窗口", keys: "⇧⌘W"),
             ShortcutItem(title: "切换标签位置", keys: "⌥⌘S"),
             ShortcutItem(title: "文件面板", keys: "⇧⌘E"),
+            ShortcutItem(title: "插件命令…", keys: "⇧⌘P"),
+            ShortcutItem(title: "运行已绑定的插件命令", keys: "⇧⌘Y"),
             ShortcutItem(title: "设置…", keys: "⌘,"),
             ShortcutItem(title: "退出 Ghosterm", keys: "⌘Q"),
         ]),

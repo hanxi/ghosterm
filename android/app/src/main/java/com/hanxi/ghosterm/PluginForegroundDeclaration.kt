@@ -65,7 +65,7 @@ data class PluginForegroundDeclaration(
             val hostMethods = arrays.getValue("hostMethods")
             val services = arrays.getValue("clientCapabilities")
             require(instance == expectedInstance && hex64.matches(strings.getValue("executorDigest")) &&
-                hex64.matches(strings.getValue("clientDigest")) && strings.getValue("runtime") in listOf("portable-js", "node", "exec") &&
+                hex64.matches(strings.getValue("clientDigest")) && strings.getValue("runtime") == BuildConfig.PLUGIN_RUNTIME_NAME &&
                 command.isNotEmpty() && command.toByteArray().size <= 519 &&
                 arguments.sumOf { it.toByteArray().size + 1 } + command.toByteArray().size + 1 <= 16384 &&
                 methods.size + hostMethods.size <= 16 && methods.none { it in hostMethods } &&

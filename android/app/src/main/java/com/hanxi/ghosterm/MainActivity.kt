@@ -225,7 +225,20 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 DisposableEffect(viewportId) {
                     onDispose { if (recoveryOwner == viewportId) recoveryOwner = null }
                 }
+                var pluginCommandsVisible by remember(viewportId) { mutableStateOf(false) }
+                val hasApprovedCommands = extensions.entries.any {
+                    it.decision == "已批准（本进程）" && it.review.commands.isNotEmpty()
+                }
+                if (pluginCommandsVisible) {
+                    TerminalPluginCommands(extensions, sessions, hosts, onDismiss = { pluginCommandsVisible = false }) {
+                        pluginCommandsVisible = false
+                        sessions.home()
+                        hosts.settings()
+                        settings.open(SettingsSection.PLUGINS)
+                    }
+                }
                 TerminalScreen(sessions, openFiles = ::openTerminalFiles, recoveryBusy = hosts.busy,
+                    onPluginCommands = if (hasApprovedCommands) ({ pluginCommandsVisible = true }) else null,
                     onPluginCandidates = { sessions.home(); hosts.settings(); settings.open(SettingsSection.PLUGINS) },
                     recoveryError = if (recoveryOwner == sessions.active?.id) hosts.error else null,
                     onRecover = { stopped ->
@@ -362,6 +375,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                                 val target = hosts.preparePluginTarget(alias)
                                 extensions.inspectForeground(target, executable, directory, instance, sessions)
                             },
+                            pluginWorkspaceID = sessions.active?.id,
                             onLaunchPluginGroup = { extensions.launchGroup(sessions, hosts::preparePluginTarget) },
                             onLaunchPlugin = { entry, command, alias, request, clientWorkspace ->
                                 val target = hosts.preparePluginTarget(alias)

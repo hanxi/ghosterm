@@ -66,12 +66,9 @@ static bool method(const char *s) {
 }
 
 static bool valid(const declaration_t *d) {
-    if (!d->runtime ||
-        (strcmp(d->runtime, "portable-js") && strcmp(d->runtime, "node") &&
-         strcmp(d->runtime, "exec")) ||
-        !digest(d->executor) || !digest(d->client) || !d->command || !*d->command ||
-        strlen(d->command) > 519 || d->argument_count > 32 ||
-        d->method_count + d->host_count > 16 || d->capability_count > 5) {
+    if (!d->runtime || strcmp(d->runtime, GTERM_NATIVE_RUNTIME) || !digest(d->executor) ||
+        !digest(d->client) || !d->command || !*d->command || strlen(d->command) > 519 ||
+        d->argument_count > 32 || d->method_count + d->host_count > 16 || d->capability_count > 5) {
         return false;
     }
     size_t total = strlen(d->command) + 1;
@@ -176,7 +173,7 @@ bool gterm_foreground_encode(int argc, char **argv, unsigned char *bytes, size_t
     if (boundary < 0 || gterm_stdio_validate(argc, argv)) {
         return false;
     }
-    declaration_t d = {.runtime = "portable-js"};
+    declaration_t d = {.runtime = GTERM_NATIVE_RUNTIME};
     d.command = argv[boundary + 2];
     d.argument_count = (size_t)(argc - boundary - 3);
     if (d.argument_count > 32) {

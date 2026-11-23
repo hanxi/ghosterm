@@ -220,7 +220,7 @@ final class PluginResourceUITests: XCTestCase {
         let after = CapturedSchemeTask(request: request); handler.webView(first, start: after)
         XCTAssertTrue(returned != nil && first.navigationDelegate == nil && after.error != nil && after.data.isEmpty,
                       "prepared attachment changes must replace and revoke the previous HTML view")
-        let prepared = try XCTUnwrap(returned)
+        guard let prepared = returned else { return }
         let preparedHandler = try XCTUnwrap(prepared.configuration.urlSchemeHandler(
             forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler)
         model.selection.select(second.resourceID, available: model.resources.map(\.resourceID))

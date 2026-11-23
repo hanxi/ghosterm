@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -143,12 +144,14 @@ final class ExtensionProcessChannelTests: XCTestCase {
         }
     }
     func testRuntimeAdoptionRetainsFinalTransportSnapshot() throws {
-        guard ExtensionRuntime.supportStatus == 0 else { throw XCTSkip("explicit JS-enabled runtime profile required") }
+        guard ExtensionRuntime.supportStatus == 0 else { throw XCTSkip("explicit Lua-enabled runtime profile required") }
         worker { owner, helper, fd, _ in
             let channel = try ExtensionChannel(process: self.config(helper, fd, "session"), owner: owner)
             let session = try self.session(channel)
-            let modules = try runtimeModules("export function activate(){return {dispose(){}}}")
-            let runtime = try ExtensionRuntime(session: session, config: .init(modules: modules, entry: "plugin:/entry.js", role: .host))
+            let source = Data("return {}".utf8)
+            let entry = "plugin:/entry.lua"
+            let module = ExtensionRuntime.Module(name: entry, source: source, sha256: SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined())
+            let runtime = try ExtensionRuntime(session: session, config: .init(modules: [module], entry: entry, role: .host))
             defer { try? self.close { try runtime.closeStep() } }
             XCTAssertThrowsError(try session.processObservation())
             XCTAssertFalse(try runtime.transportProcessObservation().childExited)

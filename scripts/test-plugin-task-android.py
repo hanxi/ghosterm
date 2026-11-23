@@ -36,17 +36,17 @@ def main():
         if not path.resolve().is_relative_to(ROOT / 'tmp'): parser.error('use owned project tmp inputs/receipt')
     helper = load('task_owned_headless', 'scripts/test-plugin-codex-patch-android.py')
     business = load('task_business_contract', 'scripts/test-plugin-task.py')
-    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('core/src', 'core/include', 'plugins/official/task', 'packages/plugin-sdk')
+    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('core/src', 'core/include', 'plugins/official/task', 'core/cmake')
         for p in (ROOT / folder).rglob('*') if p.is_file()}
     for name in ('scripts/test-plugin-task-android.py', 'scripts/test-plugin-task.py', 'scripts/probes/plugin-task.c', 'scripts/test-plugin-codex-patch-android.py'):
         inputs[name] = sha(ROOT / name)
     package = {p.relative_to(args.package).as_posix(): sha(p) for p in args.package.rglob('*') if p.is_file()}
     binary = sha(args.probe); records = []
     for api in ('29', '36'):
-        with helper.headless(api) as serial:
+        with helper.headless(api, scratch=args.receipt.resolve().parent) as serial:
             adb = [str(ROOT / 'build/android-toolchain/sdk/platform-tools/adb'), '-s', serial]
             def run(*command):
-                p = subprocess.run([*adb, *map(str, command)], env={**os.environ, 'TMPDIR': str(ROOT / 'tmp')},
+                p = subprocess.run([*adb, *map(str, command)], env=os.environ.copy(),
                     text=True, capture_output=True, timeout=120)
                 if p.returncode: raise RuntimeError('owned device command failed\n' + p.stdout + p.stderr)
                 return p.stdout
@@ -72,7 +72,7 @@ def main():
             finally: run('shell', 'rm', '-rf', remote)
     if any(sha(ROOT / n) != h for n, h in inputs.items()): raise RuntimeError('root inputs changed')
     record = dict(accepted=True, inputs=inputs, devices=records, probe=binary, package=package,
-        scope='NDK arm64 / actual public Core Session and QuickJS on owned AVDs; controlled Session clock for lost-ack; no JNI, APK, Native views, SSH, model, true device or release')
+        scope='NDK arm64 / actual public Core Session and Lua 5.5.1 on owned AVDs; controlled Session clock for lost-ack; no JNI, APK, Native views, SSH, model, true device or release')
     args.receipt.write_text(json.dumps(record, indent=2) + '\n')
 
 

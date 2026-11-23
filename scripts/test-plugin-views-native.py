@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--receipt', type=Path, required=True); parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--mutation-case', action='append', help='run only named mutations after the baseline')
     parser.add_argument('--route', choices=['local', 'direct', 'jump'], action='append')
-    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
+    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Lua foreground IPC instance')
     parser.add_argument('--attach-loss', action='store_true', help='terminate the owned foreground after Native view interactions')
     parser.add_argument('--workspace-build', action='store_true',
                         help='reuse the workspace Swift dependencies and enabled Core for a read-only baseline')
@@ -55,8 +55,8 @@ def main():
         not args.mutation_case or FOREGROUND_MUTATION in args.mutation_case)
     for p in [build, package, args.receipt.resolve()]: assert p.is_relative_to(ROOT / 'tmp')
     cache = (build / 'CMakeCache.txt').read_text()
-    assert all(s + ':BOOL=ON' in cache for s in ['GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2'])
-    inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal/Sources', 'core/src', 'core/include', 'cli/gterm', 'packages/plugin-sdk', 'plugins/official/views']
+    assert all(s + ':BOOL=ON' in cache for s in ['GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2'])
+    inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal/Sources', 'core/src', 'core/include', 'cli/gterm', 'core/cmake', 'plugins/official/views']
               for p in (ROOT / directory).rglob('*') if p.is_file() and not any(x in ('.build', '.swiftpm') for x in p.parts)}
     for name in ['scripts/test-plugin-views-native.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py', 'scripts/test-plugin-route.py', 'scripts/lib/gt-timeout.sh']:
         inputs[name] = sha(ROOT / name)
@@ -92,7 +92,7 @@ def main():
         work = Path(temporary); logs = work / 'logs'; logs.mkdir()
         if args.workspace_build:
             source = ROOT
-            assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in (ROOT / 'core/build/CMakeCache.txt').read_text()
+            assert 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=ON' in (ROOT / 'core/build/CMakeCache.txt').read_text()
         else:
             source = work / 'h'
             for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
@@ -102,7 +102,8 @@ def main():
             (source / 'tmp').mkdir()
         native_core = source / 'core/build/libghosterm_core.a'
         native_core_sha = sha(native_core)
-        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary, DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer', GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_LUA='1',
+                   GHOSTERM_CORE_BUILD_DIR=str(native_core.parent))
         commands, groups, actual = [], [], []
         def test(label, selected, count=1, red=False, expected=None):
             command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require views-native; shift; exec "$gt_timeout_bin" "$@"', 'views-native', ROOT, 300,

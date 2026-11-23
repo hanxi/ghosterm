@@ -104,7 +104,9 @@ final class CodexPatchRPCAppTests: XCTestCase {
         }
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let root = repo.appendingPathComponent("tmp/codex-patch-" + UUID().uuidString)
+        let temporary = env["GHOSTERM_APP_TEST_TMP"].map { URL(fileURLWithPath: $0) }
+            ?? repo.appendingPathComponent("tmp")
+        let root = temporary.appendingPathComponent("codex-patch-" + UUID().uuidString)
         for name in ["workspace", "home", "codex", "config"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
         }
@@ -118,7 +120,7 @@ final class CodexPatchRPCAppTests: XCTestCase {
         func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
         let childEnvironment = ["HOME": root.appendingPathComponent("home").path,
             "CODEX_HOME": root.appendingPathComponent("codex").path, "XDG_CONFIG_HOME": root.appendingPathComponent("config").path,
-            "TMPDIR": repo.appendingPathComponent("tmp").path, "PATH": env["PATH"] ?? "/usr/bin:/bin"]
+            "TMPDIR": temporary.path, "PATH": env["PATH"] ?? "/usr/bin:/bin"]
         let assignments = childEnvironment.sorted { $0.key < $1.key }.map { quote("\($0.key)=\($0.value)") }.joined(separator: " ")
         let launcher = root.appendingPathComponent("gterm-fixture")
         let diagnostics = root.appendingPathComponent("executor.log")
@@ -258,7 +260,10 @@ final class CodexPatchRPCAppTests: XCTestCase {
         XCTAssertNil(model.extensionRunIssue, "Disabled unread approval must not invoke the response handler")
         XCTAssertFalse(FileManager.default.fileExists(atPath: workspace.appendingPathComponent("approved.json").path))
         try await press(pane, id: "plugin-codex-read-change-\(old.snapshotID)")
-        try await wait("Complete revision one was not published") { model.codexChangeReview?.document != nil }
+        try await wait("Complete revision one was not published") {
+            model.codexChangeReview?.document != nil || model.codexChangeReview?.issue != nil
+        }
+        XCTAssertNil(model.codexChangeReview?.issue)
         let first = try XCTUnwrap(model.codexChangeReview?.document)
         XCTAssertEqual(first.changes.count, 10)
         XCTAssertEqual(first.changes[0].path, "nested/" + String(repeating: "x", count: 4096) + "/source.swift")

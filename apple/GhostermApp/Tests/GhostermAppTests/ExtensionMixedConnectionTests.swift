@@ -147,28 +147,24 @@ import XCTest
         let approved = try await catalog.approve(id: review.id, digest: review.digest); XCTAssertEqual(approved, 0)
         let local: ExtensionLocalLaunch? = route == "local" ? .init(executableSHA256: try string("gtermSHA256"),
             workingDirectory: root.path, temporaryDirectory: stage.path, authorized: true) : nil
-        let node = ExtensionRelayBootstrap.NodeDependency(executable: try string("node"), version: try string("nodeVersion"),
-            sha256: try string("nodeSHA256"), sdkDirectory: try string("sdk"), sdkCatalogSHA256: try string("sdkSHA256"))
-        func invocation(_ slot: Int, runtime: String, signed: Bool, stale: Bool = false) throws -> ExtensionGroupInvocation {
-            let execution: ExtensionRelayBootstrap.Execution? = runtime == "portable" ? nil :
-                .init(runtime: runtime == "node" ? .node(node) : .exec, temporaryDirectory: stage.path, authorized: true)
+        func invocation(_ slot: Int, signed: Bool, stale: Bool = false) throws -> ExtensionGroupInvocation {
             let evidence: ExtensionRelayBootstrap.ReleaseEvidence? = signed ? .init(directory: try string("release"),
                 policyPath: try string("policy"), policySHA256: stale ? String(repeating: "0", count: 64) : try string("policySHA256"), authorized: true) : nil
             return .init(packageID: review.id, request: .init(executable: binary,
                 executorDirectory: try string(signed ? "installed" : "package"), executorDigest: review.digest,
                 clientDigest: review.digest, methods: ["fixture.echo"],
                 scopedRoots: [.init(id: "workspace", directory: root.appendingPathComponent("workspace-\(slot)").path)],
-                execution: execution, releaseEvidence: evidence, variantID: runtime, command: "fixture"),
+                releaseEvidence: evidence, variantID: "lua", command: "fixture"),
                 sshAlias: "mixed-target", localLaunch: local, clientWorkspace: nil, temporaryDirectory: stage.path)
         }
         let disconnect = payload["disconnectOnStop"] as? Bool == true
         let single = disconnect || channel != nil
-        let runtimes = single ? ["portable"] : ["portable", "node", "exec", "portable", "node", "exec", "portable", "node"]
-        let invocations = try runtimes.enumerated().map { try invocation($0.offset, runtime: $0.element, signed: single || $0.offset % 2 == 1) }
+        let instanceCount = single ? 1 : 8
+        let invocations = try (0..<instanceCount).map { try invocation($0, signed: single || $0 % 2 == 1) }
         await app.startExtensionGroup(invocations)
         let group = try XCTUnwrap(app.extensionConnections.last)
-        XCTAssertNil(group.issue); XCTAssertEqual(group.instances.count, runtimes.count)
-        guard group.instances.count == runtimes.count else { return }
+        XCTAssertNil(group.issue); XCTAssertEqual(group.instances.count, instanceCount)
+        guard group.instances.count == instanceCount else { return }
         for model in group.instances {
             XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
             XCTAssertNil(model.extensionRun?.runtime)
@@ -293,10 +289,10 @@ import XCTest
         } catch is CancellationError {
             XCTAssertTrue(receivedAdmission)
         }
-        let rejected = await group.add(try invocation(3, runtime: "node", signed: true, stale: true), app: app)
+        let rejected = await group.add(try invocation(3, signed: true, stale: true), app: app)
         XCTAssertFalse(rejected); XCTAssertEqual(group.instances.filter { !$0.canDiscard }.count, 7)
         for (slot, model) in group.instances.enumerated() where !model.canDiscard { try await echo(model, text: "after-rejection-\(slot)", count: slot) }
-        let added = await group.add(try invocation(3, runtime: "node", signed: true), app: app)
+        let added = await group.add(try invocation(3, signed: true), app: app)
         XCTAssertTrue(added, group.issue ?? "")
         let replacement = try XCTUnwrap(group.instances.last)
         XCTAssertEqual(replacement.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
@@ -305,7 +301,7 @@ import XCTest
         guard try await resource(replacement, slot: 3, stage: "online Node replacement") else { return }
         for model in group.instances { let done = await model.requestClose(); XCTAssertTrue(done) }
         let empty = try await group.controller.stepMultiplexConnection(); XCTAssertEqual(empty.instances, 0); XCTAssertTrue(group.canAdd)
-        let reopened = await group.add(try invocation(0, runtime: "exec", signed: true), app: app)
+        let reopened = await group.add(try invocation(0, signed: true), app: app)
         XCTAssertTrue(reopened, group.issue ?? "")
         let final = try XCTUnwrap(group.instances.last)
         await final.decideExtensionConsent(allow: true)

@@ -73,7 +73,6 @@ private data class PluginCloseRequest(val group: ExtensionConnectionModel,
                     Text("gterm：${request.executable}\nExecutor：${request.executorDirectory}\n临时根目录：${invocation.temporaryDirectory}")
                     Text("Client：${request.clientDigest}\nExecutor：${request.executorDigest}")
                     Text("参数：${JSONArray(request.arguments)}\n只读根：${request.workspaceRootDirectory ?: "无"}")
-                    request.execution?.let { Text(it.reviewDescription) }
                     request.releaseEvidence?.let { Text(it.reviewDescription) }
                     Text("Executor variant：${request.variantID ?: "未固定，由执行端核对唯一候选"}")
                     launch.clientWorkspace?.let { Text(it.reviewDescription) }

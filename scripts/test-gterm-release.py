@@ -12,7 +12,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import platform
 import shlex
 from pathlib import Path
 import shutil
@@ -39,13 +38,9 @@ CASES = ['roundtrip', 'deflate', 'bad-signature', 'revoked', 'scope', 'duplicate
          'fractional', 'wrong-artifact', 'wrong-package', 'zip-path', 'zip-tail',
          'conflict', 'partial-register', 'changed-policy', 'waiting-policy', 'tampered-payload',
          'store-link', 'umask']
-CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'node-roundtrip', 'node-deny',
-          'node-active-cancel', 'exec-roundtrip', 'exec-deny', 'exec-active-cancel',
-          'node-development', 'exec-development']
-CASES += ['node-multi', 'exec-multi', 'profile-runtime-mismatch', 'profile-variant-mismatch', 'policy-review', 'version-maintenance', 'version-reference', 'version-active', 'node-version-active', 'exec-version-active']
-CASES += ['residue-maintenance', 'residue-reference', 'residue-damaged-intent']
-CASES += ['node-same-multi', 'exec-same-multi']
-CASES += ['policy-subset']
+CASES += ['unicode-publisher', 'nfd-policy', 'base64-policy', 'lua-development', 'lua-deny',
+          'lua-active-cancel', 'policy-review', 'version-maintenance', 'version-reference', 'version-active',
+          'residue-maintenance', 'residue-reference', 'residue-damaged-intent', 'policy-subset']
 POLICY_SYNC_CASES = {'policy-file-sync': 'file-sync', 'policy-directory-sync': 'directory-sync'}
 FAULT_CASES = ['version-resume', 'residue-resume', *POLICY_SYNC_CASES]
 
@@ -56,13 +51,13 @@ def require(value, label):
 
 
 def policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
-                  install_options, profile, node, signer, fault):
+                  install_options, profile, signer, fault):
     other_id = 'org.ghosterm.second'
     second = work / 'second-package'
     shutil.copytree(package, second)
-    manifest = json.loads((second / 'plugin.json').read_text())
+    manifest = json.loads((second / 'manifest.json').read_text())
     manifest['id'] = other_id
-    (second / 'plugin.json').write_text(json.dumps(manifest))
+    (second / 'manifest.json').write_text(json.dumps(manifest))
     integrity_path = second / 'integrity.json'
     integrity = json.loads(integrity_path.read_text())
     for item in integrity['members']:
@@ -80,9 +75,7 @@ def policy_subset(run, work, package, catalog, policy, trusted, key_id, descript
                           artifact=dict(format='zip-v1', bytes=artifact.stat().st_size,
                                         sha256=release.sha(artifact.read_bytes())))).encode()
     descriptor.write_bytes(raw)
-    signature.write_bytes(subprocess.run(
-        [node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', signer],
-        input=release.DOMAIN + raw, capture_output=True, check=True, timeout=3).stdout)
+    signature.write_bytes(release.sign(signer, release.DOMAIN + raw))
     options = list(install_options)
     for flag, value in [('--expect-revision', '1'), ('--artifact', artifact),
                         ('--descriptor', descriptor), ('--signature', signature)]:
@@ -190,8 +183,8 @@ def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_versi
     installed_signature.chmod(0o600); installed_signature.write_bytes(original_signature); installed_signature.chmod(0o400)
     local_root = work / 'development'; local_root.mkdir()
     local, _ = ipc.package(local_root)
-    manifest = json.loads((local / 'plugin.json').read_text()); manifest['id'] = 'org.ghosterm.local-fixture'
-    (local / 'plugin.json').write_text(json.dumps(manifest))
+    manifest = json.loads((local / 'manifest.json').read_text()); manifest['id'] = 'org.ghosterm.local-fixture'
+    (local / 'manifest.json').write_text(json.dumps(manifest))
     integrity = json.loads((local / 'integrity.json').read_text())
     for item in integrity['members']:
         member = local / item['path']; item.update(bytes=member.stat().st_size, sha256=release.sha(member.read_bytes()))
@@ -215,7 +208,7 @@ def policy_workflow(run, work, catalog, policy, trusted, key_id, installed_versi
 
 
 
-def version_workflow(run, build, node, signer, work, catalog, store, endpoint, env,
+def version_workflow(run, build, signer, work, catalog, store, endpoint, env,
                      installed_version, package, digest, host, profile, policy, description, case):
     version = installed_version.name
     def observe():
@@ -253,8 +246,8 @@ def version_workflow(run, build, node, signer, work, catalog, store, endpoint, e
             # first pending/active instance keeps its old fixed invocation.
             import shutil
             upgraded=work/'upgrade-package';shutil.copytree(package,upgraded)
-            metadata=json.loads((upgraded/'plugin.json').read_text());metadata['pluginVersion']='0.2.0'
-            (upgraded/'plugin.json').write_text(json.dumps(metadata))
+            metadata=json.loads((upgraded/'manifest.json').read_text());metadata['pluginVersion']='0.2.0'
+            (upgraded/'manifest.json').write_text(json.dumps(metadata))
             integrity=json.loads((upgraded/'integrity.json').read_text())
             for item in integrity['members']:
                 raw=(upgraded/item['path']).read_bytes();item.update(bytes=len(raw),sha256=release.sha(raw))
@@ -266,8 +259,7 @@ def version_workflow(run, build, node, signer, work, catalog, store, endpoint, e
             new_description={**description,'pluginVersion':'0.2.0','packageSHA256':new_digest,
                 'artifact':dict(format='zip-v1',bytes=artifact.stat().st_size,sha256=release.sha(artifact.read_bytes()))}
             descriptor=work/'upgrade.json';descriptor.write_text(json.dumps(new_description));raw=descriptor.read_bytes()
-            signature=work/'upgrade.sig';signature.write_bytes(subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',signer],
-                input=release.DOMAIN+raw,capture_output=True,check=True,timeout=3).stdout)
+            signature=work/'upgrade.sig';signature.write_bytes(release.sign(signer, release.DOMAIN + raw))
             run(['plugin','install','--catalog',catalog,'--expect-revision','1','--expect-digest',digest,'--store',store,
                 '--artifact',artifact,'--descriptor',descriptor,'--signature',signature,'--policy',policy,'--host-json',host,'--',*profile])
             active=observe()
@@ -326,7 +318,7 @@ def version_workflow(run, build, node, signer, work, catalog, store, endpoint, e
         require(remove(final)['removed'] and not list(store.glob('.remove-*')),'explicit continuation removes exact newly reviewed owned tree and intent')
         return
     outside=work/'outside';outside.write_text('outside unchanged');outside.chmod(0o600)
-    leaf=installed_version/'payload/README';original=leaf.read_bytes();parent=leaf.parent
+    leaf=installed_version/'payload/executor.lua';original=leaf.read_bytes();parent=leaf.parent
     parent.chmod(0o700);leaf.unlink();leaf.symlink_to(outside)
     run(['plugin','review-installed','--catalog',catalog,'--store',store,'--version',version],6)
     require(outside.read_text()=='outside unchanged' and stat.S_IMODE(outside.stat().st_mode)==0o600,'no symlink traversal or chmod outside selected tree')
@@ -366,7 +358,7 @@ def residue_workflow(run, build, work, catalog, store, env, installed_version, c
         registered = observe(damaged.name)
         require(registered['preservedVersion'] == installed_version.name and
                 registered['catalogReferences'] == 1 and not registered['removable'] and
-                any(p['path'] == installed_version.name+'/payload/plugin.json' for p in registered['entries']),
+                any(p['path'] == installed_version.name+'/payload/manifest.json' for p in registered['entries']),
                 'intent review binds complete associated version and registration')
         remove(registered,8)
         run(['plugin','unregister','--catalog',catalog,'--expect-revision','1',
@@ -382,7 +374,7 @@ def residue_workflow(run, build, work, catalog, store, env, installed_version, c
             os.close(fd)
         remove(active,9)
         reviewed = observe(damaged.name)
-        actual = installed_version/'payload/README'
+        actual = installed_version/'payload/executor.lua'
         original = actual.read_bytes()
         actual.chmod(0o600); actual.write_bytes(original+b'changed'); actual.chmod(0o400)
         remove(reviewed,9)
@@ -496,44 +488,12 @@ def residue_workflow(run, build, work, catalog, store, env, installed_version, c
     print('PASS residue workflow: complete inventory, stale confirmations, references, typed cleanup and explicit continuation',flush=True)
 
 
-def exercise(build, node, sdk, case, work):
+def exercise(build, case, work):
     package, digest = ipc.package(work)
-    manifest = json.loads((package / 'plugin.json').read_text())
-    runtime = 'node' if case == 'profile-variant-mismatch' else case.split('-')[0] if case.startswith(('node-', 'exec-')) else 'portable-js'
-    version = subprocess.check_output([node, '--version'], text=True).strip()[1:]
-    if runtime != 'portable-js':
-        variant = dict(id='selected', runtime=runtime, requires=['session.rpc'])
-        if runtime == 'node':
-            require(sdk is not None, 'Node ordinary command requires explicit trusted Host SDK')
-            variant.update(entry='executor/main.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0')
-            (package / 'executor/index.js').rename(package / 'executor/main.mjs')
-        else:
-            import shutil
-            variant.update(executable='executor/main', os=[{'Darwin':'macos','Linux':'linux'}[platform.system()]],
-                           arch=[{'arm64':'aarch64','aarch64':'aarch64','x86_64':'x86_64'}[platform.machine()]])
-            (package / 'executor/index.js').unlink()
-            shutil.copyfile(build / 'test_gterm_exec_peer', package / 'executor/main')
-            (package / 'executor/main').chmod(0o755)
-        manifest['executor']['variants'] = [variant]
-        if case.endswith('-multi'):
-            if case.endswith('-same-multi'):
-                unselected = dict(variant, id='unselected')
-                if runtime == 'node':
-                    unselected['entry'] = 'executor/unselected.mjs'
-                    (package / unselected['entry']).write_text("throw Error('UNSELECTED_VARIANT_ACTIVATED');")
-                else:
-                    unselected['executable'] = 'executor/unselected'
-                    rejected_program = package / unselected['executable']
-                    rejected_program.write_text('#!/bin/sh\nexit 83\n')
-                    rejected_program.chmod(0o755)
-                manifest['executor']['variants'].insert(0, unselected)
-            else:
-                manifest['executor']['variants'].insert(0, dict(id='unselected', runtime='portable-js',
-                    entry='executor/unselected.js', requires=['session.rpc']))
-                (package / 'executor/unselected.js').write_text("throw Error('UNSELECTED_VARIANT_ACTIVATED');")
-    if case == 'unicode-publisher': manifest['publisher'] = '作者 café'
-    if runtime != 'portable-js' or case == 'unicode-publisher':
-        (package / 'plugin.json').write_text(json.dumps(manifest))
+    manifest = json.loads((package / 'manifest.json').read_text())
+    if case == 'unicode-publisher':
+        manifest['publisher'] = '作者 café'
+        (package / 'manifest.json').write_text(json.dumps(manifest))
         members = [dict(path=p.relative_to(package).as_posix(), bytes=p.stat().st_size,
                    sha256=release.sha(p.read_bytes())) for p in sorted(package.rglob('*'))
                    if p.is_file() and p.name != 'integrity.json']
@@ -543,17 +503,14 @@ def exercise(build, node, sdk, case, work):
     endpoint = work / 'e'; endpoint.mkdir(mode=0o700)
     store = work / 'store'
     host = work / 'host.json'
-    facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=[runtime], capabilities=['session.rpc'])
-    if runtime == 'node': facts['programs'] = dict(node=dict(state='available', version=version))
-    if runtime == 'exec': facts.update(os={'Darwin':'macos','Linux':'linux'}[platform.system()], arch={'arm64':'aarch64','aarch64':'aarch64','x86_64':'x86_64'}[platform.machine()])
-    if case.endswith('-multi'): facts['variantId'] = 'selected'
+    facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'], capabilities=['session.rpc'])
     host.write_text(json.dumps(facts))
     artifact = work / 'plugin.zip'
     with zipfile.ZipFile(artifact, 'w') as archive:
         for member in sorted(package.rglob('*')):
             if member.is_file():
                 name = member.relative_to(package).as_posix()
-                if case == 'zip-path' and name == 'README':
+                if case == 'zip-path' and name == 'executor.lua':
                     name = '../escaped'
                 info = zipfile.ZipInfo(name)
                 info.create_system = 3
@@ -576,7 +533,7 @@ def exercise(build, node, sdk, case, work):
         require(not any(token in process.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']), 'normal native result')
         return json.loads(process.stdout)
 
-    with release.agent(node, work) as (public, signer):
+    with release.memory_signer(work) as (public, signer):
         key_id = release.sha(base64.b64decode(public))
         policy = work / 'policy.json'
         trusted = dict(schemaVersion=1, channel='fixture', keys=[dict(id=key_id, algorithm='ed25519',
@@ -597,8 +554,7 @@ def exercise(build, node, sdk, case, work):
         raw = json.dumps(description).encode()
         if case == 'fractional': raw = raw.replace(b'"schemaVersion": 1', b'"schemaVersion": 1.00000000000000000001')
         descriptor.write_bytes(raw)
-        signed = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', signer],
-                                input=release.DOMAIN + raw, capture_output=True, check=True, timeout=3).stdout
+        signed = release.sign(signer, release.DOMAIN + raw)
         if case == 'bad-signature': signed = bytes([signed[0] ^ 1]) + signed[1:]
         signature.write_bytes(signed)
         policy.write_text(json.dumps(trusted))
@@ -608,24 +564,12 @@ def exercise(build, node, sdk, case, work):
         if case == 'store-link':
             elsewhere = work / 'elsewhere'; elsewhere.mkdir(mode=0o700); store.symlink_to(elsewhere, target_is_directory=True)
         profile = ['--client-digest', 'd' * 64, '--method', 'fixture.echo']
-        if runtime != 'portable-js': profile += ['--runtime', runtime, '--allow-process-execution']
-        if case.endswith('-multi'): profile += ['--variant', 'selected']
-        if case == 'profile-variant-mismatch': profile += ['--variant', 'other']
-        if case == 'profile-runtime-mismatch': profile += ['--runtime', 'exec', '--allow-process-execution']
-        if runtime == 'node':
-            records = hashlib.sha256()
-            for member in sorted((p for p in sdk.rglob('*') if p.is_file()), key=lambda p: p.relative_to(sdk).as_posix().encode()):
-                name = member.relative_to(sdk).as_posix().encode()
-                records.update(len(name).to_bytes(4,'big') + member.stat().st_size.to_bytes(8,'big') + name + release.sha(member.read_bytes()).encode())
-            profile += ['--node-runtime', str(node), version, release.sha(node.read_bytes()),
-                        '--node-sdk', str(sdk), records.hexdigest()]
         options = ['--catalog', catalog, '--expect-revision', '0', '--store', store,
                    '--artifact', artifact, '--descriptor', descriptor, '--signature', signature,
                    '--policy', policy, '--host-json', host]
         expected = 6 if case in ('bad-signature', 'revoked', 'scope', 'wrong-artifact', 'wrong-package') else \
                    2 if case in ('duplicate-policy', 'fractional', 'zip-path', 'zip-tail', 'partial-register', 'nfd-policy', 'base64-policy') else \
                    5 if case == 'store-link' else 0
-        if case in ('profile-runtime-mismatch', 'profile-variant-mismatch'): expected = 4
         development = case.endswith('-development')
         if development:
             result = run(['plugin', 'register-development', '--catalog', catalog, '--expect-revision', '0',
@@ -651,9 +595,6 @@ def exercise(build, node, sdk, case, work):
                 require(actual.read_bytes() == member.read_bytes() and stat.S_IMODE(actual.stat().st_mode) == (0o500 if member.stat().st_mode & 0o111 else 0o400),
                         'exact immutable installed payload')
         if not development: require(set(p.name for p in store.iterdir()) == {'.store.lock', installed_version.name}, 'only completed version retained')
-        if case in ('profile-runtime-mismatch', 'profile-variant-mismatch'):
-            require(not result['committed'] and not (catalog / 'executor-catalog-v1').exists(), 'mismatched launch cannot become selectable')
-            return
         if case == 'partial-register':
             require(not result['committed'] and not (catalog / 'executor-catalog-v1').exists(), 'installed and catalog commit are separate')
             run(['plugin', 'register-signed', '--catalog', catalog, '--expect-revision', '0',
@@ -667,7 +608,7 @@ def exercise(build, node, sdk, case, work):
                              digest, host, profile, description)
             return
         if case.startswith('version-') or '-version-' in case:
-            version_workflow(run, build, node, signer, work, catalog, store, endpoint, env,
+            version_workflow(run, build, signer, work, catalog, store, endpoint, env,
                 installed_version, package, digest, host, profile, policy, description, case[case.index('version-'):])
             return
         if case == 'policy-review':
@@ -675,7 +616,7 @@ def exercise(build, node, sdk, case, work):
             return
         if case == 'policy-subset' or case in POLICY_SYNC_CASES:
             policy_subset(run, work, package, catalog, policy, trusted, key_id, description,
-                          options, profile, node, signer, POLICY_SYNC_CASES.get(case))
+                          options, profile, signer, POLICY_SYNC_CASES.get(case))
             return
         if case == 'conflict':
             options[options.index('--expect-revision') + 1] = '1'
@@ -688,22 +629,12 @@ def exercise(build, node, sdk, case, work):
             require(process.returncode == 9 and not list(endpoint.iterdir()), 'changed policy refuses command before listener')
             return
         if case == 'tampered-payload':
-            path = installed / 'executor/index.js'; path.chmod(0o600); path.write_text(path.read_text() + '\n// changed\n')
+            path = installed / 'executor.lua'; path.chmod(0o600); path.write_text(path.read_text() + '\n-- changed\n')
             process = subprocess.run([binary, *ipc.CALL], capture_output=True, env=env, timeout=5)
             require(process.returncode in (2, 5, 6, 9) and not list(endpoint.iterdir()) and
                     not any(token in process.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']),
                     'installed payload is rechecked with a normal error')
             return
-        if case.endswith('-same-multi'):
-            unpinned = profile.copy()
-            selected_at = unpinned.index('--variant')
-            del unpinned[selected_at:selected_at + 2]
-            rejected = subprocess.run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
-                '--release-evidence', installed_version, policy, release.sha(policy.read_bytes()),
-                *unpinned, '--', installed, *ipc.CALL], input=b'', capture_output=True, env=env, timeout=5)
-            require(rejected.returncode == 5 and b'VARIANT_SELECTION_REQUIRED' in rejected.stderr and
-                not any(token in rejected.stderr for token in [b'AddressSanitizer', b'runtime error:', b'ABNORMAL']) and
-                not list(endpoint.iterdir()), 'same-runtime variants need an explicit choice before activation')
         process = subprocess.Popen([binary, *ipc.CALL], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
         try:
@@ -786,7 +717,7 @@ def install_official_candidates(build, fixtures, work):
     names = ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')
     host = work / 'host.json'
     host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1],
-        runtimes=['portable-js'], capabilities=['resource.receive', 'file.readScoped', 'session.rpc',
+        runtimes=['lua'], capabilities=['resource.receive', 'file.readScoped', 'session.rpc',
                                                 'process.spawn', 'process.pipes'])))
     catalog, store = work / 'catalog', work / 'store'
     catalog.mkdir(mode=0o700)
@@ -818,6 +749,8 @@ def install_official_candidates(build, fixtures, work):
         current = catalog_record.read_bytes() if catalog_record.exists() else None
         require(current == previous, f'{name}: install must leave the catalog unchanged')
         profile = ['--client-digest', release.sha(expected['integrity.json'])]
+        if name == 'preview':
+            profile.extend(['--method', 'preview.open'])
         if name in ('table', 'logs'):
             profile.extend(['--method', 'view.table.describe', '--method', 'view.table.page'])
         if name == 'form':
@@ -842,7 +775,7 @@ def install_official_candidates(build, fixtures, work):
             workspace.mkdir(mode=0o700)
             profile.extend(['--root', 'workspace', workspace])
         if name in ('ai-codex', 'ai-claude'):
-            program = 'codex' if name == 'ai-codex' else 'claude-node'
+            program = 'codex' if name == 'ai-codex' else 'claude'
             executable = Path('/usr/bin/false').resolve(strict=True)
             version = 'fixture-inert'
             if name == 'ai-codex':
@@ -862,7 +795,7 @@ def install_official_candidates(build, fixtures, work):
         require(registration.returncode == 0 and registered.get('committed') is True
                 and registered.get('publisherAuthenticated') is True,
                 f'{name}: explicit signed registration: {registered}, {registration.stderr!r}')
-        manifest = json.loads(expected['plugin.json'])
+        manifest = json.loads(expected['manifest.json'])
         registered_digests[manifest['id']] = release.sha(expected['integrity.json'])
         listing = subprocess.run([build / 'gterm', 'plugin', 'list', '--catalog', catalog],
                                  env=env, check=True, capture_output=True, timeout=10)
@@ -958,8 +891,6 @@ def install_official_candidates(build, fixtures, work):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
-    parser.add_argument('--node', type=Path)
-    parser.add_argument('--sdk', type=Path)
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--case', choices=CASES + FAULT_CASES, action='append')
     selection.add_argument('--official-release-directory', type=Path,
@@ -975,12 +906,13 @@ def main():
         with tempfile.TemporaryDirectory(prefix='grel-official-', dir=work_tmp) as directory:
             install_official_candidates(args.build.resolve(), fixtures, Path(directory))
         return
-    if not args.node:
-        parser.error('--node is required for generated release fixtures')
+    scratch = Path(os.environ.get('TMPDIR', ROOT / 'tmp')).resolve()
+    if not scratch.is_dir() or not scratch.is_relative_to(ROOT / 'tmp'):
+        scratch = ROOT / 'tmp'
     for case in args.case or CASES:
-        directory = Path(tempfile.mkdtemp(prefix='grel-', dir=ROOT / 'tmp'))
+        directory = Path(tempfile.mkdtemp(prefix='grel-', dir=scratch))
         try:
-            exercise(args.build.resolve(), args.node.resolve(), args.sdk.resolve() if args.sdk else None, case, directory)
+            exercise(args.build.resolve(), case, directory)
         finally:
             shutil.rmtree(directory, onerror=clean_error)
         print('PASS signed executor', case, flush=True)

@@ -19,7 +19,10 @@ def main():
     gterm = args.gterm.resolve(strict=True)
     package = args.package.resolve(strict=True)
     (ROOT / 'tmp').mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='codex-patch-run-', dir=ROOT / 'tmp') as temporary:
+    parent = os.environ.get('TMPDIR')
+    if not parent or not Path(parent).is_relative_to(ROOT / 'tmp'):
+        parent = ROOT / 'tmp'
+    with tempfile.TemporaryDirectory(prefix='agent-', dir=parent) as temporary:
         work = Path(temporary)
         program = work / 'ghosterm-codex-protocol-fixture'
         import shlex
@@ -29,7 +32,8 @@ def main():
         selected = 'CodexPatchRPCAppTests' if args.route == 'both' else \
             'CodexPatchRPCAppTests.test(PatchAndApprovalOverDirectSSH|LostTurnReplyOverDirectSSH|InterruptWaitsForTerminalEventOverDirectSSH|ExecutorChannelClosesAfterSendOverDirectSSH)' if args.route == 'direct' else \
             'CodexPatchRPCAppTests.test(PatchAndApprovalOverProxyJump|LostTurnReplyOverProxyJump|InterruptWaitsForTerminalEventOverProxyJump|ExecutorChannelClosesAfterSendOverProxyJump)'
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_TEST_GTERM=str(gterm),
+        env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work),
+                   GHOSTERM_APP_TEST_TMP=str(work), GHOSTERM_TEST_GTERM=str(gterm),
                    GHOSTERM_TEST_CODEX_PACKAGE=str(package), GHOSTERM_TEST_CODEX_PATCH_FIXTURE=str(program),
                    GHOSTERM_APP_TEST_FILTER=selected, GHOSTERM_AUTOMATION_OFFSCREEN='1')
         for key in list(env):
@@ -45,9 +49,10 @@ def main():
         if result.returncode:
             raise SystemExit(result.returncode)
         expected = 8 if args.route == 'both' else 4
-        log = (ROOT / 'tmp/apple-app-test.log').read_text()
-        summary = f'Executed {expected} test' + ('s' if expected != 1 else '') + ', with 0 failures'
-        if summary not in log or 'skipped' in log.lower():
+        log = (work / 'apple-app-test.log').read_text()
+        passes = sum(line.startswith("Test Case '-[GhostermAppTests.CodexPatchRPCAppTests ")
+                     and "' passed (" in line for line in log.splitlines())
+        if passes != expected or 'skipped' in log.lower():
             raise RuntimeError('Patch RPC tests did not execute the exact selected count without skips')
         print(f'CODEX PATCH APP PASS: {args.route}; {expected} cases; real RPC and Native UI; explicit protocol fixture, no model')
 

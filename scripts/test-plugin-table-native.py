@@ -44,15 +44,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, required=True)
-    parser.add_argument('--mutate', action='store_true')
+    cases = parser.add_mutually_exclusive_group()
+    cases.add_argument('--mutate', action='store_true')
+    cases.add_argument('--project-samples', action='store_true', help='exercise the two built-in task datasets')
+    cases.add_argument('--local-temporary-retry', action='store_true', help='verify cleanup retry after local Lua shutdown')
     parser.add_argument('--receipt', type=Path, required=True)
     args = parser.parse_args()
     build, package = args.build.resolve(strict=True), args.package.resolve(strict=True)
     for path in (build, package, args.receipt.resolve()):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('use owned project tmp builds, package and receipt')
     cache = (build / 'CMakeCache.txt').read_text()
-    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
-        parser.error('build explicit JS/SSH-on gterm first')
+    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2')):
+        parser.error('build explicit Lua/SSH-on gterm first')
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ('apple/GhostermApp/Sources', 'apple/GhostermApp/Tests',
         'apple/GhostermCore', 'apple/GhostermTerminal/Sources', 'core/include', 'cli/gterm', 'plugins/official/table')
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in ('.build', '.swiftpm') for part in p.parts)}
@@ -72,7 +75,8 @@ def main():
         (source / 'tmp').mkdir()
         env = {**os.environ, 'TMPDIR': temporary, 'TMP': temporary, 'TEMP': temporary,
             'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
-            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_JS': '1'}
+            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_LUA': '1',
+            'GHOSTERM_CORE_BUILD_DIR': str(build / 'core')}
         commands = []
 
         def run(label, command, red=False, seconds=300):
@@ -145,10 +149,10 @@ def main():
             host_keys = [keys.add_memory_key(agent, 'table-hop-' + str(i)) for i in range(2)]
             route_root = work / 'r'; route_root.mkdir()
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
-                def actual(label, route, count, red=False):
+                def actual(label, route, count, red=False, project=None, temporary_retry=False):
                     scratch = work / label; scratch.mkdir(); (scratch / 'stage').mkdir()
                     token = secrets.token_hex(24)
-                    payload = dict(route=route, count=count, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'),
+                    payload = dict(route=route, count=count, project=project, temporaryRetry=temporary_retry, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'),
                         ports=ports, hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode())
                     class Handler(socketserver.StreamRequestHandler):
                         def handle(self):
@@ -162,11 +166,38 @@ def main():
                         try: test(label, 'PluginTableRPCAppTests.testTableThroughNativeAppModel', 1, red)
                         finally: server.shutdown(); thread.join(5)
                     if thread.is_alive(): raise RuntimeError('fixture service did not stop')
-                    if not red: records.append(dict(route=route, count=count))
-                for route in ('local', 'direct', 'jump'):
-                    for count in (1000000, 0):
-                        actual(route + '-' + str(count), route, count)
-                        print('PASS actual Native ' + route + ' table count=' + str(count), flush=True)
+                    if not red: records.append(dict(route=route, count=count, project=project))
+                if args.local_temporary_retry:
+                    label = 'lua-local-temporary-retry'
+                    filename = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionInstanceModel.swift'
+                    path = source / filename
+                    original = path.read_bytes()
+                    anchor = b'temporaryOnly = temporary.phase != .active'
+                    assert original.count(anchor) == 1
+                    actual(label + '-baseline', 'local', 1000000, temporary_retry=True)
+                    objects = {p: sha(p) for p in (app / '.build').rglob('*.o')
+                               if p.name in (path.stem + '.o', path.stem + '.swift.o')}
+                    assert objects, 'compiled invocation model missing'
+                    try:
+                        path.write_bytes(original.replace(anchor, b'temporaryOnly = false'))
+                        actual(label + '-red', 'local', 1000000, red=True, temporary_retry=True)
+                        assert 'Lua stop retry must finish retained temporary cleanup' in (logs / (label + '-red.log')).read_text()
+                        assert any(p.is_file() and sha(p) != digest for p, digest in objects.items())
+                        test(label + '-control', CONTROL, 1)
+                    finally:
+                        path.write_bytes(original)
+                    actual(label + '-restored', 'local', 1000000, temporary_retry=True)
+                    assert sha(path) == inputs[filename]
+                    groups.append(label)
+                for route in () if args.local_temporary_retry else ('local', 'direct', 'jump'):
+                    if args.project_samples:
+                        for project in ('sample-a', 'sample-b'):
+                            actual(route + '-' + project, route, 2, project=project)
+                            print('PASS actual Native ' + route + ' ' + project, flush=True)
+                    else:
+                        for count in (1000000, 0):
+                            actual(route + '-' + str(count), route, count)
+                            print('PASS actual Native ' + route + ' table count=' + str(count), flush=True)
                 native = [
                     ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("table"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(methods + PluginTableModel.methods)).sorted()', 'methods', 'local'),
@@ -191,9 +222,9 @@ def main():
         record = dict(accepted=True, inputs=inputs, commands=commands, mutations=groups, actual=records,
             binary=sha(build / 'gterm'), core=sha(build / 'core/libghosterm_core.a'),
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
-            scope='macOS Native table models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
+            scope='macOS Native table models, process-local AX/pixels and actual local/direct/jump Core/Lua; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
-        print('NATIVE TABLE PASS: 16 Native tests / 6 actual routes / ' + str(len(groups)) + ' mutations', flush=True)
+        print(f'NATIVE TABLE PASS: 16 Native tests / {len(records)} actual cases / {len(groups)} mutations', flush=True)
 
 
 if __name__ == '__main__':

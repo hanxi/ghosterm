@@ -171,27 +171,21 @@ class ExtensionMixedConnectionTest {
             val entry = ExtensionPackagesViewModel.Entry(review, "已批准（本进程）")
             val target = PreparedSSH("mixed-target", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
                 if (payload.getString("route") == "jump") listOf(PreparedSSH("mixed-jump", "127.0.0.1", payload.getString("user"), ports.getInt(0), emptyList())) else emptyList())
-            val node = ExtensionRelayBootstrap.NodeDependency(payload.getString("node"), payload.getString("nodeVersion"),
-                payload.getString("nodeSHA256"), payload.getString("sdk"), payload.getString("sdkSHA256"))
-            fun request(slot: Int, runtime: String, signed: Boolean, stale: Boolean = false): ExtensionRelayBootstrap.Request =
+            fun request(slot: Int, signed: Boolean, stale: Boolean = false): ExtensionRelayBootstrap.Request =
                 ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString(if (signed) "installed" else "package"),
                     review.digest, review.digest, listOf("fixture.echo"), command = "fixture",
                     workspaceRootDirectory = payload.getString("scratch") + "/workspace-$slot",
-                    execution = if (runtime == "portable") null else ExtensionRelayBootstrap.Execution(
-                        if (runtime == "node") ExtensionRelayBootstrap.Execution.Runtime.Node(node) else ExtensionRelayBootstrap.Execution.Runtime.Exec,
-                        payload.getString("temporary"), true),
                     releaseEvidence = if (signed) ExtensionRelayBootstrap.ReleaseEvidence(payload.getString("release"), payload.getString("policy"),
-                        if (stale) "0".repeat(64) else payload.getString("policySHA256"), true) else null, variantID = runtime)
-            fun invocation(slot: Int, runtime: String, signed: Boolean, stale: Boolean = false) = ExtensionGroupInvocation(target.alias,
-                main { extensions.prepareLaunch(entry, review.commands.single(), request(slot, runtime, signed, stale), null) }, payload.getString("temporary"))
+                        if (stale) "0".repeat(64) else payload.getString("policySHA256"), true) else null, variantID = "lua")
+            fun invocation(slot: Int, signed: Boolean, stale: Boolean = false) = ExtensionGroupInvocation(target.alias,
+                main { extensions.prepareLaunch(entry, review.commands.single(), request(slot, signed, stale), null) }, payload.getString("temporary"))
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
-            val runtimes = if (revocation == null) listOf("portable", "node", "exec", "portable", "node", "exec", "portable", "node")
-                else listOf("portable")
+            val instanceCount = if (revocation == null) 8 else 1
             main {
-                runtimes.forEachIndexed { slot, runtime -> extensions.enqueueGroup(entry, review.commands.single(), target.alias,
-                    request(slot, runtime, revocation != null || slot % 2 == 1), null, payload.getString("temporary")) }
-                assertNull(extensions.error); assertEquals(runtimes.size, extensions.pendingGroup.size)
+                repeat(instanceCount) { slot -> extensions.enqueueGroup(entry, review.commands.single(), target.alias,
+                    request(slot, revocation != null || slot % 2 == 1), null, payload.getString("temporary")) }
+                assertNull(extensions.error); assertEquals(instanceCount, extensions.pendingGroup.size)
                 extensions.launchGroup(sessions) { target }
             }
             await("group created") { main { extensions.connectionGroups.isNotEmpty() } }
@@ -210,7 +204,7 @@ class ExtensionMixedConnectionTest {
                 }
             }
             assertNull(main { current.issue }); assertFalse(main { current.busy })
-            val instances = main { current.instances.toList() }; assertEquals(runtimes.size, instances.size)
+            val instances = main { current.instances.toList() }; assertEquals(instanceCount, instances.size)
             if (revocation != null) {
                 val instance = instances.single()
                 val model = instance.model
@@ -407,11 +401,11 @@ class ExtensionMixedConnectionTest {
             main { extensions.selectGroupInstance(instances[0].model) }
             ui.onNodeWithTag("plugin-close-confirm").performClick()
             await("fourth released") { main { instances[3].closed } }
-            val invalid = invocation(3, "node", true, true)
+            val invalid = invocation(3, true, true)
             val rejected = runBlocking { withContext(Dispatchers.Main) { current.add(invalid) } }
             assertNull(rejected); assertEquals(7, main { current.instances.count { !it.closed } })
             main { current.instances.toList() }.forEachIndexed { slot, instance -> if (!main { instance.closed }) echo(instance.model, "after-rejection-$slot", slot) }
-            main { extensions.enqueueGroup(entry, review.commands.single(), target.alias, request(3, "node", true), null, payload.getString("temporary")) }
+            main { extensions.enqueueGroup(entry, review.commands.single(), target.alias, request(3, true), null, payload.getString("temporary")) }
             val pending = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${pending.id}").performScrollTo().performClick()
             await("online Node consent") { main { !extensions.groupSubmissionBusy && current.instances.lastOrNull()?.id == pending.id } }
@@ -421,7 +415,7 @@ class ExtensionMixedConnectionTest {
             await("all closed") { main { current.instances.all { it.closed } } }
             assertFalse(main { current.closed }); assertTrue(main { current.canAdd })
             assertEquals(0, runBlocking { current.controller.stepMultiplexConnection().info.instances })
-            main { extensions.enqueueGroup(entry, review.commands.single(), target.alias, request(0, "exec", true), null, payload.getString("temporary")) }
+            main { extensions.enqueueGroup(entry, review.commands.single(), target.alias, request(0, true), null, payload.getString("temporary")) }
             val finalPending = main { extensions.pendingGroup.single() }
             ui.onNodeWithTag("plugin-add-${current.id}-${finalPending.id}").performScrollTo().performClick()
             await("empty connection Exec consent") { main { current.instances.lastOrNull()?.id == finalPending.id } }

@@ -1,0 +1,5 @@
+{
+  "descriptor": "{\"schemaVersion\":1,\"channel\":\"fixture\",\"keyId\":\"403510514c449f51cfbf212f8c5c7ed03d3178a08ee8cf5774a7a95b08629618\",\"pluginId\":\"org.ghosterm.signature\",\"pluginVersion\":\"1.0.0\",\"publisher\":\"fixture\",\"packageSHA256\":\"6d2aab35df47cb6a2bc4718e8c939ac7d0439e957d6c2e9912dcc2626491a348\",\"artifact\":{\"format\":\"zip-v1\",\"bytes\":1158,\"sha256\":\"ee5a0ddc25b3c0eff4f79f9216152ae2f68de1df3ca3843afbd080659f9732b1\"}}\n",
+  "policy": "{\"schemaVersion\": 1, \"channel\": \"fixture\", \"keys\": [{\"id\": \"403510514c449f51cfbf212f8c5c7ed03d3178a08ee8cf5774a7a95b08629618\", \"algorithm\": \"ed25519\", \"publicKey\": \"a12T1VtFkA+oyPFtGaHCdJEw04bOsqFJDrgro0vGwaU=\", \"publisher\": \"fixture\", \"pluginIds\": [\"org.ghosterm.signature\"]}], \"revokedKeyIds\": []}",
+  "signature": "zHRHX0H0E1vFhRCyMsXEodnm9EYBDQLVzWACSlifGhkx2j0qkAb8LRV6FPLfZuV17sJwEgqQyrILRGA2qDcGAA=="
+}

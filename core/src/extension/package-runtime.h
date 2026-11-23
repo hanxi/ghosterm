@@ -6,6 +6,7 @@
 #include "extension/package-check.h"
 #include "extension/session.h"
 #define GT_RUNTIME_MODULE_NAME_MAX (GT_PACKAGE_PATH_BYTES_MAX + 8u)
+#define GT_PLUGIN_ARGUMENT_JSON_MAX 65536u
 
 typedef struct {
     const uint8_t *bytes;

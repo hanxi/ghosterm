@@ -49,7 +49,7 @@ struct ExtensionRunView: View {
             }
             if let session = run.session,
                session.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue {
-                Text("执行端请求建立 Native Session。请核对上方固定包摘要、执行端身份、命令、参数与本次 RPC allowlist；批准后 Client JavaScript 才会激活。")
+                Text("执行端请求建立会话。请核对上方的包摘要、执行端身份、命令、参数与 RPC 方法。批准后才会启动 Lua 插件。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
                 Text("请求能力：\(run.requiredCapabilities.joined(separator: ", "))")
                     .font(DS.Font.caption).textSelection(.enabled)
@@ -143,7 +143,7 @@ struct ExtensionRunView: View {
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
-            Text("Executor 运行档：\(run.executorAttachment?.reviewDescription ?? run.executorExecution?.reviewDescription(temporaryLabel: run.localLaunch == nil ? "执行端临时目录" : "本机临时根目录（每次新建私有子目录）") ?? "Portable JS（内嵌运行时）")")
+            Text("Executor 运行档：\(run.executorAttachment?.reviewDescription ?? "Lua（内嵌运行时）")")
                 .font(DS.Font.caption).textSelection(.enabled)
                 .accessibilityIdentifier("plugin-consent-executor-runtime")
             Text(run.clientWorkspace?.reviewDescription ?? "Client 本机资源目录：未开放")

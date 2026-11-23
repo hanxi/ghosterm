@@ -189,6 +189,19 @@ int main(int argc, char **argv) {
     CHECK(gt__package_json_check(d, NULL, 1, true) == GT_PACKAGE_JSON_SYNTAX);
     CHECK(gt__package_json_check(d, NULL, 0, true) == GT_PACKAGE_JSON_SYNTAX);
     CHECK(gt__package_json_check(NULL, "{}", 2, true) == GT_PACKAGE_JSON_SYNTAX);
+    const char metadata[] = "{\"\\u0069d\":\"sample\",\"bytes\":20e1}";
+    gt_package_json_node_t node;
+    uint64_t count;
+    CHECK(gt__package_json_parse(d, metadata, sizeof(metadata) - 1) == GT_PACKAGE_JSON_OK);
+    CHECK(gt__package_json_node(d, 1, &node) && node.kind == GT_PACKAGE_JSON_OBJECT &&
+          node.count == 2);
+    CHECK(gt__package_json_node(d, node.child, &node) && node.kind == GT_PACKAGE_JSON_STRING &&
+          node.key_size == 2 && !memcmp(node.key, "id", 2) && node.text_size == 6 &&
+          !memcmp(node.text, "sample", 6));
+    CHECK(gt__package_json_uint(d, node.next, &count) && count == 200);
+    CHECK(!gt__package_json_uint(d, UINT16_MAX, &count));
+    CHECK(gt__package_json_parse(d, "{", 1) == GT_PACKAGE_JSON_SYNTAX);
+    CHECK(!gt__package_json_node(d, 1, &node) && m.used == owner_bytes);
     gt__package_json_destroy(&d);
     CHECK(!d && !m.live && !m.used && m.wiped && !gt__plugin_memory_info().used);
     free(owned);

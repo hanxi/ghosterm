@@ -58,29 +58,12 @@ def terminate(process):
 
 
 def package(work):
-    path = work / 'package'; path.mkdir()
-    manifest = dict(schemaVersion=1, id='org.ghosterm.fixture', pluginVersion='0.1.0',
-        sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher='fixture', license='MIT',
-        commands=[dict(path=['fixture'], title='Fixture', argsSchema='schemas/input.json')],
-        executor=dict(variants=[dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=['session.rpc'])]), permissions=[])
-    schema = dict(type='object', properties={key:dict(type='string',maxLength=100) for key in ['first','empty','literal']},
-        required=['first','empty','literal'], additionalProperties=False,
-        **{'x-ghosterm-cli':dict(version=1,fields={key:dict(position=i) for i,key in enumerate(['first','empty','literal'])})})
-    code = """import {object,text,integer} from '@ghosterm/plugin-sdk';
-export function activate(ctx){
- if(ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!=="';throw Error('injected');//")throw Error('argv');
- const codec=object({text:text(40),count:integer(0,100)});
- ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{c.check();return v});
- return {dispose(){}};
-} """
-    files = {'plugin.json':json.dumps(manifest), 'schemas/input.json':json.dumps(schema),
-        'executor/index.js':code, 'README':'owned conformance fixture', 'LICENSES/MIT.txt':'fixture'}
-    members=[]
-    for name, value in files.items():
-        p=path/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text(value)
-        members.append(dict(path=name,bytes=len(p.read_bytes()),sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
-    (path/'integrity.json').write_text(json.dumps(dict(schemaVersion=1,members=members)))
-    return path, hashlib.sha256((path/'integrity.json').read_bytes()).hexdigest()
+    from runpy import run_path
+
+    path = work / 'package'
+    fixture = run_path(str(ROOT / 'scripts/test-gterm-stdio.py'))
+    return path, fixture['build_fixture'](work, path, 'roundtrip')
+
 
 
 def execute(build, case, work):
@@ -140,13 +123,17 @@ def execute(build, case, work):
                 require(process.poll() is None and (endpoint/'permit').exists(),'mismatch must not consume or activate frontend')
             return
         if case=='preview':
-            directory=ROOT/'plugins/official/preview';digest=hashlib.sha256((directory/'integrity.json').read_bytes()).hexdigest()
+            directory = work / 'preview-package'
+            subprocess.run(['python3', '-B', ROOT / 'scripts/gterm-plugin', 'build',
+                            ROOT / 'plugins/official/preview', '--out', directory],
+                           cwd=ROOT, check=True, timeout=30)
+            digest = hashlib.sha256((directory / 'integrity.json').read_bytes()).hexdigest()
             workspace=work/'workspace';site=workspace/'site';site.mkdir(parents=True)
             (site/'index.md').write_text('# Preview runtime fixture\n')
             (site/'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
             store=work/'store';store.mkdir(mode=0o700)
             arguments=['--trust-development-digest',digest,'--client-digest','d'*64,'--root','workspace',str(workspace),
-                '--',str(directory),'preview','site/index.md','--assets','site/theme\\,dark.css']
+                '--method','preview.open','--',str(directory),'preview','site/index.md','--assets','site/theme\\,dark.css']
             with listener(arguments,terminal=True) as (process,master):
                 result=subprocess.run([build/'test_gterm_stdio',binary,directory,digest,'preview',workspace,store],
                     capture_output=True,env={**environment,'GT_GTERM_FIXTURE_ATTACH':str(endpoint),'GT_GTERM_FIXTURE_ATTACH_INSTANCE':current_instance},timeout=18)
@@ -378,7 +365,10 @@ def main():
     inputs[str(Path(__file__).relative_to(ROOT))]=digest(Path(__file__))
     binaries={str(p.resolve()):digest(p) for p in [args.build/'gterm',args.build/'test_gterm_stdio',*([args.build/'core/libghosterm_core.a'] if (args.build/'core/libghosterm_core.a').exists() else [])]}
     for case in [args.case] if args.case else CASES:
-        with tempfile.TemporaryDirectory(prefix='gi-',dir=ROOT/'tmp') as temporary:
+        scratch = Path(os.environ.get('TMPDIR', ROOT / 'tmp')).resolve()
+        if not scratch.is_dir() or not scratch.is_relative_to(ROOT / 'tmp'):
+            scratch = ROOT / 'tmp'
+        with tempfile.TemporaryDirectory(prefix='gi-',dir=scratch) as temporary:
             execute(args.build.resolve(strict=True),case,Path(temporary))
         print('PASS IPC '+case,flush=True)
     require(all(digest(ROOT/name)==value for name,value in inputs.items()),'source inputs changed during IPC conformance')

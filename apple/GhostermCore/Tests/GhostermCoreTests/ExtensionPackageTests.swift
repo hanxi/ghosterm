@@ -13,13 +13,18 @@ final class ExtensionPackageTests: XCTestCase {
             let dir = root.appendingPathComponent("tmp/package-rpc-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false)
             defer { try? FileManager.default.removeItem(at: dir) }
-            let entry = "executor/中文-" + String(repeating: "long-component/", count: 20) + "entry.js"
-            let manifest: [String: Any] = ["schemaVersion": 1, "id": "org.ghosterm.fixture", "pluginVersion": "0.1.0", "sdkApiRange": "^1.0.0", "bridgeProtocolRange": [1],
+            let entry = "executor/中文-" + String(repeating: "long-component/", count: 20) + "entry.lua"
+            let manifest: [String: Any] = ["schemaVersion": 2, "id": "org.ghosterm.fixture", "pluginVersion": "0.1.0", "sdkApiRange": "^1.0.0", "bridgeProtocolRange": [1],
                 "publisher": "测试 publisher", "license": "MIT", "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
-                "executor": ["variants": [["id": "portable", "runtime": "portable-js", "entry": entry, "requires": ["session.rpc"]]]], "permissions": []]
-            let invokedEcho = runtimeEcho.replacingOccurrences(of: "activate(ctx){", with: "activate(ctx){const a=ctx.invocation?.decodedArguments;if(!ctx.invocation||ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\"||!a||a.first!=='中文'||a.empty!==''||a.literal!==ctx.invocation.arguments[2]||!Object.isFrozen(a))throw Error('invocation');")
+                "executor": ["entry": entry, "requires": ["session.rpc"], "rpc": ["fixture.echo"]]]
+            let invokedEcho = #"""
+            local ctx = ...
+            local args = ctx.arguments
+            assert(args.first == "中文" and args.empty == "" and args.literal == "';throw Error('injected');//")
+            return { ["fixture.echo"] = function(input) return input end }
+            """#
             let argumentSchema = #"{"type":"object","properties":{"first":{"type":"string","maxLength":100},"empty":{"type":"string","maxLength":100},"literal":{"type":"string","maxLength":100}},"required":["first","empty","literal"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"first":{"position":0},"empty":{"position":1},"literal":{"position":2}}}}"#
-            let files: [String: Data] = ["plugin.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
+            let files: [String: Data] = ["manifest.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
                 "README": Data("fixture".utf8), "LICENSES/MIT.txt": Data("fixture".utf8), "schemas/input.json": Data(argumentSchema.utf8), entry: Data(invokedEcho.utf8)]
             var members: [[String: Any]] = []
             for (path, bytes) in files {
@@ -32,7 +37,7 @@ final class ExtensionPackageTests: XCTestCase {
             let fd = Darwin.open(dir.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC); XCTAssertGreaterThanOrEqual(fd, 0); defer { Darwin.close(fd) }
             let package = try ExtensionPackage(directoryFD: fd, owner: q)
             for _ in 0..<1000 { if try package.step() != .capturing { break } }
-            let host = "{\"side\":\"executor\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}"
+            let host = "{\"side\":\"executor\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],\"runtimes\":[\"lua\"],\"capabilities\":[\"session.rpc\"]}"
             XCTAssertEqual(try package.check(hostJSON: host), .checked)
             let metadata = try package.metadata()
             XCTAssertEqual(metadata.entry, entry); XCTAssertEqual(metadata.publisher, "测试 publisher")

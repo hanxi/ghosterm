@@ -278,13 +278,7 @@ gt_status_t gt__bridge_wire_new(const gt_allocator_t *allocator, gt_bridge_wire_
     return GT_OK;
 }
 
-gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *d,
-                                  const void *bytes,
-                                  size_t size,
-                                  gt_bridge_message_t *out) {
-    if (out) {
-        memset(out, 0, sizeof(*out));
-    }
+static gt_status_t parse_json(gt_bridge_wire_t *d, const void *bytes, size_t size) {
     if (!d) {
         return GT_ERR_INVALID_ARG;
     }
@@ -293,7 +287,7 @@ gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *d,
     d->allocator = a;
     d->input = bytes;
     d->input_size = size;
-    if (!out || (!bytes && size)) {
+    if (!bytes && size) {
         fail(d, GT_BRIDGE_WIRE_SYNTAX);
         return GT_ERR_INVALID_ARG;
     }
@@ -308,6 +302,25 @@ gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *d,
     if (d->at != size) {
         fail(d, GT_BRIDGE_WIRE_SYNTAX);
         return GT_ERR_PROTOCOL;
+    }
+    return GT_OK;
+}
+
+gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *d,
+                                  const void *bytes,
+                                  size_t size,
+                                  gt_bridge_message_t *out) {
+    if (!out) {
+        if (d) {
+            d->valid = false;
+            fail(d, GT_BRIDGE_WIRE_SYNTAX);
+        }
+        return GT_ERR_INVALID_ARG;
+    }
+    memset(out, 0, sizeof(*out));
+    gt_status_t status = parse_json(d, bytes, size);
+    if (status != GT_OK) {
+        return status;
     }
     if (!wire_schema_0(d, 1)) {
         fail(d, GT_BRIDGE_WIRE_SCHEMA);
@@ -439,6 +452,43 @@ uint16_t gt__bridge_wire_at(const gt_bridge_wire_t *d, uint16_t id, size_t at) {
     }
     return child;
 }
+
+#ifdef GT_HAVE_PLUGIN_LUA
+gt_status_t gt__bridge_json_parse(gt_bridge_wire_t *d, const void *bytes, size_t size) {
+    gt_status_t status = parse_json(d, bytes, size);
+    if (status == GT_OK) {
+        d->valid = true;
+    }
+    return status;
+}
+
+bool gt__bridge_json_node(const gt_bridge_wire_t *d, uint16_t id, gt_bridge_json_node_t *out) {
+    if (!d || !d->valid || !id || id > d->used) {
+        return false;
+    }
+    const json_node_t *node = &d->nodes[id];
+    const gt_bridge_json_kind_t kinds[] = {
+        [J_OBJECT] = GT_BRIDGE_JSON_OBJECT,
+        [J_ARRAY] = GT_BRIDGE_JSON_ARRAY,
+        [J_STRING] = GT_BRIDGE_JSON_STRING,
+        [J_NUMBER] = GT_BRIDGE_JSON_NUMBER,
+        [J_TRUE] = GT_BRIDGE_JSON_TRUE,
+        [J_FALSE] = GT_BRIDGE_JSON_FALSE,
+        [J_NULL] = GT_BRIDGE_JSON_NULL,
+    };
+    *out = (gt_bridge_json_node_t){
+        .kind = kinds[node->kind],
+        .child = node->child,
+        .next = node->next,
+        .count = node->count,
+        .key = d->strings + node->key,
+        .key_size = node->key_size,
+        .text = node->kind == J_NUMBER ? d->input + node->start : d->strings + node->text,
+        .text_size = node->kind == J_NUMBER ? node->bytes : node->size,
+    };
+    return true;
+}
+#endif
 
 void gt__bridge_wire_free(gt_bridge_wire_t *d) {
     if (!d) {

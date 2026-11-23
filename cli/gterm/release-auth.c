@@ -13,10 +13,13 @@
 #include <unistd.h>
 #ifdef GTERM_HAVE_RELEASE
 #include <openssl/evp.h>
-#include <quickjs.h>
-static const unsigned char policy_code[] = {
-#include "gterm-release-policy.inc"
-    0};
+#include "extension/package-json.h"
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#else
+#include <unicode/unorm2.h>
+#include <unicode/ustring.h>
+#endif
 #endif
 
 static bool stable(const struct stat *a, const struct stat *b) {
@@ -117,168 +120,7 @@ bool gterm_release_hash(const void *bytes, size_t size, char hex[65]) {
 }
 
 #ifdef GTERM_HAVE_RELEASE
-typedef struct {
-    uint64_t end;
-    volatile sig_atomic_t *cancelled;
-} budget_t;
-
-static uint64_t clock_ms(void) {
-    struct timespec clock;
-    return clock_gettime(CLOCK_MONOTONIC, &clock)
-               ? UINT64_MAX
-               : (uint64_t)clock.tv_sec * 1000 + (uint64_t)clock.tv_nsec / 1000000;
-}
-
-static int interrupt(JSContext *runtime, void *opaque) {
-    (void)runtime;
-    budget_t *budget = opaque;
-    return *budget->cancelled || clock_ms() >= budget->end;
-}
-
-static bool unhex(const char *hex, unsigned char raw[32]) {
-    if (!gterm_catalog_digest(hex)) {
-        return false;
-    }
-    for (size_t i = 0; i < 32; i++) {
-        unsigned a = (unsigned)(hex[i * 2] <= '9' ? hex[i * 2] - '0' : hex[i * 2] - 'a' + 10);
-        unsigned b =
-            (unsigned)(hex[i * 2 + 1] <= '9' ? hex[i * 2 + 1] - '0' : hex[i * 2 + 1] - 'a' + 10);
-        raw[i] = (unsigned char)(a * 16 + b);
-    }
-    return true;
-}
-
-static JSValue key_hash(JSContext *context, JSValueConst self, int argc, JSValueConst *argv) {
-    (void)self;
-    const char *hex = argc == 1 ? JS_ToCString(context, argv[0]) : NULL;
-    unsigned char raw[32];
-    char digest[65];
-    bool ok = hex && unhex(hex, raw) && gterm_release_hash(raw, sizeof(raw), digest);
-    JS_FreeCString(context, hex);
-    return ok ? JS_NewString(context, digest) : JS_ThrowInternalError(context, "RELEASE_CRYPTO");
-}
-
-static bool
-field(JSContext *context, JSValueConst object, const char *name, char *out, size_t capacity) {
-    JSValue value = JS_GetPropertyStr(context, object, name);
-    size_t size = 0;
-    const char *text = JS_IsString(value) ? JS_ToCStringLen(context, &size, value) : NULL;
-    bool ok = text && size && size < capacity && !memchr(text, 0, size);
-    if (ok) {
-        memcpy(out, text, size + 1);
-    }
-    JS_FreeCString(context, text);
-    JS_FreeValue(context, value);
-    return ok;
-}
-
-static int evaluate_policy(const unsigned char *policy,
-                           size_t size,
-                           gterm_release_t *out,
-                           size_t signature_size,
-                           volatile sig_atomic_t *cancelled) {
-    int result;
-    uint64_t now = clock_ms();
-    if (now == UINT64_MAX) {
-        return 5;
-    }
-    budget_t budget = {now + 250, cancelled};
-    JSRuntime *runtime = JS_NewRuntime();
-    if (!runtime) {
-        return 5;
-    }
-    JS_SetMemoryLimit(runtime, 8388608);
-    JS_SetMaxStackSize(runtime, 262144);
-    JS_SetInterruptHandler(runtime, interrupt, &budget);
-    JSContext *context = JS_NewContext(runtime);
-    if (!context) {
-        JS_FreeRuntime(runtime);
-        return 5;
-    }
-    JSValue global = JS_GetGlobalObject(context);
-    JS_SetPropertyStr(
-        context, global, "__release_sha256", JS_NewCFunction(context, key_hash, "sha256", 1));
-    JS_FreeValue(context, global);
-    JSValue function = JS_Eval(context,
-                               (const char *)policy_code,
-                               sizeof(policy_code) - 1,
-                               "gterm:release-policy",
-                               JS_EVAL_TYPE_GLOBAL);
-    JSValue args[] = {
-        (out ? JS_NewStringLen(context, (const char *)out->descriptor, out->descriptor_size)
-             : JS_NULL),
-        JS_NewStringLen(context, (const char *)policy, size)};
-    JSValue checked = JS_IsException(function) || JS_IsException(args[0]) || JS_IsException(args[1])
-                          ? JS_EXCEPTION
-                          : JS_Call(context, function, JS_UNDEFINED, 2, args);
-    unsigned char public_key[32];
-    char key[65];
-    if (JS_IsException(checked)) {
-        JSValue exception = JS_GetException(context);
-        JSValue detail = JS_GetPropertyStr(context, exception, "message");
-        const char *message = JS_IsString(detail) ? JS_ToCString(context, detail) : NULL;
-        result = 5;
-        static const char *invalid[] = {"RELEASE_JSON",
-                                        "RELEASE_UTF8",
-                                        "RELEASE_DUPLICATE",
-                                        "RELEASE_LIMIT",
-                                        "RELEASE_NUMBER",
-                                        "RELEASE_POLICY",
-                                        "RELEASE_DESCRIPTOR"};
-        for (size_t i = 0; message && i < sizeof(invalid) / sizeof(*invalid); i++) {
-            if (!strcmp(message, invalid[i])) {
-                result = 2;
-            }
-        }
-        if (message &&
-            (!strcmp(message, "RELEASE_SCOPE") || !strcmp(message, "RELEASE_UNKNOWN_KEY") ||
-             !strcmp(message, "RELEASE_REVOKED"))) {
-            result = 6;
-        }
-        JS_FreeCString(context, message);
-        JS_FreeValue(context, detail);
-        JS_FreeValue(context, exception);
-    } else if (!out) {
-        result = JS_IsBool(checked) && JS_ToBool(context, checked) == 1 ? 0 : 5;
-    } else {
-        JSValue count = JS_GetPropertyStr(context, checked, "artifact_bytes");
-        int64_t artifact_bytes = 0;
-        bool ok = !JS_ToInt64(context, &artifact_bytes, count) && artifact_bytes >= 22 &&
-                  artifact_bytes <= 75497472 &&
-                  field(context, checked, "id", out->id, sizeof(out->id)) &&
-                  field(context, checked, "version", out->version, sizeof(out->version)) &&
-                  field(context, checked, "publisher", out->publisher, sizeof(out->publisher)) &&
-                  field(context, checked, "digest", out->digest, sizeof(out->digest)) &&
-                  field(context, checked, "key", key, sizeof(key)) &&
-                  field(context,
-                        checked,
-                        "artifact_digest",
-                        out->artifact_digest,
-                        sizeof(out->artifact_digest)) &&
-                  unhex(key, public_key);
-        JS_FreeValue(context, count);
-        out->artifact_bytes = (uint64_t)artifact_bytes;
-        gt_status_t status = ok ? gt_ext_release_verify(public_key,
-                                                        32,
-                                                        out->signature,
-                                                        signature_size,
-                                                        out->descriptor,
-                                                        out->descriptor_size)
-                                : GT_ERR_INVALID_ARG;
-        result = status == GT_OK                ? 0
-                 : status == GT_ERR_AUTH        ? 6
-                 : status == GT_ERR_UNSUPPORTED ? 4
-                 : status == GT_ERR_INVALID_ARG ? 2
-                                                : 5;
-    }
-    JS_FreeValue(context, checked);
-    JS_FreeValue(context, args[0]);
-    JS_FreeValue(context, args[1]);
-    JS_FreeValue(context, function);
-    JS_FreeContext(context);
-    JS_FreeRuntime(runtime);
-    return *cancelled ? 130 : result;
-}
+#include "release-policy.inc"
 #endif
 
 static int authenticate(const char *descriptor_path,

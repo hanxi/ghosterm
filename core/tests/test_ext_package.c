@@ -1,8 +1,121 @@
-#define PACKAGE_RUNTIME_MAIN package_loader_fixture_main
-#include "test_package_runtime.c"
-#undef PACKAGE_RUNTIME_MAIN
+#define EXT_RPC_MAIN package_rpc_fixture_main
+#include "test_ext_rpc.c"
+#include "base/sha256.h"
+#include "extension/memory.h"
 
-int main(int argc, char **argv) {
+typedef struct {
+    char directory[4096];
+    char digest[65];
+    int fd;
+} fixture_t;
+
+static const char fixture_id[] = "org.ghosterm.fixture";
+static const char *const paths[] = {"manifest.json", "entry.lua", "input.json"};
+
+static void write_member(int folder, const char *name, const char *bytes, char digest[65]) {
+    const size_t size = strlen(bytes);
+    int fd = openat(folder, name, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    CHECK(fd >= 0 && write(fd, bytes, size) == (ssize_t)size && !close(fd));
+    gt_sha256_t hash;
+    gt__sha256_init(&hash);
+    CHECK(gt__sha256_update(&hash, bytes, size) && gt__sha256_final(&hash, digest));
+}
+
+static void fixture_open(fixture_t *f,
+                         const char *temporary,
+                         const char *id,
+                         const char *version,
+                         const char *command,
+                         bool executor) {
+    CHECK(snprintf(f->directory, sizeof(f->directory), "%s/public-package-XXXXXX", temporary) > 0 &&
+          mkdtemp(f->directory));
+    f->fd = open(f->directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    CHECK(f->fd >= 0);
+    char manifest[1024];
+    int length = snprintf(
+        manifest,
+        sizeof(manifest),
+        "{\"schemaVersion\":2,\"id\":\"%s\",\"pluginVersion\":\"%s\","
+        "\"sdkApiRange\":\"^1.0.0\",\"bridgeProtocolRange\":[1],\"publisher\":\"Fixture\","
+        "\"license\":\"MIT\","
+        "%s,\"commands\":[{\"path\":[%s],\"title\":\"Fixture\",\"argsSchema\":\"input.json\"}]}",
+        id,
+        version,
+        executor ? "\"executor\":{\"entry\":\"entry.lua\",\"requires\":[\"session.rpc\"],\"rpc\":["
+                   "\"fixture.echo\"]}"
+                 : "\"client\":{\"entry\":\"entry.lua\",\"requires\":[\"session.rpc\"]}",
+        command);
+    CHECK(length > 0 && (size_t)length < sizeof(manifest));
+    const char lua[] = "return {['fixture.echo'] = function(input) return input end}";
+    const char schema[] =
+        "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\","
+        "\"maxLength\":40},\"lines\":{\"type\":\"integer\",\"minimum\":1,"
+        "\"maximum\":100},\"wrap\":{\"type\":\"boolean\"}},"
+        "\"required\":[\"path\",\"lines\",\"wrap\"],\"additionalProperties\":false,"
+        "\"x-ghosterm-cli\":{\"version\":1,\"fields\":{\"path\":{"
+        "\"position\":0},\"lines\":{\"option\":\"lines\",\"default\":10},"
+        "\"wrap\":{\"option\":\"wrap\",\"default\":false}}}}";
+    const char *const payload[] = {manifest, lua, schema};
+    char integrity[1024] = "{\"schemaVersion\":1,\"members\":[";
+    size_t at = strlen(integrity);
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        char digest[65];
+        write_member(f->fd, paths[i], payload[i], digest);
+        const int size = snprintf(integrity + at,
+                                  sizeof(integrity) - at,
+                                  "%s{\"path\":\"%s\",\"bytes\":%zu,\"sha256\":\"%s\"}",
+                                  i ? "," : "",
+                                  paths[i],
+                                  strlen(payload[i]),
+                                  digest);
+        CHECK(size > 0 && (size_t)size < sizeof(integrity) - at);
+        at += (size_t)size;
+    }
+    CHECK(sizeof(integrity) - at > 2);
+    memcpy(integrity + at, "]}", 3);
+    write_member(f->fd, "integrity.json", integrity, f->digest);
+}
+
+static void fixture_close(fixture_t *f) {
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        CHECK(!unlinkat(f->fd, paths[i], 0));
+    }
+    CHECK(!unlinkat(f->fd, "integrity.json", 0) && !close(f->fd) && !rmdir(f->directory));
+}
+
+static void fixture_pair(rpc_pair_t *pair, const fixture_t *fixture, const char *mode) {
+    int sockets[2];
+    CHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+    gt_ext_channel_t *host = ext_channel(sockets[0]), *executor = ext_channel(sockets[1]);
+    gt_ext_session_config_t config = ext_config();
+    config.features = GT_EXT_FEATURE_REQUESTS;
+    strcpy(config.plugin_id, !strcmp(mode, "wrong-id") ? "org.ghosterm.other" : fixture_id);
+    strcpy(config.plugin_version, !strcmp(mode, "wrong-version") ? "0.2.0" : "0.1.0");
+    strcpy(config.client_digest, fixture->digest);
+    strcpy(config.executor_digest, fixture->digest);
+    if (!strcmp(mode, "mismatch")) {
+        config.executor_digest[0] = config.executor_digest[0] == 'a' ? 'b' : 'a';
+    }
+    strcpy(config.sdk_version, "1.0.0");
+    config.required_count = config.available_count = 1;
+    strcpy(config.required[0], "session.rpc");
+    strcpy(config.available[0], "session.rpc");
+    const gt_ext_rpc_method_t method = {.method = "fixture.echo",
+                                        .capability = "session.rpc",
+                                        .receiver = GT_EXT_EXECUTOR,
+                                        .input_shape = GT_EXT_JSON_OBJECT,
+                                        .output_shape = GT_EXT_JSON_OBJECT};
+    pair->pair.h = rpc_adopt(&host, GT_EXT_HOST, &config, &method, 1);
+    pair->pair.e = rpc_adopt(&executor, GT_EXT_EXECUTOR, &config, &method, 1);
+    ext_allow(&pair->pair);
+    CHECK(gt_ext_session_lease(pair->pair.h, &pair->h));
+}
+
+#ifndef PUBLIC_PACKAGE_MAIN
+#define PUBLIC_PACKAGE_MAIN main
+#endif
+
+int PUBLIC_PACKAGE_MAIN(int argc, char **argv) {
     CHECK(argc >= 2);
     const char *mode = argv[1];
     gt_ext_package_t *package = NULL;
@@ -17,8 +130,8 @@ int main(int argc, char **argv) {
     CHECK(argc == 3);
     size_t fds = ext_fds();
     gt_plugin_memory_info_t before = gt__plugin_memory_info();
-    load_fixture_t f;
-    load_fixture(&f, !strcmp(mode, "cli-arguments") ? mode : "roundtrip", argv[2]);
+    fixture_t f;
+    fixture_open(&f, argv[2], fixture_id, "0.1.0", "\"fixture\"", true);
     gt_ext_package_config_t capture = {f.fd, 1024, 4096, 16777216, 67108864};
     CHECK(gt_ext_package_open(&capture, &package) == GT_OK && package);
     gt_ext_package_metadata_t metadata;
@@ -42,8 +155,10 @@ int main(int argc, char **argv) {
         gt_ext_package_stop(package);
     }
     const char *host = "{\"side\":\"executor\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],"
-                       "\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
-    gt_ext_package_check_config_t config = {.host_json = !strcmp(mode, "unknown") ? NULL : host};
+                       "\"runtimes\":[\"lua\"],\"capabilities\":[\"session.rpc\"]}";
+    const bool association = !strcmp(mode, "association");
+    gt_ext_package_check_config_t config = {.host_json = !strcmp(mode, "unknown") ? NULL : host,
+                                            .registry_json = association ? "[]" : NULL};
     phase = gt_ext_package_check(package, &config);
     CHECK(gt_ext_package_info(package, &info));
     if (!strcmp(mode, "unknown")) {
@@ -56,9 +171,9 @@ int main(int argc, char **argv) {
         goto done;
     }
     CHECK(phase == GT_EXT_PACKAGE_CHECKED && gt_ext_package_metadata(package, &metadata));
-    CHECK(!strcmp(metadata.id, f.info.id) &&
-          !strcmp(metadata.package_digest, f.info.package_digest) && metadata.requires_count == 1 &&
-          !metadata.authorization_granted && !metadata.publisher_authenticated);
+    CHECK(!strcmp(metadata.id, fixture_id) && !strcmp(metadata.package_digest, f.digest) &&
+          metadata.requires_count == 1 && !metadata.authorization_granted &&
+          !metadata.publisher_authenticated);
     if (!strcmp(mode, "cli-arguments")) {
         const char *arguments[] = {"report.txt", "--lines=20", "--wrap"};
         size_t size = 0;
@@ -82,7 +197,7 @@ int main(int argc, char **argv) {
         gt_ext_package_command_t command;
         CHECK(gt_ext_package_command_count(package, &count) && count == 1);
         CHECK(gt_ext_package_command(package, 0, &command) && !strcmp(command.path, "fixture") &&
-              !strcmp((char *)command.args_schema, "schemas/input.json"));
+              !strcmp((char *)command.args_schema, "input.json"));
         memset(&command, 0x55, sizeof(command));
         CHECK(!gt_ext_package_command(package, 1, &command) && !command.path[0]);
         gt_ext_registry_t *registry = NULL;
@@ -113,11 +228,11 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_package_destroy(&package) == GT_OK);
         package = selected;
     }
-    rpc_pair_t pair;
-    load_pair(&pair, &f, !strcmp(mode, "mismatch") ? "digest" : "roundtrip");
+    rpc_pair_t pair = {0};
+    fixture_pair(&pair, &f, mode);
     gt_ext_session_t *original = pair.pair.e;
     gt_ext_runtime_config_t runtime = {
-        .role = GT_EXT_EXECUTOR, .cpu_ms = 1000, .activation_ms = 10000, .jobs_per_step = 128};
+        .role = GT_EXT_EXECUTOR, .cpu_ms = 1000, .activation_ms = 10000};
     gt_ext_runtime_t *r = NULL;
     if (!strcmp(mode, "process-config")) {
         const gt_ext_process_program_mapping_t program = {
@@ -136,27 +251,39 @@ int main(int argc, char **argv) {
         goto done;
     }
     if (!strcmp(mode, "override")) {
-        runtime.entry = "plugin:/override.js";
+        runtime.entry = "plugin:/override.lua";
     }
     if (!strcmp(mode, "load-stop")) {
         gt_ext_package_stop(package);
     }
-    gt_ext_invocation_t invocation = {"missing", NULL, 0};
+    const char *const arguments[] = {"report.txt"};
+    gt_ext_invocation_t invocation = {.command = "fixture", .argv = arguments, .argc = 1};
+    runtime.invocation = &invocation;
     if (!strcmp(mode, "registry")) {
-        runtime.invocation = &invocation;
+        invocation.command = "missing";
         CHECK(gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, false, &r) ==
                   GT_ERR_NOT_FOUND &&
               !r && pair.pair.e == original);
         invocation.command = "fixture";
     }
-    gt_status_t status = gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, false, &r);
-    if (!strcmp(mode, "override") || !strcmp(mode, "load-stop") || !strcmp(mode, "mismatch")) {
+    if (association) {
+        CHECK(gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, false, &r) ==
+                  GT_ERR_AUTH &&
+              !r && pair.pair.e == original);
+    }
+    gt_status_t status =
+        gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, association, &r);
+    if (!strcmp(mode, "override") || !strcmp(mode, "load-stop") || !strcmp(mode, "mismatch") ||
+        !strcmp(mode, "wrong-id") || !strcmp(mode, "wrong-version")) {
         CHECK(status == (!strcmp(mode, "override")    ? GT_ERR_INVALID_ARG
                          : !strcmp(mode, "load-stop") ? GT_ERR_CANCELLED
                                                       : GT_ERR_PROTOCOL) &&
               !r && pair.pair.e == original);
         rpc_drop(&pair);
         goto done;
+    }
+    if (status != GT_OK) {
+        fprintf(stderr, "opening Lua package: status=%d\n", status);
     }
     CHECK(status == GT_OK && r && !pair.pair.e);
     CHECK(gt_ext_package_destroy(&package) == GT_OK && !package);
@@ -193,7 +320,7 @@ done:
     if (package) {
         CHECK(gt_ext_package_destroy(&package) == GT_OK && !package);
     }
-    load_clear(&f);
+    fixture_close(&f);
     CHECK(ext_fds() == fds && gt__plugin_memory_info().used == before.used);
     return 0;
 }

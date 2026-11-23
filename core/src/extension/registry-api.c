@@ -41,6 +41,7 @@ static void registry_command(const gt_package_command_t *c, gt_ext_package_comma
     memcpy(out->args_schema, c->args_schema, sizeof(c->args_schema));
     memcpy(out->views, c->views, sizeof(c->views));
     out->view_count = (uint32_t)c->view_count;
+    out->toggle_panel = c->toggle_panel;
 }
 
 bool gt_ext_package_command_count(const gt_ext_package_t *p, uint32_t *out) {
@@ -78,7 +79,7 @@ gt_ext_registry_status_t gt_ext_registry_open(gt_ext_registry_t **out) {
     if (!out) {
         return GT_EXT_REGISTRY_INVALID;
     }
-#ifndef GT_HAVE_PLUGIN_JS
+#if !defined(GT_HAVE_PLUGIN_LUA)
     return GT_EXT_REGISTRY_UNSUPPORTED;
 #else
     gt_ext_registry_t *r = gt__plugin_memory_calloc(1, sizeof(*r));

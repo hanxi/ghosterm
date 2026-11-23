@@ -80,7 +80,9 @@ internal class ClaudeConversation(private val scope: CoroutineScope,
         action {
             requireAction(current.phase == Phase.NEW)
             val reply = call("start")
-            require(reply.opt("requested") == true && reply.opt("sdkVersion") == "0.3.323" && reply.opt("cliVersion") == "2.1.323")
+            require(reply.opt("requested") == true &&
+                reply.opt("backend") == "cli" &&
+                reply.opt("cliVersion") == "2.1.323")
             current = current.copy(phase = Phase.STARTING)
             beginPolling()
         }
@@ -287,7 +289,8 @@ internal class ClaudeConversation(private val scope: CoroutineScope,
                 val id = message.opt("user_message_uuid") as? String
                 val error = message.opt("is_error") as? Boolean
                 val subtype = message.opt("subtype") as? String
-                if (id == null || id != current.activeMessageID || error == null || subtype == null || (subtype == "success") == error) {
+                if (id == null || id != current.activeMessageID || error == null || subtype == null ||
+                    (!error && subtype != "success")) {
                     fail("收到无法关联当前输入的后端结果；当前输入保持未知。", Phase.LOST); return
                 }
                 append("result:$sessionSequence", if (error) "本轮未成功" else "本轮已完成",

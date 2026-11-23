@@ -46,7 +46,7 @@ final class LocalExtensionTests: XCTestCase {
         var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
         let directory = project.appendingPathComponent("tmp/local-controller-journal-\(UUID().uuidString)")
         addTeardownBlock { if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) } }
-        return try .init(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"]), localJournalDirectory: directory)
+        return try .init(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc"]), localJournalDirectory: directory)
     }
     func testLocalWorkerRejectsMissingApprovalBeforeExecution() async throws {
         let (directory, helper, digest) = try fixture(); defer { try? FileManager.default.removeItem(at: directory) }
@@ -111,14 +111,14 @@ final class LocalExtensionTests: XCTestCase {
     }
     @MainActor func testLocalFormEditsRevokeCapturedApproval() {
         let review = ExtensionController.PackageReview(id: "org.ghosterm.fixture", version: "0.1.0", publisher: "fixture",
-            license: "MIT", digest: digest, runtime: "portable-js", requiredCapabilities: [], optionalMissingCapabilities: [],
+            license: "MIT", digest: digest, runtime: "lua", requiredCapabilities: [], optionalMissingCapabilities: [],
             authorizationGranted: false, publisherAuthenticated: false, commands: [], sourceApproved: true)
         var entry = ExtensionsPane.Entry(review: review); entry.localConnection = true
         let edits: [(inout ExtensionsPane.Entry) -> Void] = [
             { $0.localDigest = "changed" }, { $0.localWorkingDirectory = "/changed" }, { $0.localTemporaryDirectory = "/changed" },
             { $0.executable = "/changed" }, { $0.argumentsJSON = "[]" }, { $0.command = "changed" },
             { $0.methodsJSON = "[]" }, { $0.ipcDirectory = "/changed" }, { $0.ipcInstance = "changed" },
-            { $0.remoteProcesses.toggle() }, { $0.attachExisting.toggle() }, { $0.executionDraft.choice = .node }, { $0.localConnection = false }, { $0.localConnection = true }]
+            { $0.remoteProcesses.toggle() }, { $0.attachExisting.toggle() }, { $0.localConnection = false }, { $0.localConnection = true }]
         for edit in edits {
             entry.localAllowed = true; edit(&entry); XCTAssertFalse(entry.localAllowed)
         }

@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Resolve actual fixed development packages through the public C registry."""
-import argparse, hashlib, json, shutil, subprocess, tempfile
+import argparse, hashlib, json, os, shutil, subprocess, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-CASES = ['unique', 'conflict', 'reverse', 'select', 'stale', 'missing-id', 'missing-command', 'prefix', 'duplicate', 'digest', 'invalid-digest', 'tampered', 'unknown', 'limit', 'usage']
+CASES = ['unique', 'conflict', 'reverse', 'select', 'stale', 'missing-id', 'missing-command', 'prefix', 'duplicate', 'digest', 'invalid-digest', 'tampered', 'invalid-host', 'limit', 'usage']
 def main():
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('--binary', type=Path, required=True); p.add_argument('--case', choices=CASES); p.add_argument('--disabled', action='store_true'); a = p.parse_args()
-    work = Path(tempfile.mkdtemp(prefix='gterm-resolve-', dir=ROOT/'tmp'))
+    project_tmp = ROOT / 'tmp'
+    scratch = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    if not scratch.is_dir() or not scratch.is_relative_to(project_tmp):
+        scratch = project_tmp
+    work = Path(tempfile.mkdtemp(prefix='gterm-resolve-', dir=scratch))
     try:
         def package(name, command):
             directory = work/name; directory.mkdir()
-            manifest = dict(schemaVersion=1, id='org.ghosterm.'+name, pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher='fixture', license='MIT', commands=[dict(path=command, title='中文\x1b[31m😀', argsSchema='schemas/input.json')], executor=dict(variants=[dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=['session.rpc'])]), permissions=[])
-            files = {'plugin.json':json.dumps(manifest), 'README':'fixture', 'LICENSES/MIT.txt':'fixture', 'schemas/input.json':'{}', 'executor/index.js':"throw Error('MUST_NOT_EXECUTE');export function activate(){}"}
+            manifest = dict(schemaVersion=2, id='org.ghosterm.'+name, pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher='fixture', license='MIT', commands=[dict(path=command, title='中文\x1b[31m😀', argsSchema='schemas/input.json')], executor=dict(entry='executor.lua', requires=['session.rpc']))
+            files = {'manifest.json':json.dumps(manifest), 'README':'fixture', 'LICENSES/MIT.txt':'fixture', 'schemas/input.json':'{}', 'executor.lua':"error('MUST_NOT_EXECUTE')"}
             members = []
             for name, text in files.items():
                 path = directory/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
@@ -19,7 +23,7 @@ def main():
             (directory/'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=members)))
             return [directory, hashlib.sha256((directory/'integrity.json').read_bytes()).hexdigest()]
         one = package('one', ['fixture']); two = package('two', ['fixture']); sub = package('sub', ['fixture', 'sub'])
-        host = work/'host.json'; host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])))
+        host = work/'host.json'; host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'], capabilities=['session.rpc'])))
         for case in [a.case] if a.case else CASES:
             pairs = one + two; options = []; command = 'fixture'; code = 0; kind = 'resolved'
             if case == 'unique': pairs = one
@@ -32,7 +36,7 @@ def main():
             elif case == 'digest': pairs = one + [two[0], one[1]]; code = 6; kind = 'denied'
             elif case == 'invalid-digest': pairs = [one[0], 'bad']; code = 2; kind = 'invalid'
             elif case == 'tampered': (two[0]/'README').write_text('changed'); code = 5
-            elif case == 'unknown': host.write_text('{}'); code = 3; kind = 'unknown'
+            elif case == 'invalid-host': host.write_text('{}'); code = 5; kind = 'invalid'
             elif case == 'limit': pairs = one * 33; code = 2
             elif case == 'usage': options = ['--select', 'org.ghosterm.one']; code = 2
             if case == 'reverse': pairs = two + one
@@ -46,7 +50,7 @@ def main():
             else:
                 result = json.loads(r.stdout)
                 assert not result['authorizationGranted'] and not result['publisherAuthenticated'], result
-                if a.disabled: assert result['code'] == 'PLUGIN_JS_DISABLED'
+                if a.disabled: assert result['code'] == 'PLUGIN_RUNTIME_DISABLED'
                 elif case == 'tampered': assert result['result'] != 'resolved'
                 else: assert result['result'] == kind, result
                 if code == 0:
@@ -56,7 +60,7 @@ def main():
                     assert result['title'] == '中文\x1b[31m😀' and all(c < 128 for c in r.stdout) and b'\x1b' not in r.stdout, result
                 else: assert 'id' not in result and 'packageDigest' not in result, result
             if case == 'tampered': (two[0]/'README').write_text('fixture')
-            if case == 'unknown': host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])))
+            if case == 'invalid-host': host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'], capabilities=['session.rpc'])))
             print('PASS resolve', case)
             if a.disabled: break
     finally: shutil.rmtree(work)

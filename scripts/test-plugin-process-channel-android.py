@@ -121,7 +121,7 @@ def execute(args, serial):
         def build(label, changed=False):
             if actual_build:
                 (actual_build / 'CMakeFiles/ghosterm_android.dir/extension_jni.c.o').unlink(missing_ok=True)
-            output = run(label, [source / 'android/gradlew', '--no-daemon', '-PghostermPluginJs=false',
+            output = run(label, [source / 'android/gradlew', '--no-daemon', '-PghostermPluginLua=false',
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600, source / 'android')
             if 'BUILD SUCCESSFUL' not in output: raise RuntimeError('Missing successful Gradle build')
             a = installed(label + '-app', 'com.hanxi.ghosterm', apk)

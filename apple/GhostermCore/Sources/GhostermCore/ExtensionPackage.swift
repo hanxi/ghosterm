@@ -34,8 +34,10 @@ public final class ExtensionPackage {
     }
     public struct Command {
         public let path: String, title: String, argsSchema: String, views: [String]
+        public let togglePanel: Bool
         internal init(_ value: gt_ext_package_command_t) {
             path = packageString(value.path); title = packageString(value.title); argsSchema = packageString(value.args_schema)
+            togglePanel = value.toggle_panel
             views = withUnsafeBytes(of: value.views) { bytes in
                 (0..<min(Int(value.view_count), 8)).map { i in String(decoding: bytes[(i * 16)..<((i + 1) * 16)].prefix(while: { $0 != 0 }), as: UTF8.self) }
             }

@@ -1,115 +1,82 @@
 #!/usr/bin/env python3
-"""Compile isolated Codex snapshot mutations and verify their targeted assertions."""
+"""Compile isolated Lua Executor snapshot mutations and verify each targeted assertion."""
 import argparse
 import hashlib
 import os
 from pathlib import Path
-import shutil
-import signal
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = 'plugins/official/ai-codex/executor/changes.ts'
+SOURCE = ROOT / 'plugins/official/ai-codex/executor.lua'
+FIXTURE = ROOT / 'scripts/probes/codex-lua-changes.lua'
 CASES = (
-    ('identity', 'value => value.id === snapshotID', '() => true',
-     'snapshot identity must select the requested document'),
-    ('size', 'bytes > CODEX_CHANGE_MAX_BYTES', 'false',
-     'oversized snapshots must be unavailable'),
-    ('wire', 'encode({ kind: "success", value });', 'void value;',
-     'complete snapshot chunks must fit the RPC outcome body'),
-    ('approval-scope', 'this.snapshots.get(JSON.stringify([threadID, turnID, itemID]))',
-     '[...this.snapshots.values()].find(value => value.id === snapshotID)',
-     'file approval revision must belong to its exact thread turn and item'),
-    ('approval-revision', 'snapshot.id === snapshotID', '(snapshot.id === snapshotID || snapshotID === "change-1")',
-     'changed patch must reject a stale approval before pipe write'),
+    ('thread-policy', '      result.approvalsReviewer ~= params.approvalsReviewer or\n', ''),
+    ('identity', 'if candidate.id == input.snapshotID then', 'if candidate then'),
+    ('size', 'local snapshot_limit = 524288', 'local snapshot_limit = 1048576'),
+    ('wire', 'local change_chunk_bytes = 1300', 'local change_chunk_bytes = 2000'),
+    ('approval-scope', 'local current = changes[approval.change]',
+     'local current\n    for _, candidate in pairs(changes) do\n'
+     '      if candidate.id == input.snapshotID then current = candidate end\n    end'),
+    ('approval-revision', 'current.id ~= input.snapshotID)',
+     '(current.id ~= input.snapshotID and input.snapshotID ~= "change-1"))'),
 )
 
 
-def sha(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def run(command, root, env, *, assertion=None):
-    bounded = ['bash', '-c',
-               '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require codex-changes; shift; gt_timeout 300 "$@"',
-               'codex-changes', str(ROOT), *command]
-    result = subprocess.run(bounded, cwd=root, env=env, capture_output=True, text=True)
-    output = result.stdout + result.stderr
-    if assertion is None:
-        valid = result.returncode == 0
+def run(lua, arguments, env, expected):
+    result = subprocess.run([lua, *arguments], cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+    if expected.startswith('CODEX CHANGE ASSERTION '):
+        valid = result.returncode == 1 and result.stderr.count(expected) == 1 and 'stack traceback:' in result.stderr
     else:
-        valid = result.returncode == 1 and 'AssertionError [ERR_ASSERTION]' in output and assertion in output
+        valid = result.returncode == 0 and result.stdout.strip() == expected
     if not valid:
-        raise RuntimeError(f'Unexpected result from {command}:\n{output}')
-    return output
+        raise RuntimeError(f'Unexpected Lua result for {arguments}: {result.stdout}{result.stderr}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fetch', action='store_true', help='fetch integrity-locked developer tools')
+    parser.add_argument('--lua', type=Path, required=True, help='path to a Lua 5.5.1 interpreter')
     parser.add_argument('--case', action='append', choices=[case[0] for case in CASES])
     args = parser.parse_args()
-    (ROOT / 'tmp').mkdir(exist_ok=True)
-    inputs = [SOURCE, 'plugins/official/ai-codex/executor/index.ts', 'scripts/test-plugin-codex-entry.mjs']
-    before = {name: sha(ROOT / name) for name in inputs}
-    with tempfile.TemporaryDirectory(prefix='codex-changes-mutation-', dir=ROOT / 'tmp') as temporary:
-        work = Path(temporary)
-        for relative in ('plugins/official/ai-codex', 'packages/plugin-sdk/portable',
-                         'scripts/fixtures/plugin-sdk-tools'):
-            shutil.copytree(ROOT / relative, work / relative)
-        for name in ('test-plugin-codex-entry.mjs', 'test-plugin-codex-protocol.mjs', 'plugin-sdk-test-loader.mjs'):
-            shutil.copyfile(ROOT / 'scripts' / name, work / 'scripts' / name)
-        (work / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(work / 'tmp'))
-        env.pop('GHOSTERM_CODEX_PACKAGE_ENTRY', None)
-        tools = work / 'scripts/fixtures/plugin-sdk-tools'
-        install = ['npm', 'ci', '--prefix', str(tools), '--ignore-scripts', '--no-audit', '--no-fund',
-                   '--cache', str(ROOT / 'tmp/plugin-codex-npm-cache'), '--registry', 'https://registry.npmjs.org']
-        if not args.fetch:
-            install.append('--offline')
-        run(install, work, env)
-        tsc = ['node', str(tools / 'node_modules/typescript/bin/tsc')]
-        strict = tsc + ['-p', str(work / 'plugins/official/ai-codex/tsconfig.json')]
-        sdk = work / 'sdk'
-        run(tsc + ['--target', 'ES2022', '--module', 'ES2022', '--moduleResolution', 'Bundler',
-                   '--lib', 'ES2022', '--strict', '--exactOptionalPropertyTypes', '--noEmitOnError',
-                   '--outDir', str(sdk), str(work / 'packages/plugin-sdk/portable/index.ts')], work, env)
-        env['GHOSTERM_TEST_PLUGIN_SDK_ENTRY'] = str(sdk / 'index.js')
-        entry = ['node', '--experimental-strip-types', '--experimental-loader',
-                 str(work / 'scripts/plugin-sdk-test-loader.mjs'), 'scripts/test-plugin-codex-entry.mjs']
-        control = ['node', '--experimental-strip-types', '--test',
-                   '--test-name-pattern=turn/start emits the stable thread input shape',
-                   'scripts/test-plugin-codex-protocol.mjs']
-        target = work / SOURCE
-        original = target.read_bytes()
-        run(strict, work, env)
-        if 'CODEX EXECUTOR ENTRY PASS' not in run(entry, work, env):
-            raise RuntimeError('Baseline entry assertions did not execute')
-        selected = [case for case in CASES if not args.case or case[0] in args.case]
-        for name, old, new, assertion in selected:
-            if original.count(old.encode()) != 1:
+    lua = args.lua.resolve(strict=True)
+    version = subprocess.run([lua, '-v'], capture_output=True, text=True, check=True, timeout=5)
+    if not (version.stdout or version.stderr).startswith('Lua 5.5.1 '):
+        parser.error('expected Lua 5.5.1')
+    workspace_tmp = ROOT / 'tmp'
+    workspace_tmp.mkdir(exist_ok=True)
+    parent = Path(os.environ.get('TMPDIR', str(workspace_tmp))).resolve()
+    if not parent.is_relative_to(workspace_tmp) or not parent.is_dir():
+        parent = workspace_tmp
+    original = SOURCE.read_bytes()
+    digest = hashlib.sha256(original).digest()
+    selected = [case for case in CASES if not args.case or case[0] in args.case]
+
+    with tempfile.TemporaryDirectory(prefix='agent-', dir=parent) as temporary:
+        env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary)
+        env.pop('LUA_INIT', None)
+        env.pop('LUA_INIT_5_5', None)
+        target = Path(temporary) / 'executor.lua'
+        for name, old, new in selected:
+            anchor = old.encode()
+            if original.count(anchor) != 1:
                 raise RuntimeError(f'{name}: mutation anchor changed')
-            target.write_bytes(original.replace(old.encode(), new.encode(), 1))
-            run(strict, work, env)
-            run(entry, work, env, assertion=assertion)
-            if 'ℹ pass 1' not in run(control, work, env):
-                raise RuntimeError(f'{name}: independent control did not execute')
+            invocation = [str(FIXTURE), str(target), name]
+            passed = 'CODEX CHANGE CASE PASS ' + name
             target.write_bytes(original)
-            if sha(target) != before[SOURCE]:
+            run(lua, invocation, env, passed)
+            target.write_bytes(original.replace(anchor, new.encode(), 1))
+            run(lua, ['-e', 'assert(loadfile(arg[0])); os.exit(0)', '--', str(target)], env, '')
+            run(lua, invocation, env, 'CODEX CHANGE ASSERTION ' + name)
+            run(lua, [str(FIXTURE), str(target), 'control'], env, 'CODEX CHANGE CONTROL PASS')
+            target.write_bytes(original)
+            if hashlib.sha256(target.read_bytes()).digest() != digest:
                 raise RuntimeError(f'{name}: restore digest mismatch')
-            run(strict, work, env)
-            if 'CODEX EXECUTOR ENTRY PASS' not in run(entry, work, env):
-                raise RuntimeError(f'{name}: restored assertions did not execute')
-            print(f'PASS {name}: compiled assertion red / independent control green / restored green / SHA256', flush=True)
-    if {name: sha(ROOT / name) for name in inputs} != before:
+            run(lua, invocation, env, passed)
+            print(f'PASS {name}: compiled assertion red / independent control green / restored green / SHA256')
+    if hashlib.sha256(SOURCE.read_bytes()).digest() != digest:
         raise RuntimeError('Original source changed during isolated mutations')
-    print(f'CODEX CHANGE MUTATIONS PASS: {len(selected)} groups', flush=True)
+    print(f'CODEX CHANGE MUTATIONS PASS: {len(selected)} groups')
 
 
 if __name__ == '__main__':
-    def interrupted(signum, frame):
-        raise KeyboardInterrupt(f'signal {signum}')
-    signal.signal(signal.SIGINT, interrupted)
-    signal.signal(signal.SIGTERM, interrupted)
     main()

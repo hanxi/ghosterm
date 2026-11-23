@@ -46,7 +46,7 @@ class TerminalOSC52Test {
     @Test fun discoveryIgnoresNestedOscAndPreservesLocalTerminalOutput() = terminal { session, _ ->
         val payload = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="
         val offer = "\\033]777;ghosterm-discovery;1;$payload\\007"
-        val discoveryStatus = if (BuildConfig.PLUGIN_JS_ENABLED) 0 else 7
+        val discoveryStatus = if (BuildConfig.PLUGIN_RUNTIME_ENABLED) 0 else 7
         val sevenBitControls = listOf(
             "DCS" to "\\033P", "SOS" to "\\033X", "PM" to "\\033^", "APC" to "\\033_",
         )
@@ -64,7 +64,7 @@ class TerminalOSC52Test {
         }
         session.commit("printf '%b' '$offer\\033[2J\\033[HPTY_CANDIDATE_MARKER'\r")
         ready(session, "PTY_CANDIDATE_MARKER")
-        if (!BuildConfig.PLUGIN_JS_ENABLED) {
+        if (!BuildConfig.PLUGIN_RUNTIME_ENABLED) {
             val disabled = session.discovery()
             assertEquals(discoveryStatus, disabled.status)
             assertNull(disabled.offer)

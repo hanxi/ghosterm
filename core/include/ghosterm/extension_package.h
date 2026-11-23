@@ -76,8 +76,9 @@ gt_ext_package_phase_t gt_ext_package_check(gt_ext_package_t *,
                                             const gt_ext_package_check_config_t *);
 bool gt_ext_package_info(const gt_ext_package_t *, gt_ext_package_info_t *);
 bool gt_ext_package_metadata(const gt_ext_package_t *, gt_ext_package_metadata_t *);
-/* Uses the same pinned QuickJS SDK v1 decoder as Client Runtime activation.
- * output=NULL/capacity=0 queries the JSON byte count; size=0 denotes undefined. */
+/* Uses the same argument decoder as Lua Client activation.
+ * output=NULL/capacity=0 queries the JSON byte count; size=0 denotes undefined.
+ * The caller may supply exactly that capacity. A spare byte receives a NUL. */
 gt_status_t gt_ext_package_decode_command_arguments(const gt_ext_package_t *,
                                                     const char *command,
                                                     const char *const *argv,

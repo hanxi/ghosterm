@@ -16,8 +16,6 @@ EXCLUDED = {"vendor", "build", "build-debug", "build-release", "generated", "fix
             ".gradle", ".cxx", "node_modules"}
 # These checked-in files are owned and byte-verified by their generators.
 GENERATED = {
-    "core/src/extension/package-validator-code.inc",
-    "core/src/extension/sdk-code.inc",
     "core/src/extension/sdk-identity.h",
     "core/src/extension/wire-schema.inc",
 }

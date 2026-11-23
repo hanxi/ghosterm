@@ -40,12 +40,14 @@ class ExtensionPackage private constructor(private val worker: Thread) : AutoClo
             text.subList(10, 10 + n[0].toInt()), text.subList(26, 26 + n[1].toInt()),
             (0 until n[2].toInt()).map { n[7 + it].toInt() }, n[3] != 0L, n[4] != 0L, n[5] != 0L, n[6] != 0L)
     }
-    data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>)
+    data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>,
+                       val togglePanel: Boolean = false)
     fun commands(): List<Command> {
         val id = pointer(); val count = NativeExtensionPackage.commandCount(id); check(count in 0..64)
         return (0 until count).map { index ->
-            val v = NativeExtensionPackage.command(id, index).map { it.toString(Charsets.UTF_8) }; check(v.size in 3..11)
-            Command(v[0], v[1], v[2], v.drop(3))
+            val v = NativeExtensionPackage.command(id, index).map { it.toString(Charsets.UTF_8) }
+            check(v.size in 4..12 && (v[3] == "0" || v[3] == "1"))
+            Command(v[0], v[1], v[2], v.drop(4), togglePanel = v[3] == "1")
         }
     }
     fun decodeCommandArguments(path: String, arguments: List<String>): String? {

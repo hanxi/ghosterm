@@ -1,9 +1,14 @@
-# Native form sample
+# Form
 
-Run the `form` command on a Host with the `ui.form` service. The Executor requests
-three fields, waits up to two minutes, and keeps only the outcome kind. Both
-platforms present the form in the active plugin pane. An authorized caller can
-include the optional Executor method `form.status` in its Session allowlist to
-read the current outcome, or `form.cancel` to request cancellation before an
-answer arrives. Read the final outcome via `form.status`. The sample does not
-persist the supplied field values.
+Command `form`.
+
+Requests input through the native form service and tracks the request outcome on the Executor.
+
+Build from the repository root.
+
+```sh
+python3 scripts/gterm-plugin pack plugins/official/form --out tmp/form.zip
+```
+
+The static declaration is in `main.lua`. See the
+[plugin bridge plan](../../../docs/reference/plan-plugin-bridge.md) for verification status.

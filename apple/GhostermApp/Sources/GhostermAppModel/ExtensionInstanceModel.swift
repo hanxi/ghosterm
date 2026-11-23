@@ -16,7 +16,6 @@ import GhostermCore
         public let executorDigest: String
         public let peerIdentity: String
         public let remoteCommand: String
-        public let executorExecution: ExtensionRelayBootstrap.Execution?
         public let executorAttachment: ExtensionRelayBootstrap.Attachment?
         public let localLaunch: ExtensionLocalLaunch?
         public let clientWorkspace: ExtensionController.ClientWorkspace?
@@ -71,7 +70,8 @@ import GhostermCore
     private var codexChangeReadGeneration = UUID()
     private var codexChangeReadTask: Task<Void, Never>?
     private var extensionRunGeneration = UUID()
-    private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String], clientWorkspace: ExtensionController.ClientWorkspace?)?
+    private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String],
+        clientWorkspace: ExtensionController.ClientWorkspace?, context: ExtensionRuntime.Invocation.Context?)?
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
@@ -141,6 +141,10 @@ import GhostermCore
     }
     if !registeredViews && diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
     if !registeredViews && taskContribution { sessionMethods = Array(Set(sessionMethods + PluginTaskModel.methods)).sorted() }
+    if ExtensionRuntime.runtimeName == "lua", selected.packageID == "org.ghosterm.preview",
+       selected.command?.path == "preview" {
+        sessionMethods = Array(Set(sessionMethods + ["preview.open"])).sorted()
+    }
     var clientServices = tableContribution ? ["ui.table"] : []
     if diffContribution { clientServices.append("ui.diff") }
     if taskContribution { clientServices.append("ui.task") }
@@ -165,12 +169,12 @@ import GhostermCore
                                      scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
                                      processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = [],
                                      processEnvironmentNames: [String] = [],
-                                     executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
                                      executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      executorVariantID: String? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
                                      localLaunch: ExtensionLocalLaunch? = nil, multiplexedConnectionCommand: String? = nil,
+                                     context: ExtensionRuntime.Invocation.Context? = nil,
                                      onValidated: (@MainActor () throws -> Void)? = nil) async {
         guard launchTask == nil, !extensionRunBusy, extensionRun == nil, !cleanupPending else {
             extensionRunIssue = "已有插件运行或资源仍待释放"; return
@@ -184,8 +188,9 @@ import GhostermCore
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots,
                 processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames,
-                executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID,
+                executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID,
                 clientWorkspace: clientWorkspace, localLaunch: localLaunch, multiplexedConnectionCommand: multiplexedConnectionCommand,
+                context: context,
                 onValidated: onValidated)
         }
         launchTask = task
@@ -199,11 +204,12 @@ import GhostermCore
                              methods: [String], hostMethods: [String],
                              scopedRoots: [ExtensionRelayBootstrap.ScopedRoot],
                              processPrograms: [ExtensionRelayBootstrap.ProcessProgram],
-                             processEnvironmentNames: [String], executorExecution: ExtensionRelayBootstrap.Execution?,
+                             processEnvironmentNames: [String],
                              executorAttachment: ExtensionRelayBootstrap.Attachment?,
                              executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence?,
                              executorVariantID: String?,
                              clientWorkspace: ExtensionController.ClientWorkspace?, localLaunch: ExtensionLocalLaunch?, multiplexedConnectionCommand: String?,
+                             context: ExtensionRuntime.Invocation.Context?,
                              onValidated: (@MainActor () throws -> Void)?) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
@@ -230,13 +236,10 @@ import GhostermCore
                 clientDigest: packageDigest, methods: sessionMethods, hostMethods: hostMethods,
                 clientCapabilities: clientServices,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
-                processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment, releaseEvidence: executorReleaseEvidence, variantID: executorVariantID,
+                processEnvironmentNames: processEnvironmentNames, attachment: executorAttachment, releaseEvidence: executorReleaseEvidence, variantID: executorVariantID,
                 command: command, arguments: arguments)
             let argv = try localLaunch.flatMap { _ in multiplexedConnectionCommand == nil ? try ExtensionRelayBootstrap.buildLocal(request) : nil }
             let bootstrap = try multiplexedConnectionCommand ?? argv.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ExtensionRelayBootstrap.build(request)
-            if let localLaunch, let executorExecution, localLaunch.temporaryDirectory != executorExecution.temporaryDirectory {
-                throw GhostermError.failed("本机宿主与 Executor 必须使用同一显式临时目录")
-            }
             let peerIdentity = localLaunch.map { "local:" + $0.executableSHA256 } ?? sshAlias
             let additionalCapabilities = ((scopedRoots.isEmpty && clientWorkspace == nil && executorAttachment?.scopedFiles != true) || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
@@ -267,7 +270,7 @@ import GhostermCore
             } else {
                 session = try await extensionController.adoptSSHSession(pluginID: packageID, packageDigest: packageDigest, executorDigest: executorDigest, hostVersion: version, peerIdentity: peerIdentity, methods: rpcMethods, additionalRequiredCapabilities: additionalCapabilities)
             }
-            extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
+            extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace, context)
             extensionRegisteredViews?.invalidate()
             extensionTable?.invalidate(); extensionTable = nil
             extensionDiff?.invalidate(); extensionDiff = nil
@@ -289,7 +292,7 @@ import GhostermCore
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
-                peerIdentity: peerIdentity, remoteCommand: bootstrap, executorExecution: executorExecution, executorAttachment: executorAttachment, localLaunch: localLaunch, clientWorkspace: clientWorkspace, methods: sessionMethods, hostMethods: hostMethods,
+                peerIdentity: peerIdentity, remoteCommand: bootstrap, executorAttachment: executorAttachment, localLaunch: localLaunch, clientWorkspace: clientWorkspace, methods: sessionMethods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -350,7 +353,7 @@ import GhostermCore
                 }
                 let runtime = try await extensionController.activateClient(pluginID: invocation.packageID,
                     packageDigest: invocation.digest, command: invocation.command,
-                    arguments: invocation.arguments, clientWorkspace: invocation.clientWorkspace)
+                    arguments: invocation.arguments, clientWorkspace: invocation.clientWorkspace, context: invocation.context)
                 updateExtensionRun(runtime: runtime)
                 runtimeTask = Task { await self.advanceExtensionRuntime() }
             } else {
@@ -831,7 +834,7 @@ import GhostermCore
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: session, runtime: run.runtime, receivedResources: run.receivedResources,
@@ -854,7 +857,7 @@ import GhostermCore
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
@@ -967,7 +970,7 @@ import GhostermCore
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources + [resource], codexEvents: run.codexEvents)

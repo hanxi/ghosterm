@@ -73,7 +73,7 @@ jobs:
       INPUT_VERSION: ${{ inputs.version }}
       INPUT_NOTARIZE: ${{ inputs.notarize }}
       INPUT_CHANNEL: ${{ inputs.channel }}
-      MACOS_PLUGIN_JS: ${{ github.event_name != 'pull_request' && vars.MACOS_PLUGIN_JS == 'true' && 'true' || 'false' }}
+      MACOS_PLUGIN_LUA: ${{ github.event_name != 'pull_request' && vars.MACOS_PLUGIN_LUA == 'true' && 'true' || 'false' }}
     steps:
       # vendor pin 一律走 scripts/fetch-vendor-pin.sh：
       # checkout 的内置 submodule 拉取不可靠（浅克隆会把子模块落到远端分支头，实测
@@ -96,8 +96,8 @@ jobs:
           version="$(bash scripts/resolve-formal-release-version.sh "$INPUT_VERSION")"
           printf 'INPUT_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
 
-      - name: 验证插件渠道
-        if: env.MACOS_PLUGIN_JS == 'true'
+      - name: 验证 Lua 插件渠道与锁定源码
+        if: env.MACOS_PLUGIN_LUA == 'true'
         env:
           GHOSTERM_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           GHOSTERM_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
@@ -106,7 +106,11 @@ jobs:
           set -euo pipefail
           bash scripts/check-plugin-channel-url.sh "$GHOSTERM_PLUGIN_CHANNEL" \
             "$GHOSTERM_PLUGIN_CHANNEL_ROOT" "$GHOSTERM_PLUGIN_CHANNEL_URL"
-          git submodule update --init --depth 1 vendor/quickjs-ng
+          mkdir -p "$TMPDIR"
+          archive="$TMPDIR/lua-5.5.1.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://www.lua.org/ftp/lua-5.5.1.tar.gz -o "$archive"
+          printf 'GHOSTERM_LUA_ARCHIVE=%s\n' "$archive" >> "$GITHUB_ENV"
 
       - name: 取 vendor pin
         run: bash scripts/fetch-vendor-pin.sh
@@ -312,21 +316,9 @@ jobs:
           python3 scripts/mutation-check-tmux.py
           python3 scripts/mutation-check-tmux-ui.py
 
-      - name: macOS QuickJS 应用闸门（full）
-        if: inputs.gates == 'full' && env.MACOS_PLUGIN_JS == 'true'
-        env:
-          GHOSTERM_AUTOMATION_OFFSCREEN: '1'
-          GHOSTERM_APPLE_GATE_MODE: required
-        run: |
-          set -euo pipefail
-          cli="$(mktemp -d "$PWD/tmp/release-gterm-XXXXXX")"
-          trap 'rm -rf -- "$cli"' EXIT
-          cmake -S cli/gterm -B "$cli" -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DGHOSTERM_WITH_PLUGIN_JS=ON \
-            -DGHOSTERM_WITH_LIBSSH2=ON -DGHOSTERM_WITH_RELEASE_SIGNATURE=OFF
-          cmake --build "$cli" --target gterm --parallel 4
-          GHOSTERM_TEST_GTERM="$cli/gterm" bash scripts/apple-app-gate.sh
+      - name: Lua 插件桥接闸门（full）
+        if: inputs.gates == 'full'
+        run: bash scripts/gate-lua-plugin.sh
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
@@ -386,8 +378,8 @@ jobs:
           set -euo pipefail
           ARGS=(--out dist --build "$GITHUB_RUN_NUMBER" --channel "$INPUT_CHANNEL")
           if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
-          if [ "$MACOS_PLUGIN_JS" = true ]; then
-            ARGS+=(--plugin-js)
+          if [ "$MACOS_PLUGIN_LUA" = true ]; then
+            ARGS+=(--plugin-lua)
           fi
           if [ "${INPUT_CHANNEL}" = "release" ] && [ "${SIGN_MODE:-adhoc}" = "developer-id" ]; then
             ARGS+=(--sign "$SIGN_IDENTITY")
@@ -396,6 +388,10 @@ jobs:
             ARGS+=(--adhoc)
           fi
           bash scripts/package-mac.sh "${ARGS[@]}"
+          if [ "$MACOS_PLUGIN_LUA" = true ]; then
+            cmp core/cmake/Lua-MIT.txt dist/Ghosterm.app/Contents/Resources/Lua-MIT.txt
+            test ! -e dist/Ghosterm.app/Contents/Resources/QuickJSNG-MIT.txt
+          fi
           echo "--- BUILD-INFO ---"
           cat dist/BUILD-INFO.txt
           ls -la dist

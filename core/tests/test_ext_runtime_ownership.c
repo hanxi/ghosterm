@@ -1,6 +1,6 @@
-#define GT_RUNTIME_PUBLIC_API 1
-#define GT_RUNTIME_MAIN ext_runtime_fixture_main
-#include "test_runtime.c"
+#define EXT_RPC_MAIN ownership_rpc_fixture_main
+#include "test_ext_rpc.c"
+#include "base/sha256.h"
 static gt_ext_resource_store_t *owner_store;
 
 static gt_ext_session_t *resource_adopt(gt_ext_channel_t **channel,
@@ -35,39 +35,15 @@ int main(int argc, char **argv) {
     rpc_pair_t pair;
     rpc_open(&pair, "timeout");
     rpc_adopt_hook = NULL;
-    const char *names[] = {"index.js",
-                           "codec.js",
-                           "session.js",
-                           "wire-contract.js",
-                           "table.js",
-                           "diff.js",
-                           "task.js",
-                           "views.js",
-                           "form.js"},
-               *ids[] = {"sdk:/index.js",
-                         "sdk:/codec.js",
-                         "sdk:/session.js",
-                         "sdk:/wire-contract.js",
-                         "sdk:/table.js",
-                         "sdk:/diff.js",
-                         "sdk:/task.js",
-                         "sdk:/views.js",
-                         "sdk:/form.js"};
-
-    enum {
-        SDK_COUNT = sizeof(names) / sizeof(names[0])
-    };
-
-    char *scripts[SDK_COUNT];
-    gt_ext_runtime_module_t modules[SDK_COUNT + 1] = {0};
-    for (unsigned i = 0; i < SDK_COUNT; i++) {
-        scripts[i] = read_module(argv[2], names[i]);
-        module(&modules[i], ids[i], scripts[i]);
-    }
-    module(&modules[SDK_COUNT], "plugin:/entry.js", echo_plugin);
-    gt_ext_runtime_config_t c = {.modules = modules,
-                                 .module_count = SDK_COUNT + 1,
-                                 .entry = "plugin:/entry.js",
+    const char source[] = "return {['fixture.echo'] = function(input) return input end}";
+    gt_ext_runtime_module_t module = {
+        .name = "plugin:/entry.lua", .source = source, .size = sizeof(source) - 1};
+    gt_sha256_t hash;
+    gt__sha256_init(&hash);
+    CHECK(gt__sha256_update(&hash, source, module.size) && gt__sha256_final(&hash, module.sha256));
+    gt_ext_runtime_config_t c = {.modules = &module,
+                                 .module_count = 1,
+                                 .entry = module.name,
                                  .role = GT_EXT_EXECUTOR,
                                  .cpu_ms = 500};
     gt_ext_runtime_t *runtime = NULL;
@@ -125,11 +101,20 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_resource_store_usage(owner_store, &usage) && usage.sessions == 2);
         CHECK(gt_ext_resource_store_destroy(&owner_store) == GT_EXT_RESOURCE_WAIT && owner_store);
     }
-    rt_drop(&runtime);
-    ext_drop(&pair.pair.h);
-    for (unsigned i = 0; i < SDK_COUNT; i++) {
-        free(scripts[i]);
+    CHECK(gt_ext_runtime_destroy(&runtime) == GT_ERR_INVALID_ARG && runtime);
+    for (unsigned i = 0; i < 200 && runtime; i++) {
+        gt_ext_close_t close = gt_ext_runtime_close(runtime);
+        CHECK(close == GT_EXT_DRAINING || close == GT_EXT_RELEASED);
+        if (close == GT_EXT_RELEASED) {
+            gt_ext_runtime_info_t info;
+            CHECK(gt_ext_runtime_close(runtime) == GT_EXT_RELEASED &&
+                  gt_ext_runtime_info(runtime, &info) && info.phase == GT_EXT_RUNTIME_CLOSED &&
+                  info.engine_released);
+            CHECK(gt_ext_runtime_destroy(&runtime) == GT_OK && !runtime);
+        }
     }
+    CHECK(!runtime);
+    ext_drop(&pair.pair.h);
     if (owner_store) {
         CHECK(gt_ext_resource_store_destroy(&owner_store) == GT_EXT_RESOURCE_OK && !owner_store);
         CHECK(!rmdir(directory));

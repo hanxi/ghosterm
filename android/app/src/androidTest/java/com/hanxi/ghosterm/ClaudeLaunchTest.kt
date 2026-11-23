@@ -23,7 +23,7 @@ class ClaudeLaunchTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
     private fun request() = ExtensionRelayBootstrap.Request("gterm", "/k", "a".repeat(64), "b".repeat(64),
         emptyList(), command = "ai claude", workspaceRootDirectory = "/w", processPrograms = listOf(
-            ExtensionRelayBootstrap.ProcessProgram("claude-node", "/bin/node", "26.4.0", "c".repeat(64),
+            ExtensionRelayBootstrap.ProcessProgram("claude", "/bin/claude", "2.1.323", "c".repeat(64),
                 listOf("/e 中😀'quoted.mjs", "--profile", "/p"))), processEnvironmentNames = listOf("CLAUDE_CONFIG_DIR"))
     private fun rejected(message: String, block: () -> Unit) {
         var failed = false
@@ -34,11 +34,11 @@ class ClaudeLaunchTest {
     @Test fun fixedArgumentsAndRemoteEnvironmentNamesAreQuotedInOrder() {
         val command = ExtensionRelayBootstrap.build(request())
         assertTrue("Fixed entry and profile argv must be emitted", command.contains(
-            "'--process-argument' 'claude-node' '/e 中😀'\\''quoted.mjs' '--process-argument' 'claude-node' '--profile' '--process-argument' 'claude-node' '/p'"))
+            "'--process-argument' 'claude' '/e 中😀'\\''quoted.mjs' '--process-argument' 'claude' '--profile' '--process-argument' 'claude' '/p'"))
         assertTrue("Selected environment names must be emitted", command.contains("'--process-environment' 'CLAUDE_CONFIG_DIR'"))
         assertTrue(command.endsWith("'--' '/k' 'ai claude'"))
         val mapping = request().processPrograms.single()
-        val source = "[{\"name\":\"claude-node\",\"executable\":\"/bin/node\",\"version\":\"26.4.0\",\"sha256\":\"${mapping.sha256}\",\"prefixArguments\":[\"/e 中😀'quoted.mjs\",\"--profile\",\"/p\"]}]"
+        val source = "[{\"name\":\"claude\",\"executable\":\"/bin/claude\",\"version\":\"2.1.323\",\"sha256\":\"${mapping.sha256}\",\"prefixArguments\":[\"/e 中😀'quoted.mjs\",\"--profile\",\"/p\"]}]"
         assertEquals(mapping, ExtensionRelayBootstrap.parseProcessProgramsJson(source).single())
         assertEquals(listOf("CLAUDE_CONFIG_DIR"), ExtensionRelayBootstrap.parseProcessEnvironmentJson("[\"CLAUDE_CONFIG_DIR\"]"))
     }
@@ -79,7 +79,7 @@ class ClaudeLaunchTest {
     @Test fun productionLaunchFormKeepsFixedArgumentsAndEnvironmentSelection() {
         val command = ExtensionController.Command("ai claude", "Claude", "schemas/command.json", emptyList())
         val review = ExtensionController.Review(id = "org.ghosterm.ai-claude", version = "0.1.0", publisher = "fixture", license = "MIT",
-            digest = "b".repeat(64), runtime = "portable-js", requiredCapabilities = listOf("session.rpc"),
+            digest = "b".repeat(64), runtime = "lua", requiredCapabilities = listOf("session.rpc"),
             optionalMissingCapabilities = emptyList(), authorizationGranted = false, publisherAuthenticated = false,
             commands = listOf(command))
         var launched: ExtensionRelayBootstrap.Request? = null
@@ -94,7 +94,7 @@ class ClaudeLaunchTest {
         ui.onNodeWithTag("plugin-workspace-root").performScrollTo().performTextInput("/w")
         ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextInput("a".repeat(64))
         ui.onNodeWithTag("plugin-process-programs").performScrollTo().performTextReplacement(
-            "[{\"name\":\"claude-node\",\"executable\":\"/bin/node\",\"version\":\"26.4.0\",\"sha256\":\"${"c".repeat(64)}\",\"prefixArguments\":[\"/e\",\"--profile\",\"/p\"]}]")
+            "[{\"name\":\"claude\",\"executable\":\"/bin/claude\",\"version\":\"2.1.323\",\"sha256\":\"${"c".repeat(64)}\",\"prefixArguments\":[\"/e\",\"--profile\",\"/p\"]}]")
         ui.onNodeWithTag("plugin-process-environment").performScrollTo().performTextReplacement("[\"CLAUDE_CONFIG_DIR\"]")
         Espresso.closeSoftKeyboard()
         ui.onNodeWithText("连接并请求授权").assertIsEnabled().performClick()

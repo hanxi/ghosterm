@@ -12,20 +12,37 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'
 RUN = 'apple/GhostermApp/Sources/GhostermApp/ExtensionRunView.swift'
 HTML = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLAssets.swift'
 SNAPSHOT = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLSnapshot.swift'
+CONTROLLER = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'
+BOOTSTRAP = 'apple/GhostermApp/Sources/GhostermAppModel/ExtensionRelayBootstrap.swift'
 TEST = 'PluginPaneFlowTests.testPreviewThroughPackageApprovalLaunchConsentAndStopControls'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def large_png():
+    def chunk(kind, payload):
+        return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+
+    size = 32
+    scanline = b'\0' + bytes((255, 0, 0, 255)) * size
+    png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0))
+    png += chunk(b'IDAT', zlib.compress(scanline * size))
+    end = chunk(b'IEND', b'')
+    padding = 256 * 1024 - len(png) - len(end) - 12
+    return png + chunk(b'gpAd', bytes(padding)) + end
 
 
 def main():
@@ -176,15 +193,31 @@ def main():
         ('image-attachment-arrival', '.task(id: identity)', '.task(id: resource.sha256)',
          'prepared attachment changes must replace and revoke the previous HTML view',
          'PluginResourceUITests.testHTMLPreparedAttachmentArrivalRebuildsAndRevokesTheOldView'),
+        ('lua-resource-pump', 'let deadline = ProcessInfo.processInfo.systemUptime + 0.005\n                for _ in 0..<32 {',
+         'let deadline = ProcessInfo.processInfo.systemUptime + 0.005\n                for _ in 0..<1 {',
+         'Preview did not receive exact owned SSH resource', selected_image, CONTROLLER),
+        ('lua-foreground-grant', 'guard attachment.authorized, attachment.instance.utf8.count == 32,',
+         'guard attachment.instance.utf8.count == 32,',
+         'Lua foreground attachment requires an explicit grant',
+         'PluginPaneFlowTests.testForegroundInspectionAndAttachmentThroughControls', BOOTSTRAP),
+        ('lua-client-workspace', 'guard authorized, directory.hasPrefix',
+         'guard directory.hasPrefix', 'Lua Client publication requires a workspace grant',
+         'PluginPaneFlowTests.testLuaClientPublicationUsesTheApprovedWorkspaceAndRuntime', CONTROLLER),
+        ('lua-client-directory', 'open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)\n                    }',
+         'open($0, O_RDONLY | O_DIRECTORY | O_CLOEXEC)\n                    }', 'Lua Client publication must reject a linked workspace',
+         'PluginPaneFlowTests.testLuaClientPublicationRejectsLinkedWorkspace', CONTROLLER),
+        ('lua-client-instance', '                      self.runtimeInstanceID == instanceID,\n',
+         '', 'Lua Client publication must reject a stale Runtime identity',
+         'PluginPaneFlowTests.testLuaClientPublicationUsesTheApprovedWorkspaceAndRuntime', CONTROLLER),
     ])
     if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
         parser.error('--mutation-case requires --mutate and a known case name')
-    originals = {name: (ROOT / name).read_bytes() for name in [PANE, RUN, HTML, SNAPSHOT]}
+    originals = {name: (ROOT / name).read_bytes() for name in [PANE, RUN, HTML, SNAPSHOT, CONTROLLER, BOOTSTRAP]}
     for label, old, _new, _expected, *options in cases:
         filename = options[1] if len(options) > 1 else PANE
         assert originals[filename].count(old.encode()) == 1, label
     tracked = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-    names = {p for p in tracked if p.startswith(('core/', 'apple/', 'packages/plugin-sdk/', 'plugins/official/preview/'))
+    names = {p for p in tracked if p.startswith(('core/', 'apple/', 'plugins/official/preview/'))
              and (ROOT / p).is_file()}
     names.update([PANE, 'scripts/test-plugin-pane.py', 'scripts/apple-app-gate.sh',
                   'scripts/check-abi-apple.sh', 'scripts/build-core.sh',
@@ -194,7 +227,7 @@ def main():
     executable_sha = sha(gterm)
     env = dict(os.environ, GHOSTERM_AUTOMATION_OFFSCREEN='1',
                DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
-               GHOSTERM_CORE_TEST_PLUGIN_JS='1', GHOSTERM_TEST_GTERM=str(gterm))
+               GHOSTERM_CORE_TEST_PLUGIN_LUA='1', GHOSTERM_TEST_GTERM=str(gterm))
     # The gate, never an inherited endpoint, creates the only authorized SSH service.
     for key in list(env):
         if key.startswith('GHOSTERM_SSH_'):
@@ -211,21 +244,25 @@ def main():
         work = Path(temporary)
         tool_tmp = work / 'tmp'
         tool_tmp.mkdir()
-        env.update(TMPDIR=str(tool_tmp), GHOSTERM_APP_TEST_TMP=str(tool_tmp))
+        core_build = work / 'core'
+        env.update(TMPDIR=str(tool_tmp), TMP=str(tool_tmp), TEMP=str(tool_tmp),
+                   GHOSTERM_APP_TEST_TMP=str(tool_tmp), GHOSTERM_CORE_BUILD_DIR=str(core_build))
         source = work / 'source'
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
             shutil.copytree(ROOT / directory, source / directory, symlinks=True,
                             ignore=shutil.ignore_patterns('.build', '.swiftpm'))
         (source / 'core').mkdir()
-        for name in ['include', 'build']:
-            (source / 'core' / name).symlink_to(ROOT / 'core' / name, target_is_directory=True)
+        (source / 'core/include').symlink_to(ROOT / 'core/include', target_is_directory=True)
+        (source / 'core/build').symlink_to(core_build, target_is_directory=True)
         for name in ['build', 'patches', 'plugins']:
             (source / name).symlink_to(ROOT / name, target_is_directory=True)
         (source / 'tmp').mkdir()
         env['GHOSTERM_APP_TEST_PACKAGE'] = str(source / 'apple/GhostermApp')
 
-        def run(label, selected=selected_markdown, expected_failure=None, count=1):
+        def run(label, selected=selected_markdown, expected_failure=None, count=1, large_resource=None):
             child_env = dict(env, GHOSTERM_APP_TEST_FILTER=selected)
+            if large_resource is not None:
+                child_env['GHOSTERM_TEST_PREVIEW_LARGE_PNG'] = str(large_resource)
             log_path = tool_tmp / 'apple-app-test.log'
             log_path.unlink(missing_ok=True)
             command = ['bash', 'scripts/apple-app-gate.sh']
@@ -249,8 +286,14 @@ def main():
             (work / (label + '.log')).write_bytes(output + log.encode())
             if expected_failure:
                 failures = re.findall(r'^.*: error: .* : (?:XCTAssert\w+ failed|failed -)[^\n]*', log, re.M)
-                assert child.returncode == 1 and len(failures) == 1 and expected_failure in failures[0], (label, log[-12000:])
-                assert 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-12000:])
+                expected_messages = [expected_failure]
+                if label == 'picker-cancel-assertion':
+                    expected_messages.append('a retired picker callback must not display an import error')
+                assert child.returncode == 1 and len(failures) == len(expected_messages), (label, log[-12000:])
+                assert all(message in failure for message, failure in zip(expected_messages, failures)), (label, log[-12000:])
+                count = len(expected_messages)
+                noun = 'failure' if count == 1 else 'failures'
+                assert f'Executed 1 test, with {count} {noun} (0 unexpected)' in log, (label, log[-12000:])
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError']), label
             else:
                 passed = re.findall(r"^Test Case '([^']+)' passed", log, re.M)
@@ -262,9 +305,9 @@ def main():
             print('PASS ' + label, flush=True)
 
         run('baseline', selected=baseline, count=baseline_count)
-        linked = {name: sha(ROOT / name) for name in [
-            'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
-            'build/host-native/lib/libssh2.a',
+        linked = {str(path): sha(path) for path in [
+            core_build / 'libghosterm_core.a', core_build / 'libghosterm_lua.a',
+            ROOT / 'build/host-native/lib/libssh2.a',
         ]}
         run('html-lifetime-baseline', selected='PluginResourceUITests|PluginHTMLImageBudgetTests', count=31)
         for recipe in cases if args.mutate else []:
@@ -278,20 +321,28 @@ def main():
             stem = Path(filename).stem
             objects = {p: sha(p) for p in (source / 'apple/GhostermApp/.build').rglob('*') if p.name in (stem + '.swift.o', stem + '.o')}
             assert objects, 'compiled production pane object required'
+            large_resource = None
+            if label == 'lua-resource-pump':
+                large_resource = tool_tmp / 'large-preview.png'
+                large_resource.write_bytes(large_png())
+                run(label + '-baseline', selected=selected, large_resource=large_resource)
+            elif label in ('lua-foreground-grant', 'lua-client-workspace', 'lua-client-directory', 'lua-client-instance'):
+                run(label + '-baseline', selected=selected)
             path.write_bytes(original.replace(old.encode(), new.encode()))
             try:
-                run(label + '-assertion', selected=selected, expected_failure=expected)
+                run(label + '-assertion', selected=selected, expected_failure=expected, large_resource=large_resource)
                 assert any(sha(p) != digest for p, digest in objects.items()), 'mutation must be compiled'
                 run(label + '-control', CONTROL)
             finally:
                 path.write_bytes(original)
-            run(label + '-restored', selected=selected)
+            run(label + '-restored', selected=selected, large_resource=large_resource)
             assert sha(path) == inputs[filename], 'restoration must match exact source SHA256'
             groups.append(label)
         binary = next((source / 'apple/GhostermApp/.build').rglob('GhostermAppTests.xctest/Contents/MacOS/GhostermAppTests'))
         binary_sha = sha(binary)
+        changed = [name for name, digest in linked.items() if sha(Path(name)) != digest]
+        assert not changed, ('linked archive changed during verification', changed)
     assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed during verification'
-    assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
     assert all((ROOT / name).read_bytes() == value for name, value in originals.items()), 'original checkout changed'
     receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML/static raster budgets', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=31,

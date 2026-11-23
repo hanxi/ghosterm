@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_SESSION_MUTATION'
 MODES='allow deny late-deny consent-time expired clock lost revoke stop stop-before-step allocation bad-nonce bad-scope old-epoch gap replay wrong-digest wrong-cap budget-upgrade bad-accept bad-ready truncated early-message active-message late-read late-write expired-after-allow'.split()
 INPUTS=sorted({str(p.relative_to(ROOT)) for folder in ('core/src','core/include') for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')})+[
  'core/CMakeLists.txt','core/tests/test_bridge_session.c','core/tests/test_bridge_ssh.c',
- 'packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json',
+ 'packages/plugin-protocol/schema/bridge-v1.candidate.json','packages/plugin-protocol/schema/bridge-v1.cases.json',
  'scripts/generate-plugin-wire.py','scripts/test-plugin-session.py','scripts/test-plugin-route.py','scripts/test-plugin-ssh.py',
  'scripts/test-plugin-ssh-stream.py','scripts/mutation-check-plugin-session.py']
 def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()

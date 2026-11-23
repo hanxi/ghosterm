@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class PluginSelectionReviewSignedTests: XCTestCase {
     private func controller(_ root: URL) throws -> ExtensionController {
-        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]),
+        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"]),
             resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
     }
     private func install(_ controller: ExtensionController, input: URL) async throws -> ExtensionController.InstalledRelease {
@@ -32,10 +32,11 @@ final class PluginSelectionReviewSignedTests: XCTestCase {
         let (input, _, controller, old, next) = try await setup()
         let before = try await controller.installedVersions(), view = try await preview(controller, next: next, input: input)
         XCTAssertEqual(view.previousReleaseID, old.signature.descriptorSHA256); XCTAssertEqual(view.previousState, .verified)
-        XCTAssertEqual(view.addedPermissions?.first?.purpose, "Review changed declaration before a version switch.")
-        XCTAssertEqual(view.addedPermissions?.count, 1); XCTAssertEqual(view.removedPermissions?.count, 1)
-        XCTAssertTrue(view.candidate.executorDeclarations?.contains("portable-reviewed") == true)
-        XCTAssertTrue(view.previous?.executorDeclarations?.contains("portable-reviewed") == false)
+        XCTAssertEqual(view.addedPermissions?.map(\.capability).sorted(), ["process.pipes", "process.spawn"])
+        XCTAssertEqual(view.addedPermissions?.first { $0.capability == "process.spawn" }?.programs, ["preview-review"])
+        XCTAssertEqual(view.removedPermissions?.map(\.capability), ["file.readScoped"])
+        XCTAssertTrue(view.candidate.executorDeclarations?.contains("preview-review") == true)
+        XCTAssertTrue(view.previous?.executorDeclarations?.contains("preview-review") == false)
         XCTAssertFalse(view.candidate.review.sourceApproved); XCTAssertFalse(view.candidate.review.authorizationGranted)
         let after = try await controller.installedVersions(); XCTAssertEqual(after.revision, before.revision)
         XCTAssertEqual(after.selections.first?.releaseID, old.signature.descriptorSHA256)
@@ -69,7 +70,7 @@ final class PluginSelectionReviewSignedTests: XCTestCase {
     }
     func testChangedCandidatePayloadMustBeRecapturedAtConfirmation() async throws {
         let (input, _, controller, old, next) = try await setup(), view = try await preview(controller, next: next, input: input)
-        let file = next.directory.appendingPathComponent("client/index.js")
+        let file = next.directory.appendingPathComponent("main.lua")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         try Data("changed".utf8).write(to: file); try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)
         do { _ = try await controller.confirmInstalledSelection(id: view.id, acknowledged: true); XCTFail("modified candidate was enabled") } catch {}

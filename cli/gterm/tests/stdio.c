@@ -223,59 +223,7 @@ int main(int argc, char **argv) {
             }
             _exit(127);
         }
-        const char *external = getenv("GT_GTERM_FIXTURE_RUNTIME");
-        if (external) {
-            const char *args[72];
-            size_t n = 0;
-            args[n++] = binary;
-            args[n++] = "relay";
-            args[n++] = "--stdio";
-            args[n++] = "--runtime";
-            args[n++] = external;
-            if (!getenv("GT_GTERM_FIXTURE_NO_APPROVAL")) {
-                args[n++] = "--allow-process-execution";
-            }
-            if (!strcmp(external, "node")) {
-                args[n++] = "--node-runtime";
-                args[n++] = getenv("GT_GTERM_FIXTURE_NODE");
-                args[n++] = getenv("GT_GTERM_FIXTURE_VERSION");
-                args[n++] = getenv("GT_GTERM_FIXTURE_NODE_SHA");
-                args[n++] = "--node-sdk";
-                args[n++] = getenv("GT_GTERM_FIXTURE_SDK");
-                args[n++] = getenv("GT_GTERM_FIXTURE_SDK_SHA");
-            }
-            if (getenv("GT_GTERM_FIXTURE_UNSUPPORTED")) {
-                args[n++] = "--process-environment";
-                args[n++] = "GT_GTERM_FIXTURE_UNSUPPORTED";
-            }
-            args[n++] = "--trust-development-digest";
-            args[n++] = trusted;
-            args[n++] = "--client-digest";
-            args[n++] = client_digest;
-            if (process_config) {
-                args[n++] = "--root";
-                args[n++] = "workspace";
-                args[n++] = workspace;
-                args[n++] = "--process-program";
-                args[n++] = "cat";
-                args[n++] = argv[6];
-                args[n++] = argv[7];
-                args[n++] = argv[8];
-            }
-            args[n++] = "--method";
-            args[n++] = "fixture.echo";
-            args[n++] = "--";
-            args[n++] = directory;
-            args[n++] = "fixture";
-            args[n++] = "中文";
-            args[n++] = "";
-            args[n++] = "';throw Error('injected');//";
-            args[n] = NULL;
-            for (size_t i = 0; i < n; i++) {
-                CHECK(args[i]);
-            }
-            execv(binary, (char *const *)args);
-        } else if (process_prefix) {
+        if (process_prefix) {
             execl(binary,
                   binary,
                   "relay",
@@ -355,6 +303,8 @@ int main(int argc, char **argv) {
                       "--root",
                       "workspace",
                       workspace,
+                      "--method",
+                      "preview.open",
                       "--",
                       directory,
                       "preview",
@@ -372,6 +322,8 @@ int main(int argc, char **argv) {
                       "--root",
                       "workspace",
                       workspace,
+                      "--method",
+                      "preview.open",
                       "--",
                       directory,
                       "preview",
@@ -469,7 +421,7 @@ int main(int argc, char **argv) {
     gt_ext_channel_t *channel = NULL;
     CHECK(gt_ext_channel_open_fd(fd[0], pipes ? fd[1] : fd[0], &channel) == GT_OK);
     gt_ext_session_config_t c = {.required_count =
-                                     preview ? 2 : ((process_config || claude || codex) ? 3 : 1),
+                                     (preview || process_config || claude || codex) ? 3 : 1,
                                  .available_count = 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
@@ -501,12 +453,14 @@ int main(int argc, char **argv) {
         strcpy(c.available[1], "process.spawn");
         strcpy(c.available[2], "process.pipes");
     } else if (preview) {
-        c.available_count = 2;
+        c.available_count = 3;
         c.features = GT_EXT_FEATURE_RESOURCES | GT_EXT_FEATURE_REQUESTS;
-        strcpy(c.required[0], "resource.receive");
-        strcpy(c.required[1], "file.readScoped");
-        strcpy(c.available[0], "resource.receive");
-        strcpy(c.available[1], "file.readScoped");
+        strcpy(c.required[0], "session.rpc");
+        strcpy(c.required[1], "resource.receive");
+        strcpy(c.required[2], "file.readScoped");
+        strcpy(c.available[0], "session.rpc");
+        strcpy(c.available[1], "resource.receive");
+        strcpy(c.available[2], "file.readScoped");
     } else {
         strcpy(c.required[0], "session.rpc");
         strcpy(c.available[0], "session.rpc");
@@ -571,13 +525,18 @@ int main(int argc, char **argv) {
     gt_ext_session_t *session = NULL;
     gt_ext_resource_store_t *store = NULL;
     if (preview) {
+        const gt_ext_rpc_method_t open_preview = {.method = "preview.open",
+                                                  .capability = "session.rpc",
+                                                  .receiver = GT_EXT_EXECUTOR,
+                                                  .input_shape = GT_EXT_JSON_OBJECT,
+                                                  .output_shape = GT_EXT_JSON_OBJECT};
         int store_fd = open(store_directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
         CHECK(store_fd >= 0);
         gt_ext_resource_store_config_t resource_config = {store_fd, 1048576, 262144, 8};
         CHECK(gt_ext_resource_store_open(&resource_config, &store) == GT_EXT_RESOURCE_OK);
         CHECK(!close(store_fd));
         CHECK(gt_ext_session_open_resources(
-                  &channel, GT_EXT_HOST, &c, NULL, 0, store, 1048576, &session) == GT_OK);
+                  &channel, GT_EXT_HOST, &c, &open_preview, 1, store, 1048576, &session) == GT_OK);
     } else {
         CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
               GT_OK);
@@ -621,6 +580,33 @@ int main(int argc, char **argv) {
         if (info.phase == GT_EXT_SESSION_ACTIVE && preview) {
             gt_ext_lease_t resource_lease;
             CHECK(gt_ext_session_lease(session, &resource_lease));
+            if (!handle) {
+                char input[2304];
+                CHECK(!strpbrk(preview_path, "\"\\"));
+                int size = snprintf(input,
+                                    sizeof(input),
+                                    "{\"path\":\"%s\",\"assets\":\"%s\",\"maxBytes\":262144}",
+                                    preview_path,
+                                    preview_unicode ? "" : "site/theme\\\\,dark.css");
+                CHECK(size > 0 && (size_t)size < sizeof(input));
+                CHECK(gt_ext_session_request(session,
+                                             &resource_lease,
+                                             "preview.open",
+                                             input,
+                                             (size_t)size,
+                                             5000,
+                                             &handle) == GT_EXT_RPC_OK);
+            } else if (!confirmed) {
+                gt_ext_rpc_result_t result;
+                CHECK(gt_ext_session_request_result(session, &resource_lease, handle, &result) ==
+                      GT_EXT_RPC_OK);
+                if (result.confirmed) {
+                    CHECK(result.state == GT_EXT_RPC_SUCCEEDED);
+                    CHECK(gt_ext_session_forget_request(session, &resource_lease, handle) ==
+                          GT_EXT_RPC_OK);
+                    confirmed = true;
+                }
+            }
             gt_ext_resource_snapshot_t snapshot;
             gt_ext_resource_status_t received =
                 gt_ext_session_take_resource(session, &resource_lease, &snapshot);
@@ -669,7 +655,7 @@ int main(int argc, char **argv) {
             } else {
                 CHECK(received == GT_EXT_RESOURCE_WAIT);
             }
-            if (preview_complete_at && now() - preview_complete_at >= 250) {
+            if (confirmed && preview_complete_at && now() - preview_complete_at >= 250) {
                 gt_ext_session_revoke(session);
             }
         } else if (info.phase == GT_EXT_SESSION_ACTIVE && !handle) {
@@ -747,7 +733,7 @@ int main(int argc, char **argv) {
             held = false;
             gt_ext_session_revoke(session);
         }
-        if (handle && !confirmed) {
+        if (!preview && handle && !confirmed) {
             gt_ext_rpc_result_t result;
             CHECK(gt_ext_session_request_result(session, &lease, handle, &result) == GT_EXT_RPC_OK);
             if (!strcmp(mode, "pending-loss") && result.state == GT_EXT_RPC_PENDING && !lost &&
@@ -934,7 +920,8 @@ int main(int argc, char **argv) {
     if (fixture_denied) {
         CHECK(decided && consent_at && !handle && !preview_main && !preview_asset);
     } else if (preview) {
-        CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
+        CHECK(preview_main && (preview_unicode || preview_asset) && confirmed && decided &&
+              consent_at);
     }
     if (!fixture_denied && (view || claude || codex || form || !strcmp(mode, "roundtrip") ||
                             process_config || !strcmp(mode, "dispose-error") || pipes ||

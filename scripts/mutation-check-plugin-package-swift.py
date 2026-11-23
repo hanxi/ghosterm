@@ -20,17 +20,17 @@ def main():
  if args.invocation:
   FILE='apple/GhostermCore/Sources/GhostermCore/ExtensionRuntime.swift'
   cases=[
-   ('invocation-field','roots: values.baseAddress, root_count: values.count, invocation: invocation','roots: values.baseAddress, root_count: values.count, invocation: nil','testFixedPackageAdoptionAndRPC'),
-   ('invocation-empty','for text in [value.command] + value.arguments {','for text in [value.command] + value.arguments.filter({ !$0.isEmpty }) {','testFixedPackageAdoptionAndRPC'),
+   ('invocation-field','process_output_bytes: processOutputBytes, invocation: invocation','process_output_bytes: processOutputBytes, invocation: nil','testFixedPackageAdoptionAndRPC'),
+   ('invocation-empty','for text in [value.command] + value.arguments {','for text in [value.command] + value.arguments.map({ $0.isEmpty ? "changed" : $0 }) {','testFixedPackageAdoptionAndRPC'),
   ]
  original=(ROOT/FILE).read_text();assert MARK not in original
  for _,old,_,_ in cases:assert original.count(old)==1,old
- hashes={str(p):sha(p) for p in [build/'libghosterm_core.a',build/'libghosterm_quickjs.a',build/'test_config']}
- work=Path(tempfile.mkdtemp(prefix='package-swift-',dir=ROOT/'tmp'));source=work/'source';logs=work/'logs';logs.mkdir();commands=[]
+ hashes={str(p):sha(p) for p in [build/'libghosterm_core.a',build/'libghosterm_lua.a',build/'test_config']}
+ work=Path(tempfile.mkdtemp(prefix='package-swift-',dir=os.environ['TMPDIR']));source=work/'source';logs=work/'logs';logs.mkdir();commands=[]
  shutil.copytree(ROOT/'apple/GhostermCore',source/'apple/GhostermCore',symlinks=True,ignore=shutil.ignore_patterns('.build'))
  (source/'core').mkdir();shutil.copytree(ROOT/'core/include',source/'core/include');(source/'core/build').symlink_to(build,target_is_directory=True);(source/'tmp').mkdir()
  inputs={str(p.relative_to(ROOT)):sha(p) for folder in ['apple/GhostermCore/Sources','apple/GhostermCore/Tests','core/include'] for p in (ROOT/folder).rglob('*') if p.is_file()}
- env={**os.environ,'TMPDIR':str(work),'DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer','GHOSTERM_CORE_TEST_PLUGIN_JS':'1'}
+ env={**os.environ,'TMPDIR':str(work),'TMP':str(work),'TEMP':str(work),'DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer','GHOSTERM_CORE_TEST_PLUGIN_LUA':'1','GHOSTERM_CORE_BUILD_DIR':str(build)}
  def run(label,cmd,red=False):
   shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require package-swift; shift; gt_timeout 240 "$@"'
   p=subprocess.run(['bash','-c',shell,'package-swift',str(ROOT),*map(str,cmd)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=250);out=p.stdout+p.stderr;(logs/(label+'.log')).write_text(out);commands.append(dict(label=label,returncode=p.returncode))

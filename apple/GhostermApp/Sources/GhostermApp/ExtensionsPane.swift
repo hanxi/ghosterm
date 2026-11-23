@@ -36,46 +36,45 @@ struct ExtensionsPane: View {
         var signatureDraft = PluginSignatureDraft()
         var installation: ExtensionController.InstalledRelease?
         var decision: String = "尚未批准"
-        var localConnection = false { didSet { releaseEvidenceAllowed = false; localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; scopedFiles = false; remoteProcesses = false } }
+        var localConnection = false { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; attachmentAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var localDigest = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
         var localWorkingDirectory = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
         var localTemporaryDirectory = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
         var localAllowed = false
         var localLaunch: ExtensionLocalLaunch? {
             localConnection ? .init(executableSHA256: localDigest, workingDirectory: localWorkingDirectory,
-                temporaryDirectory: attachExisting ? localTemporaryDirectory : executionDraft.selection?.temporaryDirectory ?? localTemporaryDirectory,
+                temporaryDirectory: localTemporaryDirectory,
                 authorized: localAllowed) : nil
         }
 
-        var useReleaseEvidence = false { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; executionDraft.authorized = false } }
-        var releaseDirectory = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; executionDraft.authorized = false } }
-        var releasePolicyPath = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; executionDraft.authorized = false } }
-        var releasePolicySHA256 = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false; executionDraft.authorized = false } }
+        var useReleaseEvidence = false { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false } }
+        var releaseDirectory = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false } }
+        var releasePolicyPath = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false } }
+        var releasePolicySHA256 = "" { didSet { releaseEvidenceAllowed = false; localAllowed = false; clientAuthorized = false } }
         var releaseEvidenceAllowed = false
         var releaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? {
             useReleaseEvidence ? .init(directory: releaseDirectory, policyPath: releasePolicyPath,
                 policySHA256: releasePolicySHA256, authorized: releaseEvidenceAllowed) : nil
         }
         var multiplexTemporaryDirectory = ""
-        var sshAlias = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
-        var executable = "gterm" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
-        var executorDirectory = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var executorVariantID = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var executorDigest = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var command = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var argumentsJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var methodsJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var hostMethodsJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var resourceRoot = "" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var processProgramsJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
-        var processEnvironmentJSON = "[]" { didSet { releaseEvidenceAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var sshAlias = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
+        var executable = "gterm" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
+        var executorDirectory = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executorVariantID = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executorDigest = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var command = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var argumentsJSON = "[]" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var methodsJSON = "[]" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var hostMethodsJSON = "[]" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var resourceRoot = "" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var processProgramsJSON = "[]" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var processEnvironmentJSON = "[]" { didSet { releaseEvidenceAllowed = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
         var clientDirectory = "" { didSet { clientAuthorized = false; localAllowed = false } }
         var clientAuthorized = false
         var clientWorkspace: ExtensionController.ClientWorkspace? {
             clientDirectory.isEmpty ? nil : .init(directory: clientDirectory, authorized: clientAuthorized)
         }
-        var executionDraft = ExecutorExecutionDraft() { didSet { releaseEvidenceAllowed = false; localAllowed = false } }
-        var attachExisting = false { didSet { useReleaseEvidence = false; executorVariantID = ""; attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
+        var attachExisting = false { didSet { useReleaseEvidence = false; executorVariantID = ""; attachmentAllowed = false; clientAuthorized = false } }
         var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false; scopedFiles = false; remoteProcesses = false } }
         var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
@@ -99,7 +98,7 @@ struct ExtensionsPane: View {
             methodsJSON = String(decoding: try encoder.encode(value.methods), as: UTF8.self)
             hostMethodsJSON = String(decoding: try encoder.encode(value.hostMethods), as: UTF8.self)
             remoteProcesses = false; scopedFiles = false; attachmentAllowed = false; localAllowed = false
-            executionDraft.authorized = false; clientAuthorized = false
+            clientAuthorized = false
         }
         var attachment: ExtensionRelayBootstrap.Attachment? {
             attachExisting ? .init(directory: ipcDirectory, instance: ipcInstance, authorized: attachmentAllowed, remoteProcesses: remoteProcesses, scopedFiles: scopedFiles) : nil
@@ -223,10 +222,8 @@ struct ExtensionsPane: View {
                                     .accessibilityIdentifier("plugin-local-digest")
                                 TextField("本机工作目录", text: $entry.localWorkingDirectory)
                                     .accessibilityIdentifier("plugin-local-working-directory")
-                                if entry.attachExisting || entry.executionDraft.selection == nil {
-                                    TextField("本机临时根目录（每次新建私有子目录）", text: $entry.localTemporaryDirectory)
-                                        .accessibilityIdentifier("plugin-local-temporary-directory")
-                                }
+                                TextField("本机临时根目录（每次新建私有子目录）", text: $entry.localTemporaryDirectory)
+                                    .accessibilityIdentifier("plugin-local-temporary-directory")
                                 Toggle("允许本次运行所填本机 gterm 并清理其私有临时目录（最长十分钟）", isOn: $entry.localAllowed)
                                     .accessibilityIdentifier("plugin-local-allow")
                                 Text("核对程序来源与摘要。修改连接、命令或依赖后须重新允许；插件能力仍会另行确认。")
@@ -241,7 +238,7 @@ struct ExtensionsPane: View {
                                     entry.ipcDirectory = candidate.offer.directory; entry.ipcInstance = candidate.offer.instance
                                     entry.foregroundDeclaration = nil; entry.foregroundKey = nil
                                     entry.remoteProcesses = false; entry.scopedFiles = false; entry.attachmentAllowed = false
-                                    entry.localAllowed = false; entry.clientAuthorized = false; entry.executionDraft.authorized = false
+                                    entry.localAllowed = false; entry.clientAuthorized = false
                                 }.accessibilityIdentifier("plugin-discovery-use-\(candidate.id)")
                             }
                             if entry.attachExisting {
@@ -259,7 +256,6 @@ struct ExtensionsPane: View {
                                 Text("请核对原前台进程显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置，连接不会修改；失效或不匹配将报错。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             } else {
-                            ExecutorRuntimeFields(draft: $entry.executionDraft, location: entry.localConnection ? "本机" : "远端")
                             TextField("Executor variant ID（可选）", text: $entry.executorVariantID)
                                 .accessibilityIdentifier("plugin-executor-variant")
                             Text("填写所选 Executor manifest 中的准确 variant ID。留空时由执行端检查候选是否唯一；不匹配、缺依赖或多候选均报错，不会切换运行档。")
@@ -311,7 +307,7 @@ struct ExtensionsPane: View {
                                 Toggle("允许本次 Native Host 从此目录向 Executor 发布资源（单文件最多 256 KiB）",
                                        isOn: $entry.clientAuthorized)
                                     .accessibilityIdentifier("plugin-client-workspace-allow")
-                                Text("目录仅供 Native 发布按钮使用，不交给 Client JS，也不传入启动参数。修改目录或连接配置须重新允许。")
+                                Text("目录仅供原生发布按钮使用。修改目录或连接配置须重新允许。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             }
                             if !entry.attachExisting {
@@ -335,6 +331,8 @@ struct ExtensionsPane: View {
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(startingClient || !model.extensionInstance.canDiscard || entry.review.commands.isEmpty)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
+                            Button("添加到当前工作区的命令面板") { prepareCommand(entry) }
+                                .disabled(entry.review.commands.isEmpty)
                             if let launchIssue = launchIssues[entry.id] {
                                 Text(verbatim: launchIssue).foregroundStyle(.red).textSelection(.enabled)
                             }
@@ -584,10 +582,10 @@ struct ExtensionsPane: View {
         let request = ExtensionRelayBootstrap.Request(executable: entry.executable, executorDirectory: entry.attachExisting ? "" : entry.executorDirectory,
             executorDigest: entry.executorDigest, clientDigest: entry.review.digest, methods: methods, hostMethods: hostMethods,
             scopedRoots: roots, processPrograms: processPrograms, processEnvironmentNames: processEnvironment,
-            execution: entry.attachExisting ? nil : entry.executionDraft.selection, attachment: entry.attachment, releaseEvidence: entry.releaseEvidence,
+            attachment: entry.attachment, releaseEvidence: entry.releaseEvidence,
             variantID: entry.executorVariantID.isEmpty ? nil : entry.executorVariantID,
             command: entry.command, arguments: arguments)
-        let temporary = entry.localLaunch?.temporaryDirectory ?? entry.executionDraft.selection?.temporaryDirectory ?? entry.multiplexTemporaryDirectory
+        let temporary = entry.localLaunch?.temporaryDirectory ?? entry.multiplexTemporaryDirectory
         return ExtensionGroupInvocation(packageID: entry.review.id, request: request, sshAlias: entry.sshAlias,
             localLaunch: entry.localLaunch, clientWorkspace: entry.clientWorkspace, temporaryDirectory: temporary)
     }
@@ -611,23 +609,30 @@ struct ExtensionsPane: View {
         guard !startingClient else { return }
         launchIssues[entry.id] = nil
         do {
-            let launch = try configuration(entry), request = launch.request
+            let launch = try configuration(entry)
+            let workspaceID = model.tabs.activeTab?.id
             startingClient = true
             Task { @MainActor in
                 defer { startingClient = false }
                 var validated = false
-                await model.startExtensionClient(packageID: launch.packageID, packageDigest: request.clientDigest,
-                    command: request.command, arguments: request.arguments, sshAlias: launch.sshAlias,
-                    executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
-                    methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
-                    processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-                    executorExecution: request.execution, executorAttachment: request.attachment, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID,
-                    clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch) {
+                await model.invokeExtensionCommand(launch, workspaceID: workspaceID) {
                     validated = true
                     SettingsWindow.close()
                 }
                 if !validated { launchIssues[entry.id] = model.extensionRunIssue }
             }
+        } catch { launchIssues[entry.id] = "插件启动参数无效：\(error)" }
+    }
+
+    private func prepareCommand(_ entry: Entry) {
+        launchIssues[entry.id] = nil
+        do {
+            let launch = try configuration(entry)
+            let command = entry.review.commands.first { $0.path == entry.command }
+            model.prepareExtensionCommand(launch, title: command?.title ?? entry.command,
+                workspaceID: model.tabs.activeTab?.id, togglePanel: command?.togglePanel == true)
+            SettingsWindow.close()
+            NotificationCenter.default.post(name: .ghostermPluginCommands, object: model)
         } catch { launchIssues[entry.id] = "插件启动参数无效：\(error)" }
     }
 
@@ -668,7 +673,6 @@ struct ExtensionsPane: View {
                         Text(verbatim: "命令参数：" + String(decoding: (try? JSONEncoder().encode(launch.request.arguments)) ?? Data(), as: UTF8.self))
                         Text(verbatim: "连接临时根目录：" + launch.temporaryDirectory)
                         if let local = launch.localLaunch { Text(verbatim: local.reviewDescription) }
-                        if let execution = launch.request.execution { Text(verbatim: execution.reviewDescription) }
                         if let evidence = launch.request.releaseEvidence { Text(verbatim: evidence.reviewDescription) }
                         Text(verbatim: "Executor variant：" + (launch.request.variantID ?? "未固定，由执行端核对唯一候选"))
                         if let workspace = launch.clientWorkspace { Text(verbatim: workspace.reviewDescription) }

@@ -31,6 +31,10 @@ def main():
     assert out.is_relative_to(ROOT / 'tmp') and build.is_relative_to(ROOT / 'tmp')
     out.mkdir(parents=True, exist_ok=True)
     cases = [
+        ('command-namespace', 'namespace', [(CAT, "if (first == strlen(builtins[j]) && !strncmp(command.path, builtins[j], first))",
+                                                "if (false && first == strlen(builtins[j]) && !strncmp(command.path, builtins[j], first))")]),
+        ('command-prefix', 'invalid-prefix-package', [(CAT, "(b < a && command.path[b] == ' ' && !strncmp(command.path, other.path, b)))",
+                                                           "(b < a && false && command.path[b] == ' ' && !strncmp(command.path, other.path, b)))")]),
         ('revision', 'stale-revision', [(CAT, 'c.revision != expected || ', ''),
                                        (STORE, 'c->revision != expected || ', '')]),
         ('replace-digest', 'stale-replace', [(CAT, '!expected_digest || strcmp(c.entries[index].digest, expected_digest)', '!expected_digest')]),
@@ -46,7 +50,7 @@ def main():
         ('file-budget', 'catalog-size', [(STORE, 'c->original.st_size <= CATALOG_BYTES', 'true')]),
         ('profile-budget', 'profile-bytes', [(STORE, 'if (total > 32768)', 'if (false && total > 32768)')]),
         ('string-budget', 'string-limit', [(STORE, 'n > limit || ', '(n > limit && false) || ')]),
-        ('utf8', 'bad-utf8', [(STORE, ' || !utf8(b->bytes + b->at, n)', '')]),
+        ('utf8', 'bad-utf8', [(STORE, ' || !gterm_catalog_utf8(b->bytes + b->at, n)', '')]),
         ('file-sync', 'file-sync', [(STORE, ' && !fsync(fd)', '')]),
         ('directory-sync', 'directory-sync', [(STORE, 'return fsync(c->directory) ? 5 : 0;', 'return 0;')]),
         ('close-result', 'directory-close', [(CAT, 'if (!gterm_catalog_release(&c))', 'if (false && !gterm_catalog_release(&c))')]),
@@ -65,9 +69,10 @@ def main():
             assert originals[name].decode().count(old) == 1, (label, old)
     names = set(subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0'))
     inputs = {n: sha(ROOT / n) for n in sorted(names) if n and n.startswith(('core/', 'cli/', 'scripts/', 'packages/')) and (ROOT / n).is_file() and not (ROOT / n).is_symlink()}
-    archives = {str(p): sha(p) for p in [build / 'core/libghosterm_core.a', build / 'core/libghosterm_quickjs.a']}
+    archives = {str(p): sha(p) for p in [build / 'core/libghosterm_core.a', build / 'core/libghosterm_lua.a']}
     host = sha(build / 'test_gterm_stdio'); control = sha(build / 'core/test_config')
-    env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
+    env = dict(os.environ, TMPDIR=str(out), TMP=str(out), TEMP=str(out),
+               ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
     commands = []
 
     def run(label, command, red=False):
@@ -77,7 +82,7 @@ def main():
         data = process.stdout + process.stderr
         (out / (label + '.log')).write_bytes(data)
         if red:
-            assert process.returncode == 1 and data.count(b'ASSERTION: ') == 1 and process.stdout.startswith(b'ASSERTION: '), (label, data[-5000:])
+            assert process.returncode == 1 and data.count(b'ASSERTION: ') == 1 and b'\nASSERTION: ' in b'\n'+process.stdout, (label, data[-5000:])
             assert not any(s in data for s in [b'AddressSanitizer', b'runtime error:', b'Traceback', b'ABNORMAL']), (label, data[-5000:])
         else: assert process.returncode == 0, (label, data[-5000:])
         commands.append(dict(label=label, status=process.returncode, sha256=hashlib.sha256(data).hexdigest()))

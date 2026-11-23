@@ -34,7 +34,7 @@ internal class ClaudeChatFixture {
         if (method in listOf("approve", "answer")) { decisionEntered?.complete(Unit); decisionRelease?.await() }
         if (method == "send" && failSend) error("uncertain fixture send")
         val result = when (method) {
-            "start" -> { phase = readyPhase; JSONObject().put("requested", true).put("sdkVersion", "0.3.323").put("cliVersion", "2.1.323") }
+            "start" -> { phase = readyPhase; JSONObject().put("requested", true).put("backend", "cli").put("cliVersion", "2.1.323") }
             "send" -> { phase = "running"; JSONObject().put("messageID", inputID) }
             "approve", "answer" -> JSONObject().put("accepted", accepted)
             "interrupt" -> { phase = "interrupting"; JSONObject().put("requested", true) }
@@ -57,7 +57,7 @@ internal class ClaudeChatFixture {
     fun result(id: String = inputID, error: Boolean = false) {
         phase = "ready"
         message(JSONObject().put("type", "result").put("user_message_uuid", id).put("is_error", error)
-            .put("subtype", if (error) "error_during_execution" else "success").put("result", if (error) "fixture backend error" else "fixture result"))
+            .put("subtype", "success").put("result", if (error) "fixture backend error" else "fixture result"))
     }
     fun prompt(name: String = "request-one", token: String = "token-one", questions: JSONArray? = null, turn: String = inputID) {
         val input = if (questions != null) JSONObject().put("questions", questions) else JSONObject().put("command", "fixture only; " + "中😀".repeat(1200))

@@ -66,5 +66,29 @@ bool gt__bridge_wire_uint(const gt_bridge_wire_t *, uint16_t, uint64_t *);
 bool gt__bridge_wire_counter(const gt_bridge_wire_t *, uint16_t, uint64_t *);
 size_t gt__bridge_wire_count(const gt_bridge_wire_t *, uint16_t);
 uint16_t gt__bridge_wire_at(const gt_bridge_wire_t *, uint16_t, size_t);
+#ifdef GT_HAVE_PLUGIN_LUA
+typedef enum {
+    GT_BRIDGE_JSON_OBJECT,
+    GT_BRIDGE_JSON_ARRAY,
+    GT_BRIDGE_JSON_STRING,
+    GT_BRIDGE_JSON_NUMBER,
+    GT_BRIDGE_JSON_TRUE,
+    GT_BRIDGE_JSON_FALSE,
+    GT_BRIDGE_JSON_NULL
+} gt_bridge_json_kind_t;
+
+typedef struct {
+    gt_bridge_json_kind_t kind;
+    uint16_t child, next, count;
+    const uint8_t *key, *text;
+    size_t key_size, text_size;
+} gt_bridge_json_node_t;
+
+/* Lexical-only mode for RPC bodies already extracted from their envelope.
+ * Root is node 1. Reset after consuming borrowed input/node views. */
+gt_status_t gt__bridge_json_parse(gt_bridge_wire_t *, const void *, size_t);
+bool gt__bridge_json_node(const gt_bridge_wire_t *, uint16_t, gt_bridge_json_node_t *);
+#endif
+
 void gt__bridge_wire_free(gt_bridge_wire_t *);
 #endif

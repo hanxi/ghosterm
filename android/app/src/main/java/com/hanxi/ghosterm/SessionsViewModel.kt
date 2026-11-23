@@ -155,7 +155,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var terminalStyle by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalStyle()); private set
     var terminalControls by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalControls()); private set
     init {
-        if (BuildConfig.PLUGIN_JS_ENABLED && monitorSessions) viewModelScope.launch {
+        if (BuildConfig.PLUGIN_RUNTIME_ENABLED && monitorSessions) viewModelScope.launch {
             while (true) {
                 val live = sessions.toList().filter { it.state.connected && !it.state.terminal }
                 val found = frontendCandidates.filter { !it.expired && live.any { s -> s.id == it.sourceID } }.toMutableList()
@@ -328,7 +328,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if (connecting != null || retiringExtensionAttempt?.isCompleted == false) return null
         retiringExtensionAttempt = null
         val owner = controller ?: return null
-        if (!BuildConfig.PLUGIN_JS_ENABLED) return null
+        if (!BuildConfig.PLUGIN_RUNTIME_ENABLED) return null
         val attempt = SSHAttempt(target).also {
             it.extensionBootstrap = bootstrap
             it.extensionOwner = owner

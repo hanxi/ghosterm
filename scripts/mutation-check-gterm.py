@@ -27,7 +27,6 @@ def main():
             ('selected-command', 'if (!selected)', 'if (false && !selected)', 'command'),
             ('consent', '        if (state != GT_EXT_SESSION_ACTIVE) {\n            return;\n        }\n', '        if (state >= GT_EXT_SESSION_ENDING) {\n            return;\n        }\n', 'deny'),
             ('arguments', '(size_t)(argc - at - 3)', '0', 'roundtrip'),
-            ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
             ('method-role', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_EXECUTOR : GT_EXT_EXECUTOR;', 'host-method'),
         ]
     if args.resolve:
@@ -42,7 +41,11 @@ def main():
     if args.session_loss:
         cases = [('blocked-writer-eof', '        /* A blocked writer must not starve incoming control frames or EOF. */\n        if (complete) {\n', '        /* A blocked writer must not starve incoming control frames or EOF. */\n        if (!complete) {\n            return s->info.phase;\n        }\n        if (complete) {\n', 'lost')]
     for _, old, _, _ in cases: assert original.decode().count(old) == 1, old
-    work = Path(tempfile.mkdtemp(prefix='gterm-mutations-', dir=ROOT / 'tmp'))
+    archive = os.environ.get('GHOSTERM_LUA_ARCHIVE')
+    if not archive or not Path(archive).is_file():
+        parser.error('GHOSTERM_LUA_ARCHIVE must point to lua-5.5.1.tar.gz')
+    archive = Path(archive).resolve()
+    work = Path(tempfile.mkdtemp(prefix='gterm-mutations-', dir=os.environ['TMPDIR']))
     source = work / 'source'; logs = work / 'logs'; logs.mkdir()
     (source / 'cli').mkdir(parents=True)
     shutil.copytree(ROOT / 'cli/gterm', source / 'cli/gterm')
@@ -53,23 +56,23 @@ def main():
         else: (source / name).symlink_to(ROOT / name, target_is_directory=True)
     (source / 'tmp').mkdir()
     build = work / 'build'; commands = []
-    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ['cli/gterm', 'core/src', 'core/include', 'packages/plugin-sdk'] for p in (ROOT / folder).rglob('*') if p.is_file()}
+    inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ['cli/gterm', 'core/src', 'core/include', 'packages/plugin-protocol'] for p in (ROOT / folder).rglob('*') if p.is_file()}
     inputs.update({str(p.relative_to(ROOT)): sha(p) for p in [Path(__file__), ROOT / 'scripts/test-gterm.py', ROOT / 'scripts/test-gterm-stdio.py', ROOT / 'scripts/test-gterm-resolve.py', ROOT / 'core/CMakeLists.txt']})
-    env = dict(os.environ, TMPDIR=str(work), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
     def run(label, command, red=False):
         shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require gterm; shift; gt_timeout 300 "$@"'
         p = subprocess.run(['bash', '-c', shell, 'gterm', str(ROOT), *map(str, command)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=310)
         output = p.stdout + p.stderr; (logs / (label + '.log')).write_text(output)
         commands.append(dict(label=label, returncode=p.returncode))
-        if red: assert p.returncode == 1 and (re.search(r'^FAIL[: ]', output, re.M) if args.session_loss else p.stdout.startswith('FAIL ')) and not any(x in output for x in ['AddressSanitizer', 'runtime error:', 'Traceback']), label + output
+        if red: assert p.returncode == 1 and (re.search(r'^FAIL[: ]', output, re.M) if args.session_loss else re.search(r'^FAIL ', p.stdout, re.M)) and not any(x in output for x in ['AddressSanitizer', 'runtime error:', 'Traceback']), label + output
         else: assert p.returncode == 0, label + output
         return output
     try:
-        tools = work / 'tools'; shutil.copytree(ROOT / 'scripts/fixtures/plugin-sdk-tools', tools)
-        run('tools', ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund', '--offline', '--cache', ROOT / 'tmp/plugin-sdk-npm-cache'])
-        sdk = work / 'sdk'
-        run('sdk', ['node', tools / 'node_modules/typescript/bin/tsc', '-p', ROOT / 'packages/plugin-sdk/tsconfig.json', '--outDir', sdk])
-        run('configure', ['cmake', '-S', source / 'cli/gterm', '-B', build, '-DGHOSTERM_BUILD_TESTS=ON', '-DGHOSTERM_GTERM_TESTS=ON', '-DGHOSTERM_PLUGIN_SDK_DIR=' + str(sdk), '-DGHOSTERM_WITH_PLUGIN_JS=ON', '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
+        run('configure', ['cmake', '-S', source / 'cli/gterm', '-B', build, '-DGHOSTERM_BUILD_TESTS=ON',
+                          '-DGHOSTERM_GTERM_TESTS=ON', '-DGHOSTERM_LUA_ARCHIVE=' + str(archive),
+                          '-DGHOSTERM_WITH_PLUGIN_LUA=ON', '-DGHOSTERM_WITH_LIBSSH2=OFF',
+                          '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0', '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
+                          '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         def rebuild(label):
             (build / ('CMakeFiles/gterm.dir/' + ('stdio.c.o' if args.stdio else 'main.c.o'))).unlink(missing_ok=True)
             (build / 'gterm').unlink(missing_ok=True)

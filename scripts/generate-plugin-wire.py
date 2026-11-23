@@ -124,7 +124,7 @@ def generate(raw):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--check',action='store_true')
-    parser.add_argument('--schema',type=Path,default=ROOT/'packages/plugin-sdk/schema/bridge-v1.candidate.json')
+    parser.add_argument('--schema',type=Path,default=ROOT/'packages/plugin-protocol/schema/bridge-v1.candidate.json')
     parser.add_argument('--output',type=Path,default=ROOT/'core/src/extension/wire-schema.inc')
     args=parser.parse_args();expected=generate(args.schema.read_bytes())
     if args.check:

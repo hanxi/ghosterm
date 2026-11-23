@@ -1,20 +1,58 @@
-#define PACKAGE_RUNTIME_MAIN package_loader_fixture_main
-#include "test_package_runtime.c"
-#undef PACKAGE_RUNTIME_MAIN
+#define PUBLIC_PACKAGE_MAIN public_package_fixture_main
+#include "test_ext_package.c"
 #include "extension/registry.h"
+
+typedef struct {
+    fixture_t files;
+    gt_package_checked_t *package;
+    gt_package_check_info_t info;
+} registry_fixture_t;
+
+static void open_registry_fixture(registry_fixture_t *fixture,
+                                  const char *id,
+                                  const char *version,
+                                  const char *command,
+                                  bool executor,
+                                  const char *temporary) {
+    fixture_open(&fixture->files, temporary, id, version, command, executor);
+    const gt_package_capture_config_t capture = {fixture->files.fd, 32, 64, 65536, 262144};
+    gt_package_snapshot_t *snapshot = NULL;
+    CHECK(gt__package_capture_open(&capture, NULL, &snapshot) == GT_PACKAGE_OK);
+    gt_package_status_t state = GT_PACKAGE_WAIT;
+    for (size_t i = 0; i < 50000 && state == GT_PACKAGE_WAIT; i++) {
+        state = gt__package_capture_step(snapshot);
+    }
+    CHECK(state == GT_PACKAGE_OK);
+    char facts[192];
+    const int size = snprintf(facts,
+                              sizeof(facts),
+                              "{\"side\":\"%s\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],"
+                              "\"runtimes\":[\"lua\"],\"capabilities\":[\"session.rpc\"]}",
+                              executor ? "executor" : "client");
+    CHECK(size > 0 && (size_t)size < sizeof(facts));
+    const gt_package_check_config_t config = {.host_json = facts, .host_size = (size_t)size};
+    gt_package_check_report_t report;
+    CHECK(gt__package_check(&snapshot, &config, NULL, &fixture->package, &report) ==
+              GT_PACKAGE_CHECK_COMPATIBLE &&
+          !snapshot);
+    CHECK(gt__package_checked_info(fixture->package, &fixture->info));
+    CHECK(!strcmp(fixture->info.id, id) &&
+          !strcmp(fixture->info.package_digest, fixture->files.digest));
+}
+
+static void close_registry_fixture(registry_fixture_t *fixture) {
+    CHECK(gt__package_checked_destroy(&fixture->package) == GT_PACKAGE_OK && !fixture->package);
+    fixture_close(&fixture->files);
+}
 
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     size_t fds = ext_fds();
     gt_plugin_memory_info_t before = gt__plugin_memory_info();
-    load_fixture_t first, other, replacement;
-    load_fixture(&first, "command-boundary", argv[1]);
-    load_clear(&first);
-    load_fixture(&first, "command-many", argv[1]);
-    load_clear(&first);
-    load_fixture(&first, "roundtrip", argv[1]);
-    load_fixture(&other, "registry-other", argv[1]);
-    load_fixture(&replacement, "relative", argv[1]);
+    registry_fixture_t first, other, replacement;
+    open_registry_fixture(&first, fixture_id, "0.1.0", "\"fixture\"", true, argv[1]);
+    open_registry_fixture(&other, "org.ghosterm.other", "0.1.0", "\"fixture\"", true, argv[1]);
+    open_registry_fixture(&replacement, fixture_id, "0.2.0", "\"fixture\"", true, argv[1]);
     gt_plugin_registry_t *r = NULL;
     CHECK(gt__registry_open(&r) == GT_REGISTRY_OK);
     gt_package_checked_t *selected = NULL;
@@ -65,12 +103,13 @@ int main(int argc, char **argv) {
     CHECK(gt__package_checked_info(selected, &saved) &&
           !strcmp(saved.package_digest, first.info.package_digest));
     CHECK(gt__package_checked_destroy(&selected) == GT_PACKAGE_OK);
-    load_clear(&first);
-    load_clear(&other);
-    load_clear(&replacement);
+    close_registry_fixture(&first);
+    close_registry_fixture(&other);
+    close_registry_fixture(&replacement);
     /* Prefix conflict is token-aware; an ancestor is never an exact command. */
-    load_fixture(&first, "roundtrip", argv[1]);
-    load_fixture(&other, "registry-prefix", argv[1]);
+    open_registry_fixture(&first, fixture_id, "0.1.0", "\"fixture\"", true, argv[1]);
+    open_registry_fixture(
+        &other, "org.ghosterm.other", "0.1.0", "\"fixture\",\"child\"", true, argv[1]);
     CHECK(gt__registry_open(&r) == GT_REGISTRY_OK);
     CHECK(gt__registry_put(r, first.package, GT_REGISTRY_SOURCE_ALLOWED, NULL) == GT_REGISTRY_OK);
     CHECK(gt__registry_put(r, other.package, GT_REGISTRY_SOURCE_ALLOWED, NULL) == GT_REGISTRY_OK);
@@ -104,9 +143,9 @@ int main(int argc, char **argv) {
               !selected);
     }
     CHECK(gt__registry_destroy(&r) == GT_REGISTRY_OK);
-    load_clear(&other);
-    load_fixture(&other, "registry-neighbor", argv[1]);
-    load_fixture(&replacement, "client", argv[1]);
+    close_registry_fixture(&other);
+    open_registry_fixture(&other, "org.ghosterm.other", "0.1.0", "\"fixturex\"", true, argv[1]);
+    open_registry_fixture(&replacement, fixture_id, "0.1.0", "\"fixture\"", false, argv[1]);
     CHECK(gt__registry_open(&r) == GT_REGISTRY_OK);
     CHECK(gt__registry_put(r, first.package, GT_REGISTRY_SOURCE_ALLOWED, NULL) == GT_REGISTRY_OK);
     CHECK(gt__registry_put(r, other.package, GT_REGISTRY_SOURCE_ALLOWED, NULL) == GT_REGISTRY_OK);
@@ -124,16 +163,16 @@ int main(int argc, char **argv) {
           GT_REGISTRY_OK);
     CHECK(gt__package_checked_destroy(&selected) == GT_PACKAGE_OK);
     CHECK(gt__registry_destroy(&r) == GT_REGISTRY_OK);
-    load_clear(&first);
-    load_clear(&other);
-    load_clear(&replacement);
+    close_registry_fixture(&first);
+    close_registry_fixture(&other);
+    close_registry_fixture(&replacement);
     /* Bounded slot table, failed admission leaves existing selections intact. */
-    load_fixture_t slots[GT_PLUGIN_REGISTRY_MAX + 1];
+    registry_fixture_t slots[GT_PLUGIN_REGISTRY_MAX + 1];
     CHECK(gt__registry_open(&r) == GT_REGISTRY_OK);
     for (size_t i = 0; i < GT_PLUGIN_REGISTRY_MAX + 1; i++) {
-        char mode[64];
-        CHECK(snprintf(mode, sizeof(mode), "registry-slot-%zu", i) > 0);
-        load_fixture(&slots[i], mode, argv[1]);
+        char id[64];
+        CHECK(snprintf(id, sizeof(id), "org.ghosterm.slot-%zu", i) > 0);
+        open_registry_fixture(&slots[i], id, "0.1.0", "\"fixture\"", true, argv[1]);
         CHECK(gt__registry_put(r, slots[i].package, GT_REGISTRY_SOURCE_ALLOWED, NULL) ==
               (i < GT_PLUGIN_REGISTRY_MAX ? GT_REGISTRY_OK : GT_REGISTRY_LIMIT));
     }
@@ -147,7 +186,7 @@ int main(int argc, char **argv) {
     CHECK(gt__package_checked_destroy(&selected) == GT_PACKAGE_OK);
     CHECK(gt__registry_destroy(&r) == GT_REGISTRY_OK);
     for (size_t i = 0; i < GT_PLUGIN_REGISTRY_MAX + 1; i++) {
-        load_clear(&slots[i]);
+        close_registry_fixture(&slots[i]);
     }
     gt_plugin_memory_info_t memory = gt__plugin_memory_info();
     size_t reserve = memory.limit - memory.used;

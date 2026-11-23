@@ -63,7 +63,7 @@ class PluginForegroundInspectionTest {
     }
 
     @Test fun replacementPluginRouteWaitsForCancelledAttemptCleanup() {
-        org.junit.Assume.assumeTrue(BuildConfig.PLUGIN_JS_ENABLED)
+        org.junit.Assume.assumeTrue(BuildConfig.PLUGIN_RUNTIME_ENABLED)
         runBlocking(Dispatchers.Main) {
             val application = ApplicationProvider.getApplicationContext<Application>()
             val controller = checkNotNull(ExtensionPackagesViewModel(application).controller)
@@ -98,7 +98,7 @@ class PluginForegroundInspectionTest {
         }
     }
     private fun declaration(): ByteArray = JSONObject().apply {
-        put("schemaVersion", 1); put("instance", instance); put("runtime", "portable-js")
+        put("schemaVersion", 1); put("instance", instance); put("runtime", "lua")
         put("executorDigest", "b".repeat(64)); put("clientDigest", "a".repeat(64)); put("command", "fixture")
         put("arguments", JSONArray(listOf("./文档.md", ""))); put("methods", JSONArray(listOf("fixture.echo")))
         put("hostMethods", JSONArray()); put("clientCapabilities", JSONArray()); put("authorizationGranted", false)
@@ -110,6 +110,10 @@ class PluginForegroundInspectionTest {
         assertEquals(listOf("./文档.md", ""), value.arguments)
         assertEquals("b".repeat(64), value.executorDigest)
         val source = bytes.toString(Charsets.UTF_8)
+        for (retired in listOf("portable-js", "node", "exec")) {
+            val old = JSONObject(source).put("runtime", retired).toString().toByteArray()
+            assertTrue(runCatching { PluginForegroundDeclaration.parse(old, instance) }.isFailure)
+        }
         for (bad in listOf(
             source.replace("\"authorizationGranted\":false", "\"authorizationGranted\":true").toByteArray(),
             source.replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1").toByteArray(),
@@ -123,10 +127,23 @@ class PluginForegroundInspectionTest {
         assertTrue(runCatching { PluginForegroundDeclaration.bootstrap("gterm", "/work/../front", instance) }.isFailure)
     }
 
+    @Test fun luaForegroundAttachmentRequiresExplicitGrant() {
+        val digest = "a".repeat(64)
+        val request = ExtensionRelayBootstrap.Request(
+            executable = "gterm", executorDirectory = "", executorDigest = digest,
+            clientDigest = digest, methods = listOf("preview.open"), command = "preview",
+            attachment = ExtensionRelayBootstrap.Attachment("/private/front", instance, authorized = false),
+        )
+        assertTrue("Lua foreground attachment requires an explicit grant",
+            runCatching { ExtensionRelayBootstrap.build(request) }.exceptionOrNull() is IllegalArgumentException)
+        val approved = request.copy(attachment = checkNotNull(request.attachment).copy(authorized = true))
+        assertTrue(ExtensionRelayBootstrap.build(approved).contains("'--attach' '/private/front'"))
+    }
+
     @Test fun inspectionAdoptsExactDeclarationClearsApprovalsAndInvalidatesOnRetarget() {
         val command = ExtensionController.Command("fixture", "Fixture", "schemas/input.json", emptyList())
         val review = ExtensionController.Review("org.ghosterm.fixture", "0.1.0", "fixture", "MIT", "a".repeat(64),
-            "portable-js", listOf("session.rpc", "resource.receive"), emptyList(), false, false, listOf(command))
+            "lua", listOf("session.rpc", "resource.receive"), emptyList(), false, false, listOf(command))
         var captured: ExtensionRelayBootstrap.Request? = null
         var inspections = 0
         var pendingInspection: Continuation<PluginForegroundDeclaration>? = null
@@ -180,7 +197,7 @@ class PluginForegroundInspectionTest {
         val command = ExtensionController.Command("fixture", "Fixture", "schemas/input.json", emptyList())
         val digest = "a".repeat(64)
         val review = ExtensionController.Review("org.ghosterm.fixture", "0.1.0", "fixture", "MIT", digest,
-            "portable-js", emptyList(), emptyList(), false, false, listOf(command))
+            "lua", emptyList(), emptyList(), false, false, listOf(command))
         val candidate = FrontendCandidate(UUID.randomUUID(), UUID.randomUUID(), "终端来源",
             NativeTerminalSession.DiscoveryOffer("/private/front", instance, digest, 1uL), SystemClock.elapsedRealtime())
         var inspectedHost: String? = null

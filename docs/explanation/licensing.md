@@ -11,7 +11,7 @@
 | libghostty / Ghostty | MIT | 当前 macOS/Android 终端引擎；其它端为规划 |
 | Sparkle | MIT + 随附第三方许可 | macOS 更新；完整 LICENSE 随包为 Sparkle-LICENSE.txt |
 | libssh2 | BSD-3-Clause | SSH / SFTP |
-| QuickJS-NG 0.18.0 | MIT | 显式可选 Core 插件 JS 后端。Android 显式开启测试档附 `assets/licenses/QuickJSNG-MIT.txt`，macOS 本地实验档附 `Contents/Resources/QuickJSNG-MIT.txt`；两端普通包默认关闭，见插件计划的 QuickJS pin 与随包实测记录 |
+| Lua 5.5.1 | MIT | 可选插件运行时。启用时 Android APK 附 `assets/licenses/Lua-MIT.txt`，macOS App 附 `Contents/Resources/Lua-MIT.txt`。官方源码归档由 Core 构建按 SHA-256 校验。 |
 | Ajv 8.17.1 / fast-deep-equal 3.1.3 / semver 7.7.3（metadata validator 候选） | MIT / MIT / ISC | 第二十九批私有包检查器的生成代码 / 最小闭包；原始完整声明见 `core/src/extension/package-validator-LICENSES.txt`。普通构建无需 Node；产品分发前须按实际链接内容附许可，目前未启用 App 插件入口 |
 | mbedTLS / OpenSSL | Apache-2.0 / Apache-2.0 | SSH 加密后端 |
 

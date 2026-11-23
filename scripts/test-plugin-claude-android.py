@@ -88,7 +88,7 @@ def main():
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--observation', action='store_true', help='include unknown-outcome observation checks and Native controls')
     parser.add_argument('--conversation', action='store_true', help='include Native conversation state, controls and shared diff regressions')
-    parser.add_argument('--plugin-js', action='store_true', help='also compile the optional JS-enabled Android Host profile')
+    parser.add_argument('--plugin-lua', action='store_true', help='compile the Lua-enabled Android Host profile')
     parser.add_argument('--case', action='append', choices=[case[0] for case in CASES + CONVERSATION_CASES + OBSERVATION_CASES])
     args = parser.parse_args()
     if args.observation: args.conversation = True
@@ -130,10 +130,11 @@ def execute(args, serial):
             for package in ['android', 'terminal/android']:
                 shutil.copytree(ROOT / package, source / package,
                     ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
-            for shared in ['core', 'vendor', 'build', 'assets', 'packages', 'scripts']:
+            for shared in ['core', 'vendor', 'build', 'assets', 'patches', 'scripts']:
                 (source / shared).symlink_to(ROOT / shared, target_is_directory=True)
         def build(label):
-            output = run([ROOT / 'android/gradlew', '-p', source / 'android', '-PghostermPluginJs=' + str(args.plugin_js).lower(),
+            lua = ['-PghostermPluginLua=true', '-PghostermLuaArchive=' + str(Path(os.environ['GHOSTERM_LUA_ARCHIVE']).resolve(strict=True))] if args.plugin_lua else ['-PghostermPluginLua=false']
+            output = run([ROOT / 'android/gradlew', '-p', source / 'android', *lua,
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
             (work / (label + '-build.log')).write_text(output)
             if 'BUILD SUCCESSFUL' not in output: raise RuntimeError('Android build did not complete')

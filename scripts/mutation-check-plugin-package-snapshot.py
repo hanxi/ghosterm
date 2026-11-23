@@ -22,18 +22,18 @@ def main():
   ('total-byte-budget','                                (uint64_t)st.st_size > s->config.total_bytes - s->total ||\n                                s->count == s->config.members)) {\n','                                false || s->count == s->config.members)) {\n','total-limit'),
   ('physical-metadata-budget','                                (uint64_t)st.st_size > s->config.total_bytes - s->total ||\n                                s->count == s->config.members)) {\n','                                false || s->count == s->config.members)) {\n','physical-self-count'),
   ('hardlink-rejected','    if ((!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) ||\n        (S_ISREG(st.st_mode) && st.st_nlink != 1)) {\n','    if ((!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) || (S_ISREG(st.st_mode) && false)) {\n','hardlink'),
-  ('path-backslash',"cp=='\\\\'",'false','bad-backslash'),
-  ('path-colon',"cp==':'",'false','bad-colon'),
+  ('path-backslash',"cp == '\\\\'",'false','bad-backslash'),
+  ('path-colon',"cp == ':'",'false','bad-colon'),
   ('path-dot',"            if (!len || p[end - 1] == '.' || p[end - 1] == ' ' || (len == 1 && p[start] == '.') ||\n","            if (!len || false || p[end - 1] == ' ' || (len == 1 && p[start] == '.') ||\n",'bad-trailing-dot'),
   ('path-space',"            if (!len || p[end - 1] == '.' || p[end - 1] == ' ' || (len == 1 && p[start] == '.') ||\n","            if (!len || p[end - 1] == '.' || false || (len == 1 && p[start] == '.') ||\n",'bad-trailing-space'),
-  ('path-control','cp<32','false','bad-control'),
+  ('path-control','cp < 32','false','bad-control'),
   ('utf8-overlong','        if (cp < minimum || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff) || cp < 32 ||\n','        if ((minimum && false) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff) || cp < 32 ||\n','boundary:bad-utf8'),
   ('duplicate-entry','        if (package_ascii_equal(path, s->entries[i].path)) {\n','        if (false && package_ascii_equal(path, s->entries[i].path)) {\n','boundary:duplicate-entry'),
   ('ascii-case-collision',"        unsigned char x = (unsigned char)*a++, y = (unsigned char)*b++;\n        if (x >= 'A' && x <= 'Z') {\n            x += 32;\n        }\n",'        unsigned char x = (unsigned char)*a++, y = (unsigned char)*b++; /* case-sensitive */\n','boundary:case-entry'),
   ('replacement-identity','    if (!S_ISREG(opened.st_mode) || !package_same(&st, &opened)) {\n','    if (!S_ISREG(opened.st_mode)) {\n','race-replacement'),
   ('truncated-read','            return package_fail(s, GT_PACKAGE_CHANGED);\n','            return package_fail(s, GT_PACKAGE_IO);\n','boundary:read-truncated'),
   ('extra-eof-byte','    if (got) {\n        return package_fail(s, GT_PACKAGE_CHANGED);\n','    if (got) {\n        return package_fail(s, GT_PACKAGE_IO);\n','boundary:read-grown'),
-  ('read-error-not-unknown','            }\n            return package_fail(s, GT_PACKAGE_IO);\n','            }\n            return package_fail(s, GT_PACKAGE_CHANGED);\n','boundary:read-error'),
+  ('read-error-not-unknown','            if (errno == EINTR) {\n                return GT_PACKAGE_WAIT;\n            }\n            return package_fail(s, GT_PACKAGE_IO);\n','            if (errno == EINTR) {\n                return GT_PACKAGE_WAIT;\n            }\n            return package_fail(s, GT_PACKAGE_CHANGED);\n','boundary:read-error'),
   ('readdir-error','        if (error || fstat(dirfd(s->directory), &st)) {\n','        if ((false && error) || fstat(dirfd(s->directory), &st)) {\n','boundary:readdir-error'),
   ('sticky-failure','        return s->status;\n','        return GT_PACKAGE_OK;\n','byte-limit'),
   ('partial-catalog','!s || !s->ready || !count || !bytes','!s || !count || !bytes','roundtrip'),
@@ -48,14 +48,13 @@ def main():
  known={c[0] for c in cases}
  if set(args.case)-known:parser.error('unknown case')
  if args.case:cases=[c for c in cases if c[0] in args.case]
- # Two read-error branches share this guard; review/rewrite both together.
  for label,old,*_ in cases:
-  count=(ROOT/SOURCE).read_text().count(old);expected=2 if label=='read-error-not-unknown' else 1
-  if count!=expected:raise RuntimeError('missing/ambiguous anchor '+label+': '+str(count))
+  count=(ROOT/SOURCE).read_text().count(old)
+  if count!=1:raise RuntimeError('missing/ambiguous anchor '+label+': '+str(count))
  inputs=[p for p in (ROOT/'core').rglob('*') if p.is_file() and not any(x.startswith('build') for x in p.relative_to(ROOT/'core').parts)]+[Path(__file__)]
  hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs}
- work=Path(tempfile.mkdtemp(prefix='pkgcap-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();source=work/'source';build=work/'build';io=work/'io';io.mkdir();commands=[]
- env=dict(os.environ,TMPDIR=str(work),DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
+ work=Path(tempfile.mkdtemp(prefix='pkgcap-',dir=os.environ['TMPDIR']));logs=work/'logs';logs.mkdir();source=work/'source';build=work/'build';io=work/'io';io.mkdir();commands=[]
+ env=dict(os.environ,TMPDIR=str(work),TMP=str(work),TEMP=str(work),DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
  def run(label,cmd,red=False,budget=180):
   shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require package-snapshot; shift; gt_timeout "$@"'
   p=subprocess.run(['bash','-c',shell,'package-snapshot',str(ROOT),str(budget),*map(str,cmd)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=budget+10);out=p.stdout+p.stderr;(logs/(label+'.log')).write_text(out);commands.append(dict(label=label,returncode=p.returncode,assertion=red))
@@ -65,7 +64,7 @@ def main():
   return out
  try:
   shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
-  run('configure',['cmake','-S',source,'-B',build,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=OFF','-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
+  run('configure',['cmake','-S',source,'-B',build,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_LUA=OFF','-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
   binaries=['test_package_snapshot','test_package_snapshot_boundary','test_config'];objects=[('ghosterm_core','src/extension/package-snapshot.c'),('test_package_snapshot','tests/test_package_snapshot.c'),('test_package_snapshot_boundary','tests/test_package_snapshot_boundary.c')]
   def rebuild(label):
    for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)

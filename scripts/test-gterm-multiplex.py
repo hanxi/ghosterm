@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One native-owned gterm process, real mux/Session/JS owners and private files.
+"""One native-owned gterm process, real mux/Session/Lua owners and private files.
 
 No user accounts, model calls, SSH service, device or foreground windows.
 """
@@ -30,24 +30,25 @@ def package(work):
     schema = dict(type="object", properties={name: dict(type="string", maxLength=100) for name in names},
         required=names, additionalProperties=False,
         **{"x-ghosterm-cli": dict(version=1, fields={name: dict(position=i) for i, name in enumerate(names)})})
-    manifest = dict(schemaVersion=1, id="org.ghosterm.mux-fixture", pluginVersion="0.1.0",
+    manifest = dict(schemaVersion=2, id="org.ghosterm.mux-fixture", pluginVersion="0.1.0",
         sdkApiRange="^1.0.0", bridgeProtocolRange=[1], publisher="owned-fixture", license="MIT",
         commands=[dict(path=["fixture"], title="Fixture", argsSchema="schemas/input.json")],
-        executor=dict(variants=[dict(id="portable", runtime="portable-js", entry="executor/index.js", requires=["session.rpc"])]), permissions=[])
-    code = """import {object,text,integer} from '@ghosterm/plugin-sdk';
-let calls=0;
-export function activate(ctx){
- if(ctx.invocation.arguments[0]==='denied')throw Error('denied scope must never activate');
- const args=ctx.invocation.arguments,owner=Number(args[0]);
- if(args.length!==4||owner<0||owner>7||args[1]!=='中文'||args[2]!==''||args[3]!=="';throw Error('injected');//")throw Error('argv');
- ctx.session.register({name:'fixture.echo',input:object({text:text(40),count:integer(0,100)}),
-  output:object({text:text(40),count:integer(0,100),owner:integer(0,7),calls:integer(1,10)})},
-  async(v,c)=>{c.check();calls++;return {...v,owner,calls}});
- return {dispose(){}};
+        executor=dict(entry="executor.lua", requires=["session.rpc"], rpc=["fixture.echo"]))
+    code = """local ctx = ...
+local args = ctx.arguments
+local owner = tonumber(args.slot)
+assert(owner and owner >= 0 and owner <= 7)
+assert(args.unicode == "中文" and args.empty == "" and args.literal == "';throw Error('injected');//")
+local calls = 0
+return {
+  ["fixture.echo"] = function(input)
+    calls = calls + 1
+    return {text = input.text, count = input.count, owner = owner, calls = calls}
+  end,
 }
 """
-    files = {"plugin.json": json.dumps(manifest), "schemas/input.json": json.dumps(schema),
-        "executor/index.js": code, "README": "owned mux fixture", "LICENSES/MIT.txt": "owned test fixture"}
+    files = {"manifest.json": json.dumps(manifest), "schemas/input.json": json.dumps(schema),
+        "executor.lua": code, "README": "owned mux fixture", "LICENSES/MIT.txt": "owned test fixture"}
     members = []
     for name, value in files.items():
         p = directory / name
@@ -63,18 +64,21 @@ export function activate(ctx){
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True)
-    parser.add_argument("--case", choices=["roundtrip", "denied", "resources", "cancel", "preflight", "live"])
+    parser.add_argument("--case", choices=["roundtrip", "denied", "resources", "table-projects", "cancel", "preflight", "live"])
+    parser.add_argument("--mutate-table", action="store_true", help="verify project data and stale-page assertions")
     parser.add_argument("--disabled", action="store_true")
     args = parser.parse_args()
+    if args.mutate_table and (args.case != "table-projects" or args.disabled):
+        parser.error("--mutate-table requires --case table-projects in the Lua build")
     build = args.build.resolve(strict=True)
-    work = Path(tempfile.mkdtemp(prefix="gterm-multiplex-", dir=ROOT / "tmp"))
+    work = Path(tempfile.mkdtemp(prefix="gterm-multiplex-", dir=os.environ["TMPDIR"]))
     try:
         runtime_tmp = work / "runtime"
         runtime_tmp.mkdir(mode=0o700)
         directory, digest = package(work)
         profiles = [profile(["--trust-development-digest", digest, "--client-digest", "d" * 64,
             "--method", "fixture.echo", "--", directory, "fixture", str(i), "中文", "", "';throw Error('injected');//"]) for i in range(8)]
-        env = {**os.environ, "TMPDIR": str(runtime_tmp)}
+        env = {**os.environ, "TMPDIR": str(runtime_tmp), "TMP": str(runtime_tmp), "TEMP": str(runtime_tmp)}
 
         def run(command, expected=0, timeout=40):
             result = subprocess.run(list(map(str, command)), input=b"", capture_output=True, env=env, timeout=timeout)
@@ -82,6 +86,22 @@ def main():
             assert not any(marker in result.stderr for marker in
                 [b"AddressSanitizer", b"UndefinedBehaviorSanitizer", b"runtime error:"]), result.stderr
             return result
+
+        def table_projects(source, label, assertion=None):
+            table = work / ("table-" + label)
+            run(["python3", "-B", ROOT / "scripts/gterm-plugin", "build", source, "--out", table])
+            digest = hashlib.sha256((table / "integrity.json").read_bytes()).hexdigest()
+            selected = [profile(["--trust-development-digest", digest, "--client-digest", "d" * 64,
+                "--method", "view.table.describe", "--method", "view.table.page", "--",
+                table, "table", "--project", "sample-a" if i % 2 == 0 else "sample-b"]) for i in range(8)]
+            result = run([build / "test_gterm_multiplex", build / "gterm", "table-projects",
+                          "org.ghosterm.table", digest, runtime_tmp, *selected], expected=int(assertion is not None))
+            if assertion is not None:
+                assert result.stderr.count(b"FAIL ") == 1 and assertion in result.stderr, result.stderr
+            else:
+                assert b"PASS gterm multiplex table-projects" in result.stdout and not list(runtime_tmp.iterdir())
+                print(result.stdout.decode(), end="", flush=True)
+            return digest
 
         if args.disabled:
             command = [build / "gterm", "relay", "--multiplex", "--connection", "a" * 32]
@@ -91,7 +111,7 @@ def main():
             assert not list(runtime_tmp.iterdir())
             print("PASS disabled multiplex: explicit unsupported, no protocol or temporary owners")
             return
-        for case in [args.case] if args.case else ["roundtrip", "denied", "resources", "cancel", "preflight", "live"]:
+        for case in [args.case] if args.case else ["roundtrip", "denied", "resources", "table-projects", "cancel", "preflight", "live"]:
             if case == "preflight":
                 base = [build / "gterm", "relay", "--multiplex", "--connection", "a" * 32]
                 group = ["--instance", "1" * 32, "1", profiles[0]]
@@ -129,9 +149,33 @@ def main():
                 selected = list(profiles)
                 selected[3] = profile(["--trust-development-digest", digest, "--client-digest", "d" * 64,
                     "--method", "fixture.echo", "--", directory, "fixture", "denied", "中文", "", "';throw Error('injected');//"])
+            if case == "table-projects":
+                source = ROOT / "plugins/official/table"
+                baseline = table_projects(source, "baseline")
+                if args.mutate_table:
+                    original = (source / "executor.lua").read_bytes()
+                    mutations = [
+                        ("wrong-project", b"local tasks = projects[project]",
+                         b'local tasks = projects["sample-a"]', b"expected_ids"),
+                        ("old-page", b"input.viewId ~= description.viewId\n"
+                         b"      or input.revision ~= description.revision or ", b"", b"stale.state"),
+                    ]
+                    for label, old, new, assertion in mutations:
+                        candidate = work / label
+                        shutil.copytree(source, candidate)
+                        assert original.count(old) == 1, label
+                        (candidate / "executor.lua").write_bytes(original.replace(old, new, 1))
+                        assert table_projects(candidate, label, assertion) != baseline
+                        run([build / "core/test_config", ROOT / "core/tests/fixtures"])
+                        (candidate / "executor.lua").write_bytes(original)
+                        assert table_projects(candidate, label + "-restored") == baseline
+                        assert (source / "executor.lua").read_bytes() == original
+                        print(f"PASS {label}: assertion / same Core control / restore / SHA256", flush=True)
+                continue
             if case == "resources":
                 preview = work / "preview"
-                shutil.copytree(ROOT / "plugins/official/preview", preview)
+                run(["python3", "-B", ROOT / "scripts/gterm-plugin", "build",
+                     ROOT / "plugins/official/preview", "--out", preview])
                 sha = hashlib.sha256((preview / "integrity.json").read_bytes()).hexdigest()
                 plugin_id = "org.ghosterm.preview"
                 selected = []
@@ -140,7 +184,8 @@ def main():
                     source.mkdir()
                     (source / "preview.md").write_text(f"# mux slot {i}\n")
                     selected.append(profile(["--trust-development-digest", sha, "--client-digest", "d" * 64,
-                        "--root", "workspace", source, "--", preview, "preview", "preview.md"]))
+                        "--method", "preview.open", "--root", "workspace", source,
+                        "--", preview, "preview", "preview.md"]))
             result = run([build / "test_gterm_multiplex", build / "gterm", case, plugin_id, sha, runtime_tmp, *selected])
             assert b"PASS gterm multiplex" in result.stdout, result.stdout
             assert not list(runtime_tmp.iterdir()), "runtime left resource/staging owners"

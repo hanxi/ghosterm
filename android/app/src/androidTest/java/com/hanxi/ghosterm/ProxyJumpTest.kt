@@ -116,7 +116,7 @@ class ProxyJumpTest {
             assertEquals(ports.indices.toList(), hosts)
             assertEquals(ports.indices.toList(), credentials)
             if (testReset) {
-                assertTrue("Reset test requires QuickJS-enabled discovery", BuildConfig.PLUGIN_JS_ENABLED)
+                assertTrue("Reset test requires plugin runtime discovery", BuildConfig.PLUGIN_RUNTIME_ENABLED)
                 lateinit var candidate: FrontendCandidate
                 val session = model.sessions.single()
                 val offer = "EREREREREREREREREREREaqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqAAsvd29yay9mcm9udA=="

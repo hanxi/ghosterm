@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
 #define _DARWIN_C_SOURCE
 #include "ghosterm.h"
 #include "stdio.h"
@@ -14,6 +15,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 /* Entry point parses and dispatches native commands; no terminal mode changes.
  * INT/TERM/HUP only set a flag: Core cancellation is not async-signal-safe. */
@@ -23,55 +27,61 @@ static void interrupt_check(int number) {
     interrupted = number;
 }
 
+/* A disconnected SSH peer can close stderr before we report its outcome.
+ * Let writes fail normally so the runtime still releases its resources.
+ * A caught disposition resets when launching an external program. */
+static void pipe_disconnected(int number) {
+    (void)number;
+}
+
 static int usage(void) {
-    fputs(
-        "usage: gterm doctor\n"
-        "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
-        "DIGEST [DIRECTORY DIGEST]...\n"
-        "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
-        "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
-        "       gterm plugin versions --catalog DIRECTORY --store DIRECTORY\n"
-        "       gterm plugin review-installed --catalog DIRECTORY --store DIRECTORY --version "
-        "SHA256\n"
-        "       gterm plugin remove-installed --catalog DIRECTORY --store DIRECTORY --version "
-        "SHA256 "
-        "--expect-revision N --review-digest SHA256\n"
-        "       gterm plugin review-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY\n"
-        "       gterm plugin remove-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY "
-        "--expect-revision N --review-digest SHA256\n"
-        "       gterm plugin review-policy --catalog DIRECTORY --policy JSON\n"
-        "       gterm plugin disable-denied --catalog DIRECTORY --policy JSON "
-        "--expect-revision N --expect-policy-digest SHA256 --review-digest SHA256 "
-        "[--select PLUGIN_ID ...]\n"
-        "       gterm plugin install --catalog DIRECTORY --expect-revision N --store DIRECTORY "
-        "--artifact ZIP --descriptor JSON --signature FILE --policy JSON --host-json FILE "
-        "[--expect-digest OLD] -- [stdio profile options...]\n"
-        "       gterm plugin register-signed --catalog DIRECTORY --expect-revision N "
-        "--policy JSON --host-json FILE [--expect-digest OLD] -- RELEASE_DIRECTORY [stdio "
-        "profile options...]\n"
-        "       gterm plugin register-development --catalog DIRECTORY --expect-revision N "
-        "--host-json FILE --trust-development-digest SHA256 [--expect-digest OLD] "
-        "-- ABSOLUTE_PACKAGE_DIRECTORY [stdio profile options...]\n"
-        "       gterm plugin unregister --catalog DIRECTORY --expect-revision N "
-        "--id ID --expect-digest SHA256\n"
-        "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
-        "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
-        "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
-        "       gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32\n"
-        "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
-        "[ARG...]\n"
-        "       gterm relay --stdio [--variant ID] [--runtime node|exec --allow-process-execution] "
-        "[--node-runtime PATH VERSION SHA256 --node-sdk DIRECTORY SHA256] "
-        "--trust-development-digest SHA256 --client-digest SHA256 "
-        "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
-        "[--client-capability ui.table|ui.diff|ui.task|ui.views|ui.form] "
-        "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
-        "[--process-argument NAME VALUE]... [--process-environment NAME]... "
-        "-- DIRECTORY COMMAND [ARG...]\n"
-        "       gterm relay --multiplex [--live] --connection HEX32 "
-        "--instance HEX32 EPOCH ARGV_HEX ...\n"
-        "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
-        stderr);
+    fputs("usage: gterm doctor\n"
+          "       gterm plugin {init,check,test,build,pack,release} [development arguments...]\n"
+          "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
+          "DIGEST [DIRECTORY DIGEST]...\n"
+          "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
+          "       gterm plugin list --catalog ABSOLUTE_PRIVATE_DIRECTORY\n"
+          "       gterm plugin versions --catalog DIRECTORY --store DIRECTORY\n"
+          "       gterm plugin review-installed --catalog DIRECTORY --store DIRECTORY --version "
+          "SHA256\n"
+          "       gterm plugin remove-installed --catalog DIRECTORY --store DIRECTORY --version "
+          "SHA256 "
+          "--expect-revision N --review-digest SHA256\n"
+          "       gterm plugin review-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY\n"
+          "       gterm plugin remove-residue --catalog DIRECTORY --store DIRECTORY --name ENTRY "
+          "--expect-revision N --review-digest SHA256\n"
+          "       gterm plugin review-policy --catalog DIRECTORY --policy JSON\n"
+          "       gterm plugin disable-denied --catalog DIRECTORY --policy JSON "
+          "--expect-revision N --expect-policy-digest SHA256 --review-digest SHA256 "
+          "[--select PLUGIN_ID ...]\n"
+          "       gterm plugin install --catalog DIRECTORY --expect-revision N --store DIRECTORY "
+          "--artifact ZIP --descriptor JSON --signature FILE --policy JSON --host-json FILE "
+          "[--expect-digest OLD] -- [stdio profile options...]\n"
+          "       gterm plugin register-signed --catalog DIRECTORY --expect-revision N "
+          "--policy JSON --host-json FILE [--expect-digest OLD] -- RELEASE_DIRECTORY [stdio "
+          "profile options...]\n"
+          "       gterm plugin register-development --catalog DIRECTORY --expect-revision N "
+          "--host-json FILE --trust-development-digest SHA256 [--expect-digest OLD] "
+          "-- ABSOLUTE_PACKAGE_DIRECTORY [stdio profile options...]\n"
+          "       gterm plugin unregister --catalog DIRECTORY --expect-revision N "
+          "--id ID --expect-digest SHA256\n"
+          "       gterm [--catalog DIRECTORY] [--endpoint PRIVATE_DIRECTORY] "
+          "[--select ID SHA256] [--command CANONICAL_PATH] COMMAND [ARG...]\n"
+          "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
+          "       gterm relay --inspect ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32\n"
+          "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND "
+          "[ARG...]\n"
+          "       gterm relay --stdio [--runtime lua] "
+          "--trust-development-digest SHA256 --client-digest SHA256 "
+          "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
+          "[--client-capability ui.table|ui.diff|ui.task|ui.views|ui.form] "
+          "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
+          "[--process-argument NAME VALUE]... [--process-environment NAME]... "
+          "-- DIRECTORY COMMAND [ARG...]\n"
+          "       gterm relay --multiplex [--live] --connection HEX32 "
+          "--instance HEX32 EPOCH ARGV_HEX ...\n"
+          "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
+          stderr);
     return 2;
 }
 
@@ -115,6 +125,48 @@ static int failure(const char *kind, const char *code, int exit_code) {
     gterm_json_string(code);
     puts(",\"authorizationGranted\":false,\"publisherAuthenticated\":false}");
     return exit_code;
+}
+
+static bool development_verb(const char *verb) {
+    return !strcmp(verb, "init") || !strcmp(verb, "test") || !strcmp(verb, "build") ||
+           !strcmp(verb, "pack") || !strcmp(verb, "release") || !strcmp(verb, "lua-build") ||
+           !strcmp(verb, "lua-pack") || !strcmp(verb, "lua-manifest");
+}
+
+/* Resolve the companion relative to the running executable. The workspace and
+ * plugin package never supply the tool location. Executor verbs stay native. */
+static int development_command(char **argv) {
+    char image[4096], executable[4096], companion[4096];
+#ifdef __APPLE__
+    uint32_t size = sizeof(image);
+    if (_NSGetExecutablePath(image, &size) != 0) {
+        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    }
+#elif defined(__linux__)
+    const ssize_t read_size = readlink("/proc/self/exe", image, sizeof(image) - 1);
+    if (read_size <= 0 || (size_t)read_size >= sizeof(image) - 1) {
+        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    }
+    image[read_size] = '\0';
+#else
+    return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+#endif
+    if (!realpath(image, executable)) {
+        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    }
+    char *name = strrchr(executable, '/');
+    if (!name) {
+        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    }
+    *name = '\0';
+    const int length =
+        snprintf(companion, sizeof(companion), "%s/gterm-devkit/scripts/gterm-plugin", executable);
+    if (length < 0 || (size_t)length >= sizeof(companion)) {
+        return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
+    }
+    argv[1] = companion;
+    execv(companion, argv + 1);
+    return failure("unsupported", "PLUGIN_DEVELOPMENT_TOOL", 4);
 }
 
 /* Refuse FIFOs/devices before reading; O_NONBLOCK avoids a FIFO open hang.
@@ -165,7 +217,7 @@ done:
 
 static int package_check(const char *directory, const char *host_path) {
     if (gt_ext_runtime_support() != GT_OK) {
-        return failure("unsupported", "PLUGIN_JS_DISABLED", 4);
+        return failure("unsupported", "PLUGIN_RUNTIME_DISABLED", 4);
     }
     char *host = host_path ? read_host(host_path) : NULL;
     if (host_path && !host) {
@@ -275,6 +327,9 @@ static int package_check(const char *directory, const char *host_path) {
         gterm_json_string(commands[i].title);
         fputs(",\"argsSchema\":", stdout);
         gterm_json_string((const char *)commands[i].args_schema);
+        if (commands[i].toggle_panel) {
+            fputs(",\"togglePanel\":true", stdout);
+        }
         putchar('}');
     }
     puts("]}");
@@ -313,7 +368,7 @@ static int package_resolve(int argc, char **argv) {
     const char *command = argv[at + 1];
     at += 2;
     if (gt_ext_runtime_support() != GT_OK) {
-        return failure("unsupported", "PLUGIN_JS_DISABLED", 4);
+        return failure("unsupported", "PLUGIN_RUNTIME_DISABLED", 4);
     }
     char *host = read_host(host_path);
     if (!host) {
@@ -500,6 +555,9 @@ done:
     gterm_json_string(contribution.title);
     fputs(",\"argsSchema\":", stdout);
     gterm_json_string((const char *)contribution.args_schema);
+    if (contribution.toggle_panel) {
+        fputs(",\"togglePanel\":true", stdout);
+    }
     puts(",\"authorizationGranted\":false,\"publisherAuthenticated\":false}");
     return 0;
 }
@@ -508,8 +566,11 @@ int main(int argc, char **argv) {
     struct sigaction action = {0};
     action.sa_handler = interrupt_check;
     sigemptyset(&action.sa_mask);
+    struct sigaction pipe_action = {0};
+    pipe_action.sa_handler = pipe_disconnected;
+    sigemptyset(&pipe_action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) || sigaction(SIGTERM, &action, NULL) ||
-        sigaction(SIGHUP, &action, NULL)) {
+        sigaction(SIGHUP, &action, NULL) || sigaction(SIGPIPE, &pipe_action, NULL)) {
         return 5;
     }
     int result;
@@ -532,7 +593,7 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && !strcmp(argv[1], "doctor")) {
         bool available = gt_ext_runtime_support() == GT_OK;
-        printf("{\"portableJs\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"foreground-one-"
+        printf("{\"lua\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"foreground-one-"
                "shot\"}\n",
                available ? "available" : "unsupported",
                available ? "explicit-catalog-stdio-or-ipc" : "unsupported");
@@ -557,9 +618,13 @@ int main(int argc, char **argv) {
             result = package_check(argv[4], NULL);
         } else if (argc == 7 && !strcmp(argv[3], "--host-json") && !strcmp(argv[5], "--")) {
             result = package_check(argv[6], argv[4]);
+        } else if (argc >= 4 && strcmp(argv[3], "--") && strcmp(argv[3], "--host-json")) {
+            result = development_command(argv);
         } else {
             result = usage();
         }
+    } else if (argc >= 3 && !strcmp(argv[1], "plugin") && development_verb(argv[2])) {
+        result = development_command(argv);
     } else if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--help"))) {
         result = usage();
     } else if (getenv("GTERM_CATALOG") || (argc > 1 && argv[1][0] == '-')) {

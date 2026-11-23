@@ -9,17 +9,16 @@ ROOT=Path(__file__).resolve().parents[1]
 MARK='GT_PLUGIN_WIRE_MUTATION'
 INPUTS=['core/src/base/json-reader.inc','core/src/extension/package-json.c','core/src/extension/package-json.h','core/src/extension/wire.c','core/src/extension/wire.h','core/src/extension/wire-schema.inc',
         'core/src/extension/frame.h','core/src/base/secure-random.h','core/tests/test_bridge_wire.c','core/CMakeLists.txt',
-        'packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json',
-        'scripts/generate-plugin-wire.py','scripts/test-plugin-wire.py','scripts/probes/plugin-wire-reference.mjs',
-        'scripts/fixtures/plugin-schema-tools/package.json','scripts/fixtures/plugin-schema-tools/package-lock.json',
+        'packages/plugin-protocol/schema/bridge-v1.candidate.json','packages/plugin-protocol/schema/bridge-v1.cases.json',
+        'scripts/generate-plugin-wire.py','scripts/test-plugin-wire.py','scripts/fixtures/plugin_wire_schema.py',
         'scripts/mutation-check-plugin-wire.py']
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def main():
     for name in ('core/src/extension/wire.c','core/src/extension/wire.h','core/src/base/json-reader.inc'):
         if MARK.encode() in (ROOT/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
-    work=Path(tempfile.mkdtemp(prefix='plugin-wire-mutations-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir()
+    work=Path(tempfile.mkdtemp(prefix='plugin-wire-mutations-',dir=os.environ['TMPDIR']));logs=work/'logs';logs.mkdir()
     source=work/'source';build=work/'build';hashes={name:digest(ROOT/name) for name in INPUTS};commands=[]
-    env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
+    env={**os.environ,'TMPDIR':str(work),'TMP':str(work),'TEMP':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
     def run(label,args,timeout=180):
         shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-wire-mutations; shift; budget="$1"; shift; gt_timeout "$budget" "$@"'
         p=subprocess.run(['bash','-c',shell,'plugin-wire-mutations',str(ROOT),str(timeout),*map(str,args)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=timeout+10)
@@ -66,7 +65,7 @@ def main():
           ('schema-bypass','wire.c',[('    if (!wire_schema_0(d, 1)) {\n','    if (false && !wire_schema_0(d, 1)) {\n')],'unknown-root-field'),
           ('base64-padbits','wire.c',[('            if (padding == 2 && (n < 4 || (sextet(s[n - 3]) & 15))) {\n','            if (padding == 2 && n < 4) {\n')],'base64-invalid-0'),
           ('semver-prerelease','wire.c',[("            if (at == start || (numeric && at - start > 1 && s[start] == '0')) {\n","            if (at == start || (numeric && at - start > 2 && s[start] == '0')) {\n")],'semver-2'),
-          ('failed-output','wire.c',[('    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n','    (void)out;\n')],'duplicate-root'),
+          ('failed-output','wire.c',[('    memset(out, 0, sizeof(*out));\n    gt_status_t status = parse_json(d, bytes, size);','    gt_status_t status = parse_json(d, bytes, size);')],'duplicate-root'),
           ('failed-view','wire.c',[('    d->input = bytes;\n','    d->valid = true;\n    d->input = bytes;\n')],'duplicate-root'),
           ('wiped-release','wire.c',[('    gt__secure_erase(d, sizeof(*d));\n    gt__plugin_memory_free(&a, d, sizeof(*d));\n','    a.release(a.context, d, sizeof(*d));\n')],'valid-request'),
           ('allocator-release','wire.c',[('    gt__plugin_memory_free(&a, d, sizeof(*d));\n','    (void)a;\n')],'valid-request'),

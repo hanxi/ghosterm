@@ -13,7 +13,8 @@ let repoRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()   // GhostermApp
     .deletingLastPathComponent()   // apple
     .deletingLastPathComponent()   // repo root
-let coreBuild = repoRoot.appendingPathComponent("core/build").path
+let coreBuild = ProcessInfo.processInfo.environment["GHOSTERM_CORE_BUILD_DIR"]
+    ?? repoRoot.appendingPathComponent("core/build").path
 // Match Core's dependency lookup for isolated copies living under tmp/.
 var dependencyRoot = repoRoot
 while !FileManager.default.fileExists(atPath: dependencyRoot.appendingPathComponent("patches/libssh2/1.11.1/WHY.md").path) {

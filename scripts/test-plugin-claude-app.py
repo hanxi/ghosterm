@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Native Claude controls over owned SSH/Node/real SDK, with an in-memory CLI fixture."""
+"""Native Claude controls over owned SSH and Lua, using a no-model CLI fixture."""
 import argparse
 import os
 from pathlib import Path
-import shutil
+import shlex
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,56 +15,62 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gterm', type=Path, required=True)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
-    parser.add_argument('--fetch', action='store_true')
-    parser.add_argument('--node-tools', type=Path, help='reuse installed Node dependencies from the same lockfile')
-    parser.add_argument('--observation', action='store_true', help='cancel an admitted start and exercise the production read-only observation button')
-    parser.add_argument('--retained-reply', action='store_true', help='hold an actual SDK poll reply through the native deadline, then read the retained document')
+    parser.add_argument('--official-cli', type=Path, help='probe the pinned CLI in a network-denied, logged-out workspace')
+    parser.add_argument('--selected-environment', action='store_true', help='verify scoped environment with the no-model CLI')
+    parser.add_argument('--disconnect', action='store_true', help='disconnect the owned relay during a confirmed input')
     parser.add_argument('--route', choices=['direct', 'jump', 'both'], default='both')
     args = parser.parse_args()
-    if args.node_tools and args.fetch: parser.error('--node-tools and --fetch are mutually exclusive')
-    if args.observation and args.retained_reply: parser.error('--observation and --retained-reply are separate scenarios')
+    if args.official_cli and args.selected_environment:
+        parser.error('--selected-environment requires the no-model CLI fixture')
+    if args.disconnect and (args.official_cli or args.selected_environment):
+        parser.error('--disconnect uses the plain no-model CLI fixture')
     gterm, package = args.gterm.resolve(strict=True), args.package.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix='claude-app-sdk-', dir=ROOT / 'tmp') as temporary:
-        work = Path(temporary); node = work / 'node'
-        shutil.copytree(ROOT / 'plugins/official/ai-claude/node', node)
-        environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer')
-        install = ['npm', 'ci', '--prefix', node, '--ignore-scripts', '--no-audit', '--no-fund', '--cache',
-                   ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
-        if not args.fetch: install.append('--offline')
-        if args.node_tools:
-            tools = args.node_tools.resolve(strict=True)
-            for filename in ('package.json', 'package-lock.json'):
-                if (tools / filename).read_bytes() != (node / filename).read_bytes():
-                    raise RuntimeError(f'Node tools differ from the locked {filename}')
-            (node / 'node_modules').symlink_to((tools / 'node_modules').resolve(strict=True), target_is_directory=True)
+    workspace_tmp = ROOT / 'tmp'
+    workspace_tmp.mkdir(exist_ok=True)
+    parent = Path(os.environ.get('TMPDIR', str(workspace_tmp))).resolve()
+    if not parent.is_relative_to(workspace_tmp) or not parent.is_dir():
+        parent = workspace_tmp
+    with tempfile.TemporaryDirectory(prefix='agent-', dir=parent) as temporary:
+        work = Path(temporary)
+        if args.official_cli:
+            program = args.official_cli.resolve(strict=True)
+            home = work / 'home'
+            home.mkdir()
+            version = subprocess.run([program, '--version'], check=True, capture_output=True, text=True,
+                                     env=dict(PATH='/usr/bin:/bin', HOME=str(home), TMPDIR=temporary), timeout=10)
+            if version.stdout.strip() != '2.1.323 (Claude Code)':
+                raise RuntimeError('Expected Claude Code 2.1.323')
         else:
-            subprocess.run(list(map(str, install)), env=environment, check=True, capture_output=True, timeout=300)
-        subprocess.run(['node', str(node / 'node_modules/typescript/bin/tsc'), '-p', str(node / 'tsconfig.json'), '--noEmitOnError'],
-                       env=environment, check=True, timeout=120)
-        environment.update(GHOSTERM_TEST_GTERM=str(gterm), GHOSTERM_TEST_CLAUDE_COMPONENT=str(node),
-                           GHOSTERM_TEST_CLAUDE_PACKAGE=str(package), GHOSTERM_TEST_CLAUDE_NODE=shutil.which('node'),
+            program = work / 'claude-cli-fixture'
+            fixture = ROOT / 'scripts/probes/claude-lua-cli.py'
+            program.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' ' +
+                               shlex.quote(str(fixture)) + ' "$@"\n')
+            program.chmod(0o700)
+        environment = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary,
+                           GHOSTERM_APP_TEST_TMP=temporary, GHOSTERM_TEST_GTERM=str(gterm),
+                           GHOSTERM_TEST_CLAUDE_PROGRAM=str(program), GHOSTERM_TEST_CLAUDE_PACKAGE=str(package),
                            GHOSTERM_AUTOMATION_OFFSCREEN='1',
                            GHOSTERM_APP_TEST_FILTER='ClaudeAppModelTests' if args.route == 'both' else
                                'ClaudeAppModelTests.testClaudeConversationOver' + ('DirectSSH' if args.route == 'direct' else 'ProxyJump'))
-        environment.pop('GHOSTERM_TEST_CLAUDE_RETAINED', None)
-        if args.retained_reply: environment['GHOSTERM_TEST_CLAUDE_RETAINED'] = '1'
-        environment.pop('GHOSTERM_TEST_CLAUDE_OBSERVATION', None)
-        if args.observation: environment['GHOSTERM_TEST_CLAUDE_OBSERVATION'] = '1'
         for name in list(environment):
             if name.startswith('GHOSTERM_SSH_'): del environment[name]
         environment.pop('GHOSTERM_TEST_CODEX_JUMP', None)
+        environment['GHOSTERM_TEST_CLAUDE_LOGGED_OUT'] = '1' if args.official_cli else '0'
+        environment['GHOSTERM_TEST_CLAUDE_SELECTED_ENV'] = '1' if args.selected_environment else '0'
+        environment['GHOSTERM_TEST_CLAUDE_DISCONNECT'] = '1' if args.disconnect else '0'
         if args.route != 'direct': environment['GHOSTERM_TEST_CODEX_JUMP'] = '1'
         command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require claude-app; gt_timeout 600 bash "$1/scripts/apple-app-gate.sh"',
                    'claude-app', str(ROOT)]
         result = subprocess.run(command, cwd=ROOT, env=environment)
         if result.returncode: raise SystemExit(result.returncode)
         expected = 2 if args.route == 'both' else 1
-        log = (ROOT / 'tmp/apple-app-test.log').read_text()
-        if f'Executed {expected} test' not in log or '0 failures' not in log or 'skipped' in log.lower():
-            raise RuntimeError('Native Claude SDK fixture cases did not all execute without skips/failures')
-        scope = 'admitted cancellation/production observation UI; no claim that SDK started' if args.observation else 'production Native controls/Node/SDK, explicit no-model CLI fixture'
-        if args.retained_reply: scope = 'actual SDK poll reply held through native timeout, exact retained document/Native readonly UI; no model'
-        print(f'CLAUDE APP PASS: {expected} owned SSH cases; {scope}')
+        log = (work / 'apple-app-test.log').read_text()
+        passes = sum(line.startswith("Test Case '-[GhostermAppTests.ClaudeAppModelTests ")
+                     and "' passed (" in line for line in log.splitlines())
+        if passes != expected or 'skipped' in log.lower():
+            raise RuntimeError('Native Claude fixture cases did not all execute without skips/failures')
+        backend = 'official CLI, logged out' if args.official_cli else 'no-model CLI fixture'
+        print(f'CLAUDE LUA APP PASS: {expected} owned SSH cases; {backend}')
 
 
 if __name__ == '__main__': main()

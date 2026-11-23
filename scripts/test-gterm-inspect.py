@@ -32,7 +32,7 @@ def payload():
         return len(b).to_bytes(4, 'big')+b
     def vector(values):
         return len(values).to_bytes(4, 'big')+b''.join(text(s) for s in values)
-    return b''.join(text(s) for s in ['portable-js', 'a'*64, 'd'*64, 'fixture']) + vector(['中文', '', "';throw Error('injected');//"]) + vector(['fixture.echo']) + vector([]) + vector([])
+    return b''.join(text(s) for s in ['lua', 'a'*64, 'd'*64, 'fixture']) + vector(['中文', '', "';throw Error('injected');//"]) + vector(['fixture.echo']) + vector([]) + vector([])
 
 
 def execute(build, case, work):
@@ -108,7 +108,7 @@ def execute(build, case, work):
             return
         extra = []
         if case == 'private-fields':
-            extra = ['--runtime', 'exec', '--allow-process-execution', '--root', 'workspace', '/not-opened-secret-root',
+            extra = ['--root', 'workspace', '/not-opened-secret-root',
                      '--process-program', 'helper', '/secret-program', 'v1', 'e'*64,
                      '--process-argument', 'helper', 'secret-fixed-argument', '--process-environment', 'SECRET_ENV']
             env['SECRET_ENV'] = 'secret-value'
@@ -158,7 +158,7 @@ def execute(build, case, work):
                 if case == 'repeat':
                     for _ in range(3): require(accepted(query())==value, 'inspection is repeatable without activation')
                 if case == 'private-fields':
-                    require(value['runtime']=='exec', 'declared external runtime visible without execution')
+                    require(value['runtime']=='lua', 'Lua declaration visible without activation')
                     require(not any(b in json.dumps(value) for b in ['secret', 'SECRET', str(package), str(endpoint)]), 'private paths environment and program arguments excluded')
                 if case == 'deadline':
                     time.sleep(2); accepted(query())
@@ -183,14 +183,19 @@ def main():
     if args.receipt and not args.receipt.resolve().is_relative_to(ROOT/'tmp'): raise RuntimeError('Receipt must remain in project tmp')
     digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     inputs={str(p.relative_to(ROOT)):digest(p) for folder in ['cli/gterm','core/src','core/include'] for p in (ROOT/folder).rglob('*') if p.is_file()}
-    for p in [Path(__file__), ROOT/'scripts/test-gterm-ipc.py']: inputs[str(p.relative_to(ROOT))]=digest(p)
+    for p in [Path(__file__), ROOT/'scripts/test-gterm-ipc.py', ROOT/'scripts/test-gterm-stdio.py']:
+        inputs[str(p.relative_to(ROOT))]=digest(p)
     binaries={str((args.build/name).resolve()):digest(args.build/name) for name in ['gterm','test_gterm_stdio','core/libghosterm_core.a']}
     cases=[args.case] if args.case else CASES
-    parent=ROOT/'tmp/p2-inspect'; parent.mkdir(exist_ok=True)
+    project_tmp = ROOT / 'tmp'
+    parent = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    if not parent.is_dir() or not parent.is_relative_to(project_tmp):
+        parent = project_tmp
     for case in cases:
         with tempfile.TemporaryDirectory(prefix='i-',dir=parent) as work: execute(args.build.resolve(),case,Path(work))
         print('PASS inspection '+case,flush=True)
-    require(all(digest(ROOT/name)==value for name,value in inputs.items()),'inspection source inputs unchanged')
+    changed = [name for name, value in inputs.items() if digest(ROOT / name) != value]
+    require(not changed, 'inspection source inputs changed: ' + ', '.join(changed))
     require(all(digest(Path(name))==value for name,value in binaries.items()),'actual inspection binaries unchanged')
     if args.receipt: args.receipt.write_text(json.dumps(dict(accepted=True,cases=cases,inputs=inputs,binaries=binaries),indent=2)+'\n')
 

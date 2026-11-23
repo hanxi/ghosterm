@@ -31,6 +31,7 @@ gt_status_t gt__process_jobs_open(gt_ext_session_t *,
                                   const gt_process_jobs_config_t *,
                                   gt_process_jobs_t **);
 bool gt__process_jobs_matches(const gt_process_jobs_t *, gt_ext_session_t *);
+const char *gt__process_jobs_version(const gt_process_jobs_t *, const char *);
 gt_status_t gt__process_jobs_spawn(gt_process_jobs_t *,
                                    const char *,
                                    const char *,

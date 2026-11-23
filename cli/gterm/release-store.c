@@ -693,6 +693,8 @@ observe(review_t *r, const gterm_catalog_t *c, bool removing, volatile sig_atomi
         }
         qsort(r->items, r->count, sizeof(*r->items), compare);
         if (!r->pending) {
+            const char *manifest = !strcmp(GTERM_NATIVE_RUNTIME, "lua") ? "payload/manifest.json"
+                                                                        : "payload/plugin.json";
             item_t *descriptor = find(r, "release.json"), *signature = find(r, "release.sig"),
                    *payload = find(r, "payload");
             unsigned top = 0;
@@ -703,8 +705,8 @@ observe(review_t *r, const gterm_catalog_t *c, bool removing, volatile sig_atomi
                 !S_ISDIR(payload->identity.st_mode) || !S_ISREG(descriptor->identity.st_mode) ||
                 descriptor->identity.st_size > 65536 || strcmp(descriptor->hash, r->version) ||
                 !S_ISREG(signature->identity.st_mode) || signature->identity.st_size != 64 ||
-                !find(r, "payload/plugin.json") || !find(r, "payload/integrity.json") ||
-                !S_ISREG(find(r, "payload/plugin.json")->identity.st_mode) ||
+                !find(r, manifest) || !find(r, "payload/integrity.json") ||
+                !S_ISREG(find(r, manifest)->identity.st_mode) ||
                 !S_ISREG(find(r, "payload/integrity.json")->identity.st_mode)) {
                 return 6;
             }

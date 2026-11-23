@@ -1,15 +1,55 @@
 #!/usr/bin/env python3
-"""Actual fixed-file C package checks vs independent Node/Ajv/semver facts.
-Offline locked developer tools by default; no activation/install/backend process.
-"""
+"""Check a built Lua package through the native package checker without activation."""
 import argparse,hashlib,json,os,shlex,shutil,signal,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def lua_cases(run, cases):
+ package = cases / 'preview'
+ run('build-preview', ['python3', '-B', ROOT/'scripts/gterm-plugin', 'build',
+                       ROOT/'plugins/official/preview', '--out', package])
+ facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'],
+              capabilities=['session.rpc', 'resource.receive', 'file.readScoped'])
+ def host(name, **changes):
+  path = cases / (name + '.json')
+  path.write_text(json.dumps({**facts, **changes}))
+  return path
+ good = host('host')
+ invalid = host('invalid-host', sdkVersion='invalid')
+ unsupported = host('unsupported-runtime', runtimes=[])
+ missing = host('missing-capability', capabilities=['session.rpc'])
+ tampered = cases / 'tampered'
+ shutil.copytree(package, tampered)
+ with (tampered / 'executor.lua').open('ab') as executable:
+  executable.write(b'\n-- changed after indexing\n')
+ changed = cases / 'changed'
+ shutil.copytree(package, changed)
+ executable = changed / 'executor.lua'
+ original = executable.read_bytes()
+ executable.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+ rows = [
+  ('compatible', package, good, 0, 'OK'),
+  ('unknown-host', package, '-', 2, 'HOST_REQUIRED'),
+  ('invalid-host', package, invalid, 1, 'HOST'),
+  ('unsupported-runtime', package, unsupported, 3, 'HOST'),
+  ('missing-capability', package, missing, 3, 'CAPABILITY'),
+  ('size-mismatch', tampered, good, 1, 'INTEGRITY'),
+  ('hash-mismatch', changed, good, 1, 'INTEGRITY'),
+ ]
+ vectors = [dict(name=name, directory=directory, hostFile=host_file, registryFile='-',
+                 status=status, code=code) for name, directory, host_file, status, code in rows]
+ vectors[0]['expected'] = dict(id='org.ghosterm.preview', executor=True, entry='executor.lua',
+                              runtime='lua', packageDigest=sha(package/'integrity.json'),
+                              manifestDigest=sha(package/'manifest.json'))
+ for mode in ('cancel', 'late-cancel'):
+  vectors.append(dict(name=mode, directory=package, hostFile=good, registryFile='-',
+                      status=7, code='CANCELLED', arguments=[mode]))
+ return vectors
+
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--binary',type=Path,required=True);parser.add_argument('--tools',type=Path);parser.add_argument('--case',action='append',default=[]);parser.add_argument('--oom-sweep',action='store_true',help='fail each allocation ordinal of the compatible fixture');parser.add_argument('--android',help='explicit adb serial; binary must be an arm64 Android executable');args=parser.parse_args();binary=args.binary.resolve()
- inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and not any(x.startswith('build') for x in p.relative_to(ROOT/folder).parts)]+[Path(__file__),ROOT/'scripts/probes/plugin-package-native.mjs',ROOT/'scripts/generate-plugin-package-validator.mjs',ROOT/'scripts/fixtures/plugin-package-tools/package.json',ROOT/'scripts/fixtures/plugin-package-tools/package-lock.json',*[p for p in (ROOT/'patches/quickjs-ng').rglob('*') if p.is_file()]];hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs}
- work=Path(tempfile.mkdtemp(prefix='pkg-native-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();cases=work/'cases';cases.mkdir();commands=[];env=dict(os.environ,TMPDIR=str(work),NPM_CONFIG_USERCONFIG=str(work/'empty.npmrc'));(work/'empty.npmrc').touch();device=None;remote=None;uploaded=False
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--binary',type=Path,required=True);parser.add_argument('--case',action='append',default=[]);parser.add_argument('--oom-sweep',action='store_true',help='fail each allocation ordinal of the compatible fixture');parser.add_argument('--android',help='explicit adb serial; binary must be an arm64 Android executable');args=parser.parse_args();binary=args.binary.resolve()
+ inputs=[p for folder in ['core','plugins/official/preview'] for p in (ROOT/folder).rglob('*') if p.is_file() and not any(x.startswith('build') for x in p.relative_to(ROOT/folder).parts)]+[Path(__file__),ROOT/'scripts/gterm-plugin',ROOT/'scripts/plugin_lua_manifest.py'];hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs}
+ work=Path(tempfile.mkdtemp(prefix='pkg-native-',dir=os.environ['TMPDIR']));logs=work/'logs';logs.mkdir();cases=work/'cases';cases.mkdir();commands=[];env=dict(os.environ,TMPDIR=str(work),TMP=str(work),TEMP=str(work));device=None;remote=None;uploaded=False
  adb=ROOT/'build/android-toolchain/sdk/platform-tools/adb'
  def remote_arg(arg):
   text=str(arg)
@@ -22,13 +62,7 @@ def main():
   if p.returncode:raise RuntimeError(label+' (exit '+str(p.returncode)+')\n'+out)
   return p.stdout
  try:
-  tools=args.tools.resolve() if args.tools else work/'tools'
-  if not args.tools:
-   tools.mkdir()
-   for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures/plugin-package-tools'/name,tools/name)
-   run('npm',['npm','ci','--prefix',tools,'--ignore-scripts','--no-audit','--no-fund','--offline','--cache',ROOT/'tmp/plugin-schema-npm-cache'])
-  run('generated',['node',ROOT/'scripts/generate-plugin-package-validator.mjs','--tools',tools,'--check'])
-  run('fixtures',['node',ROOT/'scripts/probes/plugin-package-native.mjs',ROOT,tools,cases]);vectors=json.loads((cases/'vectors.json').read_text())['fixtures'];known={v['name'] for v in vectors}
+  vectors=lua_cases(run,cases);known={v['name'] for v in vectors}
   if set(args.case)-known:parser.error('unknown case')
   if args.case:vectors=[v for v in vectors if v['name'] in args.case]
   if args.android:
@@ -38,11 +72,10 @@ def main():
    run('device-binary',[adb,'-s',args.android,'push',binary,remote+'/check']);run('device-mode',[adb,'-s',args.android,'shell','chmod','700',remote+'/check']);run('device-cases',[adb,'-s',args.android,'push',cases,remote+'/cases'],budget=180)
   results=[]
   for v in vectors:
-   out=run(v['name'],[binary,'probe',v['directory'],v['hostFile'],v['registryFile'],v['status'],v['code']]);result=json.loads(out)
+   out=run(v['name'],[binary,'probe',v['directory'],v['hostFile'],v['registryFile'],v['status'],v['code'],*v.get('arguments',[])]);result=json.loads(out)
    for key,value in v.get('expected',{}).items():assert result[key]==value,(v['name'],key,result.get(key),value)
-   results.append(dict(name=v['name'],status=result['status'],code=result['code'],native_only=v['nativeOnly']))
-  # Actual allocator failures across native workspace, engine startup/evaluation,
-  # and late result construction must leave the captured package with its caller.
+   results.append(dict(name=v['name'],status=result['status'],code=result['code']))
+  # Allocation failures in validation leave the captured package with its caller.
   if not args.case:
    v=vectors[0];baseline=json.loads((logs/(v['name']+'.log')).read_text());last=baseline['allocationCalls']
    for fail in (range(1,last+1) if args.oom_sweep else sorted({1,2,10,100,1000,last//2,last})):
@@ -52,7 +85,6 @@ def main():
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
   if uploaded:run('device-cleanup',[adb,'-s',args.android,'shell','rm','-rf',remote]);uploaded=False
   (logs/'result.json').write_text(json.dumps(dict(accepted=True,oom_sweep=args.oom_sweep,fixtures=results,inputs_sha256=hashes,binary_sha256=sha(binary),commands=commands,device=device,scope='real directory capture+native JSON/metadata checks; no plugin/backend activation, source authentication, App or release'),indent=2)+'\n');shutil.rmtree(cases)
-  if not args.tools:shutil.rmtree(tools)
   print('PACKAGE NATIVE PASS: '+str(len(results))+' fixtures; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');(logs/'partial-commands.json').write_text(json.dumps(commands,indent=2)+'\n');raise
  finally:

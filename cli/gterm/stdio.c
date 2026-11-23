@@ -4,7 +4,6 @@
 #include "release.h"
 #include "catalog.h"
 #include "stdio.h"
-#include "extension/process-runtime.h"
 #include "extension/wire.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -56,11 +55,9 @@ typedef struct {
     char environment_values[GT_EXT_RUNTIME_PROCESS_ENV_MAX][4097];
     size_t method_count, process_program_count, process_environment_count, root_count;
     gt_ext_invocation_t invocation;
-    gt_ext_runtime_execution_t execution;
     gt_ext_runtime_config_t runtime_config;
     gt_ext_session_config_t session_config;
     gt_ext_package_metadata_t metadata;
-    char stage_directory[PATH_MAX];
     gt_ext_package_t *package;
     gt_ext_channel_t *channel;
     gt_ext_session_t *session;
@@ -74,7 +71,6 @@ static stdio_job_t *job_new(gt_ext_resource_store_t *shared) {
     if (job) {
         job->shared_store = shared;
         job->reference = -1;
-        job->execution.stage_parent_fd = job->execution.node_sdk_directory_fd = -1;
         job->result = 5;
         job->stage = "Executor startup";
     }
@@ -184,15 +180,10 @@ static bool close_resource_owner(resource_owner_t *owner) {
 }
 
 int gterm_stdio_option_arity(const char *option) {
-    return !strcmp(option, "--allow-process-execution") ? 0
-           : !strcmp(option, "--process-program")       ? 4
-           : !strcmp(option, "--node-runtime")          ? 3
-           : !strcmp(option, "--release-evidence")      ? 3
-           : !strcmp(option, "--node-sdk") || !strcmp(option, "--root") ||
-                   !strcmp(option, "--process-argument")
-               ? 2
-           : !strcmp(option, "--variant") || !strcmp(option, "--runtime") ||
-                   !strcmp(option, "--trust-development-digest") ||
+    return !strcmp(option, "--process-program")                                 ? 4
+           : !strcmp(option, "--release-evidence")                              ? 3
+           : !strcmp(option, "--root") || !strcmp(option, "--process-argument") ? 2
+           : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
                    !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment") ||
                    !strcmp(option, "--client-capability")
@@ -221,11 +212,7 @@ static int stdio_prepare(
         return diagnostic("incomplete or unknown stdio options", 2);
     }
     const char *trusted = NULL, *client = NULL;
-    const char *runtime_name = NULL, *node_executable = NULL, *node_version = NULL,
-               *node_sha = NULL;
-    const char *sdk_directory = NULL, *sdk_sha = NULL;
-    const char *variant_id = NULL;
-    bool execution_authorized = false;
+    const char *runtime_name = NULL;
     bool release_evidence = false;
     bool client_table = false, client_diff = false, client_task = false, client_views = false,
          client_form = false;
@@ -233,17 +220,6 @@ static int stdio_prepare(
     size_t extra_environment_count = 0;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--");) {
-        if (!strcmp(argv[at], "--variant")) {
-            if (variant_id || at + 1 >= argc || !argv[at + 1][0] || strlen(argv[at + 1]) > 128 ||
-                strspn(argv[at + 1],
-                       "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") !=
-                    strlen(argv[at + 1])) {
-                return diagnostic("invalid Executor variant", 2);
-            }
-            variant_id = argv[at + 1];
-            at += 2;
-            continue;
-        }
         if (!strcmp(argv[at], "--release-evidence")) {
             if (release_evidence || at + 3 >= argc || !gterm_catalog_path(argv[at + 1]) ||
                 !gterm_catalog_path(argv[at + 2]) || !gterm_catalog_digest(argv[at + 3])) {
@@ -288,39 +264,12 @@ static int stdio_prepare(
             at += 2;
             continue;
         }
-        if (!strcmp(argv[at], "--allow-process-execution")) {
-            if (execution_authorized) {
-                return diagnostic("duplicate execution approval", 2);
-            }
-            execution_authorized = true;
-            at++;
-            continue;
-        }
         if (!strcmp(argv[at], "--runtime")) {
             if (runtime_name || at + 1 >= argc) {
                 return diagnostic("missing or duplicate runtime", 2);
             }
             runtime_name = argv[at + 1];
             at += 2;
-            continue;
-        }
-        if (!strcmp(argv[at], "--node-runtime")) {
-            if (node_executable || at + 3 >= argc) {
-                return diagnostic("missing or duplicate Node identity", 2);
-            }
-            node_executable = argv[at + 1];
-            node_version = argv[at + 2];
-            node_sha = argv[at + 3];
-            at += 4;
-            continue;
-        }
-        if (!strcmp(argv[at], "--node-sdk")) {
-            if (sdk_directory || at + 2 >= argc) {
-                return diagnostic("missing or duplicate Host SDK", 2);
-            }
-            sdk_directory = argv[at + 1];
-            sdk_sha = argv[at + 2];
-            at += 3;
             continue;
         }
         if (!strcmp(argv[at], "--root")) {
@@ -422,84 +371,20 @@ static int stdio_prepare(
             "stdio requires explicit development trust, client digest, directory and command", 2);
     }
     const char *directory = argv[at + 1], *command = argv[at + 2];
-    job->invocation = (gt_ext_invocation_t){
-        command, (const char *const *)(argv + at + 3), (size_t)(argc - at - 3)};
+    job->invocation = (gt_ext_invocation_t){.command = command,
+                                            .argv = (const char *const *)(argv + at + 3),
+                                            .argc = (size_t)(argc - at - 3)};
     if (!validate_only && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO))) {
         return diagnostic("stdio protocol refuses a terminal", 2);
     }
     if (gt_ext_runtime_support() != GT_OK) {
-        return diagnostic("portable JS is unsupported", 4);
+        return diagnostic("native plugin runtime is unsupported", 4);
     }
-    if (!runtime_name) {
-        runtime_name = "portable-js";
-    }
-    bool external = strcmp(runtime_name, "portable-js") != 0, node = !strcmp(runtime_name, "node");
-    if (external && !node && strcmp(runtime_name, "exec")) {
+    if (runtime_name && strcmp(runtime_name, GTERM_NATIVE_RUNTIME)) {
         return diagnostic("unsupported runtime selection", 4);
-    }
-    if (external && !execution_authorized) {
-        return diagnostic("explicit process execution approval required", 6);
-    }
-    if (!external && (execution_authorized || node_executable || sdk_directory)) {
-        return diagnostic("process configuration requires Node or Exec selection", 2);
-    }
-    if (node && (!node_executable || !node_version || !digest(node_sha) || !sdk_directory ||
-                 !digest(sdk_sha))) {
-        return diagnostic("Node requires pinned executable/version and Host SDK", 4);
-    }
-    if (external && !node && (node_executable || sdk_directory)) {
-        return diagnostic("Node configuration does not apply to Exec", 2);
-    }
-    if (node) {
-        size_t n = strlen(node_version);
-        if (!n || n > 128) {
-            return diagnostic("invalid Node version", 2);
-        }
-        for (size_t i = 0; i < n; i++) {
-            char c = node_version[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                  c == '.' || c == '-' || c == '+')) {
-                return diagnostic("invalid Node version", 2);
-            }
-        }
     }
     if (validate_only) {
         return 0;
-    }
-    job->execution = (gt_ext_runtime_execution_t){.stage_parent_fd = -1,
-                                                  .node_sdk_directory_fd = -1,
-                                                  .execution_authorized = execution_authorized,
-                                                  .node_executable = node_executable,
-                                                  .node_sha256 = node_sha,
-                                                  .node_sdk_catalog_sha256 = sdk_sha};
-    if (external) {
-        const char *temporary = getenv("TMPDIR");
-        if (!temporary || temporary[0] != '/') {
-            job->result = diagnostic("process execution requires an explicit absolute TMPDIR", 4);
-            goto done;
-        }
-        int n = snprintf(job->stage_directory,
-                         sizeof(job->stage_directory),
-                         "%s/gterm-execution-XXXXXX",
-                         temporary);
-        if (n <= 0 || (size_t)n >= sizeof(job->stage_directory) || !mkdtemp(job->stage_directory)) {
-            job->stage_directory[0] = 0;
-            goto done;
-        }
-        job->execution.stage_parent_path = job->stage_directory;
-        job->execution.stage_parent_fd =
-            open(job->stage_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-        if (job->execution.stage_parent_fd < 0) {
-            goto done;
-        }
-        if (node) {
-            job->execution.node_sdk_directory_fd =
-                open(sdk_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-            if (job->execution.node_sdk_directory_fd < 0) {
-                job->result = diagnostic("Host SDK directory unavailable", 4);
-                goto done;
-            }
-        }
     }
     if (!open_roots(job->roots, job->root_count)) {
         job->result = diagnostic("resource root unavailable or invalid", 2);
@@ -543,16 +428,6 @@ static int stdio_prepare(
         goto done;
     }
     const bool process_available = job->process_program_count && job->root_count;
-    char programs_json[512] = {0};
-    if (node) {
-        int n = snprintf(programs_json,
-                         sizeof(programs_json),
-                         ",\"programs\":{\"node\":{\"state\":\"available\",\"version\":\"%s\"}}",
-                         node_version);
-        if (n <= 0 || (size_t)n >= sizeof(programs_json)) {
-            goto done;
-        }
-    }
 #if defined(__APPLE__)
     const char *host_os = "macos";
 #elif defined(__linux__)
@@ -567,30 +442,19 @@ static int stdio_prepare(
 #else
     const char *host_arch = "unknown";
 #endif
-    char variant_json[160] = {0};
-    if (variant_id) {
-        int count =
-            snprintf(variant_json, sizeof(variant_json), ",\"variantId\":\"%s\"", variant_id);
-        if (count < 0 || (size_t)count >= sizeof(variant_json)) {
-            goto done;
-        }
-    }
     char host_json[1024];
     int host_size =
         snprintf(host_json,
                  sizeof(host_json),
                  "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                 "\",\"protocols\":[" GTERM_PROTOCOL
-                 "],\"runtimes\":[\"%s\"],\"capabilities\":[\"session.rpc\"%s%s%s],"
-                 "\"os\":\"%s\",\"arch\":\"%s\"%s%s}",
-                 runtime_name,
+                 "\",\"protocols\":[" GTERM_PROTOCOL "],\"runtimes\":[\"" GTERM_NATIVE_RUNTIME
+                 "\"],\"capabilities\":[\"session.rpc\"%s%s%s],"
+                 "\"os\":\"%s\",\"arch\":\"%s\"}",
                  process_available ? ",\"process.spawn\",\"process.pipes\"" : "",
                  resource_store_available ? ",\"resource.receive\"" : "",
                  job->root_count && resource_store_available ? ",\"file.readScoped\"" : "",
                  host_os,
-                 host_arch,
-                 programs_json,
-                 variant_json);
+                 host_arch);
     if (host_size <= 0 || (size_t)host_size >= sizeof(host_json)) {
         goto done;
     }
@@ -740,14 +604,14 @@ static int stdio_prepare(
             "process mappings require both process.spawn and process.pipes in the package", 4);
         goto done;
     }
-    if (extra_environment_count && !process_spawn && !external) {
+    if (extra_environment_count && !process_spawn) {
         job->result = diagnostic("selected environment requires an authorized process service", 4);
         goto done;
     }
     if (receive_resources) {
         config.features |= GT_EXT_FEATURE_RESOURCES;
     }
-    if (process_spawn || external) {
+    if (process_spawn) {
         /* Executor children receive only selected user environment values.
          * Do not inherit arbitrary variables such as SSH_AUTH_SOCK or secrets. */
         static const char *const selected_names[] = {
@@ -807,7 +671,7 @@ static int stdio_prepare(
         .role = GT_EXT_EXECUTOR,
         /* Cold process/protocol activation over SSH exceeded the default 25ms.
          * Keep a finite Host-selected worker slice, matching the Android Host. */
-        .cpu_ms = external ? 0 : 100,
+        .cpu_ms = 100,
         .invocation = &job->invocation,
         .roots = job->root_count ? job->runtime_roots : NULL,
         .root_count = job->root_count,
@@ -815,9 +679,7 @@ static int stdio_prepare(
         .process_program_count = process_spawn ? job->process_program_count : 0,
         .process_environment = process_spawn ? job->runtime_environment : NULL,
         .process_environment_count = process_spawn ? job->process_environment_count : 0,
-        .execution = external ? &job->execution : NULL};
-    job->execution.environment = job->runtime_environment;
-    job->execution.environment_count = job->process_environment_count;
+    };
     job->prepared = true;
     return 0;
 done:
@@ -938,24 +800,14 @@ static void job_step(stdio_job_t *job, volatile sig_atomic_t *cancelled) {
     }
     gt_ext_runtime_info_t info;
     if (gt_ext_runtime_info(job->runtime, &info)) {
-        job->activated |= info.external_process && info.activated;
-        job->result = info.external_process && info.execution_error == GT_ERR_UNSUPPORTED ? 4
-                      : job->activated && info.session_end == GT_EXT_END_PEER             ? 0
-                      : info.session_end == GT_EXT_END_LOST                               ? 7
-                                                                                          : 5;
+        job->result = job->activated && info.session_end == GT_EXT_END_PEER ? 0
+                      : info.session_end == GT_EXT_END_LOST                 ? 7
+                                                                            : 5;
         if (job->result) {
-            const char *failure_stage = gt__ext_runtime_failure_stage(job->runtime);
-            if (failure_stage) {
-                fprintf(stderr, "gterm: external runtime failure stage=%s\n", failure_stage);
-            }
             fprintf(stderr,
-                    "gterm: runtime phase=%u error=%u execution-error=%d child-exit=%d "
-                    "child-signal=%d session-end=%u session-error=%d cleanup=%d\n",
+                    "gterm: runtime phase=%u error=%u session-end=%u session-error=%d cleanup=%d\n",
                     (unsigned)info.phase,
                     (unsigned)info.error,
-                    (int)info.execution_error,
-                    info.exit_code,
-                    info.term_signal,
                     (unsigned)info.session_end,
                     (int)info.session_error,
                     (int)info.cleanup_error);
@@ -979,24 +831,6 @@ static bool job_close_step(stdio_job_t *job) {
         }
         gt_ext_runtime_info_t info = {0};
         bool observed = gt_ext_runtime_info(job->runtime, &info);
-        if (observed && info.external_process && job->result && info.execution_error != GT_OK &&
-            info.execution_error != GT_ERR_CANCELLED) {
-            fprintf(stderr,
-                    "gterm: external runtime final probe-verified=%u activated=%u "
-                    "child-reaped=%u child-exit=%d child-signal=%d stdout-bytes=%" PRIu64
-                    " stderr-bytes=%" PRIu64 "\n",
-                    info.probe_verified ? 1u : 0u,
-                    info.activated ? 1u : 0u,
-                    info.child_exited ? 1u : 0u,
-                    info.exit_code,
-                    info.term_signal,
-                    info.stdout_bytes,
-                    info.stderr_bytes);
-        }
-        if (observed && info.external_process && info.group_signal_error) {
-            fprintf(
-                stderr, "gterm: exited process group signal errno=%d\n", info.group_signal_error);
-        }
         gt_status_t destroyed = gt_ext_runtime_destroy(&job->runtime);
         if (destroyed != GT_OK) {
             job->cleanup_failed = true;
@@ -1046,16 +880,9 @@ static bool job_close_step(stdio_job_t *job) {
             return false;
         }
     }
-    int *fds[] = {
-        &job->execution.node_sdk_directory_fd, &job->execution.stage_parent_fd, &job->reference};
-    for (size_t i = 0; i < sizeof(fds) / sizeof(*fds); i++) {
-        int fd = *fds[i];
-        *fds[i] = -1;
-        if (fd >= 0 && close(fd)) {
-            job->cleanup_failed = true;
-        }
-    }
-    if (job->stage_directory[0] && rmdir(job->stage_directory)) {
+    const int reference = job->reference;
+    job->reference = -1;
+    if (reference >= 0 && close(reference)) {
         job->cleanup_failed = true;
     }
     for (size_t i = 0; i < job->root_count; i++) {

@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
+#include "echo-outcome.h"
 #include "ghosterm.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -100,17 +101,9 @@ static void rpc_wave(unsigned wave, bool skip_third) {
                 CHECK(result.state == GT_EXT_RPC_QUEUED || result.state == GT_EXT_RPC_PENDING);
                 continue;
             }
-            char expected[200];
-            int size = snprintf(expected,
-                                sizeof(expected),
-                                "{\"kind\":\"success\",\"value\":{\"text\":\"scope-%u\",\"count\":%"
-                                "u,\"owner\":%u,\"calls\":%u}}",
-                                i,
-                                17 + i,
-                                i,
-                                wave);
-            if (result.state != GT_EXT_RPC_SUCCEEDED || result.outcome_size != (uint32_t)size ||
-                memcmp(result.outcome, expected, (size_t)size)) {
+            char expected[24];
+            CHECK(snprintf(expected, sizeof(expected), "scope-%u", i) > 0);
+            if (!echo_matches(&result, expected, 17 + i, i, wave)) {
                 fprintf(stderr,
                         "slot %u wave %u state %u outcome %.*s\n",
                         i,
@@ -128,13 +121,69 @@ static void rpc_wave(unsigned wave, bool skip_third) {
     }
 }
 
+static gt_ext_rpc_result_t table_call(unsigned slot, const char *method, const char *input) {
+    uint64_t handle;
+    CHECK(gt_ext_session_request(
+              sessions[slot], &leases[slot], method, input, strlen(input), 5000, &handle) ==
+          GT_EXT_RPC_OK);
+    gt_ext_rpc_result_t result;
+    do {
+        pump();
+        CHECK(gt_ext_session_request_result(sessions[slot], &leases[slot], handle, &result) ==
+              GT_EXT_RPC_OK);
+    } while (!result.confirmed);
+    CHECK(gt_ext_session_forget_request(sessions[slot], &leases[slot], handle) == GT_EXT_RPC_OK);
+    return result;
+}
+
+static void project_page(unsigned slot, char input[160]) {
+    gt_ext_rpc_result_t description = table_call(slot, "view.table.describe", "{}");
+    CHECK(description.state == GT_EXT_RPC_SUCCEEDED);
+    gt_bridge_wire_t *doc = NULL;
+    CHECK(gt__bridge_wire_new(NULL, &doc) == GT_OK &&
+          gt__bridge_json_parse(doc, description.outcome, description.outcome_size) == GT_OK);
+    const uint16_t value = gt__bridge_wire_member(doc, 1, "value");
+    const uint8_t *id, *revision;
+    size_t id_size, revision_size;
+    CHECK(
+        echo_string(doc,
+                    gt__bridge_wire_member(doc, value, "title"),
+                    slot % 2 ? "Project tasks · sample-b" : "Project tasks · sample-a") &&
+        echo_uint(doc, gt__bridge_wire_member(doc, value, "total"), 2) &&
+        gt__bridge_wire_string(doc, gt__bridge_wire_member(doc, value, "viewId"), &id, &id_size) &&
+        gt__bridge_wire_string(
+            doc, gt__bridge_wire_member(doc, value, "revision"), &revision, &revision_size) &&
+        id_size == 32 && revision_size <= 20);
+    CHECK(snprintf(input,
+                   160,
+                   "{\"viewId\":\"%.*s\",\"revision\":\"%.*s\",\"offset\":0,\"limit\":2}",
+                   (int)id_size,
+                   id,
+                   (int)revision_size,
+                   revision) > 0);
+    gt__bridge_wire_free(doc);
+    const gt_ext_rpc_result_t page = table_call(slot, "view.table.page", input);
+    CHECK(page.state == GT_EXT_RPC_SUCCEEDED && gt__bridge_wire_new(NULL, &doc) == GT_OK &&
+          gt__bridge_json_parse(doc, page.outcome, page.outcome_size) == GT_OK);
+    const uint16_t rows =
+        gt__bridge_wire_member(doc, gt__bridge_wire_member(doc, 1, "value"), "rows");
+    const char *const expected_ids[2][2] = {{"sample-a-review", "sample-a-publish"},
+                                            {"sample-b-inventory", "sample-b-verify"}};
+    CHECK(gt__bridge_wire_count(doc, rows) == 2);
+    for (size_t i = 0; i < 2; ++i) {
+        const uint16_t row = gt__bridge_wire_at(doc, rows, i);
+        CHECK(echo_string(doc, gt__bridge_wire_member(doc, row, "id"), expected_ids[slot % 2][i]));
+    }
+    gt__bridge_wire_free(doc);
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 14);
     CHECK(!atexit(cleanup));
     deadline = now() + 30000;
     bool resources = !strcmp(argv[2], "resources"), denied = !strcmp(argv[2], "denied"),
-         cancelled = !strcmp(argv[2], "cancel");
-    CHECK(resources || denied || cancelled || !strcmp(argv[2], "roundtrip"));
+         cancelled = !strcmp(argv[2], "cancel"), projects = !strcmp(argv[2], "table-projects");
+    CHECK(resources || denied || cancelled || projects || !strcmp(argv[2], "roundtrip"));
     char identities[8][33], epochs[8][24], temporary[8192];
     const char *arguments[40] = {
         argv[1], "relay", "--multiplex", "--connection", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"};
@@ -176,8 +225,8 @@ int main(int argc, char **argv) {
         gt_ext_resource_store_config_t c = {root, 16777216, 1048576, 64};
         CHECK(gt_ext_resource_store_open(&c, &store) == GT_EXT_RESOURCE_OK);
     }
-    gt_ext_session_config_t c = {.required_count = resources ? 2 : 1,
-                                 .available_count = resources ? 2 : 1,
+    gt_ext_session_config_t c = {.required_count = resources ? 3 : 1,
+                                 .available_count = resources ? 3 : 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
                                  .consent_ms = 60000,
@@ -190,24 +239,30 @@ int main(int argc, char **argv) {
     strcpy(c.executor_digest, argv[4]);
     strcpy(c.host_version, "0.1.0");
     strcpy(c.sdk_version, "1.0.0");
-    strcpy(c.required[0], resources ? "resource.receive" : "session.rpc");
-    strcpy(c.available[0], c.required[0]);
+    strcpy(c.required[0], "session.rpc");
     if (resources) {
-        strcpy(c.required[1], "file.readScoped");
-        strcpy(c.available[1], c.required[1]);
+        strcpy(c.required[1], "resource.receive");
+        strcpy(c.required[2], "file.readScoped");
     }
-    gt_ext_rpc_method_t method = {.method = "fixture.echo",
-                                  .capability = "session.rpc",
-                                  .receiver = GT_EXT_EXECUTOR,
-                                  .input_shape = GT_EXT_JSON_OBJECT,
-                                  .output_shape = GT_EXT_JSON_OBJECT};
+    memcpy(c.available, c.required, sizeof(c.available));
+    gt_ext_rpc_method_t methods[2] = {{.capability = "session.rpc",
+                                       .receiver = GT_EXT_EXECUTOR,
+                                       .input_shape = GT_EXT_JSON_OBJECT,
+                                       .output_shape = GT_EXT_JSON_OBJECT}};
+    methods[1] = methods[0];
+    strcpy(methods[0].method,
+           projects    ? "view.table.describe"
+           : resources ? "preview.open"
+                       : "fixture.echo");
+    strcpy(methods[1].method, "view.table.page");
     for (unsigned i = 0; i < 8; i++) {
         gt_ext_channel_t *child = NULL;
         CHECK(gt_ext_mux_open_channel(mux, identities[i], i + 1, &child) == GT_OK);
         gt_status_t status =
             resources ? gt_ext_session_open_resources(
-                            &child, GT_EXT_HOST, &c, NULL, 0, store, 1048576, &sessions[i])
-                      : gt_ext_session_open_rpc(&child, GT_EXT_HOST, &c, &method, 1, &sessions[i]);
+                            &child, GT_EXT_HOST, &c, methods, 1, store, 1048576, &sessions[i])
+                      : gt_ext_session_open_rpc(
+                            &child, GT_EXT_HOST, &c, methods, projects ? 2 : 1, &sessions[i]);
         CHECK(status == GT_OK && !child);
     }
     for (;;) {
@@ -254,7 +309,23 @@ int main(int argc, char **argv) {
         }
     }
     gt_ext_resource_snapshot_t snapshots[8] = {0};
-    if (resources) {
+    char table_page[8][160];
+    if (projects) {
+        for (unsigned i = 0; i < 8; ++i) {
+            project_page(i, table_page[i]);
+        }
+    } else if (resources) {
+        const char input[] = "{\"path\":\"preview.md\",\"assets\":\"\",\"maxBytes\":64}";
+        uint64_t requests[8];
+        for (unsigned i = 0; i < 8; i++) {
+            CHECK(gt_ext_session_request(sessions[i],
+                                         &leases[i],
+                                         "preview.open",
+                                         input,
+                                         sizeof(input) - 1,
+                                         10000,
+                                         &requests[i]) == GT_EXT_RPC_OK);
+        }
         unsigned received = 0;
         while (received < 8) {
             pump();
@@ -281,9 +352,16 @@ int main(int argc, char **argv) {
                       GT_EXT_RESOURCE_OK &&
                   size == (size_t)length && !memcmp(bytes, expected, size));
         }
-        uint64_t settle = now() + 250;
-        while (now() < settle) {
-            pump();
+        for (unsigned i = 0; i < 8; i++) {
+            gt_ext_rpc_result_t result;
+            do {
+                pump();
+                CHECK(gt_ext_session_request_result(
+                          sessions[i], &leases[i], requests[i], &result) == GT_EXT_RPC_OK);
+            } while (!result.confirmed);
+            CHECK(result.state == GT_EXT_RPC_SUCCEEDED);
+            CHECK(gt_ext_session_forget_request(sessions[i], &leases[i], requests[i]) ==
+                  GT_EXT_RPC_OK);
         }
     } else {
         rpc_wave(1, denied);
@@ -337,7 +415,11 @@ int main(int argc, char **argv) {
         gt_ext_session_info_t state;
         CHECK(gt_ext_session_info(sessions[i], &state) && state.phase == GT_EXT_SESSION_ACTIVE);
     }
-    if (!resources) {
+    if (projects) {
+        const gt_ext_rpc_result_t stale = table_call(4, "view.table.page", table_page[3]);
+        CHECK(stale.state == GT_EXT_RPC_FAILED && strstr(stale.outcome, "INVALID_INPUT"));
+        project_page(4, table_page[4]);
+    } else if (!resources) {
         rpc_wave(2, true);
     }
     for (unsigned i = 0; i < 8; i++) {

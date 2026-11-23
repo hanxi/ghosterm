@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Candidate Portable plugin developer commands. No install or post-build hooks."""
+"""Lua plugin development and release commands."""
 import argparse
 import ctypes
 import errno
@@ -17,9 +17,13 @@ import tempfile
 import unicodedata
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
-TMP = ROOT / 'tmp'
+TOOLS = Path(__file__).resolve().parent
+ROOT = TOOLS.parent
+REPOSITORY = (ROOT / 'AGENTS.md').is_file()
+TMP = ROOT / 'tmp' if REPOSITORY else Path(tempfile.gettempdir())
 sys.dont_write_bytecode = True
+
+from plugin_lua_manifest import MAX_SOURCE_BYTES, extract_manifest, release_manifest
 
 
 class Failure(Exception):
@@ -100,6 +104,30 @@ def member(name):
     return name
 
 
+def read_member(name, owner, device, limit):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=owner)
+    try:
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_dev == device, 'NONREGULAR_MEMBER')
+        require(before.st_size <= limit, 'PACKAGE_LIMIT')
+        chunks = []
+        remaining = before.st_size + 1
+        while remaining:
+            chunk = os.read(fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b''.join(chunks)
+        after = os.fstat(fd)
+        require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
+                (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and
+                len(data) == before.st_size, 'SOURCE_CHANGED')
+        return data
+    finally:
+        os.close(fd)
+
+
 def capture(directory, destination, project=False):
     """Pin a physical root, walk via dirfds and read stable regular-file handles."""
     rootfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -120,31 +148,12 @@ def capture(directory, destination, project=False):
                 relative = member((Path(parent) / name).as_posix())
                 require(relative.lower() not in folded, 'CASE_COLLISION')
                 folded.add(relative.lower())
-                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=owner)
-                try:
-                    before = os.fstat(fd)
-                    require(stat.S_ISREG(before.st_mode) and before.st_dev == device, 'NONREGULAR_MEMBER')
-                    require(before.st_size <= 16777216 and len(observed) < 1024, 'PACKAGE_LIMIT')
-                    chunks = []
-                    remaining = before.st_size + 1
-                    while remaining:
-                        chunk = os.read(fd, min(65536, remaining))
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        remaining -= len(chunk)
-                    data = b''.join(chunks)
-                    after = os.fstat(fd)
-                    require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) ==
-                            (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) and len(data) == before.st_size, 'SOURCE_CHANGED')
-                finally:
-                    os.close(fd)
+                require(len(observed) < 1024, 'PACKAGE_LIMIT')
+                data = read_member(name, owner, device, 16777216)
                 total += len(data)
                 require(total <= 67108864, 'PACKAGE_LIMIT')
                 if relative.endswith('.json'):
                     decode(data)
-                if relative.endswith(('.ts', '.js', '.mjs')):
-                    data.decode('utf-8', errors='strict')
                 target = destination / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
@@ -161,12 +170,12 @@ def scratch_root():
 
 def run(command, seconds=60, cooperative=False):
     scratch = str(scratch_root())
-    env = dict(os.environ, TMPDIR=scratch, TMP=scratch, TEMP=scratch, npm_config_update_notifier='false')
+    env = dict(os.environ, TMPDIR=scratch, TMP=scratch, TEMP=scratch)
     if sys.platform == 'darwin' and 'DEVELOPER_DIR' not in env and Path('/Applications/Xcode.app/Contents/Developer').is_dir():
         env['DEVELOPER_DIR'] = '/Applications/Xcode.app/Contents/Developer'
     # The shared timeout kills descendants; communicate() alone cannot do so.
-    bounded = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-dev; shift; exec "$gt_timeout_bin" "$@"',
-               'plugin-dev', ROOT, seconds, *command]
+    bounded = ['bash', '-c', '. "$1/lib/gt-timeout.sh"; gt_timeout_require plugin-dev; shift; exec "$gt_timeout_bin" "$@"',
+               'plugin-dev', TOOLS, seconds, *command]
     process = subprocess.Popen(list(map(str, bounded)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
     try:
         output, diagnostics = process.communicate(timeout=seconds + 5)
@@ -189,13 +198,6 @@ def run(command, seconds=60, cooperative=False):
         sys.stderr.buffer.write(output[-16384:])
         raise Failure('TOOL_FAILED', 1)
     return output
-
-
-def tools_path(path):
-    tools = Path(path).resolve(strict=True)
-    for name in ('package.json', 'package-lock.json'):
-        require((tools / name).read_bytes() == (ROOT / 'scripts/fixtures/plugin-dev-tools' / name).read_bytes(), 'TOOLS_LOCK')
-    return tools
 
 
 def publish(stage, destination):
@@ -227,405 +229,62 @@ def publish(stage, destination):
             raise Failure('OUTPUT_EXISTS') from error
 
 
-def worker(work, tools, source, output=None, host=None, registry=(), test=False, execution=None, resources=False, processes=False, views=None):
-    request = dict(root=str(ROOT), tools=str(tools), source=str(source), output=str(output) if output else None,
-                   host=host, registry=list(registry), testProfile=test, testRuntime=execution['runtime'] if execution else None, testResources=resources, testProcesses=processes, testViews=views)
-    filename = work / 'request.json'
-    filename.write_bytes(encoded(request))
-    response = decode(run(['node', ROOT / 'scripts/plugin-dev-worker.mjs', filename], 60))
-    require(response.get('structural') is True, 'PACKAGE_CHECK')
-    return response
-
-
 def scaffold(destination, plugin_id, command, publisher):
     require(re.fullmatch(r'[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+', plugin_id) and len(plugin_id) <= 128, 'PLUGIN_ID')
     require(re.fullmatch(r'[a-z][a-z0-9-]{0,63}', command) and command not in ('plugin', 'doctor', 'relay'), 'COMMAND')
-    require(0 < len(publisher) <= 128 and '\0' not in publisher, 'PUBLISHER')
-    manifest = dict(schemaVersion=1, id=plugin_id, pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher=publisher, license='MIT',
-        commands=[dict(path=[command], title='Typed echo', argsSchema='schemas/command.json', views=[])],
-        client=dict(runtime='portable-js', entry='client/index.js', requires=['session.rpc']),
-        executor=dict(variants=[dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=['session.rpc'])]),
-        permissions=[dict(side=side, capability='session.rpc', purpose='Exchange instance-scoped typed requests.', scope='instance') for side in ('client', 'executor')])
-    executor = '''import { object, text } from "@ghosterm/plugin-sdk";
-import type { PluginContext } from "@ghosterm/plugin-sdk";
-const Echo = { name: "dev.echo", input: object({ text: text(64) }), output: object({ text: text(64) }) };
-export function activate(context: PluginContext) {
-  if (context.side !== "executor" || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Executor RPC required");
-  let live = true;
-  context.session.register(Echo, (input, request) => {
-    request.check();
-    if (!live || context.cancellation.cancelled || context.capabilities.query("session.rpc") !== "allowed") throw new Error("Revoked");
-    if (input.text === "throw") throw new Error("Declared test error path");
-    return { text: input.text };
-  });
-  return { dispose() { live = false; } };
-}
-'''
-    client = executor.replace('"executor"', '"client"').replace('Executor RPC required', 'Client RPC required')
-    exchange = "const Exchange = { ...Echo, name: \"dev.exchange\" };\nconst Callback = { ...Echo, name: \"dev.callback\" };\n"
-    executor = executor.replace('export function activate', exchange + 'export function activate').replace('  return { dispose()', '''  context.session.register(Exchange, async (input, request) => {
-    request.check();
-    if (input.text === "throw") throw new Error("Exchange error fixture");
-    const reply = await context.session.request(Callback, input, 1000).outcome;
-    request.check();
-    if (reply.kind !== "success") throw new Error("Callback did not succeed");
-    return { text: "executor:" + reply.value.text };
-  });
-  return { dispose()''')
-    client = client.replace('export function activate', exchange + 'const Run = { ...Echo, name: "dev.run" };\nexport function activate').replace('  return { dispose()', '''  context.session.register(Callback, (input, request) => {
-    request.check(); return { text: "callback:" + input.text };
-  });
-  context.session.register(Run, async (input, request) => {
-    request.check();
-    const reply = await context.session.request(Exchange, input, 1000).outcome;
-    request.check();
-    if (reply.kind !== "success") throw new Error("Exchange did not succeed");
-    return { text: "client:" + reply.value.text };
-  });
-  return { dispose()''')
-    files = {'plugin.json': encoded(manifest), 'client/index.ts': client.encode(), 'executor/index.ts': executor.encode(),
-        'schemas/command.json': encoded({'type': 'object', 'additionalProperties': False, 'properties': {}, 'required': [], 'x-ghosterm-cli': {'version': 1, 'fields': {}}}),
-        'plugin.project.json': encoded(dict(schemaVersion=1, sources=['client/index.ts', 'executor/index.ts'], assets=['README.md', 'LICENSES/MIT.txt', 'schemas/command.json'])),
-        'plugin.test.json': encoded(dict(schemaVersion=1, command=command, arguments=[], method='dev.echo', input={'text': 'hello'}, expected={'text': 'hello'}, errorInput={'text': 'throw'}, errorKind='unknown')),
-        'plugin.pair.test.json': encoded(dict(schemaVersion=1, command=command, arguments=[], method='dev.run', methods=[dict(name='dev.run', receiver='client'), dict(name='dev.exchange', receiver='executor'), dict(name='dev.callback', receiver='client')], input={'text': 'hello'}, expected={'text': 'client:executor:callback:hello'}, errorInput={'text': 'throw'}, errorKind='unknown')),
-        'README.md': b'# Portable development plugin\n\nTyped RPC scaffold; no Native view, installation or publisher authentication.\nThe throw input is an explicit harness fixture, not a successful business result.\n',
-        'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes()}
+    require(0 < len(publisher) <= 128 and not any(ord(char) < 32 or ord(char) == 127 for char in publisher), 'PUBLISHER')
+    quoted_publisher = json.dumps(publisher, ensure_ascii=False)
+    entry = f'''local manifest = {{
+  id = "{plugin_id}",
+  version = "0.1.0",
+  api = "1",
+  publisher = {quoted_publisher},
+  license = "MIT",
+  client = {{ requires = {{}} }},
+  commands = {{
+    {{ path = {{ "{command}" }}, title = "{command}" }},
+  }},
+}}
+
+return {{
+  ["{command}"] = function()
+    return true
+  end,
+}}
+'''.encode('utf-8')
     with tempfile.TemporaryDirectory(prefix='plugin-init-', dir=scratch_root()) as directory:
-        stage = Path(directory) / 'project'; stage.mkdir()
-        for name, data in files.items():
-            target = stage / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data + (b'\n' if name.endswith('.json') else b''))
+        stage = Path(directory) / 'project'
+        stage.mkdir()
+        (stage / 'main.lua').write_bytes(entry)
         publish(stage, destination)
-    return dict(kind='initialized', id=plugin_id, path=str(Path(destination).absolute()), installation=False)
-
-
-def execution_config(value):
-    require(isinstance(value, dict) and value.get('runtime') in ('node', 'exec'), 'TEST_EXECUTION_CONFIG')
-    keys = {'runtime'} | ({'nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256'} if value['runtime'] == 'node' else set())
-    require(set(value) == keys, 'TEST_EXECUTION_CONFIG')
-    if value['runtime'] == 'node':
-        for key in ['nodeExecutable', 'nodeSDKDirectory']:
-            require(isinstance(value[key], str) and value[key].startswith('/') and 0 < len(value[key].encode()) <= 4096 and not any(ord(c) < 32 for c in value[key]), 'TEST_EXECUTION_PATH')
-        for key in ['nodeSHA256', 'nodeSDKCatalogSHA256']:
-            require(isinstance(value[key], str) and re.fullmatch('[a-f0-9]{64}', value[key]), 'TEST_EXECUTION_DIGEST')
-    return value
-
-
-def process_config(value):
-    keys = {'workspaceRoot', 'programs', 'environment', 'lifetimeMs', 'outputBytes'}
-    require(isinstance(value, dict) and set(value) == keys, 'TEST_PROCESS_CONFIG')
-    def path(v): return isinstance(v, str) and v.startswith('/') and 0 < len(v.encode()) <= 4096 and not any(ord(c) < 32 for c in v)
-    require(path(value['workspaceRoot']), 'TEST_PROCESS_ROOT')
-    require(type(value['lifetimeMs']) is int and 1 <= value['lifetimeMs'] <= 600000 and type(value['outputBytes']) is int and 1 <= value['outputBytes'] <= 1048576, 'TEST_PROCESS_BUDGET')
-    programs = value['programs']; env = value['environment']
-    require(isinstance(programs, list) and 1 <= len(programs) <= 16, 'TEST_PROCESS_PROGRAMS')
-    for p in programs:
-        require(isinstance(p, dict) and set(p) == {'name', 'executable', 'version', 'sha256'} and isinstance(p['name'], str) and re.fullmatch('[A-Za-z0-9_][A-Za-z0-9._+-]{0,127}', p['name']) and path(p['executable']) and isinstance(p['version'], str) and 0 < len(p['version'].encode()) <= 128 and '\0' not in p['version'] and isinstance(p['sha256'], str) and re.fullmatch('[a-f0-9]{64}', p['sha256']), 'TEST_PROCESS_PROGRAM')
-    require(len({p['name'] for p in programs}) == len(programs), 'TEST_PROCESS_PROGRAM_DUPLICATE')
-    require(isinstance(env, list) and len(env) <= 32, 'TEST_PROCESS_ENVIRONMENT')
-    for e in env:
-        require(isinstance(e, dict) and set(e) == {'name', 'value'} and isinstance(e['name'], str) and re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,127}', e['name']) and isinstance(e['value'], str) and len(e['value'].encode()) <= 4096 and '\0' not in e['value'], 'TEST_PROCESS_ENVIRONMENT')
-    require(len({e['name'] for e in env}) == len(env), 'TEST_PROCESS_ENVIRONMENT_DUPLICATE')
-    return value
-
-
-def views_config(value):
-    require(isinstance(value, dict) and {'kinds'} <= set(value) <= {'kinds', 'registry'} and type(value.get('registry', False)) is bool and isinstance(value['kinds'], list) and
-            1 <= len(value['kinds']) <= 3 and all(type(k) is str and k in ('table', 'diff', 'task') for k in value['kinds']) and
-            len(set(value['kinds'])) == len(value['kinds']), 'TEST_VIEWS_CONFIG')
-    return value
-
-
-def views_expectation(specs, views, empty=False):
-    require(isinstance(specs, list) and (0 if empty else 1) <= len(specs) <= 8, 'TEST_VIEWS_EXPECTATION')
-    for spec in specs:
-        require(isinstance(spec, dict) and set(spec) == {'kind', 'viewId', 'methods'} and spec['kind'] in views['kinds'] and
-                isinstance(spec['viewId'], str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,63}', spec['viewId']), 'TEST_VIEW_SPEC')
-        methods = spec['methods']
-        keys = {'describe', 'read'} | ({'cancel'} if spec['kind'] == 'task' else set())
-        require(isinstance(methods, dict) and set(methods) == keys and all(isinstance(m, str) and re.fullmatch('[a-z][A-Za-z0-9_.-]{0,127}', m) for m in methods.values()) and len(set(methods.values())) == len(methods), 'TEST_VIEW_METHODS')
-    require(len({s['viewId'] for s in specs}) == len(specs), 'TEST_VIEW_DUPLICATE')
-
-
-def view_snapshot(value, lease):
-    require(isinstance(value, dict) and set(value) == {'instanceId', 'epoch', 'revision', 'views'} and
-            value['instanceId'] == lease['instanceId'] and value['epoch'] == lease['epoch'] and
-            isinstance(value['revision'], str) and re.fullmatch('[1-9][0-9]{0,19}', value['revision']) and
-            int(value['revision']) <= 18446744073709551615 and isinstance(value['views'], list), 'TEST_VIEWS_SNAPSHOT')
-    handles = []
-    for entry in value['views']:
-        require(isinstance(entry, dict) and set(entry) == {'handle', 'kind', 'viewId', 'methods'} and
-                isinstance(entry['handle'], str) and re.fullmatch(r'[a-f0-9]{32}\.[1-9][0-9]{0,19}', entry['handle']) and
-                int(entry['handle'].split('.')[1]) <= 18446744073709551615, 'TEST_VIEW_HANDLE')
-        handles.append(entry['handle'])
-    require(len(set(handles)) == len(handles), 'TEST_VIEW_HANDLE_DUPLICATE')
-
-def verify_views(observed, specs, lease):
-    before, after = observed.get('snapshot'), observed.get('afterClose')
-    view_snapshot(before, lease); view_snapshot(after, lease)
-    actual = [{k: v for k, v in entry.items() if k != 'handle'} for entry in before['views']]
-    require(sorted(actual, key=lambda s: s['viewId']) == sorted(specs, key=lambda s: s['viewId']), 'TEST_VIEWS_RESULT')
-    require(after['views'] == before['views'][1:] and int(after['revision']) == int(before['revision']) + 1 and
-            observed.get('staleRejected') is True, 'TEST_VIEW_CLOSE_RESULT')
-
-
-def scenario_contract(steps, paired, views, methods, timeout):
-    require(paired and isinstance(steps, list) and 1 <= len(steps) <= 16, 'TEST_SCENARIO')
-    known = {m['name'] for m in methods}; schemas = []
-    total = requests = 0
-    for step in steps:
-        require(isinstance(step, dict), 'TEST_SCENARIO_STEP')
-        action = step.get('action')
-        if action == 'request':
-            require(set(step) in ({'action', 'method', 'input', 'expected'}, {'action', 'method', 'input', 'expectedSchema'}) and
-                    isinstance(step['method'], str) and step['method'] in known and isinstance(step['input'], dict), 'TEST_SCENARIO_REQUEST')
-            size = len(encoded(step['input'])); total += size; requests += 1
-            require(size <= 8192 and total <= 32768, 'TEST_SCENARIO_INPUT_LIMIT')
-            expectation = step.get('expected', step.get('expectedSchema'))
-            require(isinstance(expectation, dict), 'TEST_SCENARIO_EXPECTATION')
-            if 'expectedSchema' in step:
-                schemas.append(expectation)
-            else:
-                require(expectation.get('kind') in ('success', 'failed', 'unknown', 'cancelled'), 'TEST_SCENARIO_OUTCOME')
-        elif action == 'closeView':
-            require(views is not None and set(step) == {'action', 'viewId'} and isinstance(step['viewId'], str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,63}', step['viewId']), 'TEST_SCENARIO_CLOSE')
-        elif action == 'snapshot':
-            require(views is not None and set(step) == {'action', 'views'}, 'TEST_SCENARIO_SNAPSHOT')
-            views_expectation(step['views'], views, empty=True)
-        else:
-            raise Failure('TEST_SCENARIO_ACTION')
-    require((requests + 2) * timeout <= 20000 and len(encoded(schemas)) <= 65536, 'TEST_SCENARIO_BUDGET')
-    return schemas
-
-
-def scenario_schemas(work, tools, schemas, checks=None):
-    filename = work / 'scenario-checks.json'
-    filename.write_bytes(encoded(dict(schemas=schemas, checks=checks)))
-    result = decode(run(['node', ROOT / 'scripts/plugin-dev-scenarios.mjs', tools, filename], 5))
-    require(json_equal(result, dict(validated=len(schemas), checked=len(checks or []))), 'TEST_SCENARIO_SCHEMAS')
-
-
-def scenario_results(work, tools, steps, observations, initial, lease, bind):
-    live = {entry['viewId']: entry for entry in initial['afterClose']['views']} if initial else {}
-    original = initial['snapshot']['views'] if initial else []
-    seen = {entry['handle'] for entry in original}
-    nonce = original[0]['handle'].split('.')[0] if original else None
-    high = max((int(entry['handle'].split('.')[1]) for entry in original), default=0)
-    revision = int(initial['afterClose']['revision']) if initial else 0
-    # Include the first, already closed registration in the caller's initial
-    # history so an old close/reopen cannot resurrect it under a later revision.
-    schemas, checks = [], []
-    def advance(value):
-        nonlocal live, high, nonce, revision
-        view_snapshot(value, lease)
-        current = {entry['viewId']: entry for entry in value['views']}
-        require(len(current) == len(value['views']) and int(value['revision']) >= revision, 'TEST_SCENARIO_VIEW_REVISION')
-        if int(value['revision']) == revision:
-            require(current == live, 'TEST_SCENARIO_VIEW_SAME_REVISION')
-        previous_high = high
-        old_handles = {entry['handle']: entry for entry in live.values()}
-        for view_id, entry in current.items():
-            if entry['handle'] in old_handles:
-                require(entry == old_handles[entry['handle']], 'TEST_SCENARIO_VIEW_BINDING')
-            else:
-                counter = int(entry['handle'].split('.')[1]); token = entry['handle'].split('.')[0]
-                require(entry['handle'] not in seen and (nonce is None or token == nonce) and counter > previous_high, 'TEST_SCENARIO_VIEW_RESURRECTION')
-                high = max(high, counter); nonce = token
-            seen.add(entry['handle'])
-        live = current; revision = int(value['revision'])
-        return current
-    for index, (step, observed) in enumerate(zip(steps, observations)):
-        action = step['action']
-        require(observed.get('case') == 'step-' + str(index) and observed.get('action', 'request') == action, 'TEST_SCENARIO_TRACE')
-        if action == 'request':
-            require(observed.get('confirmed') is True, 'TEST_SCENARIO_UNCONFIRMED')
-            if 'expected' in step:
-                require(json_equal(observed.get('outcome'), bind(step['expected'])), 'TEST_SCENARIO_RESPONSE')
-            else:
-                schemas.append(bind(step['expectedSchema'])); checks.append(observed.get('outcome'))
-        elif action == 'snapshot':
-            current = advance(observed.get('snapshot'))
-            actual = [{k: v for k, v in entry.items() if k != 'handle'} for entry in current.values()]
-            require(sorted(actual, key=lambda s: s['viewId']) == sorted(step['views'], key=lambda s: s['viewId']) and observed.get('staleRejected') is True, 'TEST_SCENARIO_VIEWS')
-        else:
-            previous = dict(live); previous_revision = revision
-            require(step['viewId'] in previous and observed.get('viewId') == step['viewId'] and observed.get('closed') is True, 'TEST_SCENARIO_CLOSED_VIEW')
-            del previous[step['viewId']]
-            current = advance(observed.get('afterClose'))
-            require(current == previous and revision == previous_revision + 1 and observed.get('staleRejected') is True, 'TEST_SCENARIO_CLOSE_RESULT')
-    if schemas:
-        scenario_schemas(work, tools, schemas, checks)
-
-
-def json_equal(a, b):
-    # JSON has a boolean type separate from numbers; Python's False == 0 must
-    # not turn a typed expected result into a passing business receipt.
-    if isinstance(a, bool) or isinstance(b, bool):
-        return type(a) is type(b) and a == b
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return a == b
-    if type(a) is not type(b):
-        return False
-    if isinstance(a, dict):
-        return a.keys() == b.keys() and all(json_equal(a[k], b[k]) for k in a)
-    if isinstance(a, list):
-        return len(a) == len(b) and all(json_equal(x, y) for x, y in zip(a, b))
-    return a == b
-
-
-def native_test(work, tools, core, package, host, contract, paired=False, execution=None, resource_root=None, processes=None, views=None):
-    required = ({'methods'} if paired or views else set()) | {'schemaVersion', 'command', 'arguments', 'method', 'input', 'expected', 'errorInput', 'errorKind'}
-    require(isinstance(contract, dict) and required <= set(contract) <= required | {'timeoutMs', 'steps'} | ({'views'} if views else set()) | ({'resource', *(['resourceConsumer'] if paired else [])} if resource_root else set()) and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
-    timeout = contract.get('timeoutMs', 1000)
-    require(type(timeout) is int and 1 <= timeout <= 10000, 'TEST_REQUEST_TIMEOUT')
-    if views:
-        views_expectation(contract.get('views'), views)
-    steps = contract.get('steps')
-    if 'steps' in contract:
-        require(paired and steps is not None, 'TEST_SCENARIO_SIDE')
-    resource = contract.get('resource')
-    client_reads = 'resourceConsumer' in contract
-    require(not client_reads or (contract['resourceConsumer'] == 'client' and resource is not None), 'TEST_RESOURCE_CONSUMER')
-    if resource is not None:
-        require(isinstance(resource, dict) and set(resource) == {'sha256', 'bytes', 'displayName', 'mediaType'} and isinstance(resource['sha256'], str) and re.fullmatch('[a-f0-9]{64}', resource['sha256']) and type(resource['bytes']) is int and 0 <= resource['bytes'] <= 262144, 'TEST_RESOURCE_EXPECTATION')
-        require(all(isinstance(resource[k], str) and 0 < len(resource[k].encode()) <= size and '\0' not in resource[k] for k, size in [('displayName', 1024), ('mediaType', 128)]), 'TEST_RESOURCE_METADATA')
-    require(isinstance(contract['command'], str) and isinstance(contract['method'], str) and
-            re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', contract['method']) and len(contract['method']) <= 64, 'TEST_METHOD')
-    require(isinstance(contract['arguments'], list) and len(contract['arguments']) <= 32 and all(isinstance(a, str) and '\0' not in a and len(a.encode()) <= 4096 for a in contract['arguments']), 'TEST_ARGUMENTS')
-    require(isinstance(contract['input'], dict) and isinstance(contract['errorInput'], dict) and isinstance(contract['expected'], dict) and contract['errorKind'] in ('failed', 'unknown', 'cancelled'), 'TEST_OUTCOMES')
-    if client_reads:
-        require(json_equal(contract['expected'].get('resource'), resource), 'TEST_RESOURCE_CLIENT_RECEIPT')
-    core = Path(core).resolve(strict=True)
-    require(core.is_relative_to(TMP), 'TEST_BUILD_USE_PROJECT_TMP')
-    cache = (core / 'CMakeCache.txt').read_text()
-    require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
-    profiles = list(host.values()) if paired else [host]
-    runtime = execution['runtime'] if execution else 'portable-js'
-    def capabilities(side):
-        return ['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else []), *(['ui.views'] if views and views.get('registry') and side == 'client' else [])]
-    def profile_matches(h):
-        expected = set(capabilities(h['side']))
-        available = set(h['capabilities'])
-        advertised_ui = {'ui.table', 'ui.diff', 'ui.task', 'ui.views'} if views and h['side'] == 'client' else set()
-        return h['side'] in ('client', 'executor') and expected <= available <= expected | advertised_ui and h['runtimes'] == ([runtime] if h['side'] == 'executor' else ['portable-js'])
-    require(all(profile_matches(h) for h in profiles), 'TEST_RPC_PROFILE_ONLY')
-    if paired or views:
-        methods = contract['methods']
-        require(isinstance(methods, list) and 1 <= len(methods) <= 16 and all(isinstance(m, dict) and set(m) == {'name', 'receiver'} and isinstance(m['name'], str) and re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', m['name']) and len(m['name']) <= 64 and m['receiver'] in ('client', 'executor') for m in methods), 'TEST_PAIR_METHODS')
-        require(len({m['name'] for m in methods}) == len(methods), 'TEST_PAIR_DUPLICATE')
-        target = next((m['receiver'] for m in methods if m['name'] == contract['method']), None)
-        require(target is not None and {m['receiver'] for m in methods} == {'client', 'executor'} and (paired or target == 'client'), 'TEST_PAIR_DIRECTION')
-        if views:
-            directions = {m['name']: m['receiver'] for m in methods}
-            require(all(directions.get(m) == 'executor' for spec in contract['views'] for m in spec['methods'].values()), 'TEST_VIEW_DIRECTION')
-    if steps is not None:
-        schemas = scenario_contract(steps, paired, views, methods, timeout)
-        scenario_schemas(work, tools, schemas)
-    side = 'paired' if paired else host['side']
-    compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
-    libraries = [core / 'libghosterm_core.a', core / 'libghosterm_quickjs.a', '-lm']
-    if 'GHOSTERM_WITH_LIBSSH2:BOOL=ON' in cache:
-        libraries += ['-L' + str(ROOT / 'build/host-native/lib'), '-lssh2']
-    probe = work / 'probe'
-    run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/include'), ROOT / ('scripts/probes/plugin-pair-testkit.c' if paired else 'scripts/probes/plugin-testkit.c'), *libraries, '-o', probe], 120)
-    extra = []
-    if execution:
-        stage = work / 'execution'; stage.mkdir(mode=0o700)
-        extra = [stage, *[execution.get(k, '') for k in ['nodeExecutable', 'nodeSHA256', 'nodeSDKDirectory', 'nodeSDKCatalogSHA256']]]
-    if resource_root:
-        store = work / 'resources'; store.mkdir(mode=0o700)
-        for name in ['host', 'executor']: (store / name).mkdir(mode=0o700)
-        extra += [resource_root, store, resource['sha256'] if resource else '', str(resource['bytes']) if resource else '0', resource['displayName'] if resource else '', resource['mediaType'] if resource else '']
-    if processes:
-        extra += [processes['workspaceRoot'], str(processes['lifetimeMs']), str(processes['outputBytes']), str(len(processes['programs']))]
-        for p in processes['programs']: extra += [p[k] for k in ['name', 'executable', 'version', 'sha256']]
-        extra.append(str(len(processes['environment'])))
-        for e in processes['environment']: extra += [e['name'], e['value']]
-    if views:
-        extra.append(str(sum({'table': 1, 'diff': 2, 'task': 4}[k] for k in views['kinds']) + (8 if views.get('registry') else 0)))
-        if not paired:
-            extra += [str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods]]
-    if steps is not None:
-        extra.append(str(len(steps)))
-        for step in steps:
-            extra += [step['action'], step.get('method', step.get('viewId', '')), encoded(step['input']).decode() if step['action'] == 'request' else '']
-    prefix = ('timed-' + str(timeout) + '-' if timeout != 1000 else '') + ('steps-' if steps is not None else '') + ('views-' if views else '') + ('process-' if processes else '')
-    if paired:
-        trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), prefix + ('resources-read-' if client_reads else 'resources-' if resource_root else '') + target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root or processes))
-    else:
-        mode = runtime if execution else host['side']
-        trace = run([probe, package, encoded(host).decode(), prefix + ('resources-' if resource_root else '') + mode, contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root or processes))
-    if execution: require(not list(stage.iterdir()), 'TEST_EXECUTION_STAGE_RETAINED')
-    observations = [decode(line) for line in trace.splitlines()]
-    require([o['case'] for o in observations] == ['lease', 'response', 'error', 'cancel', *(['views'] if views else []), *['step-' + str(i) for i in range(len(steps or []))], *(['resource'] if resource_root else []), 'lifecycle'], 'TEST_DISCOVERY')
-    lease = observations[0]
-    require(lease.get('side') == side, 'TEST_RUNTIME_SIDE')
-    def bind(value):
-        if value == '${instanceId}': return lease['instanceId']
-        if value == '${epoch}': return lease['epoch']
-        if isinstance(value, dict): return {key: bind(child) for key, child in value.items()}
-        if isinstance(value, list): return [bind(child) for child in value]
-        return value
-    require(observations[1]['confirmed'] and json_equal(observations[1]['outcome'], dict(kind='success', value=bind(contract['expected']))), 'TEST_RESPONSE')
-    require(observations[2]['outcome']['kind'] == contract['errorKind'], 'TEST_ERROR_OUTCOME')
-    require(observations[3]['outcome'] == dict(kind='cancelled', effect='none'), 'TEST_REQUEST_CANCEL')
-    if views:
-        verify_views(observations[4], contract['views'], lease)
-    if steps is not None:
-        scenario_results(work, tools, steps, observations[4 + bool(views):4 + bool(views) + len(steps)], observations[4] if views else None, lease, bind)
-    lifecycle = observations[-1]
-    require(all(lifecycle.get(key) is True for key in ('activation', 'budgetAdmission', 'stale', 'revocation', 'engineReleased', 'fdBalance')), 'TEST_LIFECYCLE')
-    if views:
-        require(lifecycle.get('viewsRevoked') is True, 'TEST_VIEWS_REVOCATION')
-    if paired:
-        require(all(lifecycle.get(k) is True for k in ('clientActivated', 'executorActivated', 'clientEngineReleased', 'executorEngineReleased')), 'TEST_PAIR_LIFECYCLE')
-    if execution:
-        require(all(lifecycle.get(k) is True for k in ('externalProcess', 'childActivated', 'childExited')), 'TEST_EXECUTION_LIFECYCLE')
-    if resource_root:
-        require(observations[4 + bool(views) + len(steps or [])].get('verified') is True and observations[4 + bool(views) + len(steps or [])].get('released') is True and observations[4 + bool(views) + len(steps or [])].get('received') is bool(resource), 'TEST_RESOURCE_RESULT')
-        require(observations[4 + bool(views) + len(steps or [])].get('consumer', 'native') == ('client' if client_reads else 'native'), 'TEST_RESOURCE_CONSUMER_RESULT')
-    if resource_root:
-        scope = ('real paired Client/Executor RPC; ' if paired else '') + 'real public Core scoped resource publication; ' + ('Client SDK reads checked by RPC expected value, Native checks no pending snapshot and released stores; ' if client_reads else 'Native snapshot bytes/digest/pins; ') + 'explicit Executor-only read-only root; no OS sandbox/RSS, Native UI or SSH'
-    elif execution:
-        scope = ('real public Core Portable Client and authorized Node/Exec paired RPC;' if paired else 'real public Core authorized Node/Exec process RPC; native peer;') + ' pinned Node/SDK; observed activation/reap/stage cleanup; no OS sandbox/RSS, business cancellation, Native UI or SSH'
-    elif paired:
-        scope = 'real Core/QuickJS paired Client/Executor RPC fixture; no OS services, Native UI or SSH'
-    else:
-        scope = 'real Core/QuickJS selected-side RPC fixture with a native opposite peer; configured budget admission, not OOM/RSS; request cancellation, not business job cancellation; no paired JS activation, OS services, Native UI or SSH'
-    if processes and not resource_root:
-        scope = 'real public Core authorized business ProcessService and ' + ('paired Client/Executor' if paired else 'Executor/native peer') + ' RPC; observed Runtime cleanup; no Native UI, SSH, RSS or OS sandbox'
-    if processes:
-        scope += '; public Core ProcessService with explicit program pins, cwd, selected environment and budgets; business receipts via RPC; no OS filesystem sandbox'
-    if views:
-        scope += '; explicitly authorized Client ctx.views; Native registration snapshots, independent close/stale handle/revocation; no native rendering receipt'
-    if steps is not None:
-        scope += '; ordered real RPC checks and headless Native view lifecycle; no GUI rendering'
-    return dict(kind='tested', side=side, observations=observations, probeSHA256=sha(probe.read_bytes()), coreSHA256=sha((core / 'libghosterm_core.a').read_bytes()),
-                runtime=runtime, requestTimeoutMs=timeout, scenarioSteps=len(steps or []), viewServices=([*['ui.' + k for k in views['kinds']], *(['ui.views'] if views.get('registry') else [])] if views else []), services=(['resources'] if resource_root else []) + (['processes'] if processes else []) + (['views'] if views else []), scope=scope)
-
+    return dict(kind='initialized', id=plugin_id, path=str(destination.absolute()), installation=False)
 
 
 def main():
     TMP.mkdir(exist_ok=True)
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='action', required=True)
+    manifest = commands.add_parser('lua-manifest', help='Read the static declaration from a Lua entry')
+    manifest.add_argument('entry', type=Path)
+    for name, aliases, help_text in (
+        ('check', [], 'Check the static Lua package declaration'),
+        ('build', ['lua-build'], 'Build a Lua package from its static declaration'),
+        ('pack', ['lua-pack'], 'Build a deterministic Lua ZIP artifact'),
+    ):
+        operation = commands.add_parser(name, aliases=aliases, help=help_text)
+        operation.set_defaults(action=name)
+        operation.add_argument('project', type=Path, help='Project directory or standalone .lua source')
+        if name == 'check':
+            operation.add_argument('--host-json', type=Path)
+        else:
+            operation.add_argument('--out', type=Path, required=True)
     init = commands.add_parser('init'); init.add_argument('directory', type=Path); init.add_argument('--id', required=True); init.add_argument('--command', required=True); init.add_argument('--publisher', required=True)
-    for name in ('check', 'build', 'pack', 'test'):
-        command = commands.add_parser(name)
-        source = command.add_mutually_exclusive_group(required=True); source.add_argument('--project', type=Path); source.add_argument('--package', type=Path)
-        command.add_argument('--tools', required=True, type=Path); command.add_argument('--host-json', type=Path)
-        command.add_argument('--registry-package', type=Path, action='append', default=[])
-        if name in ('build', 'pack'): command.add_argument('--out', type=Path, required=True)
-        if name == 'test':
-            command.add_argument('--contract', type=Path, required=True); command.add_argument('--core-build', type=Path, required=True)
-            command.add_argument('--side', choices=('client', 'executor', 'paired'), default='executor', help='activate one side with a native peer, or both JS sides with paired')
-            command.add_argument('--execution-json', type=Path, help='explicit pinned Node or Exec execution configuration')
-            command.add_argument('--allow-process-execution', action='store_true', help='authorize this development execution only')
-            command.add_argument('--resource-root', type=Path, help='explicit read-only Executor workspace root for a single or paired test')
-            command.add_argument('--allow-resource-access', action='store_true', help='authorize this root for this test only')
-            command.add_argument('--process-json', type=Path, help='explicit business ProcessService mappings, cwd, environment and budgets')
-            command.add_argument('--allow-business-processes', action='store_true', help='authorize these business programs for this test only')
-            command.add_argument('--views-json', type=Path, help='explicit Client Native view kinds: table, diff, task')
-            command.add_argument('--allow-native-views', action='store_true', help='authorize local view registration for this test only')
+    test = commands.add_parser('test', help='Run a Lua command in a local Core Session')
+    test.add_argument('project', type=Path, help='Project directory or standalone .lua source')
+    test.add_argument('--core-build', required=True, type=Path)
+    test.add_argument('--command', required=True)
+    test.add_argument('--paired', action='store_true', help='Start both declared Lua roles')
+    test.add_argument('--arg', action='append', default=[], help='Command argument, repeated in order')
     release = commands.add_parser('release', help='candidate offline signed releases; no installation')
     release_commands = release.add_subparsers(dest='release_action', required=True)
     channel = release_commands.add_parser('verify-policy', help='verify a candidate channel snapshot')
@@ -648,7 +307,6 @@ def main():
         command = release_commands.add_parser(name)
         command.add_argument('--artifact', type=Path, required=True)
         command.add_argument('--policy', type=Path, required=True, help='explicit trusted channel public-key policy')
-        command.add_argument('--tools', type=Path, required=True)
         command.add_argument('--host-json', type=Path)
         if name == 'sign':
             command.add_argument('--key-id', required=True)
@@ -663,85 +321,97 @@ def main():
             command.add_argument('--policy-signature', type=Path)
             command.add_argument('--record-state', type=Path)
     args = parser.parse_args()
+    if args.action == 'lua-manifest':
+        require(args.entry.is_file() and args.entry.suffix == '.lua', 'LUA_ENTRY_FILE')
+        with args.entry.open('rb') as stream:
+            return extract_manifest(stream.read(MAX_SOURCE_BYTES + 1)), 0
+    if args.action in ('check', 'build', 'pack', 'test'):
+        if args.action in ('build', 'pack'):
+            project, output = args.project.resolve(), args.out.resolve()
+            require(not project.is_relative_to(output) and not output.is_relative_to(project),
+                    'OUTPUT_SOURCE_OVERLAP')
+        with tempfile.TemporaryDirectory(prefix='plugin-lua-build-', dir=scratch_root()) as directory:
+            work = Path(directory)
+            snapshot, package = work / 'snapshot', work / 'package'
+            snapshot.mkdir()
+            package.mkdir()
+            if args.project.suffix == '.lua' and not args.project.is_dir():
+                owner = os.open(args.project.parent, os.O_RDONLY | os.O_DIRECTORY |
+                                os.O_NOFOLLOW | os.O_CLOEXEC)
+                try:
+                    files = {'main.lua': read_member(args.project.name, owner,
+                                                     os.fstat(owner).st_dev, MAX_SOURCE_BYTES)}
+                finally:
+                    os.close(owner)
+            else:
+                files = capture(args.project, snapshot, project=True)
+            require('main.lua' in files, 'LUA_ENTRY_FILE')
+            metadata, paths = release_manifest(files['main.lua'], files, member)
+            generated = {'manifest.json': encoded(metadata)}
+            for path in paths:
+                generated[path] = files[path]
+            integrity = {
+                'schemaVersion': 1,
+                'members': [{'path': path, 'bytes': len(data), 'sha256': sha(data)}
+                            for path, data in sorted(generated.items())],
+            }
+            generated['integrity.json'] = encoded(integrity)
+            for path, data in generated.items():
+                target = package / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+            if args.action == 'check':
+                from plugin_release import checked_lua_archive
+                host = read_json(args.host_json) if args.host_json else None
+                _, compatibility = checked_lua_archive(sys.modules[__name__], package, host)
+                return {'kind': 'checked', 'manifest': metadata, 'compatibility': compatibility,
+                        'packageSHA256': sha(generated['integrity.json'])}, 0
+            if args.action == 'test':
+                from plugin_release import checked_lua_archive
+                sides = ('client', 'executor') if args.paired else ('client',)
+                methods = []
+                for side in sides:
+                    host = dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['lua'],
+                                capabilities=['session.rpc'])
+                    checked_lua_archive(sys.modules[__name__], package, host)
+                    methods.extend(('C:' if side == 'client' else 'E:') + name
+                                   for name in metadata[side].get('rpc', []))
+                if args.paired:
+                    require(len(methods) <= 16 and len({method[2:] for method in methods}) == len(methods),
+                            'TEST_PAIR_METHODS')
+                require(any(' '.join(command['path']) == args.command for command in metadata['commands']),
+                        'TEST_COMMAND')
+                core = args.core_build.resolve(strict=True)
+                probe = core / 'test_lua_client'
+                require(probe.is_file() and os.access(probe, os.X_OK), 'TEST_REQUIRES_LUA_CLIENT_BINARY')
+                mode = 'paired' if args.paired else 'client'
+                negotiated = [*methods, '--'] if args.paired else []
+                result = subprocess.run([probe, mode, package, args.command, *negotiated, *args.arg],
+                                        cwd=work, capture_output=True, timeout=15)
+                if result.returncode:
+                    sys.stderr.buffer.write(result.stderr)
+                    raise Failure('TEST_CLIENT_ACTIVATION', 5)
+                return {'kind': 'tested', 'side': mode, 'command': args.command,
+                        'packageSHA256': sha(generated['integrity.json'])}, 0
+            if args.action == 'pack':
+                archive = work / 'package.zip'
+                with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED,
+                                     allowZip64=False) as zipped:
+                    for path, data in sorted(generated.items()):
+                        info = zipfile.ZipInfo(path, date_time=(1980, 1, 1, 0, 0, 0))
+                        info.create_system = 3
+                        info.external_attr = 0o100644 << 16
+                        zipped.writestr(info, data)
+                digest = sha(archive.read_bytes())
+                publish(archive, args.out)
+                return {'kind': 'packed', 'output': str(args.out.absolute()), 'sha256': digest}, 0
+            publish(package, args.out)
+        return {'kind': 'built', 'output': str(args.out.absolute()),
+                'packageSHA256': sha(generated['integrity.json'])}, 0
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
     if args.action == 'release':
         import plugin_release
         return plugin_release.execute(args, sys.modules[__name__])
-    require(args.action != 'build' or args.project is not None, 'BUILD_REQUIRES_PROJECT')
-    execution = None
-    resource_root = None
-    if args.action == 'test' and (args.resource_root or args.allow_resource_access):
-        require(args.resource_root is not None and args.resource_root.is_absolute(), 'TEST_RESOURCE_ROOT')
-        require(args.allow_resource_access, 'TEST_RESOURCE_APPROVAL', 6)
-        require(args.side in ('executor', 'paired'), 'TEST_RESOURCE_SIDE')
-        resource_root = args.resource_root
-    if args.action == 'test' and (args.execution_json or args.allow_process_execution):
-        require(args.execution_json is not None, 'TEST_EXECUTION_CONFIG')
-        require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)
-        require(args.side in ('executor', 'paired'), 'TEST_EXECUTION_SIDE')
-        execution = execution_config(read_json(args.execution_json))
-        require(args.host_json is not None, 'TEST_EXECUTION_HOST')
-    processes = None
-    if args.action == 'test' and (args.process_json or args.allow_business_processes):
-        require(args.process_json is not None, 'TEST_PROCESS_CONFIG')
-        require(args.allow_business_processes, 'TEST_PROCESS_APPROVAL', 6)
-        require(args.side in ('executor', 'paired'), 'TEST_PROCESS_SIDE')
-        processes = process_config(read_json(args.process_json))
-        require(resource_root is None or str(resource_root) == processes['workspaceRoot'], 'TEST_PROCESS_ROOT_MISMATCH')
-    views = None
-    if args.action == 'test' and (args.views_json or args.allow_native_views):
-        require(args.views_json is not None, 'TEST_VIEWS_CONFIG')
-        require(args.allow_native_views, 'TEST_VIEWS_APPROVAL', 6)
-        require(args.side in ('client', 'paired'), 'TEST_VIEWS_SIDE')
-        views = views_config(read_json(args.views_json))
-    tools = tools_path(args.tools)
-    source = args.project or args.package
-    if hasattr(args, 'out'):
-        require(not args.out.resolve().is_relative_to(source.resolve()) and not source.resolve().is_relative_to(args.out.resolve()), 'OUTPUT_SOURCE_OVERLAP')
-    with tempfile.TemporaryDirectory(prefix='plugin-dev-', dir=scratch_root()) as directory:
-        work = Path(directory); snapshot = work / 'source'; snapshot.mkdir()
-        captured = capture(source, snapshot, bool(args.project))
-        host = read_json(args.host_json) if args.host_json else None
-        paired = args.action == 'test' and args.side == 'paired'
-        if args.action == 'test' and host is None:
-            def profile(side): return dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc', *(['resource.receive'] if resource_root else []), *(['file.readScoped'] if resource_root and side == 'executor' else []), *(['process.spawn', 'process.pipes'] if processes and side == 'executor' else []), *(['ui.' + k for k in views['kinds']] if views and side == 'client' else []), *(['ui.views'] if views and views.get('registry') and side == 'client' else [])])
-            host = {s: profile(s) for s in ('client', 'executor')} if paired else profile(args.side)
-        if paired:
-            require(isinstance(host, dict) and set(host) == {'client', 'executor'} and all(isinstance(host[s], dict) and host[s].get('side') == s for s in host), 'TEST_PAIR_HOSTS')
-        elif args.action == 'test':
-            require(isinstance(host, dict) and host.get('side') == args.side, 'TEST_HOST_SIDE')
-        registry = []
-        for index, item in enumerate(args.registry_package):
-            fixed = work / ('registry-' + str(index)); fixed.mkdir(); capture(item, fixed)
-            registry.append(str(fixed))
-        package = work / 'package' if args.project else snapshot
-        report = worker(work, tools, snapshot, package if args.project else None, host['client'] if paired else host, registry, args.action == 'test', execution, bool(resource_root), bool(processes), views)
-        if paired:
-            report['checkedSide'] = 'client'
-            if report.get('exitCode', 0) == 0:
-                report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root), bool(processes), views)
-                report['checkedSide'] = 'executor'
-        if args.action == 'check': return report, report.get('exitCode', 0)
-        if report.get('exitCode', 0) != 0 and host is not None:
-            return report, report['exitCode']
-        if args.action == 'build':
-            digest = sha((package / 'integrity.json').read_bytes())
-            publish(package, args.out)
-            return dict(kind='built', output=str(args.out.absolute()), packageSHA256=digest, compatibility=report['compatibility'], installation=False), 0
-        if args.action == 'pack':
-            archive = work / 'package.zip'
-            with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED, allowZip64=False) as zipped:
-                for file in sorted(package.rglob('*')):
-                    if file.is_file():
-                        info = zipfile.ZipInfo(file.relative_to(package).as_posix(), date_time=(1980, 1, 1, 0, 0, 0)); info.create_system = 3; info.external_attr = 0o100644 << 16
-                        zipped.writestr(info, file.read_bytes())
-            publish(archive, args.out)
-            return dict(kind='packed', output=str(args.out.absolute()), sha256=sha(archive.read_bytes()), bytes=archive.stat().st_size, signature='none', installation=False), 0
-        require(report['compatibility'] == 'compatible', 'TEST_PROFILE_UNSUPPORTED')
-        contract = read_json(args.contract)
-        result = native_test(work, tools, args.core_build, package, host, contract, paired, execution, resource_root, processes, views)
-        result['inputs'] = {name: sha(data) for name, data in captured.items()}
-        return result, 0
 
 
 if __name__ == '__main__':

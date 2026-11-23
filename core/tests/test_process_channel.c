@@ -11,7 +11,7 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
-#ifdef GT_TEST_PLUGIN_JS
+#ifdef GT_TEST_PROCESS_CHANNEL_LUA
 #include "base/sha256.h"
 #endif
 
@@ -314,66 +314,18 @@ int main(int argc, char **argv) {
         c = config(!strcmp(mode, "capacity") ? "hold" : "session");
         open_child(&c);
         adopt(strcmp(mode, "capacity") != 0);
-#ifdef GT_TEST_PLUGIN_JS
+#ifdef GT_TEST_PROCESS_CHANNEL_LUA
         if (!strcmp(mode, "runtime")) {
-            const char *source = "export function activate(){return {dispose(){}}}";
-            CHECK(argc == 5);
-            const char *names[] = {"index.js",
-                                   "codec.js",
-                                   "session.js",
-                                   "wire-contract.js",
-                                   "table.js",
-                                   "diff.js",
-                                   "task.js",
-                                   "views.js",
-                                   "form.js"};
-            const char *ids[] = {"sdk:/index.js",
-                                 "sdk:/codec.js",
-                                 "sdk:/session.js",
-                                 "sdk:/wire-contract.js",
-                                 "sdk:/table.js",
-                                 "sdk:/diff.js",
-                                 "sdk:/task.js",
-                                 "sdk:/views.js",
-                                 "sdk:/form.js"};
-
-            enum {
-                SDK_COUNT = sizeof(names) / sizeof(names[0])
-            };
-
-            gt_ext_runtime_module_t modules[SDK_COUNT + 1] = {{0}};
-            char *texts[SDK_COUNT];
-            for (size_t n = 0; n < SDK_COUNT; n++) {
-                char path[4096];
-                CHECK(snprintf(path, sizeof(path), "%s/%s", argv[4], names[n]) > 0);
-                FILE *file = fopen(path, "rb");
-                CHECK(file && !fseek(file, 0, SEEK_END));
-                long size = ftell(file);
-                CHECK(size > 0 && size <= 131072 && !fseek(file, 0, SEEK_SET));
-                texts[n] = calloc(1, (size_t)size + 1);
-                CHECK(texts[n] && fread(texts[n], 1, (size_t)size, file) == (size_t)size &&
-                      !fclose(file));
-                modules[n] = (gt_ext_runtime_module_t){
-                    .name = ids[n], .source = texts[n], .size = (size_t)size};
-                gt_sha256_t digest;
-                gt__sha256_init(&digest);
-                CHECK(gt__sha256_update(&digest, texts[n], (size_t)size) &&
-                      gt__sha256_final(&digest, modules[n].sha256));
-            }
-            modules[SDK_COUNT] = (gt_ext_runtime_module_t){
-                .name = "plugin:/entry.js", .source = source, .size = strlen(source)};
+            const char source[] = "return {}";
+            gt_ext_runtime_module_t module = {
+                .name = "plugin:/entry.lua", .source = source, .size = sizeof(source) - 1};
             gt_sha256_t hash;
             gt__sha256_init(&hash);
-            CHECK(gt__sha256_update(&hash, source, strlen(source)) &&
-                  gt__sha256_final(&hash, modules[SDK_COUNT].sha256));
-            gt_ext_runtime_config_t rc = {.modules = modules,
-                                          .module_count = SDK_COUNT + 1,
-                                          .entry = "plugin:/entry.js",
-                                          .role = GT_EXT_HOST};
+            CHECK(gt__sha256_update(&hash, source, module.size) &&
+                  gt__sha256_final(&hash, module.sha256));
+            gt_ext_runtime_config_t rc = {
+                .modules = &module, .module_count = 1, .entry = module.name, .role = GT_EXT_HOST};
             CHECK(gt_ext_runtime_open(&session, &rc, &runtime) == GT_OK && !session && runtime);
-            for (size_t n = 0; n < SDK_COUNT; n++) {
-                free(texts[n]);
-            }
             CHECK(!info().child_exited);
             CHECK(gt_ext_runtime_step(runtime) == GT_EXT_RUNTIME_ACTIVE);
         }

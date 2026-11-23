@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      ORG_GRADLE_PROJECT_ghostermPluginJs: ${{ github.event_name != 'pull_request' && vars.ANDROID_PLUGIN_JS == 'true' && 'true' || 'false' }}
+      ORG_GRADLE_PROJECT_ghostermPluginLua: ${{ github.event_name != 'pull_request' && vars.ANDROID_PLUGIN_LUA == 'true' && 'true' || 'false' }}
       ORG_GRADLE_PROJECT_ghostermPluginChannel: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
       ORG_GRADLE_PROJECT_ghostermPluginChannelRoot: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
       ORG_GRADLE_PROJECT_ghostermPluginChannelUrl: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
@@ -47,7 +47,7 @@ jobs:
           version="$(bash scripts/resolve-formal-release-version.sh "$REQUESTED_VERSION")"
           printf 'ORG_GRADLE_PROJECT_ghostermReleaseVersion=%s\n' "$version" >> "$GITHUB_ENV"
       - name: Verify plugin release channel
-        if: env.ORG_GRADLE_PROJECT_ghostermPluginJs == 'true'
+        if: env.ORG_GRADLE_PROJECT_ghostermPluginLua == 'true'
         shell: bash
         run: |
           bash scripts/check-plugin-channel-url.sh \
@@ -67,8 +67,11 @@ jobs:
           mkdir -p tmp/android-ci
           export TMPDIR="$PWD/tmp/android-ci"
           git submodule update --init --depth 1 vendor/ghostty
-          if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
-            git submodule update --init --depth 1 vendor/quickjs-ng
+          if [ "$ORG_GRADLE_PROJECT_ghostermPluginLua" = true ]; then
+            archive="$TMPDIR/lua-5.5.1.tar.gz"
+            curl --fail --silent --show-error --location --retry 3 \
+              https://www.lua.org/ftp/lua-5.5.1.tar.gz -o "$archive"
+            printf 'ORG_GRADLE_PROJECT_ghostermLuaArchive=%s\n' "$archive" >> "$GITHUB_ENV"
           fi
           curl --fail --location --retry 3 https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o tmp/android-ci/zig.tar.xz
           echo '70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  tmp/android-ci/zig.tar.xz' | sha256sum -c -
@@ -110,10 +113,10 @@ jobs:
           test "${#apks[@]}" -eq 1
           python3 scripts/check-android-package-paths.py "${apks[0]}"
           profile=disabled
-          if [ "$ORG_GRADLE_PROJECT_ghostermPluginJs" = true ]; then
-            profile=enabled
+          if [ "$ORG_GRADLE_PROJECT_ghostermPluginLua" = true ]; then
+            profile=lua
           fi
-          python3 scripts/check-android-plugin-license.py "${apks[0]}" --plugin-js "$profile"
+          python3 scripts/check-android-plugin-license.py "${apks[0]}" --runtime "$profile"
       - name: Verify signed installable APK
         if: github.event_name != 'pull_request'
         run: |

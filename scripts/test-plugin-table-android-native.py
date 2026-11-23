@@ -48,7 +48,8 @@ def load(name, filename):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build', type=Path, required=True, help='JS/SSH-enabled host gterm build')
+    parser.add_argument('--build', type=Path, required=True, help='Lua/SSH-enabled host gterm build')
+    parser.add_argument('--lua-archive', type=Path, required=True, help='Pinned Lua 5.5.1 source archive')
     parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--receipt', type=Path, required=True)
     parser.add_argument('--api', action='append', choices=('29', '36'))
@@ -56,21 +57,23 @@ def main():
     sample_mode = parser.add_mutually_exclusive_group()
     sample_mode.add_argument('--form', action='store_true', help='run the Native form controls and SSH form scenario')
     sample_mode.add_argument('--logs', action='store_true', help='run Native log search over SSH')
+    sample_mode.add_argument('--project-samples', action='store_true', help='render both sample task lists over SSH')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
     args = parser.parse_args()
-    if (args.form or args.logs) and (args.mutate or args.case): parser.error('table mutation cases require the table package')
+    if (args.form or args.logs or args.project_samples) and (args.mutate or args.case): parser.error('table mutation cases require numeric table samples')
     selected_tests, expected_tests = (FORM_TESTS, 2) if args.form else (TESTS, 24)
     actual_test = FORM_ACTUAL if args.form else ACTUAL
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
     for path in (build, package, receipt):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('build, package and receipt must use project tmp/')
     cache = (build / 'CMakeCache.txt').read_text()
-    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_JS', 'GHOSTERM_WITH_LIBSSH2')):
-        parser.error('build explicit JS/SSH-on gterm first')
+    if any(option + ':BOOL=ON' not in cache for option in ('GHOSTERM_WITH_PLUGIN_LUA', 'GHOSTERM_WITH_LIBSSH2')):
+        parser.error('build explicit Lua/SSH-on gterm first')
+    lua_archive = args.lua_archive.resolve(strict=True)
     inputs = {}
     sample_name = 'form' if args.form else 'logs' if args.logs else 'table'
     sample = f'plugins/official/{sample_name}'
-    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'packages/plugin-sdk', sample):
+    for folder in ('android', 'terminal/android', 'core/src', 'core/include', 'core/cmake', sample):
         for path in (ROOT / folder).rglob('*'):
             if path.is_file() and not any(part in ('build', '.gradle', '.kotlin', '.cxx') for part in path.relative_to(ROOT / folder).parts):
                 if path.name != 'local.properties': inputs[str(path.relative_to(ROOT))] = sha(path)
@@ -81,7 +84,8 @@ def main():
     if any(b'GT_ANDROID_TABLE_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.kt')):
         raise RuntimeError('leftover Native table mutation')
     package_hashes = {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}
-    binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}
+    binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a'),
+                'luaArchive': sha(lua_archive)}
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.with_suffix('.inputs.json').write_text(json.dumps(dict(accepted=False, inputs=inputs,
         package=package_hashes, binaries=binaries), indent=2) + '\n')
@@ -96,7 +100,7 @@ def main():
         work = Path(temporary); source = work / 'h'
         for folder in ('android', 'terminal/android'):
             shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', '.gradle', '.kotlin', '.cxx', 'local.properties'))
-        for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
+        for folder in ('core', 'vendor', 'build', 'assets', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
         env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary,
@@ -131,7 +135,8 @@ def main():
         apks = [app / 'debug/app-debug.apk', app / 'androidTest/debug/app-debug-androidTest.apk']
         def compile_apks(label):
             run(label, [source / 'android/gradlew', '-p', source / 'android', '--offline', '--no-daemon', '--max-workers=2',
-                '-Dorg.gradle.parallel=false', '-PghostermPluginJs=true', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
+                '-Dorg.gradle.parallel=false', '-PghostermPluginLua=true', f'-PghostermLuaArchive={lua_archive}',
+                ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 600)
             return [sha(p) for p in apks]
         baseline = compile_apks('build-baseline')
 
@@ -170,13 +175,15 @@ def main():
                         test('api' + api + '-baseline')
                         print(f'PASS API{api}: {expected_tests} Native model/codec/UI tests', flush=True)
 
-                        def actual(label, route, count, red=False):
+                        def actual(label, route, count, red=False, project=None):
                             token = secrets.token_hex(24); mappings = []
                             payload = dict(route=route, count=count, sample=sample_name, package=str(package), gterm=str(build / 'gterm'), ports=list(ports),
                                 temporary=str(work),
                                 hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                                 packageDigest=sha(package / 'integrity.json'), packageFiles={p.relative_to(package).as_posix():
                                     base64.b64encode(p.read_bytes()).decode('ascii') for p in package.rglob('*') if p.is_file()})
+                            if project is not None:
+                                payload['project'] = project
                             ephemeral = run(label + '-ephemeral', [*adb, 'shell', 'cat', '/proc/sys/net/ipv4/ip_local_port_range']).split()
                             if len(ephemeral) != 2 or not all(v.isdigit() for v in ephemeral): raise RuntimeError('Device ephemeral range missing')
                             low, high = map(int, ephemeral)
@@ -214,9 +221,14 @@ def main():
                                     if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
                             finally:
                                 for device in mappings: run(label + '-remove-' + str(device), [*adb, 'reverse', '--remove', f'tcp:{device}'])
-                            if not red: records.append(dict(api=api, route=route, count=count))
+                            if not red: records.append(dict(api=api, route=route, count=count, project=project))
 
                         for route in ('direct', 'jump'):
+                            if args.project_samples:
+                                for project in ('sample-a', 'sample-b'):
+                                    actual(f'api{api}-{route}-{project}', route, 2, project=project)
+                                    print(f'PASS API{api}: actual Native {route} {project}', flush=True)
+                                continue
                             for count in ((0,) if args.form else (5000,) if args.logs else (1000000, 0)):
                                 actual('api' + api + '-' + route + '-' + str(count), route, count)
                                 print('PASS API' + api + ': actual Native ' + route + ' count=' + str(count), flush=True)
@@ -267,9 +279,13 @@ def main():
                             print('PASS ' + label + ': ordinary assertion / same-APK Core / restored / APK / SHA256', flush=True)
                         test('api' + api + '-final')
                         devices.append(dict(api=api, abi=abi, pageSize=int(page), noWindow=True, apks=[sha(p) for p in apks]))
-        if any(sha(ROOT / n) != h for n, h in inputs.items()): raise RuntimeError('Root input changed')
+        changed = [name for name, digest in inputs.items() if sha(ROOT / name) != digest]
+        if changed:
+            raise RuntimeError('Root inputs changed: ' + ', '.join(changed))
         if package_hashes != {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}: raise RuntimeError('Package changed')
-        if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}: raise RuntimeError('Shared binary changed')
+        if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a'),
+                        'luaArchive': sha(lua_archive)}:
+            raise RuntimeError('Shared binary or Lua archive changed')
         receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')

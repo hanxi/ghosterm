@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual CLI subprocesses against owned physical packages; never executes JS."""
+"""Actual CLI subprocesses against owned physical packages; never activates the plugin."""
 import argparse, hashlib, json, os, shutil, subprocess, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,15 +11,19 @@ def main():
     parser.add_argument('--case', choices=CASES)
     parser.add_argument('--disabled', action='store_true')
     args = parser.parse_args()
-    work = Path(tempfile.mkdtemp(prefix='gterm-test-', dir=ROOT / 'tmp'))
+    project_tmp = ROOT / 'tmp'
+    scratch = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    if not scratch.is_dir() or not scratch.is_relative_to(project_tmp):
+        scratch = project_tmp
+    work = Path(tempfile.mkdtemp(prefix='gterm-test-', dir=scratch))
     try:
         package = work / 'package'; package.mkdir()
         host = work / 'host.json'
-        host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc'])))
-        manifest = dict(schemaVersion=1, id='org.ghosterm.fixture', pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher='测试\x1b[31m😀', license='MIT',
+        host.write_text(json.dumps(dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=['lua'], capabilities=['session.rpc'])))
+        manifest = dict(schemaVersion=2, id='org.ghosterm.fixture', pluginVersion='0.1.0', sdkApiRange='^1.0.0', bridgeProtocolRange=[1], publisher='测试\x1b[31m😀', license='MIT',
             commands=[dict(path=['fixture'], title='Fixture 中文😀', argsSchema='schemas/input.json')],
-            executor=dict(variants=[dict(id='portable', runtime='portable-js', entry='executor/index.js', requires=['session.rpc'])]), permissions=[])
-        files = {'plugin.json': json.dumps(manifest), 'README': 'fixture', 'LICENSES/MIT.txt': 'fixture', 'executor/index.js': "throw Error('MUST_NOT_EXECUTE');export function activate(){}", 'schemas/input.json': '{}'}
+            executor=dict(entry='executor.lua', requires=['session.rpc']))
+        files = {'manifest.json': json.dumps(manifest), 'README': 'fixture', 'LICENSES/MIT.txt': 'fixture', 'executor.lua': "error('MUST_NOT_EXECUTE')", 'schemas/input.json': '{}'}
         members = []
         for name, data in files.items():
             p = package / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(data)
@@ -32,8 +36,8 @@ def main():
             return p
         check = ['plugin', 'check', '--host-json', host, '--', package]
         if args.disabled:
-            assert json.loads(run(['doctor'], 4).stdout)['portableJs'] == 'unsupported'
-            assert json.loads(run(check, 4).stdout)['code'] == 'PLUGIN_JS_DISABLED'
+            assert json.loads(run(['doctor'], 4).stdout)['lua'] == 'unsupported'
+            assert json.loads(run(check, 4).stdout)['code'] == 'PLUGIN_RUNTIME_DISABLED'
             print('PASS disabled'); return
         for case in [args.case] if args.case else CASES:
             argv = list(check); code = 0
@@ -67,7 +71,7 @@ def main():
                 elif case == 'unknown': assert result['result'] == 'unknown', result
                 elif case == 'unsupported': assert result['result'] == 'unsupported', result
                 elif case == 'no-activation': assert result['code'] == 'COMMAND_ACTIVATION_UNAVAILABLE', result
-                elif case == 'doctor': assert result == dict(portableJs='available', commandActivation='explicit-catalog-stdio-or-ipc', localIpc='foreground-one-shot'), result
+                elif case == 'doctor': assert result == dict(lua='available', commandActivation='explicit-catalog-stdio-or-ipc', localIpc='foreground-one-shot'), result
                 else: assert result['result'] != 'compatible', result
             if case == 'integrity': (package / 'README').write_text(files['README'])
             print('PASS', case)

@@ -142,7 +142,7 @@ def main():
             return run(label, command, red, 30)
         try:
             run('configure', ['cmake', '-S', source / 'core', '-B', build, '-DGHOSTERM_WITH_LIBSSH2=OFF',
-                '-DGHOSTERM_WITH_PLUGIN_JS=OFF', '-DGHOSTERM_BUILD_TESTS=ON', '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
+                '-DGHOSTERM_WITH_PLUGIN_LUA=OFF', '-DGHOSTERM_BUILD_TESTS=ON', '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
                 '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O1 -g -DNDEBUG',
                 '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
             baseline = compile('baseline-build')

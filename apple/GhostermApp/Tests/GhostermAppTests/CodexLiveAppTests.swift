@@ -54,6 +54,19 @@ final class CodexLiveAppTests: XCTestCase {
         let pane = NSHostingView(rootView: PluginWorkspaceTestView(model: model)
             .background(Color(nsColor: .windowBackgroundColor)))
         let ui = ConversationUIProbe(root: pane, width: 1440, height: 2400, captureFailures: false)
+        let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
+        defer { NSApplication.shared.accessibilitySetValue(false, forAttribute: enhanced) }
+        func pressNativeControl(_ id: String) async throws {
+            func control() -> NSObject? {
+                pane.layoutSubtreeIfNeeded()
+                return PluginTableRendering.elements(pane).first {
+                    PluginTableRendering.attribute($0, "accessibilityIdentifier") == id
+                }
+            }
+            try await wait("NATIVE_CONTROL_\(id)") { control() != nil }
+            try require(PluginTableRendering.press(try XCTUnwrap(control())), "NATIVE_PRESS_\(id)")
+        }
         addTeardownBlock {
             await model.stopExtensionRun()
             _ = await controller.close()
@@ -82,11 +95,11 @@ final class CodexLiveAppTests: XCTestCase {
         try require(model.extensionRunIssue == nil &&
             model.extensionRun?.session?.phase == ExtensionSession.Phase.consent.rawValue, "NATIVE_CONSENT_READY")
         try require(model.codexThreadID == nil && !FileManager.default.fileExists(atPath: target.path), "NO_PRECONSENT_EFFECT")
-        try await ui.press("批准并启动")
+        try await pressNativeControl("plugin-consent-allow")
         try await wait("NATIVE_RUNTIME_ACTIVE") {
             model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
         }
-        try await ui.press("启动Codex对话")
+        try await pressNativeControl("plugin-codex-start-thread")
         try await wait("REAL_THREAD_READY") { model.codexThreadID != nil && !model.codexCallBusy }
         try require(model.extensionRunIssue == nil, "REAL_THREAD_START_FAILED")
         let thread = try XCTUnwrap(model.codexThreadID)
@@ -100,7 +113,7 @@ final class CodexLiveAppTests: XCTestCase {
             }
         }
         if fixture.prepareOnly {
-            try await ui.press("停止并释放插件")
+            try await pressNativeControl("plugin-stop")
             try await wait("NATIVE_PREFLIGHT_RELEASED") { model.extensionRun == nil }
             let state = try await controller.localProcessState()
             print("CODEX LIVE APP STOP: reaped=\(state?.reaped == true) exit=\(state?.exitCode ?? -999) signal=\(state?.termSignal ?? -999) issue=\(model.extensionRunIssue != nil)")
@@ -112,7 +125,7 @@ final class CodexLiveAppTests: XCTestCase {
         }
         print("CODEX LIVE APP STEP: model turn requested")
         model.codexMessageDraft = "Use apply_patch to add exactly one file at \(target.path), containing exactly \(fixture.nonce) followed by one newline. This isolated target is deliberately outside the writable current workspace, so request file-change approval. The user authorizes only this exact proposed file. Do not use shell commands, read other files, create other files or use subagents. Then reply with exactly \(fixture.nonce)."
-        try await ui.press("发送")
+        try await pressNativeControl("plugin-codex-send")
         try await wait("REAL_FILE_APPROVAL", seconds: 180) {
             !model.codexPendingApprovals.isEmpty || model.extensionRunIssue != nil ||
                 (!model.codexTurnActive && model.codexTimeline.contains { $0.title == "Turn 已完成" })
@@ -129,8 +142,11 @@ final class CodexLiveAppTests: XCTestCase {
         }
         try require(!FileManager.default.fileExists(atPath: target.path) && model.codexApprovalSnapshot(approval) == nil,
                     "NO_WRITE_OR_ALLOW_BEFORE_FULL_REVIEW")
-        try await wait("PROPOSED_CHANGE_REFERENCE") { model.codexTimeline.contains { $0.changeReference != nil } }
-        try await ui.press("读取完整补丁")
+        try await wait("PROPOSED_CHANGE_REFERENCE") {
+            model.codexTimeline.contains { $0.id == "item:\(approval.itemID ?? "")" && $0.changeReference != nil }
+        }
+        let reference = try XCTUnwrap(model.codexTimeline.first { $0.id == "item:\(approval.itemID ?? "")" }?.changeReference)
+        try await pressNativeControl("plugin-codex-read-change-\(reference.snapshotID)")
         try await wait("COMPLETE_REAL_CHANGE_DOCUMENT") { model.codexChangeReview?.document != nil }
         let document = try XCTUnwrap(model.codexChangeReview?.document)
         try require(document.changes.count == 1 && document.threadId == thread &&
@@ -149,7 +165,7 @@ final class CodexLiveAppTests: XCTestCase {
         }
         try require(model.codexApprovalSnapshot(approval) == model.codexChangeReview?.reference.snapshotID,
                     "CURRENT_REVIEWED_APPROVAL_SNAPSHOT")
-        try await ui.press("批准一次")
+        try await pressNativeControl("plugin-codex-approval-allow")
         try await wait("REAL_APPROVED_FILE_AND_TURN", seconds: 180) {
             model.extensionRunIssue != nil || (!model.codexTurnActive && !model.codexCallBusy &&
                 model.codexPendingApprovals.isEmpty && FileManager.default.fileExists(atPath: target.path))
@@ -163,7 +179,7 @@ final class CodexLiveAppTests: XCTestCase {
                     "ONLY_EXPECTED_TARGET_FILE")
         try require(try FileManager.default.contentsOfDirectory(atPath: workspace.path).isEmpty,
                     "NO_ADDITIONAL_WORKSPACE_FILES")
-        try await ui.press("停止并释放插件")
+        try await pressNativeControl("plugin-stop")
         try await wait("NATIVE_SESSION_RELEASED") { model.extensionRun == nil }
         try require(model.extensionRunIssue == nil && model.codexChangeReview == nil, "NATIVE_STOP_FAILED")
         let state = try await controller.localProcessState()

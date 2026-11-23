@@ -13,8 +13,8 @@ import XCTest
 /// Preview and stop. The system chooser is a fixed test-only return value.
 @MainActor
 final class PluginPaneFlowTests: XCTestCase {
-    private func until(_ check: () -> Bool) async throws -> Bool {
-        let deadline = ProcessInfo.processInfo.systemUptime + 10
+    private func until(_ check: () -> Bool, timeout: TimeInterval = 10) async throws -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while !check(), ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(for: .milliseconds(25))
         }
@@ -27,8 +27,26 @@ final class PluginPaneFlowTests: XCTestCase {
     func testForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: false, foreground: true, cancelInspection: true)
     }
+    func testLuaClientPublicationUsesTheApprovedWorkspaceAndRuntime() async throws {
+        try await runPreview(.markdown, jump: false, clientPublication: true)
+    }
+    func testLuaClientPublicationRejectsLinkedWorkspace() async throws {
+        try await runPreview(.markdown, jump: false, clientPublication: true, linkedClientWorkspace: true)
+    }
     func testProxyJumpForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: true, foreground: true, cancelInspection: true)
+    }
+    func testLuaTmuxForegroundAttachmentOverDirectSSH() async throws {
+        try await runPreview(.markdown, jump: false, foreground: true, tmuxForeground: true)
+    }
+    func testLuaTmuxForegroundAttachmentOverProxyJump() async throws {
+        try await runPreview(.markdown, jump: true, foreground: true, tmuxForeground: true)
+    }
+    func testLuaTmuxPendingRPCOverDirectSSH() async throws {
+        try await runPreview(.markdown, jump: false, foreground: true, tmuxForeground: true, killActiveTmux: true)
+    }
+    func testLuaTmuxPendingRPCOverProxyJump() async throws {
+        try await runPreview(.markdown, jump: true, foreground: true, tmuxForeground: true, killActiveTmux: true)
     }
     func testDiscoveredForegroundInspectionAndAttachmentThroughControls() async throws {
         try await runPreview(.markdown, jump: false, foreground: true, discovery: true)
@@ -96,13 +114,22 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private enum Format { case markdown, html, htmlUnicode, htmlAnimated, image }
 
-    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false, cancelInspection: Bool = false) async throws {
+    func testLuaDenialDoesNotActivateOnDirectSSH() async throws {
+        try await runPreview(.markdown, jump: false, denyConsent: true)
+    }
+
+    func testLuaDenialDoesNotActivateOnProxyJump() async throws {
+        try await runPreview(.markdown, jump: true, denyConsent: true)
+    }
+
+    private func runPreview(_ format: Format, jump: Bool, versionChanges: Bool = false, versionRemoval: Bool = false, versionPolicy: Bool = false, versionSelectionReview: Bool = false, foreground: Bool = false, discovery: Bool = false, channelRevocation: Bool = false, revokeBeforeConsent: Bool = false, cancelInspection: Bool = false, clientPublication: Bool = false, linkedClientWorkspace: Bool = false, denyConsent: Bool = false, tmuxForeground: Bool = false, killActiveTmux: Bool = false) async throws {
         let env = ProcessInfo.processInfo.environment
         let memoryKey = env["GHOSTERM_TEST_SSH_STDIN"] == "1"
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
+              let packagePath = env["GHOSTERM_TEST_LUA_PREVIEW_PACKAGE"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
               memoryKey || env["GHOSTERM_SSH_KEY"] != nil, let user = env["GHOSTERM_SSH_USER"] else {
-            throw XCTSkip("requires JS-enabled Core and the explicitly owned gate SSH fixture")
+            throw XCTSkip("requires Lua-enabled Core, the built Preview package and the owned SSH fixture")
         }
         if jump && (env["GHOSTERM_SSH_JUMP_HOST"] == nil || env["GHOSTERM_SSH_JUMP_PORT"] == nil) {
             throw XCTSkip("requires explicitly requested owned forwarding-only jump fixture")
@@ -124,7 +151,6 @@ final class PluginPaneFlowTests: XCTestCase {
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        let package = repository.appendingPathComponent("plugins/official/preview")
         let id = "org.ghosterm.preview"
         let root = repository.appendingPathComponent("tmp/pane-" + UUID().uuidString.prefix(8))
         let workspace = root.appendingPathComponent("workspace")
@@ -134,7 +160,43 @@ final class PluginPaneFlowTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
             trace("fixture tree removed")
         }
-        let png = try redPNG()
+        let originalPackage = URL(fileURLWithPath: packagePath)
+        let package: URL
+        if killActiveTmux {
+            package = root.appendingPathComponent("fixture")
+            try FileManager.default.copyItem(at: originalPackage, to: package)
+            let executor = package.appendingPathComponent("executor.lua")
+            let source = try String(contentsOf: executor, encoding: .utf8)
+            let anchor = #"["preview.open"] = preview,"#
+            XCTAssertEqual(source.components(separatedBy: anchor).count, 2)
+            let handler = """
+                ["preview.open"] = function(input)
+                  if input.path ~= "pending" then return preview(input) end
+                  assert(ctx.resources.publish("workspace", "pending.bin", "application/octet-stream", 3))
+                  while true do ctx.wait() end
+                end,
+                """
+            let bytes = Data(source.replacingOccurrences(of: anchor, with: handler).utf8)
+            try bytes.write(to: executor)
+            let integrity = package.appendingPathComponent("integrity.json")
+            var index = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: integrity)) as? [String: Any])
+            var members = try XCTUnwrap(index["members"] as? [[String: Any]])
+            let entry = try XCTUnwrap(members.firstIndex { ($0["path"] as? String) == "executor.lua" })
+            members[entry]["bytes"] = bytes.count
+            members[entry]["sha256"] = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            index["members"] = members
+            try JSONSerialization.data(withJSONObject: index, options: [.sortedKeys]).write(to: integrity)
+            try Data("abc".utf8).write(to: workspace.appendingPathComponent("pending.bin"))
+        } else {
+            package = originalPackage
+        }
+        let png: Data
+        if let path = env["GHOSTERM_TEST_PREVIEW_LARGE_PNG"], format == .image {
+            png = try Data(contentsOf: URL(fileURLWithPath: path))
+            XCTAssertEqual(png.count, 256 * 1024)
+        } else {
+            png = try redPNG()
+        }
         let markdown = Data("# Preview controls\n\n![red sample](image.png)\n\nOwned SSH pane flow token\n".utf8)
         let unicodeHTML = format == .htmlUnicode
         let animatedHTML = format == .htmlAnimated
@@ -158,7 +220,9 @@ final class PluginPaneFlowTests: XCTestCase {
         switch format {
         case .markdown: path = "site/index.md"; arguments = [path, "--assets", "site/image.png"]
         case .html, .htmlUnicode, .htmlAnimated: path = htmlPath; arguments = [path, "--assets", cssPath + "," + imagePath]
-        case .image: path = "site/image.png"; arguments = [path]
+        case .image:
+            path = "site/image.png"
+            arguments = png.count == 256 * 1024 ? [path, "--max-bytes", "524288"] : [path]
         }
         let document = try XCTUnwrap(files[path])
         let argumentsJSON = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
@@ -346,13 +410,24 @@ final class PluginPaneFlowTests: XCTestCase {
             try set("plugin-" + name + "-" + id, value)
             try await Task.sleep(for: .milliseconds(25))
         }
-        if versionChanges || versionRemoval {
-            try set("plugin-client-workspace", workspace.path)
+        if versionChanges || versionRemoval || clientPublication {
+            let clientDirectory = linkedClientWorkspace ? root.appendingPathComponent("client-link") : workspace
+            if linkedClientWorkspace {
+                try FileManager.default.createSymbolicLink(at: clientDirectory, withDestinationURL: workspace)
+            }
+            if clientPublication && !linkedClientWorkspace {
+                XCTAssertThrowsError(try ExtensionController.ClientWorkspace(directory: clientDirectory.path, authorized: false)
+                    .validate(requiredCapabilities: ["resource.receive"]), "Lua Client publication requires a workspace grant")
+            }
+            try set("plugin-client-workspace", clientDirectory.path)
             try await Task.sleep(for: .milliseconds(25))
             try press("plugin-client-workspace-allow")
             try await Task.sleep(for: .milliseconds(25))
         }
         var frontend: Process?
+        var ordinaryTmux: ((String) async throws -> Void)?
+        var checkTmuxCleanup: (() async throws -> Void)?
+        var closeTmuxPane: (() throws -> Void)?
         var discoveredCandidate: FrontendCandidate?
         if discovery { addTeardownBlock { model.disconnectForTesting() } }
         if foreground {
@@ -361,7 +436,8 @@ final class PluginPaneFlowTests: XCTestCase {
             try FileManager.default.createDirectory(at: endpoint, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             let process = Process(); process.executableURL = URL(fileURLWithPath: gterm)
             process.arguments = ["relay", "--listen", endpoint.path, "--trust-development-digest", digest,
-                "--client-digest", digest, "--root", "workspace", workspace.path, "--", package.path, "preview"] + arguments
+                "--client-digest", digest, "--method", "preview.open", "--root", "workspace", workspace.path,
+                "--", package.path, "preview"] + arguments
             process.standardInput = FileHandle.nullDevice; process.standardOutput = Pipe(); process.standardError = Pipe()
             if discovery {
                 model.connect(to: .localShell)
@@ -374,6 +450,51 @@ final class PluginPaneFlowTests: XCTestCase {
                 func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
                 let command = ([gterm] + (process.arguments ?? [])).map(quote).joined(separator: " ")
                 model.activePane?.surface?.sendCommittedText("GTERM_DISCOVERY_TMUX_LAYERS=0 " + command + "\r")
+            } else if tmuxForeground {
+                guard let executable = env["GHOSTERM_TEST_PLUGIN_TMUX"] else { throw XCTSkip("requires the owned tmux fixture") }
+                let socket = root.appendingPathComponent("t.sock").path
+                @Sendable func tmux(_ arguments: [String], check: Bool = true) throws -> String {
+                    let command = Process(), output = Pipe()
+                    command.executableURL = URL(fileURLWithPath: executable)
+                    command.arguments = ["-S", socket, "-f", "/dev/null"] + arguments
+                    var environment = ProcessInfo.processInfo.environment
+                    environment.removeValue(forKey: "TMUX"); environment.removeValue(forKey: "TMUX_PANE")
+                    environment["TERM"] = "xterm-256color"
+                    command.environment = environment
+                    command.standardInput = FileHandle.nullDevice; command.standardOutput = output
+                    try command.run()
+                    let data = output.fileHandleForReading.readDataToEndOfFile()
+                    command.waitUntilExit()
+                    if check && command.terminationStatus != 0 {
+                        throw GhostermError.failed("owned tmux command failed: \(arguments.first ?? "")")
+                    }
+                    return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                addTeardownBlock { _ = try tmux(["kill-server"], check: false) }
+                let ordinary = try tmux(["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", "preview-test", "/bin/sh"])
+                func marker(_ word: String) async throws {
+                    _ = try tmux(["send-keys", "-l", "-t", ordinary, "printf '%s%s\\n' LUA_SIBLING_ \(word)"])
+                    _ = try tmux(["send-keys", "-t", ordinary, "Enter"])
+                    let observed = try await until {
+                        (try? tmux(["capture-pane", "-p", "-t", ordinary]).contains("LUA_SIBLING_" + word)) == true
+                    }
+                    XCTAssertTrue(observed, "ordinary tmux shell did not execute its own command")
+                }
+                try await marker("BEFORE")
+                let quoted = ([gterm] + (process.arguments ?? [])).map {
+                    "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+                }.joined(separator: " ")
+                let preview = try tmux(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", ordinary, "test -t 0 && exec " + quoted])
+                XCTAssertFalse(preview.isEmpty); XCTAssertNotEqual(preview, ordinary)
+                closeTmuxPane = { _ = try tmux(["kill-pane", "-t", preview]) }
+                ordinaryTmux = marker
+                checkTmuxCleanup = {
+                    let closed = try await self.until {
+                        (try? FileManager.default.contentsOfDirectory(atPath: endpoint.path).isEmpty) == true &&
+                        (try? tmux(["list-panes", "-t", ordinary, "-F", "#{pane_id}"])) == ordinary
+                    }
+                    XCTAssertTrue(closed, "ordinary tmux shell must remain after plugin endpoint cleanup")
+                }
             } else {
                 try process.run(); frontend = process
                 addTeardownBlock {
@@ -385,8 +506,16 @@ final class PluginPaneFlowTests: XCTestCase {
             }
             let permitURL = endpoint.appendingPathComponent("permit")
             guard try await until({ (try? Data(contentsOf: permitURL).count) == 56 }) else { XCTFail("foreground endpoint did not become ready"); return }
+            try await ordinaryTmux?("LIVE")
             let permit = try Data(contentsOf: permitURL)
             let instance = permit[8..<24].map { String(format: "%02x", $0) }.joined()
+            let unapproved = ExtensionRelayBootstrap.Request(
+                executable: gterm, executorDirectory: "", executorDigest: digest,
+                clientDigest: digest, methods: ["preview.open"],
+                attachment: .init(directory: endpoint.path, instance: instance, authorized: false),
+                command: "preview", arguments: arguments)
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.build(unapproved),
+                                 "Lua foreground attachment requires an explicit grant")
             if discovery {
                 guard try await until({ model.frontendCandidates.contains { $0.offer.instance == instance } }) else { XCTFail("real PTY hint did not reach native candidate list"); return }
                 let candidate = try XCTUnwrap(model.frontendCandidates.first { $0.offer.instance == instance })
@@ -468,6 +597,22 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
+        if denyConsent {
+            try press("plugin-consent-deny")
+            guard try await until({
+                guard !model.extensionRunBusy, let phase = model.extensionRun?.session?.phase else { return false }
+                return phase == ExtensionSession.Phase.ended.rawValue || phase == ExtensionSession.Phase.closed.rawValue
+            }) else {
+                XCTFail("Refused Lua Session did not end"); return
+            }
+            XCTAssertNil(model.extensionRunIssue)
+            XCTAssertNil(model.extensionRun?.runtime, "Refused Lua Client must never activate")
+            XCTAssertTrue(model.extensionRun?.receivedResources.isEmpty == true)
+            await model.stopExtensionRun()
+            XCTAssertNil(model.extensionRun)
+            XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         if revokeBeforeConsent {
             var policy = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(initialChannelPolicy)) as? [String: Any])
             policy["revokedKeyIds"] = [try XCTUnwrap(managed).signature.keyID]
@@ -485,8 +630,18 @@ final class PluginPaneFlowTests: XCTestCase {
             return
         }
         try press("plugin-consent-allow")
-        guard try await until({ model.extensionRun?.receivedResources.count == count && model.extensionRun?.receivedResources.first?.bytes == document }) else {
-            XCTFail("Preview did not receive exact owned SSH resource: \(model.extensionRunIssue ?? "none")"); return
+        if linkedClientWorkspace {
+            guard try await until({ model.extensionRunIssue != nil || model.extensionRun?.runtime != nil }) else {
+                XCTFail("Client workspace validation produced no outcome"); return
+            }
+            XCTAssertNotNil(model.extensionRunIssue, "Lua Client publication must reject a linked workspace")
+            return
+        }
+        guard try await until({ model.extensionRun?.receivedResources.count == count && model.extensionRun?.receivedResources.first?.bytes == document },
+                              timeout: png.count == 256 * 1024 ? 22 : 10) else {
+            let run = model.extensionRun
+            XCTFail("Preview did not receive exact owned SSH resource: \(model.extensionRunIssue ?? "none"), phase \(String(describing: run?.runtime?.phase)), failure \(String(describing: run?.runtime?.failure)), receipts \(run?.receivedResources.map { $0.bytes.count } ?? [])")
+            return
         }
         XCTAssertNil(model.extensionRunIssue)
         let resources = try XCTUnwrap(model.extensionRun?.receivedResources)
@@ -501,6 +656,23 @@ final class PluginPaneFlowTests: XCTestCase {
             XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
         }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+        if clientPublication {
+            do {
+                _ = try await controller.publishClientResource(instanceID: UUID().uuidString, relativePath: path)
+                XCTFail("Lua Client publication must reject a stale Runtime identity")
+                return
+            } catch ExtensionController.ControllerError.resourceUnavailable {}
+            let current = try XCTUnwrap(model.extensionRun?.runtime?.instanceID)
+            _ = try await controller.publishClientResource(instanceID: current, relativePath: path)
+            let deadline = ProcessInfo.processInfo.systemUptime + 10
+            var state = try await controller.stepRuntime()
+            while state.publication?.confirmed != true, ProcessInfo.processInfo.systemUptime < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+                state = try await controller.stepRuntime()
+            }
+            XCTAssertTrue(state.publication?.confirmed == true, "Lua Executor must confirm the Native Client resource")
+            XCTAssertEqual(state.publication?.sha256, SHA256.hash(data: document).map { String(format: "%02x", $0) }.joined())
+        }
         if let initialChannelPolicy, let managed {
             let settings = ConversationUIProbe(root: NSHostingView(rootView: ScrollView {
                 ExtensionsPane(model: model)
@@ -654,7 +826,7 @@ final class PluginPaneFlowTests: XCTestCase {
                 disabledChoice = try await controller.disableInstalledPlugin(pluginID: installed.review.id, expectedRevision: revision)
             }
             if versionRemoval {
-                let observer = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["resource.receive"]),
+                let observer = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"]),
                     resourceDirectory: root, installationDirectory: installed.directory.deletingLastPathComponent().deletingLastPathComponent())
                 do {
                     let unexpected = try await observer.previewVersionRemoval(releaseID: installed.signature.descriptorSHA256, expectedRevision: disabledChoice.catalog.revision)
@@ -747,6 +919,25 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         XCTAssertEqual(window.alphaValue, 0)
         XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
+        if killActiveTmux {
+            let admission = try await controller.requestExecutorRPC(method: "preview.open",
+                input: Data(#"{"path":"pending","assets":"","maxBytes":3}"#.utf8))
+            XCTAssertEqual(admission.status, .ok)
+            let handle = try XCTUnwrap(admission.handle)
+            guard try await until({ model.extensionRun?.receivedResources.contains { $0.displayName == "pending.bin" } == true }) else {
+                XCTFail("Lua did not publish its pending RPC marker"); return
+            }
+            try XCTUnwrap(closeTmuxPane)()
+            guard try await until({ model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.failed.rawValue }) else {
+                XCTFail("Disconnected Preview Runtime did not fail"); return
+            }
+            let (status, result) = try await controller.executorRPCResult(handle: handle)
+            XCTAssertEqual(status, .ok)
+            XCTAssertEqual(result?.state, .unknown)
+            XCTAssertEqual(result?.confirmed, false)
+            let forgotten = try await controller.forgetExecutorRPC(handle: handle)
+            XCTAssertEqual(forgotten, .ok)
+        }
         try scrollBottom()
         try press("plugin-stop")
         trace("stop action returned")
@@ -761,6 +952,8 @@ final class PluginPaneFlowTests: XCTestCase {
         if let frontend {
             guard try await until({ !frontend.isRunning }) else { XCTFail("stopping attached runtime must release original frontend"); return }
         }
+        try await checkTmuxCleanup?()
+        try await ordinaryTmux?("AFTER")
         if let candidate = discoveredCandidate {
             model.disconnectForTesting()
             XCTAssertFalse(model.frontendCandidateIsCurrent(candidate), "stopped source cannot be reused")

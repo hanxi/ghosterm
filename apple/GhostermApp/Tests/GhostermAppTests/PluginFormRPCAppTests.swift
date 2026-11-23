@@ -12,7 +12,7 @@ import XCTest
         let env = ProcessInfo.processInfo.environment
         guard let binary = env["GHOSTERM_FORM_GTERM"], let packagePath = env["GHOSTERM_FORM_PACKAGE"],
               let scratch = env["GHOSTERM_FORM_SCRATCH"] else {
-            throw XCTSkip("requires the owned QuickJS form fixture")
+            throw XCTSkip("requires the owned Lua form fixture")
         }
         XCTAssertEqual(ExtensionRuntime.supportStatus, 0)
         let root = URL(fileURLWithPath: scratch), package = URL(fileURLWithPath: packagePath)
@@ -29,7 +29,7 @@ import XCTest
             let stage = work.appendingPathComponent("stage")
             try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
-                runtimes: ["portable-js"], capabilities: ["session.rpc", "ui.form"]),
+                runtimes: ["lua"], capabilities: ["session.rpc", "ui.form"]),
                 localJournalDirectory: work.appendingPathComponent("journal"))
             let model = ExtensionInstanceModel(controller: controller)
             addTeardownBlock { await model.stopExtensionRun(); let closed = await controller.close(); XCTAssertTrue(closed) }

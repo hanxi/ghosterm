@@ -36,8 +36,8 @@ def main():
     core = args.core_build.resolve(strict=True)
     cache = core / 'CMakeCache.txt'
     if not cache.is_file(): cache = core.parent / 'CMakeCache.txt'
-    if not core.is_relative_to(ROOT / 'tmp') or not cache.is_file() or 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' not in cache.read_text():
-        parser.error('explicit JS-enabled copied Core build under project tmp required')
+    if not core.is_relative_to(ROOT / 'tmp') or not cache.is_file() or 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=ON' not in cache.read_text():
+        parser.error('explicit Lua-enabled copied Core build under project tmp required')
     if args.receipt and not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): parser.error('receipt must be in project tmp')
     inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('apple/GhostermApp/Sources', 'apple/GhostermApp/Tests',
         'apple/GhostermCore/Sources', 'apple/GhostermTerminal/Sources', 'core/src', 'core/include')
@@ -47,7 +47,10 @@ def main():
         inputs[name] = sha(ROOT / name)
     if any(b'GT_LOCAL_JOURNAL_MUTATION' in (ROOT / name).read_bytes() for name in inputs if name.startswith('apple/')):
         raise RuntimeError('Refuse leftover Native journal mutation marker')
-    with tempfile.TemporaryDirectory(prefix='lj-', dir=ROOT / 'tmp') as temporary:
+    project_tmp = ROOT / 'tmp'
+    requested = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    scratch = requested if requested.is_dir() and requested.is_relative_to(project_tmp) else project_tmp
+    with tempfile.TemporaryDirectory(prefix='lj-', dir=scratch) as temporary:
         work = Path(temporary); source = work / 'h'; logs = work / 'logs'; logs.mkdir()
         for folder in ('apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal'):
             shutil.copytree(ROOT / folder, source / folder, symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
@@ -55,8 +58,9 @@ def main():
         (source / 'core/build').symlink_to(core, target_is_directory=True)
         for folder in ('build', 'patches'): (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = {**os.environ, 'TMPDIR': str(ROOT / 'tmp'), 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
-            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_JS': '1',
+        env = {**os.environ, 'TMPDIR': str(work), 'TMP': str(work), 'TEMP': str(work), 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
+            'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_TEST_PLUGIN_LUA': '1',
+            'GHOSTERM_CORE_BUILD_DIR': str(core),
             'GHOSTERM_PROCESS_CHANNEL_CHILD': str(ROOT / 'core/build/test_process_channel_child'),
             'GHOSTERM_LOCAL_IDLE_CHILD': str(work / 'idle')}
         commands = []
@@ -128,8 +132,10 @@ def main():
 
         package = source / 'apple/GhostermApp'
         selection = 'LocalJournalTests|LocalTemporaryDirectoryTests|LocalExtensionTests|ExecutorExecutionTests'
-        def test(label, selected=selection, count=43, red=False):
-            text = run(label, ['swift', 'test', '--package-path', package, '--filter', selected], red=red)
+        baseline_count = 39
+        def test(label, selected=selection, count=baseline_count, red=False):
+            text = run(label, ['swift', 'test', '--package-path', package, '--cache-path', work / 'swift-cache',
+                '--disable-keychain', '--disable-netrc', '-j', '4', '--filter', selected], red=red)
             if not red and (f'Executed {count} test' not in text or 'with 0 failures' not in text or 'skipped' in text):
                 raise RuntimeError(label + ': exact discovery/no-skip mismatch\n' + text)
         test('baseline')
@@ -164,12 +170,12 @@ def main():
             groups.append(label); print('PASS ' + label + ': compiled single assertion red / same library config green / restored / SHA256', flush=True)
         test('final')
         if any(sha(ROOT / name) != digest for name, digest in inputs.items()): raise RuntimeError('Root inputs changed')
-        binaries = {str(core / name): sha(core / name) for name in ('libghosterm_core.a', 'libghosterm_quickjs.a')}
+        binaries = {str(core / name): sha(core / name) for name in ('libghosterm_core.a', 'libghosterm_lua.a')}
         binaries.update({p.name: sha(p) for p in (work / 'probe', work / 'idle')})
-        receipt = dict(accepted=True, inputs=inputs, commands=commands, crashes=crashes, cases=42, mutations=groups,
+        receipt = dict(accepted=True, inputs=inputs, commands=commands, crashes=crashes, cases=baseline_count, mutations=groups,
             binaries=binaries, scope='macOS arm64 trusted Native journal reservation / read-only inspection; no resumed process, old-directory deletion, OS quota, Android or release')
         if args.receipt: args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print('LOCAL JOURNAL PASS: four deaths / 42 Native tests / ' + str(len(groups)) + ' mutations', flush=True)
+        print(f'LOCAL JOURNAL PASS: four deaths / {baseline_count} Native tests / {len(groups)} mutations', flush=True)
 
 
 if __name__ == '__main__':

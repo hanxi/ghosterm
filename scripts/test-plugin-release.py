@@ -2,13 +2,10 @@
 """Offline release conformance with a disposable memory-only Ed25519 agent."""
 import argparse
 import base64
-from contextlib import contextmanager
-import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
-import select
 import signal
 import struct
 import subprocess
@@ -16,6 +13,8 @@ import sys
 import tempfile
 import time
 import zipfile
+
+from fixtures.plugin_release_signer import memory_signer, sha, sign, signer_config
 
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = b'GHOSTERM-PLUGIN-RELEASE-V1\0'
@@ -26,30 +25,7 @@ class BehaviorMismatch(AssertionError):
     pass
 
 
-def sha(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-@contextmanager
-def agent(node, work):
-    endpoint = work / 's'
-    child = subprocess.Popen([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'server', endpoint],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    try:
-        assert select.select([child.stdout],[],[],5)[0], 'memory signer startup timed out'
-        public = child.stdout.readline(1024).strip().decode()
-        assert len(base64.b64decode(public)) == 32
-        yield public, endpoint
-    finally:
-        child.terminate()
-        try:
-            child.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            child.kill(); child.wait()
-        child.stdout.close(); child.stderr.close()
-
-
-def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools=None, ai_packages=()):
+def exercise(root, work, public, endpoint, selected=None):
     env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work))
 
     def cli(*args, status=0, code=None):
@@ -68,30 +44,28 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
             assert status != 0 and child.returncode in (0,2,4,6) and report.get('code') != 'TOOL_FAILED', (args,report,diagnostics.decode())
             raise BehaviorMismatch((args,child.returncode,report,status,code))
         return report
-    package = work / 'p'
-    shutil.copytree(ROOT / 'plugins/official/preview', package)
+    project = work / 'project'
+    shutil.copytree(ROOT / 'plugins/official/preview', project)
     # Metadata/closure validation must not activate the signed plugin.
-    entry = package / 'client/index.js'
-    entry.write_text(entry.read_text() + '\nthrow new Error("RELEASE_ENTRY_EXECUTED");\n')
-    members = json.loads((package / 'integrity.json').read_text())
-    for member in members['members']:
-        data = (package / member['path']).read_bytes(); member.update(bytes=len(data), sha256=sha(data))
-    (package / 'integrity.json').write_text(json.dumps(members))
+    entry = project / 'main.lua'
+    entry.write_text(entry.read_text().replace(
+        '\nreturn {', '\nerror("RELEASE_ENTRY_EXECUTED")\nreturn {', 1))
     artifact = work / 'a.zip'
-    cli('pack', '--package', package, '--tools', tools, '--out', artifact)
+    package = work / 'p'
+    cli('build', project, '--out', package)
+    cli('pack', project, '--out', artifact)
     key_id = sha(base64.b64decode(public))
     trusted = dict(schemaVersion=1, channel='fixture', keys=[dict(id=key_id, algorithm='ed25519', publicKey=public,
                    publisher='Ghosterm', pluginIds=['org.ghosterm.preview'])], revokedKeyIds=[])
     policy = work / 'policy.json'; policy.write_text(json.dumps(trusted))
     marker = work / 'signer-entered'
-    config = dict(executable=str(node), sha256=sha(node.read_bytes()),
-                  prefixArguments=[str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(endpoint), str(marker)])
+    config = signer_config(endpoint, marker)
     signer = work / 'signer.json'; signer.write_text(json.dumps(config))
     bundle = work / 'r'
-    sign_args = ['release','sign','--artifact',artifact,'--policy',policy,'--tools',tools,'--key-id',key_id,'--signer-json',signer]
+    sign_args = ['release','sign','--artifact',artifact,'--policy',policy,'--key-id',key_id,'--signer-json',signer]
     signed = cli(*sign_args, '--out', bundle)
     verify_args = ['release','verify','--artifact',bundle/'plugin.zip','--descriptor',bundle/'release.json',
-                   '--signature',bundle/'release.sig','--policy',policy,'--tools',tools]
+                   '--signature',bundle/'release.sig','--policy',policy]
     def verify(status=0, code=None): return cli(*verify_args, status=status, code=code)
     def file_reject(name, data, code, status=6):
         path=bundle/name; old=path.read_bytes(); path.write_bytes(data)
@@ -108,10 +82,9 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
         with zipfile.ZipFile(bad) as check:
             if 'integrity.json' in check.namelist(): payload['packageSHA256']=sha(check.read('integrity.json'))
         raw=json.dumps(payload,separators=(',',':')).encode()
-        request=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],input=DOMAIN+raw,capture_output=True,check=True)
         description=work/(label+'.json');description.write_bytes(raw)
-        signature=work/(label+'.sig');signature.write_bytes(request.stdout)
-        cli('release','verify','--artifact',bad,'--descriptor',description,'--signature',signature,'--policy',policy,'--tools',tools,status=2,code=code)
+        signature=work/(label+'.sig');signature.write_bytes(sign(endpoint, DOMAIN + raw))
+        cli('release','verify','--artifact',bad,'--descriptor',description,'--signature',signature,'--policy',policy,status=2,code=code)
     cases = []
     requested = {selected} if isinstance(selected, str) else selected
     def case(name, action):
@@ -127,10 +100,9 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
     def channel_revocation():
         root_dir = work / 'cr'
         root_dir.mkdir()
-        with agent(node, root_dir) as (root, root_endpoint):
+        with memory_signer(root_dir) as (root, root_endpoint):
             root_signer = work / 'channel-signer.json'
-            root_signer.write_text(json.dumps(dict(config, prefixArguments=[
-                str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(root_endpoint)])))
+            root_signer.write_text(json.dumps(signer_config(root_endpoint)))
             now = int(time.time())
 
             def channel_arguments(generation, policy_path):
@@ -154,20 +126,23 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
             cli(*original, status=6, code='CHANNEL_POLICY_ROLLBACK')
 
     case('channel-revocation', channel_revocation)
-    def official_package(name, original):
+    def official_package(name):
         archive = work / f'official-{name}.zip'
         release = work / f'official-{name}-release'
         package_id = f'org.ghosterm.{name}'
         channel = work / f'official-{name}-policy.json'
         channel.write_text(json.dumps(dict(trusted, keys=[dict(trusted['keys'][0], pluginIds=[package_id])])))
-        cli('pack', '--package', original, '--tools', tools, '--out', archive)
+        source = ROOT / 'plugins/official' / name
+        original = work / f'official-{name}-package'
+        cli('build', source, '--out', original)
+        cli('pack', source, '--out', archive)
         args = list(sign_args)
         args[args.index('--artifact')+1] = archive
         args[args.index('--policy')+1] = channel
         cli(*args, '--out', release)
         checked = cli('release', 'verify', '--artifact', release/'plugin.zip',
                       '--descriptor', release/'release.json', '--signature', release/'release.sig',
-                      '--policy', channel, '--tools', tools)
+                      '--policy', channel)
         assert checked['publisherAuthenticated'] is True and checked['authorization']=='not-granted'
         assert checked['installation'] is False and checked['pluginId']==package_id
         assert checked['artifactSHA256']==sha(archive.read_bytes())
@@ -176,18 +151,8 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
                         for p in original.rglob('*') if p.is_file()}
             assert set(signed_zip.namelist()) == set(expected)
             assert all(signed_zip.read(name) == data for name, data in expected.items())
-    case('official-preview', lambda: official_package('preview', ROOT / 'plugins/official/preview'))
-    if sdk_tools is not None:
-        def sample(name):
-            package = work / f'sample-{name}'
-            subprocess.run([sys.executable, '-B', ROOT/'scripts/build-plugin-sample.py',
-                            '--source', ROOT/'plugins/official'/name, '--tools', sdk_tools,
-                            '--out', package], check=True, timeout=200)
-            official_package(name, package)
-        for name in ('table', 'diff', 'task', 'views', 'logs', 'form'):
-            case(f'official-{name}', lambda name=name: sample(name))
-    for name, built_package in zip(('ai-codex', 'ai-claude'), ai_packages, strict=bool(ai_packages)):
-        case(f'official-{name}', lambda name=name, built_package=built_package: official_package(name, built_package))
+    for name in ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude'):
+        case(f'official-{name}', lambda name=name: official_package(name))
     def deterministic():
         other=work/'r2';cli(*sign_args,'--out',other)
         assert {p.name:p.read_bytes() for p in bundle.iterdir()}=={p.name:p.read_bytes() for p in other.iterdir()}
@@ -206,12 +171,7 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
     case('scope',lambda:policy_reject(dict(trusted,keys=[dict(trusted['keys'][0],pluginIds=['org.other.plugin'])]),'RELEASE_KEY_SCOPE'))
     case('publisher',lambda:policy_reject(dict(trusted,keys=[dict(trusted['keys'][0],publisher='Other')]),'RELEASE_KEY_SCOPE'))
     case('key-id',lambda:policy_reject(dict(trusted,keys=[dict(trusted['keys'][0],id='0'*64)]),'RELEASE_KEY_ID',2))
-    def policy_type():
-        helper=root/'scripts/plugin-release-schemas.mjs';before=helper.read_bytes()
-        helper.write_bytes(before.replace(b"valid: check('channel'",b"valid: true || check('channel'"))
-        try: policy_reject(dict(trusted,schemaVersion=True),'RELEASE_POLICY',2)
-        finally: helper.write_bytes(before)
-    case('policy-type',policy_type)
+    case('policy-type', lambda: policy_reject(dict(trusted, schemaVersion=True), 'RELEASE_POLICY', 2))
     def duplicate():
         raw=(bundle/'release.json').read_bytes().replace(b'{',b'{"schemaVersion":1,',1)
         file_reject('release.json',raw,'DUPLICATE_OR_RESERVED_KEY',2)
@@ -219,9 +179,7 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
     def signed_number_reject(raw):
         description=bundle/'release.json'; signature=bundle/'release.sig'
         before_description=description.read_bytes(); before_signature=signature.read_bytes()
-        signed=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],
-                              input=DOMAIN+raw,capture_output=True,check=True)
-        description.write_bytes(raw); signature.write_bytes(signed.stdout)
+        description.write_bytes(raw); signature.write_bytes(sign(endpoint, DOMAIN + raw))
         try: verify(2,'RELEASE_JSON_NUMBER')
         finally: description.write_bytes(before_description); signature.write_bytes(before_signature)
     def precise_descriptor():
@@ -242,13 +200,13 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
     case('precise-artifact',precise_artifact)
     def wrong_domain():
         raw=(bundle/'release.json').read_bytes()
-        sig=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],input=raw,capture_output=True,check=True).stdout
+        sig=sign(endpoint, raw)
         file_reject('release.sig',sig,'RELEASE_SIGNATURE')
     case('domain',wrong_domain)
     def identity():
         value=json.loads((bundle/'release.json').read_text());value['pluginVersion']='9.9.9'
         raw=json.dumps(value,separators=(',',':')).encode()
-        sig=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],input=DOMAIN+raw,capture_output=True,check=True).stdout
+        sig=sign(endpoint, DOMAIN+raw)
         old=(bundle/'release.sig').read_bytes();(bundle/'release.sig').write_bytes(sig)
         try: file_reject('release.json',raw,'RELEASE_IDENTITY_MISMATCH')
         finally: (bundle/'release.sig').write_bytes(old)
@@ -260,22 +218,31 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
     def numeric_equivalence():
         value=json.loads((bundle/'release.json').read_text());value['schemaVersion']=1.0;value['artifact']['bytes']=float(value['artifact']['bytes'])
         raw=json.dumps(value,separators=(',',':')).encode()
-        sig=subprocess.run([node,ROOT/'scripts/fixtures/plugin-release-agent.mjs','client',endpoint],input=DOMAIN+raw,capture_output=True,check=True).stdout
+        sig=sign(endpoint, DOMAIN+raw)
         old=(bundle/'release.sig').read_bytes();before=(bundle/'release.json').read_bytes()
         (bundle/'release.sig').write_bytes(sig);(bundle/'release.json').write_bytes(raw)
         try: verify()
         finally: (bundle/'release.sig').write_bytes(old);(bundle/'release.json').write_bytes(before)
     case('numeric-equivalence',numeric_equivalence)
 
-    def crypto_type():
-        helper=root/'scripts/plugin-release-crypto.mjs';before=helper.read_bytes()
-        assert b'valid: verify(null, message, key, signature)' in before
-        helper.write_bytes(before.replace(b'valid: verify(null, message, key, signature)',b'valid: 1'))
-        try: verify(6,'RELEASE_SIGNATURE')
-        finally: helper.write_bytes(before)
-    case('crypto-type',crypto_type)
+    def verifier_exit():
+        shim = work / 'verifier-bin'
+        shim.mkdir()
+        openssl = shim / 'openssl'
+        openssl.write_text("#!/bin/sh\nprintf '%s\\n' 'Signature Verified Successfully'\nexit 1\n")
+        openssl.chmod(0o700)
+        path = env['PATH']
+        env['PATH'] = str(shim) + os.pathsep + path
+        try:
+            verify(6, 'RELEASE_SIGNATURE')
+        finally:
+            env['PATH'] = path
+    case('verifier-exit', verifier_exit)
     def signer_failure(mode,code):
-        before=signer.read_bytes();changed=dict(config,prefixArguments=[str(ROOT/'scripts/fixtures/plugin-release-agent.mjs'),mode])
+        before = signer.read_bytes()
+        program = {'noise': 'import sys; sys.stdout.buffer.write(bytes(4096))',
+                   'diagnostic': 'import sys; sys.exit("DO_NOT_LOG_SIGNER_SECRET")'}[mode]
+        changed = dict(config, prefixArguments=['-IBc', program])
         signer.write_text(json.dumps(changed))
         try: cli(*sign_args,'--out',work/mode,status=2,code=code)
         finally: signer.write_bytes(before)
@@ -350,12 +317,14 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
         assert before=={p.name:p.read_bytes() for p in bundle.iterdir()}
     case('output-exists',output_exists)
     def incompatible():
-        host=work/'host.json';host.write_text(json.dumps(dict(side='client',sdkVersion='1.0.0',protocols=[1],runtimes=['portable-js'],capabilities=[])))
+        host=work/'host.json';host.write_text(json.dumps(dict(side='client',sdkVersion='1.0.0',protocols=[1],runtimes=['lua'],capabilities=[])))
         cli(*verify_args,'--host-json',host,status=4,code='RELEASE_HOST_INCOMPATIBLE')
     case('host-incompatible',incompatible)
     def interrupted_sign(number):
         barrier=work/('held-'+str(number));before=signer.read_bytes()
-        signer.write_text(json.dumps(dict(config,prefixArguments=[str(ROOT/'scripts/fixtures/plugin-release-agent.mjs'),'hold',str(barrier)])))
+        program = ('import os, pathlib, sys, time; sys.stdin.buffer.read(); '
+                   'pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)')
+        signer.write_text(json.dumps(dict(config, prefixArguments=['-IBc', program, str(barrier)])))
         destination=work/('interrupted-'+str(number))
         child=subprocess.Popen([sys.executable,'-B',root/'scripts/gterm-plugin',*map(str,[*sign_args,'--out',destination])],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True,env=env)
@@ -384,11 +353,6 @@ def exercise(root, work, tools, node, public, endpoint, selected=None, sdk_tools
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tools', type=Path, required=True,
-                        help='installed tools matching scripts/fixtures/plugin-dev-tools')
-    parser.add_argument('--sdk-tools', type=Path, help='also build and verify the official Portable samples')
-    parser.add_argument('--ai-packages', nargs=2, type=Path, metavar=('CODEX', 'CLAUDE'),
-                        help='verify signed archives of the two built official AI packages')
     parser.add_argument('--export-official-fixtures', type=Path,
                         help='write only the nine signed test releases to a new project tmp directory')
     parser.add_argument('--mutate',action='store_true')
@@ -400,23 +364,15 @@ def main():
     official = ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')
     export = args.export_official_fixtures
     if export is not None:
-        if not args.sdk_tools or not args.ai_packages or args.mutate:
-            parser.error('--export-official-fixtures requires --sdk-tools and --ai-packages without --mutate')
+        if args.mutate:
+            parser.error('--export-official-fixtures cannot be combined with --mutate')
         export = export.resolve()
         if not export.is_relative_to(ROOT / 'tmp') or export.exists() or args.export_official_fixtures.is_symlink():
             parser.error('official fixtures require a new directory under project tmp/')
-    node=Path(shutil.which('node')).resolve(strict=True)
-    inputs={str(p.relative_to(ROOT)):sha(p.read_bytes()) for directory in ['scripts','packages','plugins/official/preview','core/tests/fixtures',*(['plugins/official/'+n for n in ('table','diff','task','views')] if args.sdk_tools else [])] for p in (ROOT/directory).rglob('*')
-            if p.is_file() and '__pycache__' not in p.parts}
-    node_sha=sha(node.read_bytes())
-    binary_inputs={str(p):sha(p.read_bytes()) for p in args.tools.resolve().rglob('*') if p.is_file()}
-    if args.sdk_tools:
-        binary_inputs.update({str(p):sha(p.read_bytes()) for p in args.sdk_tools.resolve().rglob('*') if p.is_file()})
-    ai_packages = tuple(p.resolve(strict=True) for p in (args.ai_packages or ()))
-    for name, package in zip(('ai-codex', 'ai-claude'), ai_packages, strict=bool(ai_packages)):
-        if json.loads((package/'plugin.json').read_text())['id'] != f'org.ghosterm.{name}':
-            parser.error(f'expected the built {name} package at {package}')
-        binary_inputs.update({str(p):sha(p.read_bytes()) for p in package.rglob('*') if p.is_file()})
+    inputs = {str(p.relative_to(ROOT)): sha(p.read_bytes())
+              for folder in ['scripts', 'plugins/official', 'core/tests/fixtures']
+              for p in (ROOT / folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts}
+    binary_inputs = {}
     binary_inputs[str(ROOT/'core/build/test_config')]=sha((ROOT/'core/build/test_config').read_bytes())
     project_tmp = (ROOT / 'tmp').resolve()
     requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
@@ -424,18 +380,17 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pr-', dir=work_tmp) as temporary:
         work=Path(temporary)
         source=work/'source'
-        for directory in ['scripts','packages']:
+        for directory in ['scripts']:
             shutil.copytree(ROOT/directory,source/directory,ignore=shutil.ignore_patterns('__pycache__'))
         (source/'tmp').mkdir()
-        with agent(node,work) as (public,endpoint):
+        with memory_signer(work) as (public,endpoint):
             case_root=work/'cases';case_root.mkdir()
-            cases=exercise(source,case_root,args.tools.resolve(),node,public,endpoint,sdk_tools=args.sdk_tools.resolve() if args.sdk_tools else None,
-                           ai_packages=ai_packages,
+            cases=exercise(source,case_root,public,endpoint,
                            selected=frozenset('official-' + name for name in official) if export else None)
             print('RELEASE PASS: '+str(len(cases))+' cases: '+', '.join(cases),flush=True)
             recipes=[
                 ('number-precision','precise-policy','json.loads(raw, parse_float=number)','json.loads(raw, parse_float=float)'),
-                ('signature','signature',"result['valid'] is True, 'RELEASE_SIGNATURE', 6)", "True, 'RELEASE_SIGNATURE', 6)"),
+                ('signature','signature',"result.returncode == 0, 'RELEASE_SIGNATURE', 6)", "True, 'RELEASE_SIGNATURE', 6)"),
                 ('artifact','artifact',"(release['artifact']['bytes'], release['artifact']['sha256']) == (size, digest)","True"),
                 ('channel','channel',"release['channel'] == trusted['channel']","True"),
                 ('revoked','revoked',"release['keyId'] not in trusted['revokedKeyIds']","True"),
@@ -451,22 +406,22 @@ def main():
                 ('zip-limit','member-limit',"0 <= item.file_size <= MEMBER_LIMIT","0 <= item.file_size <= ARCHIVE_LIMIT"),
                 ('zip-stream','compressed-tail',"not decoder.unused_data and (not decoder.eof or remaining == 0)","True"),
                 ('zip-inflation','inflation',"produced <= original, 'RELEASE_ZIP_BUDGET'","True, 'RELEASE_ZIP_BUDGET'"),
-                ('crypto-type','crypto-type',"result['valid'] is True, 'RELEASE_SIGNATURE', 6)","result['valid'] == True, 'RELEASE_SIGNATURE', 6)"),
+                ('verifier-exit','verifier-exit',"result.returncode == 0, 'RELEASE_SIGNATURE', 6)",
+                 "result.returncode == 0 or b'Signature Verified Successfully' in result.stdout, 'RELEASE_SIGNATURE', 6)"),
             ]
             target=source/'scripts/plugin_release.py';original=target.read_bytes();groups=[];observations={}
-            for label,selected,old,new in recipes:
-                assert original.count(old.encode())==1,label
             if args.mutation_case:
                 unknown = set(args.mutation_case) - {recipe[0] for recipe in recipes}
                 if unknown:
                     parser.error('unknown mutation cases: ' + ', '.join(sorted(unknown)))
                 recipes = [recipe for recipe in recipes if recipe[0] in args.mutation_case]
             for label,selected,old,new in recipes if args.mutate else []:
+                assert original.count(old.encode())==1,label
                 target.write_bytes(original.replace(old.encode(),new.encode()))
                 compile(target.read_bytes(),str(target),'exec')
                 test=work/('m-'+label);test.mkdir()
                 try:
-                    try: exercise(source,test,args.tools.resolve(),node,public,endpoint,selected)
+                    try: exercise(source,test,public,endpoint,selected)
                     except BehaviorMismatch as error:
                         _args,actual,report,expected,code=error.args[0]
                         observations[label]=dict(actualStatus=actual,actualCode=report.get('code'),expectedStatus=expected,expectedCode=code,bytecodeCompiled=True)
@@ -475,7 +430,7 @@ def main():
                     assert control.returncode==0,('independent config control',control.stderr.decode())
                 finally: target.write_bytes(original)
                 restored=work/('r-'+label);restored.mkdir()
-                exercise(source,restored,args.tools.resolve(),node,public,endpoint,selected)
+                exercise(source,restored,public,endpoint,selected)
                 assert sha(target.read_bytes())==sha(original)
                 groups.append(label);print('PASS assertion/control/restore '+label,flush=True)
         if export is not None:
@@ -492,9 +447,8 @@ def main():
                 shutil.rmtree(export)
                 raise
     assert all(sha((ROOT/name).read_bytes())==value for name,value in inputs.items()),'source changed'
-    assert sha(node.read_bytes())==node_sha,'Node changed'
     assert all(sha(Path(name).read_bytes())==value for name,value in binary_inputs.items()),'tool inputs changed'
-    args.receipt.write_text(json.dumps(dict(schemaVersion=1,inputs=inputs,binaryInputs=binary_inputs,nodeSHA256=node_sha,cases=cases,mutations=groups,observations=observations),indent=2)+'\n')
+    args.receipt.write_text(json.dumps(dict(schemaVersion=1,inputs=inputs,binaryInputs=binary_inputs,cases=cases,mutations=groups,observations=observations),indent=2)+'\n')
 
 
 if __name__=='__main__':

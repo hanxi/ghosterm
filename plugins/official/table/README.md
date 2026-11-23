@@ -1,23 +1,17 @@
-# Candidate Portable table plugin
+# Table
 
-`table --count 1000` computes a read-only table of integers, squares and cubes.
-It generates at most sixteen rows per RPC, including exact decimal cubes near
-10^18, and never allocates the complete dataset. `--count 0` is an empty table.
-No file, process, network or account capability is used.
+Command `table`.
 
-The same checked Executor can run under a local `gterm` or authenticated SSH
-exec. It registers `view.table.describe` and `view.table.page`; a Native Host
-selects those methods through the existing Session RPC allowlist and consent.
-Requests bind the view identity, revision, offset and limit. The Client requires
-`ui.table`: the experimental JS-enabled macOS and Android Hosts supply a standard
-Native table and page controls for commands declaring `views: ["table"]`.
-Hosts without this service must report unsupported. The Client service is
-an explicit Session requirement (`gterm --client-capability ui.table`), separate
-from the Executor's own services and subject to the same Native consent.
+Provides a paginated sample table through the standard native table view.
+`table --count=16` selects the number of numeric rows. Use
+`table --project=sample-a` or `table --project=sample-b` to display one of
+two read-only sample project task lists.
 
-The Portable SDK exports structural codecs and semantic validation for at most
-eight columns, sixteen rows and 2,048 JSON UTF-8 bytes per table message. Generic
-Native table controls retain one selected page, reject late responses after
-Runtime replacement/closure, and show unknown/error separately from an empty
-table. Both Hosts use Native text, scroll and buttons. Physical-device and full
-client coverage remain pending. This package is not installed or released by default.
+Build from the repository root.
+
+```sh
+python3 scripts/gterm-plugin pack plugins/official/table --out tmp/table.zip
+```
+
+The static declaration is in `main.lua`. See the
+[plugin bridge plan](../../../docs/reference/plan-plugin-bridge.md) for verification status.

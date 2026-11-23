@@ -55,7 +55,7 @@ int main(int argc, char **argv) {
     }
     gt_ext_package_check_config_t check = {
         .host_json = "{\"side\":\"client\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],\"runtimes\":"
-                     "[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}"};
+                     "[\"lua\"],\"capabilities\":[\"session.rpc\"]}"};
     CHECK(gt_ext_package_check(package, &check) == GT_EXT_PACKAGE_CHECKED);
     gt_ext_package_metadata_t metadata;
     CHECK(gt_ext_package_metadata(package, &metadata) && !strcmp(metadata.package_digest, argv[3]));

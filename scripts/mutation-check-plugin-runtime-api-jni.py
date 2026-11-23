@@ -29,8 +29,12 @@ def sha(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device', required=True)
+    parser.add_argument('--lua-archive', type=Path, required=True)
+    parser.add_argument('--baseline-only', action='store_true')
     parser.add_argument('--case', action='append', default=[])
     args = parser.parse_args()
+    archive = args.lua_archive.resolve(strict=True)
+    archive_digest = sha(archive)
     originals = {key: path.read_bytes() for key, path in PATHS.items()}
     if any(MARK.encode() in value for value in originals.values()):
         print('residual runtime JNI mutation', file=sys.stderr)
@@ -41,18 +45,18 @@ def main():
         ('registry-source-unknown', [('cpp', '            status = gt_ext_registry_put(\n                s->registry, p->package, (gt_ext_registry_source_t)source, digest);\n', '            status = gt_ext_registry_put(s->registry,\n                                         p->package,\n                                         (source == GT_EXT_REGISTRY_SOURCE_UNKNOWN\n                                              ? GT_EXT_REGISTRY_SOURCE_DENIED\n                                              : (gt_ext_registry_source_t)source),\n                                         digest);\n')], 'fixedPackageAdoptionAndRPC'),
         ('registry-source-denied', [('cpp', '            status = gt_ext_registry_put(\n                s->registry, p->package, (gt_ext_registry_source_t)source, digest);\n', '            status = gt_ext_registry_put(s->registry,\n                                         p->package,\n                                         (source == GT_EXT_REGISTRY_SOURCE_DENIED\n                                              ? GT_EXT_REGISTRY_SOURCE_UNKNOWN\n                                              : (gt_ext_registry_source_t)source),\n                                         digest);\n')], 'fixedPackageAdoptionAndRPC'),
         ('registry-command-schema', [('cpp', '    const char *fields[11] = {c.path, c.title, (const char *)c.args_schema};\n', '    const char *fields[11] = {c.path, c.title, ""};\n')], 'fixedPackageAdoptionAndRPC'),
-        ('package-entry', [('cpp', '                              (const char *)m.entry,\n', '                              "truncated.js",\n')], 'fixedPackageAdoptionAndRPC'),
+        ('package-entry', [('cpp', '                              (const char *)m.entry,\n', '                              "truncated.lua",\n')], 'fixedPackageAdoptionAndRPC'),
         ('package-capabilities', [('cpp', '        fields[10 + i] = m.requires[i];\n', '        fields[10 + i] = "";\n')], 'fixedPackageAdoptionAndRPC'),
         ('package-no-grant', [('cpp', '                   m.authorization_granted,\n', '                   1,\n')], 'fixedPackageAdoptionAndRPC'),
         ('jni-phase', [('cpp', '    jlong values[10] = {i.phase,\n', '    jlong values[10] = {(i.phase == GT_EXT_RUNTIME_ACTIVE ? GT_EXT_RUNTIME_STOPPED : i.phase),\n')], 'adoptionAndActualPluginRPC'),
-        ('jni-cpu-error', [('cpp', '                        i.error,\n', '                        (i.error == GT_EXT_RUNTIME_CPU ? GT_EXT_RUNTIME_SCRIPT : i.error),\n')], 'cpuAndImportFailuresRemainDistinct'),
-        ('jni-job-count', [('cpp', '                        (jlong)i.jobs,\n', '                        0,\n')], 'adoptionAndActualPluginRPC'),
+        ('jni-cpu-error', [('cpp', '                        i.error,\n', '                        (i.error == GT_EXT_RUNTIME_CPU ? GT_EXT_RUNTIME_SCRIPT : i.error),\n')], 'cpuAndScriptFailuresRemainDistinct'),
+        ('jni-step-count', [('cpp', '                        (jlong)i.steps,\n', '                        0,\n')], 'adoptionAndActualPluginRPC'),
         ('jni-stop', [('cpp', '        gt_ext_runtime_stop(s->runtime);\n', '        if (false) {\n            gt_ext_runtime_stop(s->runtime);\n        }\n')], 'stopFromMainAndOtherWorkerRejected'),
         ('jni-successor-generation', [('cpp', '            s->id = successor;\n', '            (void)successor;\n')], 'generationalIdTransfer'),
         ('jni-kotlin-worker-guard', [
             ('cpp', '        if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].runtime &&\n            !extension_slots[i].retiring) {\n            s = &extension_slots[i];\n            break;\n        }\n    }\n    if (s && owner && !pthread_equal(s->owner, pthread_self())) {\n', '        if (id > 0 && extension_slots[i].id == (uint64_t)id && extension_slots[i].runtime &&\n            !extension_slots[i].retiring) {\n            s = &extension_slots[i];\n            break;\n        }\n    }\n    if (s && false && owner && !pthread_equal(s->owner, pthread_self())) {\n'),
             ('kotlin', 'check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L)', 'check(handle != 0L)')], 'stopFromMainAndOtherWorkerRejected'),
-        ('kotlin-cpu-error', [('kotlin', 'Failure.entries[v[1].toInt()]', 'if (v[1] == 3L) Failure.SCRIPT else Failure.entries[v[1].toInt()]')], 'cpuAndImportFailuresRemainDistinct'),
+        ('kotlin-cpu-error', [('kotlin', 'Failure.entries[v[1].toInt()]', 'if (v[1] == 3L) Failure.SCRIPT else Failure.entries[v[1].toInt()]')], 'cpuAndScriptFailuresRemainDistinct'),
         ('jni-root-id', [('cpp', '        roots[i] = (gt_ext_runtime_root_t){root_ids[i], descriptors[i], (uint64_t)root_budgets[i]};\n', '        roots[i] = (gt_ext_runtime_root_t){"other", descriptors[i], (uint64_t)root_budgets[i]};\n')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
         ('jni-root-budget', [('cpp', '        roots[i] = (gt_ext_runtime_root_t){root_ids[i], descriptors[i], (uint64_t)root_budgets[i]};\n', '        roots[i] = (gt_ext_runtime_root_t){root_ids[i], descriptors[i], 32768};\n')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
         ('kotlin-root-id', [('kotlin', 'roots.map { encode(it.id, 64) }', 'roots.map { encode("other", 64) }')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
@@ -60,6 +64,10 @@ def main():
     known = {c[0] for c in cases}
     if set(args.case) - known:
         parser.error('unknown case: ' + ', '.join(sorted(set(args.case) - known)))
+    if args.baseline_only and args.case:
+        parser.error('--case cannot be combined with --baseline-only')
+    if args.baseline_only:
+        cases = []
     if args.case:
         cases = [c for c in cases if c[0] in args.case]
     for label, changes, _ in cases:
@@ -67,16 +75,16 @@ def main():
             if originals[key].decode().count(old) != 1:
                 raise RuntimeError('missing/ambiguous anchor: ' + label + ' ' + key)
     inputs = []
-    for folder in ['core/src', 'core/include', 'android/bridge/src/main', 'android/app/src/pluginRuntimeTest', 'packages/plugin-sdk']:
+    for folder in ['core/src', 'core/include', 'android/bridge/src/main', 'android/app/src/pluginLuaTest']:
         inputs += [p for p in (ROOT / folder).rglob('*') if p.is_file()]
     inputs += [Path(__file__), ROOT / 'core/CMakeLists.txt', ROOT / 'android/app/build.gradle.kts', ROOT / 'android/bridge/build.gradle.kts', ROOT / 'android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionRuntimeAvailabilityTest.kt']
     hashes = {str(p.relative_to(ROOT)): sha(p) for p in inputs}
-    work = Path(tempfile.mkdtemp(prefix='plugin-runtime-api-jni-mutations-', dir=ROOT / 'tmp'))
+    work = Path(tempfile.mkdtemp(prefix='plugin-runtime-api-jni-mutations-', dir=os.environ['TMPDIR']))
     logs = work / 'logs'
     logs.mkdir()
     for key, value in originals.items():
         (work / (PATHS[key].name + '.original')).write_bytes(value)
-    env = dict(os.environ, TMPDIR=str(work), JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'), ZIG=str(ROOT / 'build/android-toolchain/zig-aarch64-macos-0.16.0/zig'))
+    env = dict(os.environ, TMPDIR=str(work), TMP=str(work), TEMP=str(work), JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'), ZIG=str(ROOT / 'build/android-toolchain/zig-aarch64-macos-0.16.0/zig'))
     adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', args.device]
     apk = ROOT / 'android/app/build/outputs/apk/debug/app-debug.apk'
     tests = ROOT / 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
@@ -93,7 +101,7 @@ def main():
         return output
 
     def gradle(label):
-        return run(label, ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true', '-PghostermRuntimeSdk=' + str(work / 'assets'), ':app:assembleDebug', ':app:assembleDebugAndroidTest'], budget=600)
+        return run(label, ['bash', ROOT / 'scripts/build-android.sh', '--offline', '--max-workers=2', '-PghostermPluginLua=true', f'-PghostermLuaArchive={archive}', ':app:assembleDebug', ':app:assembleDebugAndroidTest'], budget=600)
 
     def installed(label, package, artifact):
         run(label + '-install', [*adb, 'install', '-r', artifact], budget=60)
@@ -118,18 +126,14 @@ def main():
         props = {key: run('prop-' + key, [*adb, 'shell', 'getprop', key], budget=15).strip() for key in ['ro.build.version.sdk', 'ro.product.cpu.abi', 'ro.kernel.qemu']}
         page = run('page-size', [*adb, 'shell', 'getconf', 'PAGESIZE'], budget=15).strip()
         run('reverse-list', [*adb, 'reverse', '--list'], budget=15)
-        tools = work / 'tools'
-        tools.mkdir()
-        for name in ['package.json', 'package-lock.json']:
-            (tools / name).write_bytes((ROOT / 'scripts/fixtures/plugin-sdk-tools' / name).read_bytes())
-        npmrc = work / 'empty.npmrc'
-        npmrc.touch()
-        env['NPM_CONFIG_USERCONFIG'] = str(npmrc)
-        run('tools', ['npm', 'ci', '--prefix', tools, '--ignore-scripts', '--no-audit', '--no-fund', '--offline', '--cache', ROOT / 'tmp/plugin-sdk-npm-cache'])
-        sdk = work / 'assets/runtime-sdk'
-        run('sdk', ['node', tools / 'node_modules/typescript/bin/tsc', '-p', ROOT / 'packages/plugin-sdk/tsconfig.json', '--outDir', sdk])
         gradle('initial-apks')
-        candidates = [p.parent for p in (ROOT / 'android/bridge/.cxx/Debug').glob('*/arm64-v8a/CMakeCache.txt') if 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON\n' in p.read_text()]
+        candidates = []
+        for cache in (ROOT / 'android/bridge/.cxx/Debug').glob('*/arm64-v8a/CMakeCache.txt'):
+            configure = cache.read_text()
+            configured_archive = re.search(r'^GHOSTERM_LUA_ARCHIVE:[^=]+=(.+)$', configure, re.M)
+            if ('GHOSTERM_WITH_PLUGIN_LUA:BOOL=ON' in configure and configured_archive and
+                    Path(configured_archive[1]).resolve() == archive):
+                candidates.append(cache.parent)
         if len(candidates) != 1:
             raise RuntimeError('expected one explicit enabled JNI build: ' + repr(candidates))
         ndk = candidates[0]
@@ -150,10 +154,10 @@ def main():
             test_sha = installed(label + '-tests', 'com.hanxi.ghosterm.test', tests)
             with zipfile.ZipFile(apk) as z:
                 library = hashlib.sha256(z.read('lib/arm64-v8a/libghosterm_android.so')).hexdigest()
-                assert z.read('assets/licenses/QuickJSNG-MIT.txt') == (ROOT / 'vendor/quickjs-ng/LICENSE').read_bytes()
+                assert z.read('assets/licenses/Lua-MIT.txt') == (ROOT / 'core/cmake/Lua-MIT.txt').read_bytes()
+                assert not any(name.startswith('assets/runtime-sdk/') for name in z.namelist())
             with zipfile.ZipFile(tests) as z:
-                for p in sdk.glob('*.js'):
-                    assert z.read('assets/runtime-sdk/' + p.name) == p.read_bytes()
+                assert not any(name.startswith('assets/runtime-sdk/') for name in z.namelist())
             merged = ROOT / 'android/app/build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib/arm64-v8a/libghosterm_android.so'
             stripped = ROOT / 'android/app/build/intermediates/stripped_native_libs/debug/stripDebugDebugSymbols/out/lib/arm64-v8a/libghosterm_android.so'
             assert sha(merged) == sha(shared), label + ' merged JNI differs from linked input'
@@ -183,9 +187,10 @@ def main():
             instrumentation(label + '-restored-target', 'com.hanxi.ghosterm.ExtensionRuntimeTest#' + method, 1)
             print(label + ': actual JNI/Kotlin compile/shared link / JUnit assertion red / same APK Core green / restored / SHA256', flush=True)
         instrumentation('final-tests', all_tests, 12)
+        assert sha(archive) == archive_digest
         for name, digest in hashes.items():
             assert sha(ROOT / name) == digest, name
-        (logs / 'result.json').write_text(json.dumps(dict(accepted=True, groups=[c[0] for c in cases], device=args.device, properties=props, page_size=page, inputs_sha256=hashes, commands=commands, app_sha256=sha(apk), test_apk_sha256=sha(tests), sdk_sha256={p.name: sha(p) for p in sdk.glob('*.js')}, scope='native worker runtime / real JS RPC / API-selected simulator; no App activation UI, SSH, WAN, physical device, release or gateway'), indent=2) + '\n')
+        (logs / 'result.json').write_text(json.dumps(dict(accepted=True, groups=[c[0] for c in cases], device=args.device, properties=props, page_size=page, inputs_sha256=hashes, commands=commands, app_sha256=sha(apk), test_apk_sha256=sha(tests), lua_archive_sha256=archive_digest, scope='native worker runtime / Lua RPC / API-selected simulator; no App activation UI, SSH, WAN, physical device, release or gateway'), indent=2) + '\n')
         print('PUBLIC RUNTIME JNI MUTATIONS PASS; logs: ' + str(logs), flush=True)
     except BaseException as error:
         (logs / 'failure.txt').write_text(repr(error) + '\n')

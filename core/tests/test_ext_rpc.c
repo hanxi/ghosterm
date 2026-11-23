@@ -547,7 +547,7 @@ static void rpc_executor(const char *proof_root) {
 }
 
 #ifdef GT_HAVE_LIBSSH2
-static void rpc_network(int argc, char **argv) {
+static gt_ext_channel_t *rpc_dial(int argc, char **argv) {
     unsigned count = (unsigned)atoi(argv[2]);
     CHECK(count >= 2 && count <= 3 && argc == (int)(6 + count));
     gt_ext_test_port = (uint16_t)atoi(argv[6]);
@@ -589,6 +589,13 @@ static void rpc_network(int argc, char **argv) {
         gt_ext_channel_info_t i;
         CHECK(gt_ext_channel_info(c, &i) && i.phase == GT_EXT_CONNECTING && ext_now() < end);
     }
+    return c;
+}
+
+static void rpc_network(int argc, char **argv) {
+    const unsigned count = (unsigned)atoi(argv[2]);
+    gt_ext_channel_t *c = rpc_dial(argc, argv);
+    const uint64_t end = ext_now() + 25000;
     gt_ext_session_config_t cfg = ext_config();
     cfg.features = GT_EXT_FEATURE_REQUESTS;
     cfg.peer.kind = GT_EXT_PEER_SSH;

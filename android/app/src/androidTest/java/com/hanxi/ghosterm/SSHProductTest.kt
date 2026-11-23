@@ -121,7 +121,7 @@ class SSHProductTest {
             terminal().commitText("stty -echo; PS1=''; printf '\\033]777;ghosterm-discovery;1;$offer\\007\\033[2J\\033[HSSH_%s' CANDIDATE_READY\r")
         }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "SSH_CANDIDATE_READY" }
-        return if (BuildConfig.PLUGIN_JS_ENABLED) {
+        return if (BuildConfig.PLUGIN_RUNTIME_ENABLED) {
             ui.waitUntil(5_000) { ui.runOnIdle { sessions().frontendCandidates.any { it.sourceID == id } } }
             ui.runOnIdle { sessions().frontendCandidates.single { it.sourceID == id } }
         } else {

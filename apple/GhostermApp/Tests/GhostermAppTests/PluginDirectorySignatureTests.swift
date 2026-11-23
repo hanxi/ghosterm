@@ -298,7 +298,7 @@ final class PluginDirectorySignatureTests: XCTestCase {
         let reopened = await MainActor.run { AppModel.bundledPluginChannel(bundledFields, supportDirectory: state) }
         XCTAssertEqual(reopened?.stateDirectory, channel.stateDirectory)
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0", protocols: [1],
-                                                           runtimes: ["portable-js"], capabilities: [])
+                                                           runtimes: ["lua"], capabilities: [])
         let unconfigured = try ExtensionController(profile: profile)
         XCTAssertFalse(unconfigured.canRefreshChannelPolicy)
         do {
@@ -449,11 +449,11 @@ final class PluginDirectorySignatureTests: XCTestCase {
     func testCLISignatureAgainstActualCoreSnapshotWithoutApproval() async throws {
         guard ExtensionRuntime.supportStatus == 0,
               let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] else {
-            throw XCTSkip("requires explicit JS-enabled Core and CLI public release fixture")
+            throw XCTSkip("requires explicit Lua-enabled Core and CLI public release fixture")
         }
         let root = URL(fileURLWithPath: path), package = root.appendingPathComponent("p")
         let controller = try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0",
-            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root)
+            protocols: [1], runtimes: ["lua"], capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root)
         let cancelledReview = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return try await controller.review(directory: package)

@@ -6,12 +6,12 @@ compares schema instances with pinned Ajv; its npm cache is offline unless the
 user explicitly supplies --fetch. Raw lexical policy cases are kept separate.
 """
 from pathlib import Path
-import argparse,base64,copy,hashlib,json,os,random,shutil,signal,struct,subprocess,tempfile
+import argparse,copy,hashlib,json,os,random,shutil,signal,struct,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1]
 KINDS=['offer','request','response','event','cancel','credit','resource.begin','resource.chunk','resource.end','close','hello','probe','accept','ready','resource.result','resource.cancel']
 
 def fixtures():
-    source=json.loads((ROOT/'packages/plugin-sdk/schema/bridge-v1.cases.json').read_text());cases=[]
+    source=json.loads((ROOT/'packages/plugin-protocol/schema/bridge-v1.cases.json').read_text());cases=[]
     def encoded(frame):return json.dumps(frame,ensure_ascii=False,separators=(',',':')).encode()
     def add(name,frame,valid=True,reason=None,reference=True):
         raw=encoded(frame) if isinstance(frame,dict) else frame
@@ -106,29 +106,35 @@ def fixtures():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--binary',type=Path,default=ROOT/'core/build/test_bridge_wire')
-    parser.add_argument('--reference',action='store_true');parser.add_argument('--fetch',action='store_true')
+    parser.add_argument('--reference',action='store_true')
     parser.add_argument('--case',action='append');parser.add_argument('--expect-assertion',action='store_true',help=argparse.SUPPRESS)
     args=parser.parse_args();cases=fixtures()
     if args.case:
         assert set(args.case)<={case['name'] for case in cases};cases=[case for case in cases if case['name'] in args.case]
     assert not args.expect_assertion or len(cases)==1
-    work=Path(tempfile.mkdtemp(prefix='plugin-wire-',dir=ROOT/'tmp'))
+    project_tmp = ROOT / 'tmp'
+    scratch = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    if not scratch.is_dir() or not scratch.is_relative_to(project_tmp):
+        scratch = project_tmp
+    work=Path(tempfile.mkdtemp(prefix='plugin-wire-',dir=scratch))
     env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
     try:
         reference_count=0
         if args.reference:
-            tools=work/'tools';tools.mkdir();fixture=ROOT/'scripts/fixtures/plugin-schema-tools'
-            for name in ('package.json','package-lock.json'):shutil.copyfile(fixture/name,tools/name)
-            (work/'npmrc').touch();env.update(NPM_CONFIG_USERCONFIG=str(work/'npmrc'),NPM_CONFIG_UPDATE_NOTIFIER='false')
-            command=['npm','ci','--prefix',str(tools),'--ignore-scripts','--no-audit','--no-fund','--cache',str(ROOT/'tmp/plugin-schema-npm-cache')]
-            if not args.fetch:command.append('--offline')
-            subprocess.run(command,env=env,check=True,capture_output=True,timeout=60)
-            vector=[dict(name=c['name'],bytes=base64.b64encode(c['raw']).decode(),valid=c['valid']) for c in cases if c['reference']]
-            path=work/'reference.json';path.write_text(json.dumps(vector));reference_count=len(vector)
-            p=subprocess.run(['node',str(ROOT/'scripts/probes/plugin-wire-reference.mjs'),str(ROOT/'packages/plugin-sdk/schema/bridge-v1.candidate.json'),str(path),str(tools)],env=env,capture_output=True,text=True,timeout=30)
-            (work/'reference.log').write_text(p.stdout+p.stderr)
-            if p.returncode:raise RuntimeError(p.stdout+p.stderr)
-            print(p.stdout,end='',flush=True)
+            try:
+                from fixtures.plugin_wire_schema import validator_for
+            except ImportError:
+                parser.error('--reference requires the Python jsonschema package')
+            schema = json.loads((ROOT / 'packages/plugin-protocol/schema/bridge-v1.candidate.json').read_bytes())
+            validator = validator_for(schema)
+            for case in cases:
+                if not case['reference']:
+                    continue
+                frame = json.loads(case['raw'])
+                valid = len(case['raw']) <= 65536 and validator.is_valid(frame)
+                assert valid == case['valid'], case['name']
+                reference_count += 1
+            print(f'PASS JSON Schema independent reference {reference_count} instances', flush=True)
         data=bytearray()
         for case in cases:
             name=case['name'].encode();assert 0<len(name)<256
@@ -145,8 +151,8 @@ def main():
         elif p.returncode or 'PASS bridge_wire '+str(len(cases))+' cases' not in output:raise RuntimeError(output)
         else:print(output.splitlines()[-1],flush=True)
         (work/'result.json').write_text(json.dumps(dict(accepted=True,cases=[c['name'] for c in cases],reference_instances=reference_count,expected_assertion=args.expect_assertion,binary_sha256=hashlib.sha256(args.binary.read_bytes()).hexdigest()),indent=2)+'\n')
-        print('PLUGIN WIRE PASS; logs: '+str(work),flush=True)
-    finally:shutil.rmtree(work/'tools',ignore_errors=True)
+        print('PLUGIN WIRE PASS',flush=True)
+    finally:shutil.rmtree(work)
 
 if __name__=='__main__':
     def interrupted(number,frame):raise KeyboardInterrupt('signal '+str(number))

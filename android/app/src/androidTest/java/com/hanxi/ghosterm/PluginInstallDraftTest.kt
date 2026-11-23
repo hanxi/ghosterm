@@ -20,7 +20,7 @@ class PluginInstallDraftTest {
         return PluginArchiveCapture.read(context, context.contentResolver, PluginSignatureStreamProvider.URI)
     }
     private fun receipt() = ExtensionController.SignedArchiveReview(
-        ExtensionController.Review("org.ghosterm.fixture", "1.0.0", "fixture", "MIT", "a".repeat(64), "portable-js", listOf("session.rpc"), emptyList(), false, false, emptyList()),
+        ExtensionController.Review("org.ghosterm.fixture", "1.0.0", "fixture", "MIT", "a".repeat(64), "lua", listOf("session.rpc"), emptyList(), false, false, emptyList()),
         PluginReleaseSignature.Proof("org.ghosterm.fixture", "a".repeat(64), "fixture", "b".repeat(64), "fixture", "c".repeat(64), "d".repeat(64), "e".repeat(64), 32),
         PluginReleaseDeclarations.Data("f".repeat(64), "^1.0.0", "1.0.0", listOf(1), listOf(1), emptyList(), null))
     private fun model(scope: CoroutineScope, install: suspend (PluginArchiveCapture, ByteArray, ByteArray, ByteArray?, ExtensionController.SignedArchiveReview) -> ExtensionController.InstalledRelease) =

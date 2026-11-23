@@ -1,4 +1,4 @@
-/* Included after the runtime allocator and JS value helpers. Same serial owner. */
+/* Native view registry on the Lua runtime's serial owner. */
 static uint32_t runtime_view_bit(const char *kind) {
     return !strcmp(kind, "table")  ? 1u
            : !strcmp(kind, "diff") ? 2u
@@ -22,7 +22,7 @@ static const char *runtime_view_access(gt_bridge_runtime_t *r, const char *kind)
     snprintf(capability, sizeof(capability), "ui.%s", kind);
     const char *names[] = {"session.rpc", capability};
     for (size_t i = 0; i < 2; i++) {
-        switch (gt_ext_session_access(r->session, &r->lease, names[i])) {
+        switch (gt_ext_session_access(r->session, &r->rpc.lease, names[i])) {
             case GT_EXT_ACCESS_UNKNOWN:
                 return "unknown";
             case GT_EXT_ACCESS_DENIED:
@@ -45,7 +45,7 @@ gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kin
     if (r->role != GT_EXT_HOST) {
         return GT_ERR_UNSUPPORTED;
     }
-    if (r->started || r->views || r->info.phase != GT_RUNTIME_CREATED ||
+    if (r->views || r->info.phase != GT_RUNTIME_CREATED ||
         atomic_load_explicit(&r->stopped, memory_order_relaxed)) {
         return GT_ERR_CANCELLED;
     }
@@ -54,13 +54,13 @@ gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kin
     gt_package_check_info_t info;
     if (r->package) {
         declared = 0;
-        if (!r->invocation || !gt__package_checked_info(r->package, &info)) {
+        if (!(r->command[0] ? r->command : NULL) || !gt__package_checked_info(r->package, &info)) {
             return GT_ERR_AUTH;
         }
         for (size_t i = 0; i < gt__package_checked_command_count(r->package); i++) {
             gt_package_command_t command;
             if (gt__package_checked_command(r->package, i, &command) &&
-                !strcmp(command.path, r->invocation)) {
+                !strcmp(command.path, (r->command[0] ? r->command : NULL))) {
                 for (size_t j = 0; j < command.view_count; j++) {
                     declared |= runtime_view_bit(command.views[j]);
                 }
@@ -71,7 +71,7 @@ gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kin
     if ((kinds & declared) != kinds) {
         return GT_ERR_AUTH;
     }
-    if (gt_ext_session_access(r->session, &r->lease, "session.rpc") != GT_EXT_ACCESS_ALLOWED) {
+    if (gt_ext_session_access(r->session, &r->rpc.lease, "session.rpc") != GT_EXT_ACCESS_ALLOWED) {
         return GT_ERR_AUTH;
     }
     for (size_t i = 0; i < 3; i++) {
@@ -80,7 +80,7 @@ gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kin
         }
         char capability[24];
         snprintf(capability, sizeof(capability), "ui.%s", names[i]);
-        if (gt_ext_session_access(r->session, &r->lease, capability) != GT_EXT_ACCESS_ALLOWED) {
+        if (gt_ext_session_access(r->session, &r->rpc.lease, capability) != GT_EXT_ACCESS_ALLOWED) {
             return GT_ERR_AUTH;
         }
         if (r->package) {
@@ -98,7 +98,7 @@ gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kin
     if (status != GT_OK) {
         return status;
     }
-    runtime_views_t *views = runtime_malloc(r, sizeof(*views));
+    runtime_views_t *views = gt__plugin_memory_alloc(NULL, sizeof(*views));
     if (!views) {
         gt__secure_erase(nonce, sizeof(nonce));
         return GT_ERR_IO;
@@ -173,8 +173,8 @@ gt__bridge_runtime_views_snapshot(gt_bridge_runtime_t *r, const char **json, siz
                                  sizeof(v->json),
                                  "{\"instanceId\":\"%s\",\"epoch\":\"%" PRIu64
                                  "\",\"revision\":\"%" PRIu64 "\",\"views\":[",
-                                 r->lease.instance,
-                                 r->lease.epoch,
+                                 r->rpc.lease.instance,
+                                 r->rpc.lease.epoch,
                                  v->revision);
     bool comma = false;
     for (size_t i = 0; i < 8; i++) {
@@ -210,31 +210,6 @@ gt__bridge_runtime_views_snapshot(gt_bridge_runtime_t *r, const char **json, siz
     return GT_OK;
 }
 
-static bool
-runtime_view_string(JSContext *c, JSValueConst value, char *out, size_t cap, bool method) {
-    if (!JS_IsString(value)) {
-        return false;
-    }
-    size_t n;
-    const char *text = JS_ToCStringLen(c, &n, value);
-    if (!text) {
-        return false;
-    }
-    bool valid = n > 0 && n < cap;
-    for (size_t i = 0; valid && i < n; i++) {
-        char b = text[i];
-        bool lower = b >= 'a' && b <= 'z', upper = b >= 'A' && b <= 'Z',
-             digit = b >= '0' && b <= '9';
-        valid = lower || ((!method || i > 0) && (upper || digit)) ||
-                (i > 0 && (b == '.' || b == '_' || b == '-'));
-    }
-    if (valid) {
-        memcpy(out, text, n + 1);
-    }
-    JS_FreeCString(c, text);
-    return valid;
-}
-
 static bool runtime_view_method(gt_bridge_runtime_t *r, const char *name) {
     size_t count = 0;
     gt_bridge_role_t role;
@@ -247,101 +222,4 @@ static bool runtime_view_method(gt_bridge_runtime_t *r, const char *name) {
         }
     }
     return false;
-}
-
-static const char *const runtime_view_exports[] = {"viewOpen", "viewState", "viewClose"};
-
-static JSValue
-runtime_view_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, int op) {
-    (void)self;
-    gt_bridge_runtime_t *r = JS_GetContextOpaque(c);
-    const char *status = "invalid";
-    char handle[65] = {0};
-    if (!r || !r->views) {
-        status = "unsupported";
-        goto done;
-    }
-    if (op == 0) {
-        runtime_view_t candidate = {0};
-        if (argc != 5 ||
-            !runtime_view_string(c, argv[0], candidate.kind, sizeof(candidate.kind), false) ||
-            !runtime_view_string(c, argv[1], candidate.id, sizeof(candidate.id), false) ||
-            !runtime_view_string(
-                c, argv[2], candidate.describe, sizeof(candidate.describe), true) ||
-            !runtime_view_string(c, argv[3], candidate.read, sizeof(candidate.read), true)) {
-            goto done;
-        }
-        bool task = !strcmp(candidate.kind, "task");
-        if (task
-                ? !runtime_view_string(c, argv[4], candidate.cancel, sizeof(candidate.cancel), true)
-                : !JS_IsUndefined(argv[4])) {
-            goto done;
-        }
-        status = runtime_view_access(r, candidate.kind);
-        if (strcmp(status, "ok")) {
-            goto done;
-        }
-        status = "invalid";
-        if (!runtime_view_method(r, candidate.describe) ||
-            !runtime_view_method(r, candidate.read) ||
-            !strcmp(candidate.describe, candidate.read) ||
-            (task && (!runtime_view_method(r, candidate.cancel) ||
-                      !strcmp(candidate.describe, candidate.cancel) ||
-                      !strcmp(candidate.read, candidate.cancel)))) {
-            goto done;
-        }
-        runtime_view_t *slot = NULL;
-        for (size_t i = 0; i < 8; i++) {
-            runtime_view_t *entry = &r->views->entries[i];
-            if (entry->handle[0] && !strcmp(entry->id, candidate.id)) {
-                goto done;
-            }
-            if (!entry->handle[0] && !slot) {
-                slot = entry;
-            }
-        }
-        status = "busy";
-        if (!slot || r->views->next_id == UINT64_MAX || r->views->revision == UINT64_MAX) {
-            goto done;
-        }
-        snprintf(candidate.handle,
-                 sizeof(candidate.handle),
-                 "%s.%" PRIu64,
-                 r->views->nonce,
-                 r->views->next_id++);
-        *slot = candidate;
-        r->views->revision++;
-        strcpy(handle, candidate.handle);
-        status = "ok";
-    } else {
-        char id[65];
-        if (argc != 1 || !runtime_view_string(c, argv[0], id, sizeof(id), false)) {
-            goto done;
-        }
-        runtime_view_t *entry = runtime_view_find(r, id);
-        if (!entry) {
-            status = "closed";
-            goto done;
-        }
-        status = runtime_view_access(r, entry->kind);
-        if (op == 2 && !strcmp(status, "ok")) {
-            if (gt__bridge_runtime_view_close(r, id) != GT_OK) {
-                status = "invalid";
-            }
-        }
-    }
-done:
-    if (op != 0) {
-        return JS_NewString(c, status);
-    }
-    JSValue result = JS_NewObjectProto(c, JS_NULL);
-    if (JS_IsException(result)) {
-        return result;
-    }
-    if (runtime_set(c, result, "status", JS_NewString(c, status)) < 0 ||
-        (handle[0] && runtime_set(c, result, "handle", JS_NewString(c, handle)) < 0)) {
-        JS_FreeValue(c, result);
-        return JS_EXCEPTION;
-    }
-    return result;
 }

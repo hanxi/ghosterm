@@ -11,7 +11,7 @@ class PluginVersionChangesTest {
     private val oldPermission = PluginReleaseDeclarations.Permission("executor", "process.spawn", "purpose", "instance", listOf("old-worker"))
     private fun signed(capabilities: List<String>, permissions: List<PluginReleaseDeclarations.Permission> = listOf(oldPermission), version: String = "1.0.0") =
         ExtensionController.SignedArchiveReview(
-            ExtensionController.Review("org.ghosterm.fixture", version, "fixture", "MIT", "a".repeat(64), "portable-js", capabilities, listOf("ui.chat"), false, false, emptyList()),
+            ExtensionController.Review("org.ghosterm.fixture", version, "fixture", "MIT", "a".repeat(64), "lua", capabilities, listOf("ui.chat"), false, false, emptyList()),
             PluginReleaseSignature.Proof("org.ghosterm.fixture", "a".repeat(64), "fixture", "b".repeat(64), "fixture", "c".repeat(64), "d".repeat(64), "e".repeat(64), 32),
             PluginReleaseDeclarations.Data("f".repeat(64), "^1.0.0", "1.0.0", listOf(1), listOf(1), permissions, null))
     private fun view(candidate: ExtensionController.SignedArchiveReview, previous: ExtensionController.SignedArchiveReview?,

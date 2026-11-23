@@ -139,7 +139,7 @@ class PluginResourcePreviewUiTest {
         val digest = "a".repeat(64)
         val command = ExtensionController.Command("preview", "Preview", "{}", listOf("resource"))
         val review = ExtensionController.Review("org.ghosterm.preview", "0.1.0", "Ghosterm", "MIT",
-            digest, "portable-js", listOf("resource.receive"), emptyList(), true, false, listOf(command))
+            digest, "lua", listOf("resource.receive"), emptyList(), true, false, listOf(command))
         var captured: ExtensionRelayBootstrap.Request? = null
         ui.setContent {
             PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), command,
@@ -158,7 +158,7 @@ class PluginResourcePreviewUiTest {
     @Test fun rejectedGroupPreservesInputsAndAttachmentUsesItsOwnSubmitAction() {
         val command = ExtensionController.Command("preview", "Preview", "{}", emptyList())
         val review = ExtensionController.Review("org.ghosterm.preview", "0.1.0", "Ghosterm", "MIT",
-            "a".repeat(64), "portable-js", emptyList(), emptyList(), true, false, listOf(command))
+            "a".repeat(64), "lua", emptyList(), emptyList(), true, false, listOf(command))
         val rejection = "同一连接组必须选择同一目标"
         ui.setContent {
             PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), command,

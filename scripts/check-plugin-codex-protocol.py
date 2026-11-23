@@ -28,8 +28,8 @@ def main():
     parser.add_argument("--codex", default="codex", help="official Codex CLI executable")
     args = parser.parse_args()
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
-    version_source = (LOCK.parent / "version.ts").read_text(encoding="utf-8")
-    version_match = re.search(r'^export const CODEX_CLI_VERSION = "([^"]+)";$',
+    version_source = (LOCK.parent.parent / "executor.lua").read_text(encoding="utf-8")
+    version_match = re.search(r'^local version = "([^"]+)"$',
                               version_source, re.MULTILINE)
     if not version_match or version_match.group(1) != lock.get("codexCliVersion"):
         raise SystemExit("Codex runtime version constant differs from the app-server lock")
@@ -39,10 +39,15 @@ def main():
     if version != lock["codexCliVersion"]:
         raise SystemExit(f"Codex protocol version mismatch: expected {lock['codexCliVersion']}, got {version}")
 
-    work = Path(tempfile.mkdtemp(prefix="codex-protocol-", dir=ROOT / "tmp"))
+    workspace_tmp = ROOT / "tmp"
+    workspace_tmp.mkdir(exist_ok=True)
+    parent = Path(os.environ.get("TMPDIR", str(workspace_tmp))).resolve()
+    if not parent.is_relative_to(workspace_tmp) or not parent.is_dir():
+        parent = workspace_tmp
+    work = Path(tempfile.mkdtemp(prefix="agent-", dir=parent))
     try:
         env = dict(os.environ)
-        env["TMPDIR"] = str(ROOT / "tmp")
+        env.update(TMPDIR=str(work), TMP=str(work), TEMP=str(work))
         types = work / "types"
         schema = work / "schema"
         run([args.codex, "app-server", "generate-ts", "--out", str(types)], env=env)

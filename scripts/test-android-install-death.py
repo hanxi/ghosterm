@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import signal
 import sys
+import tempfile
 import time
 import uuid
 
@@ -15,8 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     serial = os.environ.get('ANDROID_SERIAL')
     if not serial: raise RuntimeError('Set the explicitly owned ANDROID_SERIAL')
+    project_tmp = ROOT / 'tmp'
+    project_tmp.mkdir(exist_ok=True)
+    scratch = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
+    if not scratch.is_relative_to(project_tmp) or not scratch.is_dir():
+        scratch = project_tmp
+    with tempfile.TemporaryDirectory(prefix='installation-death-', dir=scratch) as directory:
+        execute(serial, Path(directory))
+    assert not Path(directory).exists()
+
+
+def execute(serial, work):
     adb = [str(Path(os.environ.get('ANDROID_HOME', ROOT / 'build/android-toolchain/sdk')) / 'platform-tools/adb'), '-s', serial]
-    work = ROOT / 'tmp/android-install-death' / str(time.time_ns()); work.mkdir(parents=True)
     def run(command, seconds=60):
         result = subprocess.run([*adb, *command], cwd=ROOT, capture_output=True, text=True, timeout=seconds)
         if result.returncode: raise RuntimeError(str(command) + '\n' + result.stdout + result.stderr)

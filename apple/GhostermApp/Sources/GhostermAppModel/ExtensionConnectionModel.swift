@@ -15,8 +15,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         guard let first = launches.first, (1...8).contains(launches.count), launches.allSatisfy({
             $0.sshAlias == first.sshAlias && $0.localLaunch == first.localLaunch &&
             $0.temporaryDirectory == first.temporaryDirectory && $0.request.executable == first.request.executable &&
-            $0.request.attachment == nil &&
-            ($0.request.execution == nil || $0.request.execution?.temporaryDirectory == first.temporaryDirectory)
+            $0.request.attachment == nil
         }) else {
             throw GhostermError.failed("启动组须有一至八项，使用同一目标、gterm、临时目录和本机授权，且不能包含已有前台附着")
         }
@@ -81,7 +80,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         return .init(executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
             clientDigest: request.clientDigest, methods: plan.methods, hostMethods: plan.hostMethods, clientCapabilities: plan.services,
             scopedRoots: request.scopedRoots, processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-            execution: request.execution, attachment: request.attachment, releaseEvidence: request.releaseEvidence, variantID: request.variantID, command: request.command, arguments: request.arguments)
+            attachment: request.attachment, releaseEvidence: request.releaseEvidence, variantID: request.variantID, command: request.command, arguments: request.arguments)
     }
     static func prepareGroup(_ launches: [ExtensionGroupInvocation], controller: ExtensionController, connectionID: UUID)
         async throws -> (first: ExtensionGroupInvocation, scopes: [ExtensionController.MultiplexScope], argv: [String], command: String) {
@@ -106,7 +105,7 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
             executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
             methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
             processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
-            executorExecution: request.execution, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID, clientWorkspace: selection.clientWorkspace, localLaunch: selection.localLaunch,
+            executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID, clientWorkspace: selection.clientWorkspace, localLaunch: selection.localLaunch,
             multiplexedConnectionCommand: command)
     }
     private func observeModels() {
@@ -175,7 +174,6 @@ public struct ExtensionGroupInvocation: Sendable, Identifiable {
         return selection.sshAlias == first.sshAlias && selection.localLaunch == first.localLaunch &&
             selection.request.executable == first.request.executable && selection.temporaryDirectory == first.temporaryDirectory &&
             selection.request.attachment == nil &&
-            (selection.request.execution == nil || selection.request.execution?.temporaryDirectory == first.temporaryDirectory) &&
             (first.localLaunch == nil || Set(selection.request.processEnvironmentNames).isSubset(of: environmentNames))
     }
     @discardableResult public func add(_ selection: ExtensionGroupInvocation, app: AppModel) async -> Bool {

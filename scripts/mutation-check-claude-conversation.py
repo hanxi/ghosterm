@@ -68,8 +68,8 @@ def main():
     core_build = args.core_build.resolve()
     cases = [case for case in CASES if not args.case or case[0] in args.case]
     cache = (core_build / 'CMakeCache.txt').read_text()
-    if 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' not in cache:
-        raise SystemExit('Restore the default JS=OFF Core before these Native fixture mutations; real JS-enabled SSH cases run separately')
+    if 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=OFF' not in cache:
+        raise SystemExit('Restore the default Lua=OFF Core before these Native fixture mutations; real Lua-enabled SSH cases run separately')
     originals = {file: (ROOT / MODEL / file).read_bytes() for file in sorted(set(case[1] for case in cases))}
     for name, file, old, _, _ in cases:
         if originals[file].count(old.encode()) != 1 or MARK.encode() in originals[file]:
@@ -89,7 +89,7 @@ def main():
         (source / 'core').mkdir(); (source / 'core/build').symlink_to(core_build, target_is_directory=True)
         shutil.copytree(ROOT / 'core/include', source / 'core/include')
         env = dict(os.environ, TMPDIR=str(work), DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',
-                   GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='0')
+                   GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_LUA='0')
         def test(target=None, red=False):
             shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require claude-swift; shift; gt_timeout 240 "$@"'
             command = ['swift', 'test', '--verbose', '--package-path', source / 'apple/GhostermApp', '--scratch-path', scratch,

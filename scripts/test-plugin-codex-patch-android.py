@@ -33,11 +33,18 @@ def load(name, path):
     return module
 
 
+def scratch_root():
+    workspace_tmp = ROOT / 'tmp'
+    supplied = Path(os.environ.get('TMPDIR', str(workspace_tmp))).resolve()
+    return supplied if supplied.is_relative_to(workspace_tmp) and supplied.is_dir() else workspace_tmp
+
+
 def run(command, seconds=120):
     bounded = ['bash', '-c',
         '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require codex-android; shift; gt_timeout "$@"',
         'codex-android', str(ROOT), str(seconds), *map(str, command)]
-    result = subprocess.run(bounded, cwd=ROOT, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')),
+    scratch = str(scratch_root())
+    result = subprocess.run(bounded, cwd=ROOT, env=dict(os.environ, TMPDIR=scratch, TMP=scratch, TEMP=scratch),
                             capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(f'Command failed ({result.returncode}): {command}\n{result.stdout}{result.stderr}')
@@ -48,7 +55,7 @@ def run(command, seconds=120):
 def headless(api, scratch=None):
     """Own the AVD, process group and crash configuration; never open a desktop window."""
     sdk = ROOT / 'build/android-toolchain/sdk'
-    with tempfile.TemporaryDirectory(prefix='codex-headless-', dir=scratch or ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='codex-headless-', dir=scratch or scratch_root()) as temporary:
         work = Path(temporary)
         for name in ('home', 'user', 'avds', 'emulator', 'crash'):
             (work / name).mkdir()
@@ -73,7 +80,7 @@ def headless(api, scratch=None):
                     port = candidate; break
             except OSError: continue
         if port is None: raise RuntimeError('No unused emulator console/ADB pair')
-        environment = dict(os.environ, HOME=str(work / 'home'), TMPDIR=str(ROOT / 'tmp'),
+        environment = dict(os.environ, HOME=str(work / 'home'), TMPDIR=str(work), TMP=str(work), TEMP=str(work),
             ANDROID_AVD_HOME=str(work / 'avds'), ANDROID_USER_HOME=str(work / 'user'),
             ANDROID_EMULATOR_HOME=str(work / 'emulator'), ANDROID_TMP=str(work / 'emulator'), ANDROID_SDK_ROOT=str(sdk),
             ANDROID_EMU_ENABLE_CRASH_REPORTING='0', ANDROID_EMU_CRASH_REPORTING_DATABASE=str(work / 'crash'))
@@ -148,7 +155,7 @@ def execute(args):
     streams = load('codex_android_streams', ROOT / 'scripts/test-plugin-ssh-stream.py')
     private, public = streams.memory_identity()
     selected = ('direct', 'jump') if args.route == 'both' else (args.route,)
-    with tempfile.TemporaryDirectory(prefix='codex-patch-android-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='codex-patch-android-', dir=scratch_root()) as temporary:
         work = Path(temporary)
         with keys.owned_agent(work, 'codex-host-agent') as agent:
             host_keys = [keys.add_memory_key(agent, f'codex-patch-hop-{index}') for index in range(2)]
@@ -167,7 +174,8 @@ def execute(args):
                     edit_while_sending = not (args.lost_reply or args.interrupt_turn or args.close_executor)
                     if edit_while_sending:
                         (workspace / 'defer-turn-reply').touch()
-                    environment = {'TMPDIR': str(ROOT / 'tmp'), 'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
+                    environment = {'TMPDIR': str(owned), 'TMP': str(owned), 'TEMP': str(owned),
+                                   'PATH': os.environ.get('PATH', '/usr/bin:/bin')}
                     for variable, name in (('HOME', 'home'), ('CODEX_HOME', 'codex'), ('XDG_CONFIG_HOME', 'config')):
                         directory = owned / name; directory.mkdir(); environment[variable] = str(directory)
                     program = owned / 'codex-protocol-fixture'
@@ -265,8 +273,8 @@ def execute(args):
                                 time.sleep(.05)
                             exit_status = exited.read_text() if exited.exists() else 'not-exited'
                             exit_error = error.read_text().strip() if error.exists() else 'missing'
-                            expected_error = ('gterm: runtime phase=3 error=6 execution-error=0 child-exit=0 '
-                                              'child-signal=0 session-end=6 session-error=3 cleanup=0\n'
+                            expected_error = ('gterm: runtime phase=3 error=6 '
+                                              'session-end=6 session-error=3 cleanup=0\n'
                                               'gterm: executor channel outcome unknown')
                             if args.lost_reply:
                                 if not exited.exists() or not (workspace / 'turn-received.json').is_file():

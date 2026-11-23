@@ -58,17 +58,17 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         val arguments: List<String>, val decodedArguments: String?, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
         val peerIdentity: String, val remoteCommand: String, val requiredCapabilities: List<String>,
         val info: ExtensionSession.Info,
-        val executorExecution: ExtensionRelayBootstrap.Execution? = null,
         val clientWorkspace: ExtensionController.ClientWorkspace? = null,
         val executorAttachment: ExtensionRelayBootstrap.Attachment? = null,
+        val invocationContext: ExtensionRuntime.Invocation.Context? = null,
     )
 
     companion object {
-        private fun createController(application: Application): ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
+        private fun createController(application: Application): ExtensionController? = if (BuildConfig.PLUGIN_RUNTIME_ENABLED && ExtensionRuntime.supportStatus() == 0) {
         runCatching {
             val context = application.applicationContext
             val profile = ExtensionController.HostProfile(
-                sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
+                sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf(BuildConfig.PLUGIN_RUNTIME_NAME),
                 capabilities = listOf("session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff", "ui.task", "ui.views", "ui.form"))
             val refresh = PluginChannelRefresh.configured(context)
             if (refresh == null) ExtensionController(profile, context) else ExtensionController(profile, context, refresh)
@@ -178,7 +178,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         check(!launchBusy) { "插件启动正在进行" }
         check(activeSession == null) { "请先停止并释放当前插件 Session。" }
         check(sessions.connecting == null) { "当前已有 SSH 连接请求，请完成或取消后再启动插件" }
-        val prepared = prepareLaunch(entry, command, request, clientWorkspace)
+        val prepared = prepareLaunch(entry, command, request, clientWorkspace, sessions.active?.id)
         val launchRequest = prepared.request
         val bootstrap = ExtensionRelayBootstrap.build(launchRequest)
         launchBusy = true
@@ -220,9 +220,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     internal data class PreparedLaunch(val entry: Entry, val command: ExtensionController.Command,
-        val request: ExtensionRelayBootstrap.Request, val clientWorkspace: ExtensionController.ClientWorkspace?)
+        val request: ExtensionRelayBootstrap.Request, val clientWorkspace: ExtensionController.ClientWorkspace?,
+        val invocationContext: ExtensionRuntime.Invocation.Context?)
     internal fun prepareLaunch(entry: Entry, command: ExtensionController.Command, request: ExtensionRelayBootstrap.Request,
-        clientWorkspace: ExtensionController.ClientWorkspace?): PreparedLaunch {
+        clientWorkspace: ExtensionController.ClientWorkspace?, workspaceID: java.util.UUID? = null): PreparedLaunch {
         val selectedCommand = command.copy(views = command.views.toList())
         val registeredContribution = "ui.views" in entry.review.requiredCapabilities
         val tableContribution = "table" in selectedCommand.views
@@ -243,7 +244,10 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             methods = (request.methods + codexExecutorMethods).distinct(),
             hostMethods = (request.hostMethods + codexHostMethods).distinct())
         else if (selectedCommand.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
-        else request
+        else if (BuildConfig.PLUGIN_RUNTIME_NAME == "lua" &&
+            entry.review.id == "org.ghosterm.preview" && selectedCommand.path == "preview") {
+            request.copy(methods = (request.methods + "preview.open").distinct())
+        } else request
         val tableRequest = if (!registeredContribution && tableContribution) {
             val searchMethods = if (entry.review.id == "org.ghosterm.logs" && selectedCommand.path == "logs")
                 listOf(PluginTableModel.searchMethod) else emptyList()
@@ -281,16 +285,20 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             throw IllegalArgumentException("ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射")
         }
         if (selectedCommand.path == "ai claude" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
-                launchRequest.processPrograms.none { it.name == "claude-node" })) {
-            throw IllegalArgumentException("ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射")
+                launchRequest.processPrograms.none { it.name == "claude" })) {
+            throw IllegalArgumentException("ai claude 需要明确授权工作区，并配置名为 claude 的固定进程映射")
         }
         if (selectedCommand.path in listOf("ai codex", "ai claude") && launchRequest.attachment != null && !launchRequest.attachment.remoteProcesses) {
             throw IllegalArgumentException("此命令需要明确允许沿用前台实例已有的远端业务进程范围")
         }
         clientWorkspace?.validate(entry.review.requiredCapabilities)
         if (launchRequest.attachment != null) ExtensionRelayBootstrap.build(launchRequest)
+        // Each Android terminal workspace currently owns a single pane.
+        val invocationContext = workspaceID?.toString()?.let {
+            ExtensionRuntime.Invocation.Context(workspaceID = it, paneID = it)
+        }
         return PreparedLaunch(entry.copy(review = entry.review.copy(requiredCapabilities = entry.review.requiredCapabilities.toList(),
-            commands = entry.review.commands.map { it.copy(views = it.views.toList()) })), selectedCommand, launchRequest, clientWorkspace)
+            commands = entry.review.commands.map { it.copy(views = it.views.toList()) })), selectedCommand, launchRequest, clientWorkspace, invocationContext)
     }
 
     private suspend fun adoptReadyInstance(owner: ExtensionController, prepared: PreparedLaunch, decoded: String?,
@@ -324,7 +332,8 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
         activeSession = ActiveSession(entry.review.id, entry.review.digest, selectedCommand,
             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
             launchRequest.executorDigest, peerIdentity, remoteCommand,
-            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace, launchRequest.attachment)
+            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, clientWorkspace,
+            launchRequest.attachment, prepared.invocationContext)
         launchBusy = false
         handshakeJob?.cancel()
         handshakeJob = viewModelScope.launch { advanceToConsent(owner) }
@@ -351,12 +360,13 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     internal suspend fun validateAndEnqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
-        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
+        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String,
+        workspaceID: java.util.UUID? = null): Result<Unit> {
         return try {
             val owner = checkNotNull(controller) { "此构建未启用插件运行时" }
             decodeApprovedArguments(owner, entry, command, request.arguments)
             currentCoroutineContext().ensureActive()
-            enqueueGroup(entry, command, alias, request, clientWorkspace, temporaryDirectory)
+            enqueueGroup(entry, command, alias, request, clientWorkspace, temporaryDirectory, workspaceID)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -365,11 +375,12 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
     }
 
     internal fun enqueueGroup(entry: Entry, command: ExtensionController.Command, alias: String,
-        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String): Result<Unit> {
+        request: ExtensionRelayBootstrap.Request, clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String,
+        workspaceID: java.util.UUID? = null): Result<Unit> {
         return try {
             check(!groupSubmissionBusy) { "正在提交连接配置" }
             check(pendingGroup.size < 8) { "连接组最多八项" }
-            val prepared = prepareLaunch(entry, command, request, clientWorkspace)
+            val prepared = prepareLaunch(entry, command, request, clientWorkspace, workspaceID)
             check(prepared.request.attachment == null) { "已有前台附着不能加入固定启动组" }
             val candidate = ExtensionGroupInvocation(alias, prepared, temporaryDirectory)
             val group = pendingGroup.toList() + candidate
@@ -382,6 +393,50 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
             Result.success(Unit)
         } catch (failure: Exception) {
             Result.failure(failure)
+        }
+    }
+
+    internal fun workspacePanel(workspaceID: java.util.UUID, entry: Entry, command: ExtensionController.Command):
+        Pair<ExtensionConnectionModel, ExtensionConnectionModel.Instance>? {
+        if (!command.togglePanel) return null
+        val workspace = workspaceID.toString()
+        for (group in connectionGroups) {
+            val instance = group.instances.firstOrNull {
+                val active = it.model.activeSession
+                !it.closed && active != null && active.invocationContext?.workspaceID == workspace &&
+                    active.packageID == entry.review.id && active.packageDigest == entry.review.digest &&
+                    active.command.path == command.path
+            }
+            if (instance != null) return group to instance
+        }
+        return null
+    }
+
+    internal fun launchWorkspacePanel(entry: Entry, command: ExtensionController.Command,
+        target: PreparedSSH, request: ExtensionRelayBootstrap.Request,
+        clientWorkspace: ExtensionController.ClientWorkspace?, temporaryDirectory: String,
+        sessions: SessionsViewModel, workspaceID: java.util.UUID) {
+        val owner = checkNotNull(controller)
+        check(command.togglePanel && workspacePanel(workspaceID, entry, command) == null)
+        check(!groupSubmissionBusy && sessions.connecting == null) { "已有插件连接正在启动" }
+        check(connectionGroups.count { !it.closed } < 16) { "插件连接数量已达上限" }
+        val prepared = prepareLaunch(entry, command, request, clientWorkspace, workspaceID)
+        require(temporaryDirectory.startsWith("/")) { "执行端连接临时目录必须是绝对路径" }
+        groupSubmissionBusy = true
+        viewModelScope.launch {
+            try {
+                val group = ExtensionConnectionModel(getApplication(), owner.makeInvocationController(), viewModelScope,
+                    workspacePanel = true)
+                connectionGroups.add(group)
+                val invocation = ExtensionGroupInvocation(target.alias, prepared, temporaryDirectory)
+                if (group.start(listOf(invocation), target, sessions)) selectGroupInstance(group.instances.single().model)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = "工作区插件启动失败：${failure.message}"
+            } finally {
+                groupSubmissionBusy = false
+            }
         }
     }
 
@@ -677,7 +732,7 @@ class ExtensionPackagesViewModel internal constructor(application: Application,
                             ExtensionSession.Phase.ACTIVE -> {
                                 val active = checkNotNull(activeSession)
                                 activeRuntime = owner.activateClient(active.packageID, active.packageDigest,
-                                    active.command.path, active.arguments, active.clientWorkspace)
+                                    active.command.path, active.arguments, active.clientWorkspace, active.invocationContext)
                                 launchBusy = false
                                 startRuntimeObservation(owner)
                                 break

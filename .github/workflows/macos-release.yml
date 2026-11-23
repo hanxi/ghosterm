@@ -84,23 +84,23 @@ jobs:
           printf 'android_certificate_sha256=%s\n' "$ANDROID_RELEASE_CERT_SHA256" >> "$GITHUB_OUTPUT"
 
       - name: 预检已启用的插件渠道
-        if: vars.MACOS_PLUGIN_JS == 'true' || vars.ANDROID_PLUGIN_JS == 'true'
+        if: vars.MACOS_PLUGIN_LUA == 'true' || vars.ANDROID_PLUGIN_LUA == 'true'
         env:
-          MACOS_PLUGIN_JS: ${{ vars.MACOS_PLUGIN_JS }}
+          MACOS_PLUGIN_LUA: ${{ vars.MACOS_PLUGIN_LUA }}
           MACOS_PLUGIN_CHANNEL: ${{ vars.MACOS_PLUGIN_CHANNEL }}
           MACOS_PLUGIN_CHANNEL_ROOT: ${{ vars.MACOS_PLUGIN_CHANNEL_ROOT }}
           MACOS_PLUGIN_CHANNEL_URL: ${{ vars.MACOS_PLUGIN_CHANNEL_URL }}
-          ANDROID_PLUGIN_JS: ${{ vars.ANDROID_PLUGIN_JS }}
+          ANDROID_PLUGIN_LUA: ${{ vars.ANDROID_PLUGIN_LUA }}
           ANDROID_PLUGIN_CHANNEL: ${{ vars.ANDROID_PLUGIN_CHANNEL }}
           ANDROID_PLUGIN_CHANNEL_ROOT: ${{ vars.ANDROID_PLUGIN_CHANNEL_ROOT }}
           ANDROID_PLUGIN_CHANNEL_URL: ${{ vars.ANDROID_PLUGIN_CHANNEL_URL }}
         run: |
           set -euo pipefail
-          if [[ "$MACOS_PLUGIN_JS" == true ]]; then
+          if [[ "$MACOS_PLUGIN_LUA" == true ]]; then
             bash scripts/check-plugin-channel-url.sh "$MACOS_PLUGIN_CHANNEL" \
               "$MACOS_PLUGIN_CHANNEL_ROOT" "$MACOS_PLUGIN_CHANNEL_URL"
           fi
-          if [[ "$ANDROID_PLUGIN_JS" == true ]]; then
+          if [[ "$ANDROID_PLUGIN_LUA" == true ]]; then
             bash scripts/check-plugin-channel-url.sh "$ANDROID_PLUGIN_CHANNEL" \
               "$ANDROID_PLUGIN_CHANNEL_ROOT" "$ANDROID_PLUGIN_CHANNEL_URL"
           fi
@@ -179,8 +179,8 @@ jobs:
           FORMAL_RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           GHOSTERM_UPDATE_PUBLIC_KEY: ${{ vars.MACOS_UPDATE_PUBLIC_KEY }}
           ANDROID_RELEASE_CERT_SHA256: ${{ needs.preflight.outputs.android_certificate_sha256 }}
-          MACOS_PLUGIN_JS: ${{ vars.MACOS_PLUGIN_JS }}
-          ANDROID_PLUGIN_JS: ${{ vars.ANDROID_PLUGIN_JS }}
+          MACOS_PLUGIN_LUA: ${{ vars.MACOS_PLUGIN_LUA }}
+          ANDROID_PLUGIN_LUA: ${{ vars.ANDROID_PLUGIN_LUA }}
         run: |
           set -euo pipefail
           test -f dist/BUILD-INFO.txt && test -f dist/version.json
@@ -232,16 +232,16 @@ jobs:
           mv dist-android/Ghosterm-android-arm64-release.apk dist/
           mv dist-android/SHA256SUMS dist/android-SHA256SUMS
           mv dist-android/build-info.json dist/android-build-info.json
-          if [[ "$MACOS_PLUGIN_JS" == true ]]; then
-            grep -Eq '^插件运行时:[[:space:]]*QuickJS-NG$' dist/BUILD-INFO.txt || {
-              echo "macOS 构件缺少已启用的 QuickJS-NG" >&2; exit 1; }
+          if [[ "$MACOS_PLUGIN_LUA" == true ]]; then
+            grep -Eq '^插件运行时:[[:space:]]*Lua 5[.]5[.]1$' dist/BUILD-INFO.txt || {
+              echo "macOS 构件缺少已启用的 Lua 5.5.1" >&2; exit 1; }
           elif grep -q '^插件运行时:' dist/BUILD-INFO.txt; then
             echo "macOS 构件包含未启用的插件运行时" >&2
             exit 1
           fi
           android_profile=disabled
-          if [[ "$ANDROID_PLUGIN_JS" == true ]]; then android_profile=enabled; fi
-          python3 -B scripts/check-android-plugin-license.py dist/Ghosterm-android-arm64-release.apk --plugin-js "$android_profile"
+          if [[ "$ANDROID_PLUGIN_LUA" == true ]]; then android_profile=lua; fi
+          python3 -B scripts/check-android-plugin-license.py dist/Ghosterm-android-arm64-release.apk --runtime "$android_profile"
           python3 -B scripts/audit-public-release.py --repository "$GH_REPO" --tag "$TAG" \
             --asset-directory dist --commit "$GITHUB_SHA" --update-public-key "$GHOSTERM_UPDATE_PUBLIC_KEY" \
             --android-build-tools "$ANDROID_HOME/build-tools/35.0.0" \

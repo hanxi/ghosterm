@@ -153,7 +153,7 @@ def verify(args, work, project, adb, build_prefix):
         helper.require(result); return output
     def build(label):
         # Compile the production renderer, real WebView test and independent Core control.
-        logged(label + '-build', [*build_prefix, '-PghostermPluginJs=true',
+        logged(label + '-build', [*build_prefix, '-PghostermPluginLua=true', '-PghostermLuaArchive=' + str(Path(os.environ['GHOSTERM_LUA_ARCHIVE']).resolve(strict=True)),
             ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
         digests = {}
         for package_id, relative in (

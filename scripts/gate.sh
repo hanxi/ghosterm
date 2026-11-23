@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
+LOG_DIR="$ROOT/tmp"
+case "${TMPDIR:-}" in
+  "$ROOT/tmp"/*) LOG_DIR="$TMPDIR" ;;
+esac
 
 fail() { echo "GATE FAIL: $*" >&2; exit 1; }
 
@@ -13,16 +17,16 @@ echo "== 1/4 构建 C 核心（-Werror） =="
 SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
 SYSROOT_FLAG=()
 [ -n "$SYSROOT" ] && SYSROOT_FLAG=(-DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
-cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Debug "${SYSROOT_FLAG[@]}" >/dev/null
+cmake -S core -B core/build -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_WITH_PLUGIN_LUA=OFF "${SYSROOT_FLAG[@]}" >/dev/null
 cmake --build core/build >/dev/null
 echo "   ok"
 
 echo "== 2/4 单元/对拍测试 =="
-ctest --test-dir core/build --output-on-failure >"$ROOT/tmp/gt_ctest.log" 2>&1 || {
-  cat "$ROOT/tmp/gt_ctest.log" >&2
+ctest --test-dir core/build --output-on-failure >"$LOG_DIR/gt_ctest.log" 2>&1 || {
+  cat "$LOG_DIR/gt_ctest.log" >&2
   fail "ctest 未全绿"
 }
-grep -E "tests passed|tests failed" "$ROOT/tmp/gt_ctest.log" | sed 's/^/   /' 
+grep -E "tests passed|tests failed" "$LOG_DIR/gt_ctest.log" | sed 's/^/   /'
 
 echo "== 3/4 C ABI 符号对拍 =="
 bash scripts/check-abi.sh

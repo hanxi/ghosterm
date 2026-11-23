@@ -17,6 +17,7 @@ typedef struct {
     char path[520], title[1025], args_schema[4097];
     char views[8][16];
     size_t view_count;
+    bool toggle_panel;
 } gt_package_command_t;
 
 bool gt__package_checked_command(const gt_package_checked_t *, size_t, gt_package_command_t *);
@@ -62,7 +63,8 @@ typedef struct {
     /* Names from the Executor process.spawn permission. This is an untrusted
      * manifest scope observation, not an authorization grant or executable path. */
     char process_programs[16][129];
-    size_t requires_count, optional_missing_count, process_program_count;
+    char rpc_handlers[16][129];
+    size_t requires_count, optional_missing_count, process_program_count, rpc_handler_count;
     uint16_t protocols[8];
     size_t protocol_count;
     bool executor, association_required;

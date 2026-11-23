@@ -182,13 +182,10 @@ static int peer_main(void) {
 }
 
 static void broker_pipe(broker_fixture_t *b, rpc_pair_t *f, int argc, char **argv) {
-    bool node = !strncmp(argv[1], "pipe-node", 9);
-    bool sdk = !strncmp(argv[1], "pipe-node-sdk", 13);
-    bool cancel = !strcmp(argv[1], "pipe-node-sdk-cancel");
-    CHECK(argc >= 3 && (!node || argc == 5));
+    CHECK(argc == 3);
     char executable[4097];
-    CHECK(realpath(node ? argv[3] : argv[0], executable));
-    const char *args[] = {executable, node ? argv[4] : "--peer"};
+    CHECK(realpath(argv[0], executable));
+    const char *args[] = {executable, "--peer"};
     int cwd = open(argv[2], O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     CHECK(cwd >= 0);
     gt_ext_process_t *child = NULL;
@@ -205,7 +202,7 @@ static void broker_pipe(broker_fixture_t *b, rpc_pair_t *f, int argc, char **arg
     uint8_t input[16384], output[GT_PROCESS_RPC_MESSAGE_MAX + 4];
     size_t input_at = 0, input_size = 0, output_at = 0, output_size = 0;
     gt_ext_process_info_t state = {0};
-    bool replied = false, done = false, cancelled = false;
+    bool replied = false;
     uint64_t deadline = ext_now() + 20000;
     while (!state.exited && ext_now() < deadline) {
         rpc_pump(f);
@@ -213,19 +210,11 @@ static void broker_pipe(broker_fixture_t *b, rpc_pair_t *f, int argc, char **arg
         gt_ext_rpc_status_t taken = gt_ext_session_take_request(f->pair.h, &f->h, &q);
         if (taken == GT_EXT_RPC_OK) {
             CHECK(!strcmp(q.input, "{\"peer\":true}"));
-            if (!strcmp(q.method, "fixture.ask")) {
-                CHECK(!replied);
-                replied = true;
-            } else {
-                CHECK(sdk && !done && !strcmp(q.method, "fixture.done"));
-                gt_ext_rpc_result_t result = rpc_result(f->pair.h, &f->h, handle);
-                CHECK(result.confirmed &&
-                      result.state == (cancel ? GT_EXT_RPC_UNKNOWN : GT_EXT_RPC_SUCCEEDED));
-                done = true;
-            }
+            CHECK(!strcmp(q.method, "fixture.ask") && !replied);
+            replied = true;
             rpc_reply(f->pair.h, &f->h, &q);
         } else {
-            CHECK(taken == GT_EXT_RPC_WAIT || (sdk && done && taken == GT_EXT_RPC_CLOSED));
+            CHECK(taken == GT_EXT_RPC_WAIT);
         }
         if (output_at < output_size) {
             gt_ext_process_io_t io =
@@ -252,16 +241,6 @@ static void broker_pipe(broker_fixture_t *b, rpc_pair_t *f, int argc, char **arg
             const uint8_t *bytes;
             size_t size;
             if (gt__bridge_decoder_view(decoder, &bytes, &size)) {
-                char message[GT_PROCESS_RPC_MESSAGE_MAX + 1];
-                memcpy(message, bytes, size);
-                message[size] = 0;
-                if (cancel && !cancelled && strstr(message, "\"op\":\"respond\"")) {
-                    CHECK(gt_ext_session_cancel_request(f->pair.h, &f->h, handle) == GT_EXT_RPC_OK);
-                    for (size_t i = 0; i < 50; i++) {
-                        rpc_pump(f);
-                    }
-                    cancelled = true;
-                }
                 CHECK(gt__process_rpc_call(b->broker, bytes, size) == GT_PROCESS_RPC_OK);
                 CHECK(gt__process_rpc_reply(b->broker, &bytes, &size));
                 output[0] = (uint8_t)(size >> 24);
@@ -291,10 +270,8 @@ static void broker_pipe(broker_fixture_t *b, rpc_pair_t *f, int argc, char **arg
             nanosleep(&pause, NULL);
         }
     }
-    CHECK(state.exited && !state.term_signal && !state.exit_code && replied && (!sdk || done) &&
-          cancelled == cancel);
-    CHECK(rpc_complete(f, false, handle).state ==
-          (cancel ? GT_EXT_RPC_UNKNOWN : GT_EXT_RPC_SUCCEEDED));
+    CHECK(state.exited && !state.term_signal && !state.exit_code && replied);
+    CHECK(rpc_complete(f, false, handle).state == GT_EXT_RPC_SUCCEEDED);
     CHECK(gt_ext_session_forget_request(f->pair.h, &f->h, handle) == GT_EXT_RPC_OK);
     CHECK(!output_size && gt__ext_process_destroy(&child) == GT_OK && !child);
     gt__bridge_decoder_free(decoder);
@@ -586,7 +563,7 @@ int main(int argc, char **argv) {
             CHECK(gt__process_rpc_open(f.pair.e, NULL, &second) == GT_ERR_INVALID_ARG && !second);
             CHECK(gt_ext_session_close(f.pair.e, 0) == GT_EXT_DRAINING);
             CHECK(gt_ext_session_destroy(&f.pair.e) == GT_ERR_INVALID_ARG && f.pair.e);
-        } else if (!strncmp(mode, "pipe-", 5)) {
+        } else if (!strcmp(mode, "pipe-exec")) {
             broker_pipe(&b, &f, argc, argv);
         } else {
             CHECK(false);

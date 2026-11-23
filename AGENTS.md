@@ -43,11 +43,11 @@ runtime catalog，四组变异护本地创建、启动偏好、分屏目录与�
 | `core/` | C 共享库：ssh / sftp / ssh_config / known_hosts / forward / pty | **纯 C11 + POSIX**，禁止依赖任何端代码、禁止依赖 UI |
 | `terminal/` | 各端 TerminalSurface（full libghostty 或 libghostty-vt+自绘） | 只依赖 `core/include` 与 libghostty |
 | `apple/ android/`（现有）· `windows/ linux/ harmony/ web/`（规划） | 各端宿主 + UI | 通过 `core/include/ghosterm.h` 消费核心；**禁止**直接引用其他端 |
-| `vendor/` | 上游 submodule（ghostty、ish-arm64、quickjs-ng），**锁 pin** | 不允许就地改；改动一律走 `patches/` |
+| `vendor/` | 上游 submodule（ghostty、ish-arm64），**锁 pin** | 不允许就地改；改动一律走 `patches/` |
 | `runtime-payload/` | 环境包（Android Termux/proot、iOS iSH） | 只放清单与下载/校验逻辑，二进制不入库 |
 | `patches/` | 上游补丁 | 每个补丁必须带 `WHY.md` |
 | `scripts/` | 构建/闸门脚本 | — |
-| `packages/` | 插件 SDK、schema 与开发 testkit；当前为未冻结候选 | 可移植契约不依赖端 UI；portable SDK 不引 Node / DOM。C 核心不依赖 TypeScript 或开发工具运行时 |
+| `packages/` | 插件协议 schema 与用例；当前为未冻结候选 | 可移植契约不依赖端 UI。C 核心不依赖 TypeScript 或开发工具运行时 |
 | `docs/` | Diátaxis 文档 | — |
 | `assets/` | 品牌资源：应用图标**母版 SVG** + 各端派生产物 | 无代码依赖；产物一律由 `scripts/build-icons.sh` 从母版派生，禁手改产物 |
 
@@ -120,7 +120,7 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 子头不反向包含聚合头 `ghosterm.h`。平台绑定仍只经聚合头进入；
 共享错误类型位于 `ghosterm/types.h`，不在各绑定复制。
 
-**改了 `apple/ android/ windows/ linux/ harmony/ web/` 必须另跑对应平台构建**；JS/宿主闸门不覆盖原生编译。
+**改了 `apple/ android/ windows/ linux/ harmony/ web/` 必须另跑对应平台构建**。Lua 插件闸门不能代替各端原生编译。
 
 **CI 双轨（按工作流路径过滤触发）**：未被 `paths-ignore` 过滤的 push `main` → `dev-build.yml`（轻闸门 + ad-hoc macOS 包 +
 滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
@@ -238,8 +238,8 @@ tmux 3.6a 两个真实附着 PTY 客户端验证候选输出完整，同时复�
 实验载荷 / 编码 / 前缀均未冻结，不表示插件能力已实现；范围与首轮失败见
 `docs/reference/plan-plugin-bridge.md` 的 P0 第一批记录。手工证据，不增加 macOS CI 二十份。
 
-**插件 JS 双候选 P0 第二批（2026-11-05）**：`python3 scripts/test-plugin-js.py --fetch --mutate --android-build`
-显式下载 / 校验归档，`--android 序号` 才记设备执行；源码为 `scripts/probes/plugin-js.c`，不接生产依赖。
+**历史证据：插件 JS 双候选 P0 第二批（2026-11-05）**：当时的 `scripts/test-plugin-js.py` 与
+`scripts/probes/plugin-js.c` 随 Lua 迁移退役。该轮显式下载并校验归档，仅指定设备序号时记录设备执行。
 QuickJS 2026-06-04 / QuickJS-NG 0.18.0 的 macOS arm64 各十一项与各四组重新编译变异通过，
 正常目标断言红、同构件 portable 对照绿、恢复绿与 SHA256；两套 NDK 28.2 / API 29 arm64
 构件在专属 API 29 / 4 KiB 页模拟器各十一项通过。主机用 ASan / UBSan 并拒绝恢复后假绿。
@@ -259,14 +259,14 @@ P0 第二批。仅主机变异 / 原生模拟器专项，不是 Android 变异�
 **插件无 Client / schema P0 第四批（2026-11-05）**：`python3 scripts/test-plugin-no-client.py --android 序号`
 以同一十一份字节夹具验真实 macOS full surface 与 API 29 / arm64 / 4 KiB 页 VT，DSR 作处理完成屏障，
 完整候选帧静默、Kitty 查询回包正常；截断 DCS 吞后续字节直至 ST 的限制单独记账。无 Android UI / 渲染或完整 App 结论。
-`packages/plugin-sdk/schema/` 仅放未冻结的 JSON Schema 与样例；`test-plugin-schema.py --fetch --mutate`
-显式取锁定开发工具，默认离线，五十七份结构样例与四组 schema 变异通过，不代替 C / channel 状态机验证。
+当时的 schema 测试通过五十七份结构样例与四组变异，范围为结构验证。现行协议 schema 和样例位于
+`packages/plugin-protocol/schema/`，`python3 scripts/test-plugin-schema.py --mutate` 使用 Python `jsonschema`。
 `test-plugin-protocols.py --fetch` 取锁定 trzsz-go 1.2.0 作上游比较：十五项及两档各 256 KiB 真实 PTY 文件互通通过，
 不表示 Ghosterm 兼容 trzsz / Kitty 文件协议。首次继承宿主 tmux 的失败与无法证明原选项继承完全恢复的限制保留；
 最终清除环境并以阻断器禁止访问宿主 tmux 后重跑通过。全部为手工探针，不增加 CI 二十份；详见计划 P0 第四批。
 
-**插件包元数据 P0 第五批（2026-11-05）**：`python3 scripts/test-plugin-package.py --fetch --mutate`
-首次显式取锁定开发依赖，后续默认离线。manifest / integrity 候选与 testkit 元数据检查器有 96 项具名检查、
+**历史证据：插件包元数据 P0 第五批（2026-11-05）**：该轮的独立 JS 检查脚本已随 Lua 迁移退役。
+当时的 manifest / integrity 候选与 testkit 元数据检查器有 96 项具名检查、
 六组模块重新加载后的变异：正常目标断言红、同模块 Client 兼容性对照绿、恢复绿及源字节一致。
 只比较调用方提供的成员统计 / 摘要和能力事实，返回兼容不授予权限；不是实际解包、hash 读取、无链接打开、
 签名、安装或插件激活证据。`process.pipes` 可用性与 `process.spawn` 的程序权限分开，计划原样示例纳入两侧检查。

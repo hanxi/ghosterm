@@ -1,46 +1,34 @@
 # 开发时验证可取消任务插件
 
-本页在 macOS 开发环境构建官方 `task primes` 候选包，并通过真实 Native Host 验证同一
-Executor 的本机、SSH 直连和 ProxyJump 路线。普通 App 默认仍关闭 JS；插件不自动安装
-或发布。`gterm task primes` 尚非普通命令分发入口，下面使用显式的开发 testkit。
+在 macOS 开发环境构建官方 `task primes` 插件，通过原生宿主验证同一 Lua Executor 的本机、
+SSH 直连和 ProxyJump 路线。普通 App 默认关闭插件运行时。下面的开发包供显式审阅与授权。
 
-先准备仓库锁定的 C / libssh2、QuickJS submodule、原生终端产物、Xcode、Node / npm 和
-SSH 测试工具链。相关入口见 [SSH 依赖构建](../reference/host-ssh2-build.md)、
-[gterm 构建](../../cli/gterm/README.md)；SSH 测试工具链用
-`bash scripts/bootstrap-ssh-channel-tests.sh` 准备。需要首次下载的准备动作与离线闸门分开。
-命令均从工程根目录执行；以下输出路径应尚不存在，重复构建官方包时可用 `--check` 对拍。
+准备仓库锁定的 [libssh2](../reference/host-ssh2-build.md)、原生终端构件、Xcode 和
+SSH 测试工具链。工具链可用 `bash scripts/bootstrap-ssh-channel-tests.sh` 准备。
+Lua 源码归档由 CMake 按仓库锁定的 SHA-256 校验。
 
-## 构建同一份可移植包
+## 构建与验证
+
+从工程根目录执行，`tmp/native-task/package` 使用新路径。
 
 ```sh
-mkdir -p tmp/native-task/tools
-export TMPDIR="$PWD/tmp"
+mkdir -p tmp/native-task
+export TMPDIR="$PWD/tmp/native-task" TMP="$PWD/tmp/native-task" TEMP="$PWD/tmp/native-task"
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-export GHOSTERM_AUTOMATION_OFFSCREEN=1
-cp scripts/fixtures/plugin-sdk-tools/package.json scripts/fixtures/plugin-sdk-tools/package-lock.json tmp/native-task/tools/
-npm ci --prefix tmp/native-task/tools --cache tmp/plugin-sdk-npm-cache --ignore-scripts --no-audit --no-fund
-node tmp/native-task/tools/node_modules/typescript/bin/tsc \
-  -p packages/plugin-sdk/tsconfig.json --outDir tmp/native-task/sdk
-python3 scripts/build-plugin-sample.py --source plugins/official/task \
-  --tools tmp/native-task/tools --out tmp/native-task/package-v2
-```
-
-构建器校验锁定 TS 5.9.3 工具、静态模块闭包、schema 和完整性成员，输出可供 review /
-approve 的目录包。`plugin.json` 的 Client 要求 session.rpc / ui.task；Executor 只要求
-session.rpc，无文件、进程、网络或账户依赖。Portable 源码不导入 Node、DOM 或端 UI。
-
-## 验证本机与远端执行
-
-```sh
+curl -fL https://www.lua.org/ftp/lua-5.5.1.tar.gz -o tmp/native-task/lua-5.5.1.tar.gz
+python3 -B scripts/gterm-plugin build plugins/official/task --out tmp/native-task/package
 cmake -S cli/gterm -B tmp/native-task/cli -DCMAKE_BUILD_TYPE=Debug \
-  -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON \
-  -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_GTERM_TESTS=ON \
-  -DGHOSTERM_PLUGIN_SDK_DIR="$PWD/tmp/native-task/sdk"
-cmake --build tmp/native-task/cli -j 4
-build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-native.py \
-  --build tmp/native-task/cli --package tmp/native-task/package-v2 --mutate \
+  -DGHOSTERM_WITH_PLUGIN_LUA=ON -DGHOSTERM_WITH_LIBSSH2=ON \
+  -DGHOSTERM_LUA_ARCHIVE="$PWD/tmp/native-task/lua-5.5.1.tar.gz"
+cmake --build tmp/native-task/cli -j 4 --target gterm
+python3 -B scripts/test-plugin-task-native.py \
+  --build tmp/native-task/cli --package tmp/native-task/package --mutate \
   --receipt tmp/native-task/native-final.json
 ```
+
+`main.lua` 声明 Client 的 `session.rpc` 和 `ui.task` 能力。Executor 使用
+`session.rpc` 推进有界的质数计算和处理取消请求。构建工具静态生成 `manifest.json`
+和完整性清单，保留 Lua 源码供宿主加载。
 
 testkit 复制 Native 源码并链接这份显式启用库，根工程 `core/build` 保持普通默认档。
 它自行创建环回 SSH 端点、内存密钥、agent 与独立配置；不使用用户 SSH 服务、密钥或
@@ -71,11 +59,12 @@ macOS 开发机上，复用上面同一份包与 gterm：
 
 ```sh
 build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.py \
-  --build tmp/native-task/cli --package tmp/native-task/package-v2 --mutate \
+  --lua-archive tmp/native-task/lua-5.5.1.tar.gz \
+  --build tmp/native-task/cli --package tmp/native-task/package --mutate \
   --receipt tmp/native-task/android-task.json
 ```
 
-脚本复制 Android 源码，显式构建 JS-enabled APK，创建自有 `-no-window` AVD，核对实际
+脚本复制 Android 源码，显式构建 Lua-enabled APK，创建自有 `-no-window` AVD，核对实际
 安装 APK 摘要；不选择用户设备或现有模拟器。它对同一包执行直连 / 两跳、任务完成 /
 空任务 / 真实按钮取消，以及原生 codec / 模型 / Compose 和隔离变异。`--api 29` 或
 `--api 36` 可单独选档，`--case 名称` 只筛变异组，基线与实际 SSH 仍执行。签名发行、
@@ -85,7 +74,7 @@ build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.p
 
 ## 连接明确选择的前台 IPC 实例
 
-同一 Portable Executor 也可由独立前台进程启动，然后经 App 的本机进程 / 已认证 SSH
+同一 Lua Executor 也可由独立前台进程启动，然后经 App 的本机进程 / 已认证 SSH
 通道连接。前台实例必须预先配置准确 Client / Executor 摘要、RPC 方法和 Client
 服务；attach 沿用这些配置，不会重新授权或补装缺失服务。前台的公开实例 ID 与
 256 位私有 permit 分开，App 只接收 ID，permit 留在前台 0600 文件中。
@@ -93,7 +82,7 @@ build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.p
 以下命令在准备好已构建的任务包后从工程根目录运行；目录须是新的私有目录：
 
 ```sh
-ipc_task_package="$PWD/tmp/native-task/package-v2"
+ipc_task_package="$PWD/tmp/native-task/package"
 ipc_task_endpoint="$PWD/tmp/native-task/front"
 ipc_task_digest="$(shasum -a 256 "${ipc_task_package}/integrity.json" | cut -d ' ' -f 1)"
 mkdir -m 700 "${ipc_task_endpoint}"
@@ -115,10 +104,11 @@ instance，不能据此认为任务可恢复。
 
 ```sh
 build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-native.py \
-  --build tmp/native-task/cli --package tmp/native-task/package-v2 --attach \
+  --build tmp/native-task/cli --package tmp/native-task/package --attach \
   --receipt tmp/native-task/ipc-mac.json
 build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.py \
-  --build tmp/native-task/cli --package tmp/native-task/package-v2 --attach \
+  --lua-archive tmp/native-task/lua-5.5.1.tar.gz \
+  --build tmp/native-task/cli --package tmp/native-task/package --attach \
   --receipt tmp/native-task/ipc-android.json
 ```
 

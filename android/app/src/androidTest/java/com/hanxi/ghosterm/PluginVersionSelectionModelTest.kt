@@ -17,7 +17,7 @@ class PluginVersionSelectionModelTest {
     private val uri = Uri.parse("content://explicit.fixture/public-policy")
     private fun value(id: String = UUID.randomUUID().toString()): ExtensionController.VersionPreview {
         val snapshot = ExtensionController.SignedArchiveReview(
-            ExtensionController.Review("org.ghosterm.fixture", "2.0.0", "fixture", "MIT", "a".repeat(64), "portable-js", listOf("session.rpc"), emptyList(), false, false, emptyList()),
+            ExtensionController.Review("org.ghosterm.fixture", "2.0.0", "fixture", "MIT", "a".repeat(64), "lua", listOf("session.rpc"), emptyList(), false, false, emptyList()),
             PluginReleaseSignature.Proof("org.ghosterm.fixture", "a".repeat(64), "fixture", "b".repeat(64), "fixture", "c".repeat(64), "d".repeat(64), "e".repeat(64), 32),
             PluginReleaseDeclarations.Data("f".repeat(64), "^1.0.0", "1.0.0", listOf(1), listOf(1), emptyList(), null))
         return ExtensionController.VersionPreview(id, null, "e".repeat(64), snapshot, null, ExtensionController.PreviousVersionState.UNKNOWN, "f".repeat(64), true)

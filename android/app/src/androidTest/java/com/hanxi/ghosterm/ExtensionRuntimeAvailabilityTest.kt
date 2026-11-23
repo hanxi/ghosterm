@@ -14,8 +14,8 @@ import java.security.MessageDigest
 @RunWith(AndroidJUnit4::class)
 class ExtensionRuntimeAvailabilityTest {
     @Test fun buildCapabilityAndDisabledOwnership() {
-        assertEquals(if (BuildConfig.PLUGIN_JS_ENABLED) 0 else 7, ExtensionRuntime.supportStatus())
-        if (BuildConfig.PLUGIN_JS_ENABLED) return
+        assertEquals(if (BuildConfig.PLUGIN_RUNTIME_ENABLED) 0 else 7, ExtensionRuntime.supportStatus())
+        if (BuildConfig.PLUGIN_RUNTIME_ENABLED) return
         val f = ParcelFileDescriptor.createSocketPair(); val a = f[0].detachFd(); val b = f[1].detachFd()
         val config = ExtensionSession.Config("org.ghosterm.preview", "0.1.0", "d".repeat(64), "e".repeat(64), "0.1.0",
             required = listOf("ui.form"), available = listOf("ui.form"), peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "disabled-runtime", methods = emptyList())

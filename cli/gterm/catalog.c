@@ -92,6 +92,38 @@ static char *read_host(const char *path) {
     return text;
 }
 
+static bool catalog_command_paths(gt_ext_package_t *package) {
+    uint32_t count;
+    if (!gt_ext_package_command_count(package, &count)) {
+        return false;
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        gt_ext_package_command_t command;
+        if (!gt_ext_package_command(package, i, &command)) {
+            return false;
+        }
+        size_t first = strcspn(command.path, " ");
+        static const char *const builtins[] = {"doctor", "plugin", "relay"};
+        for (size_t j = 0; j < sizeof(builtins) / sizeof(builtins[0]); ++j) {
+            if (first == strlen(builtins[j]) && !strncmp(command.path, builtins[j], first)) {
+                return false;
+            }
+        }
+        for (uint32_t j = 0; j < i; ++j) {
+            gt_ext_package_command_t other;
+            if (!gt_ext_package_command(package, j, &other)) {
+                return false;
+            }
+            size_t a = strlen(command.path), b = strlen(other.path);
+            if ((a < b && other.path[a] == ' ' && !strncmp(command.path, other.path, a)) ||
+                (b < a && command.path[b] == ' ' && !strncmp(command.path, other.path, b))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 int gterm_catalog_capture(const gterm_catalog_entry_t *entry,
                           gt_ext_package_t **out,
                           gt_ext_package_metadata_t *metadata,
@@ -139,6 +171,9 @@ int gterm_catalog_capture(const gterm_catalog_entry_t *entry,
     }
     if (strcmp(metadata->package_digest, entry->digest)) {
         return 6;
+    }
+    if (!catalog_command_paths(*out)) {
+        return 5;
     }
     if (entry->id &&
         (strcmp(metadata->id, entry->id) || strcmp(metadata->version, entry->version))) {
@@ -203,8 +238,6 @@ static bool fixed_paths(const gterm_catalog_entry_t *e) {
             if (!strcmp(name, "--root") && !strcmp(path, "@cwd")) {
                 path = NULL;
             }
-        } else if (!strcmp(name, "--node-sdk") || !strcmp(name, "--node-runtime")) {
-            path = e->profile[i + 1];
         } else if (!strcmp(name, "--release-evidence")) {
             if (!gterm_catalog_path(e->profile[i + 2]) ||
                 !gterm_catalog_digest(e->profile[i + 3])) {
@@ -235,20 +268,8 @@ static int profile_check(const gterm_catalog_entry_t *e,
                      ? gterm_stdio_validate(count, args)
                      : 2;
     free(args);
-    if (!result) {
-        const char *runtime = "portable-js", *variant = NULL;
-        for (uint32_t at = 0; at < e->profile_count;) {
-            if (!strcmp(e->profile[at], "--runtime")) {
-                runtime = e->profile[at + 1];
-            }
-            if (!strcmp(e->profile[at], "--variant")) {
-                variant = e->profile[at + 1];
-            }
-            at += (uint32_t)gterm_stdio_option_arity(e->profile[at]) + 1;
-        }
-        if (strcmp(runtime, metadata->runtime) || (variant && strcmp(variant, metadata->variant))) {
-            result = 4;
-        }
+    if (!result && strcmp(metadata->runtime, GTERM_NATIVE_RUNTIME)) {
+        return 4;
     }
     return result;
 }
@@ -344,7 +365,7 @@ int gterm_catalog_manage(const char *operation,
         return gterm_catalog_report(2, "CATALOG_OPTIONS", NULL);
     }
     if (gt_ext_runtime_support() != GT_OK) {
-        return gterm_catalog_report(4, "PLUGIN_JS_DISABLED", NULL);
+        return gterm_catalog_report(4, "PLUGIN_RUNTIME_DISABLED", NULL);
     }
     if (signed_source && !gterm_release_supported()) {
         return gterm_catalog_report(4, "RELEASE_VERIFY_UNAVAILABLE", NULL);
@@ -658,7 +679,7 @@ int gterm_catalog_dispatch(int argc, char **argv, volatile sig_atomic_t *cancell
         return gterm_catalog_report(2, "COMMAND_OPTIONS", NULL);
     }
     if (gt_ext_runtime_support() != GT_OK) {
-        return gterm_catalog_report(4, "PLUGIN_JS_DISABLED", NULL);
+        return gterm_catalog_report(4, "PLUGIN_RUNTIME_DISABLED", NULL);
     }
     gterm_catalog_t c;
     int status = gterm_catalog_open(&c, path, false);

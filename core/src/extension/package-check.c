@@ -4,6 +4,7 @@
 #include "base/secure-random.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 struct gt_package_checked {
     gt_allocator_t allocator;
@@ -23,7 +24,9 @@ check_report(gt_package_check_report_t *r, gt_package_check_status_t status, con
     }
     return status;
 }
-#ifndef GT_HAVE_PLUGIN_JS
+#if defined(GT_HAVE_PLUGIN_LUA)
+#include "extension/package-check-lua.inc"
+#else
 gt_package_check_status_t gt__package_check(gt_package_snapshot_t **s,
                                             const gt_package_check_config_t *c,
                                             const gt_allocator_t *a,
@@ -37,8 +40,6 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **s,
     }
     return check_report(report, GT_PACKAGE_CHECK_UNSUPPORTED, "ENGINE_UNAVAILABLE");
 }
-#else
-#include "extension/package-check-js.inc"
 #endif
 bool gt__package_checked_info(const gt_package_checked_t *p, gt_package_check_info_t *out) {
     if (out) {

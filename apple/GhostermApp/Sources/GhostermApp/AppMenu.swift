@@ -60,6 +60,16 @@ final class AppCommands: NSObject {
         NotificationCenter.default.post(name: .ghostermShowSettings, object: nil)
     }
 
+    @objc func showPluginCommands(_ sender: Any?) {
+        guard let model else { return }
+        NotificationCenter.default.post(name: .ghostermPluginCommands, object: model)
+    }
+
+    @objc func runPluginShortcut(_ sender: Any?) {
+        guard let model else { return }
+        NotificationCenter.default.post(name: .ghostermPluginShortcut, object: model)
+    }
+
     @objc func toggleTabPlacement(_ sender: Any?) { model?.toggleTabPlacement() }
 
     @objc func searchTabs(_ sender: Any?) {
@@ -161,6 +171,16 @@ enum AppMenu {
         let hosts = NSMenuItem(title: "管理 SSH 配置…", action: #selector(AppCommands.manageHosts(_:)), keyEquivalent: "")
         hosts.target = commands
         menu.addItem(hosts)
+        let pluginCommands = NSMenuItem(title: "插件命令…",
+            action: #selector(AppCommands.showPluginCommands(_:)), keyEquivalent: "p")
+        pluginCommands.keyEquivalentModifierMask = [.command, .shift]
+        pluginCommands.target = commands
+        menu.addItem(pluginCommands)
+        let pluginShortcut = NSMenuItem(title: "运行已绑定的插件命令",
+            action: #selector(AppCommands.runPluginShortcut(_:)), keyEquivalent: "y")
+        pluginShortcut.keyEquivalentModifierMask = [.command, .shift]
+        pluginShortcut.target = commands
+        menu.addItem(pluginShortcut)
         menu.addItem(.separator())
         menu.addItem(closeTab)
         menu.addItem(closeWindow)
@@ -301,4 +321,6 @@ extension Notification.Name {
     /// 广播给视图，结构的改动仍由视图/模型自己做。
     static let ghostermShowSettings = Notification.Name("Ghosterm.showSettings")
     static let ghostermSearchTabs = Notification.Name("Ghosterm.searchTabs")
+    static let ghostermPluginCommands = Notification.Name("Ghosterm.pluginCommands")
+    static let ghostermPluginShortcut = Notification.Name("Ghosterm.pluginShortcut")
 }

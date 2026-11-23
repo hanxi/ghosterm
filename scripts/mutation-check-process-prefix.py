@@ -35,20 +35,20 @@ CASES = [
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--sdk', type=Path, required=True, help='compiled portable SDK, read-only input')
-    parser.add_argument('--gterm-build', type=Path, help='native fixture build for two additional real Node pipeline mutations')
-    args = parser.parse_args()
+    parser.parse_args()
+    archive = os.environ.get('GHOSTERM_LUA_ARCHIVE')
+    if not archive or not Path(archive).is_file():
+        parser.error('GHOSTERM_LUA_ARCHIVE must point to lua-5.5.1.tar.gz')
     inputs = [ROOT / 'core/src/extension' / name for name in ['process-owner.c', 'process-service.c']]
     inputs.append(ROOT / 'cli/gterm/stdio.c')
     before = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
-    with tempfile.TemporaryDirectory(prefix='process-prefix-mutations-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='process-prefix-mutations-', dir=os.environ['TMPDIR']) as temporary:
         work = Path(temporary); source = work / 'source'; build = work / 'build'
-        for folder in ['core', 'cli/gterm', 'packages/plugin-sdk', 'patches/quickjs-ng', 'scripts']:
-            shutil.copytree(ROOT / folder, source / folder, ignore=shutil.ignore_patterns('build', 'build-*', '__pycache__'))
-        (source / 'vendor').mkdir()
-        (source / 'vendor/quickjs-ng').symlink_to(ROOT / 'vendor/quickjs-ng', target_is_directory=True)
+        shutil.copytree(ROOT / 'core', source / 'core',
+                        ignore=shutil.ignore_patterns('build', 'build-*', '__pycache__'))
         (source / 'tmp').mkdir()
-        environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',
+        environment = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary,
+                           ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',
                            UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
         def run(command, red=False):
             result = subprocess.run(list(map(str, command)), env=environment, cwd=ROOT, capture_output=True, text=True, timeout=300)
@@ -58,60 +58,41 @@ def main():
                     raise RuntimeError('Expected compiled normal C assertion red:\n' + output)
             elif result.returncode: raise RuntimeError(output)
             return output
-        run(['cmake', '-S', source / 'cli/gterm', '-B', build, '-DGHOSTERM_WITH_PLUGIN_JS=ON',
+        run(['cmake', '-S', source / 'core', '-B', build, '-DGHOSTERM_WITH_PLUGIN_LUA=ON',
+             '-DGHOSTERM_LUA_ARCHIVE=' + str(Path(archive).resolve()),
              '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DGHOSTERM_BUILD_TESTS=ON',
-             '-DGHOSTERM_PLUGIN_SDK_DIR=' + str(args.sdk.resolve()), '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
+             '-DCMAKE_BUILD_TYPE=RelWithDebInfo',
              '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         def rebuild():
             for name in ['process-service.c', 'process-owner.c']:
-                (build / 'core/CMakeFiles/ghosterm_core.dir/src/extension' / (name + '.o')).unlink(missing_ok=True)
+                (build / 'CMakeFiles/ghosterm_core.dir/src/extension' / (name + '.o')).unlink(missing_ok=True)
             for name in ['libghosterm_core.a', 'test_process_prefix', 'test_config']:
-                (build / 'core' / name).unlink(missing_ok=True)
+                (build / name).unlink(missing_ok=True)
             output = run(['cmake', '--build', build, '--target', 'test_process_prefix', 'test_config', '-j', '4'])
             for token in ['process-service.c.o', 'process-owner.c.o', 'Linking C static library libghosterm_core.a', 'Linking C executable test_process_prefix']:
                 if token not in output: raise RuntimeError('Mutation build did not rebuild ' + token)
         rebuild()
-        output = run(['ctest', '--test-dir', build / 'core', '-R', '^process_prefix_', '--no-tests=error', '--output-on-failure'])
-        if '100% tests passed out of 11' not in output: raise RuntimeError('prefix baseline count mismatch:\n' + output)
+        package = work / 'package'
+        run(['python3', '-B', ROOT / 'scripts/gterm-plugin', 'build',
+             ROOT / 'plugins/official/ai-claude', '--out', package])
+        modes = ('roundtrip', 'count', 'pointer', 'null-item', 'argument-bytes', 'total-bytes',
+                 'combined-count', 'combined-bytes', 'count-boundary', 'revoked', 'memory')
+        for mode in modes:
+            run([build / 'test_process_prefix', mode, source / 'tmp', package])
         print('BASELINE PASS: 11 native prefix cases, ASan/UBSan; no LSan', flush=True)
         for name, file, old, new, target in CASES:
             path = source / 'core/src/extension' / file; original = path.read_bytes()
             if original.count(old.encode()) != 1: raise RuntimeError(name + ': mutation anchor changed')
             try:
                 path.write_bytes(original.replace(old.encode(), new.encode(), 1)); rebuild()
-                run([build / 'core/test_process_prefix', target, source / 'tmp'], red=True)
-                run([build / 'core/test_config', source / 'core/tests/fixtures', source / 'tmp'])
+                run([build / 'test_process_prefix', target, source / 'tmp', package], red=True)
+                run([build / 'test_config', source / 'core/tests/fixtures', source / 'tmp'])
             finally: path.write_bytes(original)
-            rebuild(); run([build / 'core/test_process_prefix', target, source / 'tmp'])
+            rebuild(); run([build / 'test_process_prefix', target, source / 'tmp', package])
             if hashlib.sha256(path.read_bytes()).hexdigest() != hashlib.sha256(original).hexdigest(): raise RuntimeError('restore mismatch')
             print(f'PASS {name}: compiled assertion red / independent config green / restored green / SHA256', flush=True)
-        extra = 0
-        if args.gterm_build:
-            path = source / 'cli/gterm/stdio.c'
-            for name, old, new in [
-                ('gterm-fixed-argument', 'program->prefix[program->prefix_count++] = argv[at + 2];',
-                 'program->prefix[program->prefix_count++] = argv[at + 1];'),
-                ('gterm-selected-environment', 'default_count + extra_environment_count', 'default_count'),
-            ]:
-                original = path.read_bytes()
-                if original.count(old.encode()) != 1: raise RuntimeError(name + ': mutation anchor changed')
-                def cli_build():
-                    (build / 'CMakeFiles/gterm.dir/stdio.c.o').unlink(missing_ok=True)
-                    (build / 'gterm').unlink(missing_ok=True)
-                    output = run(['cmake', '--build', build, '--target', 'gterm', '-j', '4'])
-                    if 'stdio.c.o' not in output or 'Linking C executable gterm' not in output: raise RuntimeError('CLI did not rebuild')
-                target = ['python3', '-B', ROOT / 'scripts/test-gterm-node.py', '--build', args.gterm_build.resolve(), '--binary', build / 'gterm']
-                try:
-                    path.write_bytes(original.replace(old.encode(), new.encode(), 1)); cli_build()
-                    run(target, red=True)
-                    run([build / 'core/test_config', source / 'core/tests/fixtures', source / 'tmp'])
-                finally: path.write_bytes(original)
-                cli_build(); run(target)
-                if hashlib.sha256(path.read_bytes()).hexdigest() != hashlib.sha256(original).hexdigest(): raise RuntimeError('CLI restore mismatch')
-                extra += 1
-                print(f'PASS {name}: rebuilt CLI assertion red / independent config green / restored real Node pipeline / SHA256', flush=True)
     if before != {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}: raise RuntimeError('working Core changed')
-    print(f'PROCESS PREFIX PASS: {len(CASES) + extra} mutation groups; original Core/CLI unchanged', flush=True)
+    print(f'PROCESS PREFIX PASS: {len(CASES)} mutation groups; original Core/CLI unchanged', flush=True)
 
 
 if __name__ == '__main__': main()

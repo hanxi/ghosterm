@@ -51,7 +51,8 @@ def main():
         (project / "tmp").mkdir()
     env = {**os.environ, "TMPDIR": str(work), "TMP": str(work), "TEMP": str(work),
         "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
-        "GHOSTERM_CORE_TEST_PLUGIN_JS": "1", "GHOSTERM_AUTOMATION_OFFSCREEN": "1"}
+        "GHOSTERM_CORE_TEST_PLUGIN_LUA": "1", "GHOSTERM_AUTOMATION_OFFSCREEN": "1",
+        "GHOSTERM_CORE_BUILD_DIR": str(build / "core")}
 
     def run(label, arguments, extra=None, count=None):
         with (logs / (label + ".log")).open("w") as output:
@@ -68,8 +69,8 @@ def main():
     run("compile", ["swift", "build", "--build-tests", *swift_options])
     package = work / "table-package"
     if not package.exists():
-        run("package", ["python3", ROOT / "scripts/build-plugin-sample.py", "--source", ROOT / "plugins/official/table",
-            "--tools", ROOT / "build/plugin-sdk-tools", "--out", package])
+        run("package", ["python3", "-B", ROOT / "scripts/gterm-plugin", "build",
+            ROOT / "plugins/official/table", "--out", package])
     # Verify every copied production input, not just the newly introduced files.
     inputs = {str(p.relative_to(project)): hashlib.sha256(p.read_bytes()).hexdigest()
         for folder in ["apple/GhostermApp/Sources", "apple/GhostermCore/Sources", "apple/GhostermApp/Tests"]

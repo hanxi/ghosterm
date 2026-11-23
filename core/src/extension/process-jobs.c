@@ -137,6 +137,10 @@ bool gt__process_jobs_matches(const gt_process_jobs_t *j, gt_ext_session_t *sess
     return j && j->session == session && j->next == 1 && jobs_live(j);
 }
 
+const char *gt__process_jobs_version(const gt_process_jobs_t *j, const char *program) {
+    return jobs_live(j) ? gt__ext_process_service_version(j->service, program) : NULL;
+}
+
 gt_status_t gt__process_jobs_spawn(gt_process_jobs_t *j,
                                    const char *program,
                                    const char *root,

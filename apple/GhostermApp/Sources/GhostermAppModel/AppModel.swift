@@ -66,13 +66,27 @@ public final class AppModel: ObservableObject {
     public let terminalApp: TerminalApp?
 
     /// App-scoped package review and source-decision owner. The ordinary App
-    /// build keeps the optional JS backend disabled, so no controller is
+    /// build keeps the optional Lua backend disabled, so no controller is
     /// offered until a build explicitly includes that runtime.
     public let extensionController: ExtensionController?
     public let extensionInstance: ExtensionInstanceModel
     private var extensionObservation: AnyCancellable?
     @Published public internal(set) var extensionConnections: [ExtensionConnectionModel] = []
     @Published public internal(set) var extensionConnectionIssue: String?
+    public struct PreparedExtensionCommand: Identifiable {
+        public let id: UUID
+        public let title: String
+        public let workspaceID: UUID?
+        public let launch: ExtensionGroupInvocation
+        public let togglePanel: Bool
+        fileprivate var shortcutIdentity: [String] {
+            [launch.packageID, launch.request.clientDigest, launch.request.command]
+        }
+    }
+    @Published public private(set) var preparedExtensionCommands: [PreparedExtensionCommand] = []
+    @Published private var preparedExtensionInstances: [UUID: ExtensionInstanceModel] = [:]
+    private var openingPreparedCommands = Set<UUID>()
+    @Published public private(set) var preparedExtensionCommandIssues: [UUID: String] = [:]
     public struct ExtensionPaneCloseRequest: Identifiable {
         public let tabID: UUID
         public let paneID: UUID
@@ -263,13 +277,13 @@ public final class AppModel: ObservableObject {
            let resourceDirectory = pluginResourceDirectory ?? Self.pluginResourceDirectory() {
             let profile = try? ExtensionController.HostProfile(
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
-                runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
+                runtimes: [ExtensionRuntime.runtimeName], capabilities: Self.extensionHostCapabilities)
             let channelTrust = pluginChannelTrust ?? Self.bundledPluginChannel(
                 Bundle.main.object(forInfoDictionaryKey: "GhostermPluginChannel"),
                 supportDirectory: resourceDirectory.deletingLastPathComponent())
             self.extensionController = profile.flatMap {
                 try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory,
-                    installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("PluginPackages", isDirectory: true),
+                    installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("LuaPluginPackages", isDirectory: true),
                     channelTrust: channelTrust)
             }
         } else {
@@ -321,15 +335,18 @@ public final class AppModel: ObservableObject {
         // TabManager stop 之前跑。
         tabs.willClose = { [weak self] tab in
             guard let self else { return }; self.cancelInFlight(tab)
+            self.preparedExtensionCommands.removeAll { $0.workspaceID == tab.id }
         }
         tabs.shouldClose = { [weak self] tab in
             guard let self else { return true }
-            let instances = tab.workspacePanes.compactMap(\.extensionInstance).filter { !$0.canDiscard }
+            let instances = tab.workspacePanes.compactMap(\.extensionInstance).filter { candidate in
+                !candidate.canDiscard || self.preparedExtensionInstances.values.contains { $0 === candidate }
+            }
             guard !instances.isEmpty else { return true }
             guard self.closingExtensionTabs.insert(tab.id).inserted else { return false }
             Task {
                 var closed = true
-                for instance in instances { if !(await instance.requestClose()) { closed = false } }
+                for instance in instances { if !(await self.releaseExtensionInstance(instance)) { closed = false } }
                 self.closingExtensionTabs.remove(tab.id)
                 if closed { self.tabs.close(tab) }
             }
@@ -638,11 +655,19 @@ public final class AppModel: ObservableObject {
         guard closingExtensionPanes.insert(instance.id).inserted else { return }
         Task {
             defer { closingExtensionPanes.remove(instance.id) }
-            guard await instance.requestClose(),
+            guard await releaseExtensionInstance(instance),
                   let (_, pane) = resolvePane(tabID: tab.id, paneID: instance.id),
                   pane.extensionInstance === instance else { return }
             tab.removeExtensionPane(instance.id)
         }
+    }
+
+    private func releaseExtensionInstance(_ instance: ExtensionInstanceModel) async -> Bool {
+        guard await instance.requestClose() else { return false }
+        guard let id = preparedExtensionInstances.first(where: { $0.value === instance })?.key else { return true }
+        guard await instance.extensionController?.close() == true else { return false }
+        preparedExtensionInstances.removeValue(forKey: id)
+        return true
     }
 
     public func toggleZoom(tabID: UUID, paneID: UUID) {
@@ -1081,10 +1106,11 @@ public final class AppModel: ObservableObject {
     /// cleanup keeps the App and the same owner alive for a later explicit retry.
     public func closeExtensionOwners() async -> Bool {
         for connection in extensionConnections { if !(await connection.close()) { return false } }
-        let instances = [extensionInstance] + tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
+        let instances = [extensionInstance] + Array(preparedExtensionInstances.values) +
+            tabs.tabs.flatMap { $0.workspacePanes.compactMap(\.extensionInstance) }
         var visited = Set<UUID>()
         for instance in instances where visited.insert(instance.id).inserted {
-            if !(await instance.requestClose()) { return false }
+            if !(await releaseExtensionInstance(instance)) { return false }
         }
         return await extensionController?.close() ?? true
     }
@@ -1460,6 +1486,109 @@ public final class AppModel: ObservableObject {
     }
 
 
+    public func prepareExtensionCommand(_ launch: ExtensionGroupInvocation, title: String, workspaceID: UUID?,
+                                        togglePanel: Bool = false) {
+        let existing = preparedExtensionCommands.firstIndex {
+            $0.workspaceID == workspaceID && $0.launch.packageID == launch.packageID &&
+                $0.launch.request.command == launch.request.command
+        }
+        let prepared = PreparedExtensionCommand(id: UUID(), title: title, workspaceID: workspaceID,
+                                                launch: launch, togglePanel: togglePanel)
+        if let existing { preparedExtensionCommands[existing] = prepared }
+        else { preparedExtensionCommands.append(prepared) }
+    }
+
+    public func forgetExtensionCommand(id: UUID) {
+        preparedExtensionCommands.removeAll { $0.id == id }
+    }
+
+    public func pluginCommandHasShortcut(_ entry: PreparedExtensionCommand) -> Bool {
+        preferences.pluginCommandShortcut == entry.shortcutIdentity
+    }
+
+    public func togglePluginCommandShortcut(id: UUID) {
+        guard let entry = preparedExtensionCommands.first(where: { $0.id == id }) else { return }
+        preferences.pluginCommandShortcut = pluginCommandHasShortcut(entry) ? nil : entry.shortcutIdentity
+    }
+
+    @discardableResult
+    public func invokeExtensionShortcut(workspaceID: UUID?) async -> Bool {
+        guard let entry = preparedExtensionCommands.first(where: {
+            $0.workspaceID == workspaceID && pluginCommandHasShortcut($0)
+        }) else { return false }
+        return await invokePreparedExtensionCommand(id: entry.id, workspaceID: workspaceID)
+    }
+
+    @discardableResult
+    public func invokePreparedExtensionCommand(id: UUID, workspaceID: UUID?,
+                                               onValidated: (@MainActor () -> Void)? = nil) async -> Bool {
+        guard let entry = preparedExtensionCommands.first(where: { $0.id == id && $0.workspaceID == workspaceID }) else {
+            return false
+        }
+        if let instance = preparedExtensionInstances[id] {
+            guard let tab = activePreparedPane(in: entry, instance: instance) else { return false }
+            closeExtensionPane(tab: tab, instance: instance)
+            onValidated?()
+            return true
+        }
+        guard openingPreparedCommands.insert(id).inserted else { return false }
+        defer { openingPreparedCommands.remove(id) }
+        preparedExtensionCommandIssues.removeValue(forKey: id)
+        do {
+            guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+            let owner = try await extensionController.makeInvocationController()
+            guard preparedExtensionCommands.contains(where: { $0.id == id }) else {
+                _ = await owner.close()
+                return false
+            }
+            let instance = ExtensionInstanceModel(controller: owner)
+            instance.connectSSH = { [weak self] alias, bootstrap in
+                guard let self else { throw CancellationError() }
+                return try await self.authenticatePluginSSHChannel(alias: alias, bootstrap: bootstrap, controller: owner)
+            }
+            preparedExtensionInstances[id] = instance
+            await invokeExtensionCommand(entry.launch, workspaceID: entry.workspaceID, instance: instance,
+                                         onValidated: onValidated)
+            if instance.extensionRun == nil {
+                preparedExtensionCommandIssues[id] = instance.extensionRunIssue
+                if await releaseExtensionInstance(instance), let tab = tabs.tabs.first(where: {
+                    $0.workspacePanes.contains { $0.extensionInstance === instance }
+                }) { tab.removeExtensionPane(instance.id) }
+            }
+        } catch {
+            preparedExtensionCommandIssues[id] = "插件启动失败：\(error.localizedDescription)"
+        }
+        return true
+    }
+
+    public func canInvokePreparedExtensionCommand(_ entry: PreparedExtensionCommand) -> Bool {
+        if let instance = preparedExtensionInstances[entry.id] {
+            return activePreparedPane(in: entry, instance: instance) != nil
+        }
+        return !openingPreparedCommands.contains(entry.id)
+    }
+
+    private func activePreparedPane(in entry: PreparedExtensionCommand, instance: ExtensionInstanceModel) -> TerminalTab? {
+        guard entry.togglePanel, !closingExtensionPanes.contains(instance.id) else { return nil }
+        return tabs.tabs.first { tab in
+            tab.id == entry.workspaceID && tab.workspacePanes.contains { $0.extensionInstance === instance }
+        }
+    }
+
+    public func invokeExtensionCommand(_ launch: ExtensionGroupInvocation, workspaceID: UUID?,
+                                       instance: ExtensionInstanceModel? = nil,
+                                       onValidated: (@MainActor () -> Void)? = nil) async {
+        let request = launch.request
+        await startExtensionClient(packageID: launch.packageID, packageDigest: request.clientDigest,
+            command: request.command, arguments: request.arguments, sshAlias: launch.sshAlias,
+            executable: request.executable, executorDirectory: request.executorDirectory, executorDigest: request.executorDigest,
+            methods: request.methods, hostMethods: request.hostMethods, scopedRoots: request.scopedRoots,
+            processPrograms: request.processPrograms, processEnvironmentNames: request.processEnvironmentNames,
+            executorAttachment: request.attachment, executorReleaseEvidence: request.releaseEvidence, executorVariantID: request.variantID,
+            clientWorkspace: launch.clientWorkspace, localLaunch: launch.localLaunch, workspaceID: workspaceID,
+            instance: instance, onValidated: onValidated)
+    }
+
     public func startExtensionClient(packageID: String, packageDigest: String, command: String,
                                      arguments: [String], sshAlias: String, executable: String,
                                      executorDirectory: String, executorDigest: String,
@@ -1467,18 +1596,34 @@ public final class AppModel: ObservableObject {
                                      scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
                                      processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = [],
                                      processEnvironmentNames: [String] = [],
-                                     executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
                                      executorReleaseEvidence: ExtensionRelayBootstrap.ReleaseEvidence? = nil,
                                      executorVariantID: String? = nil,
                                      clientWorkspace: ExtensionController.ClientWorkspace? = nil,
                                      localLaunch: ExtensionLocalLaunch? = nil,
+                                     workspaceID: UUID? = nil,
+                                     instance: ExtensionInstanceModel? = nil,
                                      onValidated: (@MainActor () -> Void)? = nil) async {
-        await extensionInstance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorExecution: executorExecution, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID, clientWorkspace: clientWorkspace, localLaunch: localLaunch) {
+        let instance = instance ?? extensionInstance
+        let origin = workspaceID.flatMap { id in tabs.tabs.first { $0.id == id } } ?? (workspaceID == nil ? tabs.activeTab : nil)
+        let context = origin.map { tab in
+            let authorizedDirectory = clientWorkspace?.authorized == true ? clientWorkspace?.directory :
+                (localLaunch?.authorized == true ? localLaunch?.workingDirectory : nil)
+            let directory = tab.kind.isLocalShell ? tab.currentDirectory.flatMap { cwd in
+                authorizedDirectory?.utf8.elementsEqual(cwd.utf8) == true ? cwd : nil
+            } : nil
+            return ExtensionRuntime.Invocation.Context(workspaceID: tab.id.uuidString,
+                paneID: tab.activeWorkspacePaneID?.uuidString, directory: directory)
+        }
+        await instance.startExtensionClient(packageID: packageID, packageDigest: packageDigest, command: command, arguments: arguments, sshAlias: sshAlias, executable: executable, executorDirectory: executorDirectory, executorDigest: executorDigest, methods: methods, hostMethods: hostMethods, scopedRoots: scopedRoots, processPrograms: processPrograms, processEnvironmentNames: processEnvironmentNames, executorAttachment: executorAttachment, executorReleaseEvidence: executorReleaseEvidence, executorVariantID: executorVariantID, clientWorkspace: clientWorkspace, localLaunch: localLaunch, context: context) {
             if localLaunch == nil, try self.configuredSSHRoute(for: [sshAlias]).isEmpty {
                 throw GhostermError.failed("SSH 配置没有生成连接路线")
             }
-            self.showExtensionWorkspace()
+            let origin = self.tabs.tabs.first { $0.id == workspaceID }
+            if workspaceID != nil && origin == nil {
+                throw GhostermError.failed("发起命令的工作区已关闭")
+            }
+            self.showExtensionWorkspace(instance, in: origin)
             onValidated?()
         }
     }
@@ -1627,7 +1772,7 @@ public final class AppModel: ObservableObject {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        let directory = base.appendingPathComponent("Ghosterm/PluginResources", isDirectory: true)
+        let directory = base.appendingPathComponent("Ghosterm/LuaPluginResources", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])

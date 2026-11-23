@@ -136,7 +136,7 @@ class TerminalScreenTest {
             terminal().commitText("printf '%b' '\\033]777;ghosterm-discovery;1;$payload\\007\\033[2J\\033[HPTY_CANDIDATE_READY'\r")
         }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "PTY_CANDIDATE_READY" }
-        if (!BuildConfig.PLUGIN_JS_ENABLED) {
+        if (!BuildConfig.PLUGIN_RUNTIME_ENABLED) {
             ui.runOnIdle { assertTrue(sessions.frontendCandidates.isEmpty()) }
             return null
         }

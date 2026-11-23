@@ -1,4 +1,4 @@
-/* Actual public Host Runtime, local view service and pinned Portable SDK. */
+/* Actual public Host Runtime, local view service and embedded Lua. */
 #define main views_session_fixture_main
 #include "test_ext_session.c"
 #undef main
@@ -12,18 +12,6 @@ static void view_module(gt_ext_runtime_module_t *m, const char *name, const char
     gt_sha256_t hash;
     gt__sha256_init(&hash);
     CHECK(gt__sha256_update(&hash, text, m->size) && gt__sha256_final(&hash, m->sha256));
-}
-
-static char *view_read(const char *root, const char *name) {
-    char path[4096];
-    CHECK(snprintf(path, sizeof(path), "%s/%s", root, name) > 0);
-    FILE *file = fopen(path, "rb");
-    CHECK(file && !fseek(file, 0, SEEK_END));
-    long size = ftell(file);
-    CHECK(size > 0 && size < 131072 && !fseek(file, 0, SEEK_SET));
-    char *text = calloc(1, (size_t)size + 1);
-    CHECK(text && fread(text, 1, (size_t)size, file) == (size_t)size && !fclose(file));
-    return text;
 }
 
 static size_t view_count(gt_ext_runtime_t *runtime, char handle[65]) {
@@ -47,22 +35,15 @@ static size_t view_count(gt_ext_runtime_t *runtime, char handle[65]) {
 }
 
 static const char *view_plugin =
-    "import {object,text} from '@ghosterm/plugin-sdk';"
-    "export function activate(ctx){const v=ctx.views;if(!v)throw Error('missing service');"
-    "const "
-    "spec={kind:'table',viewId:'table-a',methods:{describe:'table.describe',read:'table.page'}};"
-    "let "
-    "first=v.open(spec);v.open({kind:'diff',viewId:'diff-b',methods:{describe:'diff.describe',read:"
-    "'diff.page'}});"
-    "v.open({kind:'task',viewId:'task-c',methods:{describe:'task.describe',read:'task.read',cancel:"
-    "'task.cancel'}});"
-    "ctx.session.register({name:'fixture.control',input:object({action:text(32)}),output:object({"
-    "text:text(128)})},(input,request)=>{request.check();"
-    "if(input.action==='state')return {text:first.state};"
-    "if(input.action==='reopen'){first=v.open(spec);return {text:first.handle}}"
-    "if(input.action==='close'){first.close();first.close();return {text:first.state}}"
-    "if(input.action==='dispose'){v.dispose();return {text:String(v.retained)}}"
-    "throw Error('action')});return {dispose(){}}}";
+    "local ctx = ...; local v = assert(ctx.views);"
+    "local function open() return assert(v.open('table','table-a','table.describe','table.page')) "
+    "end;"
+    "local first = open();"
+    "assert(v.open('diff','diff-b','diff.describe','diff.page'));"
+    "assert(v.open('task','task-c','task.describe','task.read','task.cancel'));"
+    "return {['fixture.control'] = function(input) "
+    "if input.action == 'state' then return {text = v.isOpen(first) and 'open' or 'closed'} end;"
+    "assert(input.action == 'reopen'); first = open(); return {text = first} end}";
 
 static void view_call(gt_ext_session_t *peer,
                       const gt_ext_lease_t *lease,
@@ -90,7 +71,7 @@ static void view_call(gt_ext_session_t *peer,
 }
 
 int main(int argc, char **argv) {
-    CHECK(argc == 3);
+    CHECK(argc == 2);
     const char *mode = argv[1];
     size_t fds = ext_fds();
     gt_plugin_memory_info_t before = gt__plugin_memory_info();
@@ -128,93 +109,38 @@ int main(int argc, char **argv) {
     ext_allow(&pair);
     gt_ext_lease_t peer_lease;
     CHECK(gt_ext_session_lease(pair.e, &peer_lease));
-    const char *names[] = {"index.js",
-                           "codec.js",
-                           "session.js",
-                           "wire-contract.js",
-                           "table.js",
-                           "diff.js",
-                           "task.js",
-                           "views.js",
-                           "form.js"};
-
-    enum {
-        SDK_COUNT = sizeof(names) / sizeof(names[0])
-    };
-
-    char *sources[SDK_COUNT], ids[SDK_COUNT][64];
-    gt_ext_runtime_module_t modules[SDK_COUNT + 1] = {0};
-    for (size_t i = 0; i < SDK_COUNT; i++) {
-        sources[i] = view_read(argv[2], names[i]);
-        CHECK(snprintf(ids[i], sizeof(ids[i]), "sdk:/%s", names[i]) > 0);
-        view_module(&modules[i], ids[i], sources[i]);
-    }
-    char script[8192];
-    char raw_sdk[4096];
+    char script[1024];
     const char *plugin = view_plugin;
-    bool raw = !strcmp(mode, "native-limit") || !strcmp(mode, "native-duplicate") ||
-               !strcmp(mode, "native-method");
     if (!strcmp(mode, "disabled") || !strcmp(mode, "executor") || !strcmp(mode, "ungranted")) {
-        plugin = "export function activate(ctx){if(ctx.views!==undefined)throw Error('unexpected "
-                 "UI');return {dispose(){}}}";
-    } else if (!strcmp(mode, "direction") || !strcmp(mode, "kind")) {
+        plugin = "local ctx = ...; assert(ctx.views == nil); return {}";
+    } else if (!strcmp(mode, "direction") || !strcmp(mode, "kind") || !strcmp(mode, "method")) {
         CHECK(snprintf(script,
                        sizeof(script),
-                       "export function activate(ctx){let "
-                       "rejected=false;try{ctx.views.open({kind:'%s',viewId:'a',methods:{describe:'"
-                       "table.describe',read:'table.page'}})}catch(e){rejected=e.code==='VIEW_%s'}"
-                       "if(!rejected)throw Error('missing rejection');return {dispose(){}}}",
+                       "local ctx = ...; assert(ctx.views.open('%s','a','%s','table.page') == nil);"
+                       "return {}",
                        !strcmp(mode, "kind") ? "diff" : "table",
-                       !strcmp(mode, "kind") ? "UNSUPPORTED" : "INVALID") > 0);
+                       !strcmp(mode, "method") ? "missing.describe" : "table.describe") > 0);
         plugin = script;
-    } else if (!strcmp(mode, "limit") || !strcmp(mode, "duplicate")) {
-        CHECK(snprintf(script,
-                       sizeof(script),
-                       "export function activate(ctx){const v=ctx.views;for(let "
-                       "i=0;i<8;i++)v.open({kind:'table',viewId:'v'+i,methods:{describe:'table."
-                       "describe',read:'table.page'}});let "
-                       "rejected=false;try{v.open({kind:'table',viewId:'%s',methods:{describe:'"
-                       "table.describe',read:'table.page'}})}catch(e){rejected=e.code==='VIEW_%s'}"
-                       "if(!rejected)throw Error('missing rejection');return {dispose(){}}}",
-                       !strcmp(mode, "duplicate") ? "v0" : "extra",
-                       !strcmp(mode, "duplicate") ? "DUPLICATE" : "LIMIT") > 0);
-        plugin = script;
-    } else if (raw) {
-        /* Trusted SDK adapter fault injection tests the Native boundary itself. */
-        const char *code =
-            !strcmp(mode, "native-duplicate")
-                ? "export class "
-                  "ViewRegistry{constructor(p){if(p.viewOpen('table','a','table.describe','table."
-                  "page',undefined).status!=='ok'||p.viewOpen('table','a','table.describe','table."
-                  "page',undefined).status!=='invalid')throw Error('native duplicate')}dispose(){}}"
-            : !strcmp(mode, "native-method")
-                ? "export class "
-                  "ViewRegistry{constructor(p){if(p.viewOpen('table','a','missing.describe','table."
-                  "page',undefined).status!=='invalid')throw Error('native method')}dispose(){}}"
-                : "export class ViewRegistry{constructor(p){for(let "
-                  "i=0;i<8;i++)if(p.viewOpen('table','v'+i,'table.describe','table.page',undefined)"
-                  ".status!=='ok')throw "
-                  "Error('capacity');if(p.viewOpen('table','extra','table.describe','table.page',"
-                  "undefined).status!=='busy')throw Error('native limit')}dispose(){}}";
-        CHECK(snprintf(
-                  raw_sdk, sizeof(raw_sdk), "export const VIEWS_MAX=8,ViewSpecCodec={};%s", code) >
-              0);
-        view_module(&modules[7], ids[7], raw_sdk);
-        plugin = "export function activate(ctx){if(!ctx.views)throw Error('service');return "
-                 "{dispose(){}}}";
+    } else if (!strcmp(mode, "limit")) {
+        plugin = "local ctx = ...; local v = ctx.views;"
+                 "for i=1,8 do assert(v.open('table','v'..i,'table.describe','table.page')) end;"
+                 "assert(v.open('table','extra','table.describe','table.page') == nil); return {}";
+    } else if (!strcmp(mode, "duplicate")) {
+        plugin =
+            "local ctx = ...; local v = ctx.views;"
+            "local function open() return v.open('table','a','table.describe','table.page') end;"
+            "assert(open()); assert(open() == nil); return {}";
     }
-    view_module(&modules[SDK_COUNT], "plugin:/entry.js", plugin);
+    gt_ext_runtime_module_t module;
+    view_module(&module, "plugin:/entry.lua", plugin);
     bool executor = !strcmp(mode, "executor");
-    gt_ext_runtime_config_t settings = {.modules = modules,
-                                        .module_count = SDK_COUNT + 1,
-                                        .entry = "plugin:/entry.js",
+    gt_ext_runtime_config_t settings = {.modules = &module,
+                                        .module_count = 1,
+                                        .entry = module.name,
                                         .role = executor ? GT_EXT_EXECUTOR : GT_EXT_HOST};
     gt_ext_runtime_t *runtime = NULL;
     CHECK(gt_ext_runtime_open(executor ? &pair.e : &pair.h, &settings, &runtime) == GT_OK &&
           runtime);
-    for (size_t i = 0; i < SDK_COUNT; i++) {
-        free(sources[i]);
-    }
     const char *json = (void *)1;
     size_t size = 123;
     CHECK(gt_ext_runtime_views_snapshot(runtime, &json, &size) == GT_ERR_UNSUPPORTED && !json &&
@@ -244,12 +170,11 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_runtime_views_enable(runtime, 1) == GT_ERR_CANCELLED);
         char old[65] = {0};
         size_t count = view_count(runtime, old);
-        if (!strcmp(mode, "direction") || !strcmp(mode, "kind") || !strcmp(mode, "native-method")) {
+        if (!strcmp(mode, "direction") || !strcmp(mode, "kind") || !strcmp(mode, "method")) {
             CHECK(count == 0);
-        } else if (!strcmp(mode, "duplicate") || !strcmp(mode, "limit") ||
-                   !strcmp(mode, "native-limit")) {
+        } else if (!strcmp(mode, "limit")) {
             CHECK(count == 8);
-        } else if (!strcmp(mode, "native-duplicate")) {
+        } else if (!strcmp(mode, "duplicate")) {
             CHECK(count == 1);
         } else {
             CHECK(count == 3);
@@ -262,12 +187,6 @@ int main(int argc, char **argv) {
                     CHECK(view_count(runtime, NULL) == 3 &&
                           gt_ext_runtime_view_close(runtime, old) == GT_ERR_NOT_FOUND);
                 }
-            } else if (!strcmp(mode, "dispose")) {
-                view_call(peer, &peer_lease, runtime, "dispose", "0");
-                CHECK(view_count(runtime, NULL) == 0);
-            } else if (!strcmp(mode, "js-close")) {
-                view_call(peer, &peer_lease, runtime, "close", "closed");
-                CHECK(view_count(runtime, NULL) == 2);
             }
             CHECK(gt_ext_runtime_view_close(runtime, "foreign.1") == GT_ERR_NOT_FOUND);
         }

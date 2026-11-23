@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import Darwin
 import Foundation
 import GhostermCore
 import SwiftUI
@@ -7,8 +8,7 @@ import SwiftUI
 @testable import GhostermAppModel
 import XCTest
 
-/// Owned SSH -> production gterm/package/Node -> real SDK with an explicitly
-/// in-memory CLI control fixture. No model or actual tool execution.
+/// Native Claude controls over owned SSH and the Lua package with a no-model CLI fixture.
 @MainActor
 final class ClaudeAppModelTests: XCTestCase {
     func testClaudeConversationOverDirectSSH() async throws { try await run(jump: false) }
@@ -22,47 +22,74 @@ final class ClaudeAppModelTests: XCTestCase {
     private func run(jump: Bool) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0,
-              let gterm = env["GHOSTERM_TEST_GTERM"], let component = env["GHOSTERM_TEST_CLAUDE_COMPONENT"],
-              let packagePath = env["GHOSTERM_TEST_CLAUDE_PACKAGE"], let nodePath = env["GHOSTERM_TEST_CLAUDE_NODE"],
+              let gterm = env["GHOSTERM_TEST_GTERM"], let program = env["GHOSTERM_TEST_CLAUDE_PROGRAM"],
+              let packagePath = env["GHOSTERM_TEST_CLAUDE_PACKAGE"], let scratch = env["GHOSTERM_APP_TEST_TMP"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
               let user = env["GHOSTERM_SSH_USER"], let key = env["GHOSTERM_SSH_KEY"] else {
-            throw XCTSkip("requires explicitly enabled Core and the owned Claude SDK/SSH fixture")
+            throw XCTSkip("requires explicitly enabled Core and the owned Claude CLI/SSH fixture")
         }
         if jump && env["GHOSTERM_SSH_JUMP_HOST"] == nil { throw XCTSkip("owned jump fixture is required") }
-        var repository = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { repository.deleteLastPathComponent() }
-        let root = repository.appendingPathComponent("tmp/cv-" + UUID().uuidString.prefix(5))
-        for directory in ["w", "h", "c"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(directory), withIntermediateDirectories: true) }
-        let workspace = root.appendingPathComponent("w"), package = root.appendingPathComponent("k")
-        if env["GHOSTERM_TEST_CLAUDE_RETAINED"] == "1" { try Data().write(to: workspace.appendingPathComponent("hold-observation")) }
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: packagePath), to: package)
-        let entry = root.appendingPathComponent("e.mjs")
-        try FileManager.default.createSymbolicLink(at: entry, withDestinationURL: repository.appendingPathComponent("scripts/fixtures/claude-node-sdk.mjs"))
-        #if arch(arm64)
-        let arch = "arm64"
-        #else
-        let arch = "x64"
-        #endif
-        let cli = URL(fileURLWithPath: component).appendingPathComponent("node_modules/@anthropic-ai/claude-agent-sdk-darwin-\(arch)/claude")
-        func sha(_ url: URL) throws -> String { SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined() }
-        let profile = root.appendingPathComponent("p")
-        let selected = ["HOME", "PATH", "TMPDIR", "CLAUDE_CONFIG_DIR"]
-        let profileBytes = try JSONSerialization.data(withJSONObject: ["version": 1, "cwd": workspace.path,
-            "executable": cli.path, "cliVersion": "2.1.323", "sha256": try sha(cli), "environmentNames": selected, "tools": []])
-        try profileBytes.write(to: profile)
-        let node = URL(fileURLWithPath: nodePath)
-        let version = Process(), output = Pipe()
-        version.executableURL = node; version.arguments = ["--version"]; version.standardOutput = output
-        version.environment = ["HOME": root.appendingPathComponent("h").path, "PATH": env["PATH"] ?? "/usr/bin:/bin", "TMPDIR": repository.appendingPathComponent("tmp").path]
-        try version.run(); version.waitUntilExit(); XCTAssertEqual(version.terminationStatus, 0)
-        let nodeVersion = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        var template = URL(fileURLWithPath: scratch).appendingPathComponent("claude-XXXXXX").path.utf8CString
+        let fixturePath = template.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
+        }
+        let root = URL(fileURLWithPath: try XCTUnwrap(fixturePath))
+        for name in ["w", "h"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        let workspace = root.appendingPathComponent("w"), package = URL(fileURLWithPath: packagePath)
+        let selectedEnvironment = env["GHOSTERM_TEST_CLAUDE_SELECTED_ENV"] == "1"
+        let disconnect = env["GHOSTERM_TEST_CLAUDE_DISCONNECT"] == "1"
+        let disconnectMarker = root.appendingPathComponent("disconnect")
+        let environmentMarker = workspace.appendingPathComponent("environment-approved")
         func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let executable: URL
+        if selectedEnvironment {
+            executable = root.appendingPathComponent("p")
+            let check = """
+                #!/bin/sh
+                if [ "${1-}" != --version ]; then
+                    [ "${GT_SELECTED-}" = fixture-only ] && [ -z "${GT_AMBIENT+x}" ] || exit 91
+                    : > \(quote(environmentMarker.path))
+                fi
+                exec \(quote(program)) "$@"
+
+                """
+            try Data(check.utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        } else {
+            executable = URL(fileURLWithPath: program)
+        }
+        let digest = SHA256.hash(data: try Data(contentsOf: executable))
+            .map { String(format: "%02x", $0) }.joined()
         let launcher = root.appendingPathComponent("g")
         let policy = "(version 1)(allow default)(deny network*)(deny mach-lookup (global-name \"com.apple.securityd\"))"
-        let script = "#!/bin/sh\nexec /usr/bin/env -i HOME=" + quote(root.appendingPathComponent("h").path) +
-            " CLAUDE_CONFIG_DIR=" + quote(root.appendingPathComponent("c").path) +
-            " PATH=" + quote(env["PATH"] ?? "/usr/bin:/bin") + " TMPDIR=" + quote(repository.appendingPathComponent("tmp").path) +
-            " /usr/bin/sandbox-exec -p " + quote(policy) + " " + quote(gterm) + " \"$@\"\n"
+        let relay = "/usr/bin/env -i HOME=" + quote(root.appendingPathComponent("h").path) +
+            " PATH=" + quote(env["PATH"] ?? "/usr/bin:/bin") + " TMPDIR=" + quote(scratch) +
+            (selectedEnvironment ? " GT_SELECTED=fixture-only GT_AMBIENT=must-not-cross" : "") +
+            " /usr/bin/sandbox-exec -p " + quote(policy) + " " + quote(gterm) + " \"$@\""
+        let script: String
+        if disconnect {
+            script = """
+                #!/bin/sh
+                exec 3<&0
+                \(relay) <&3 3<&- &
+                child=$!
+                exec 3<&-
+                trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit' HUP INT TERM
+                while kill -0 "$child" 2>/dev/null; do
+                    if [ -f \(quote(disconnectMarker.path)) ]; then
+                        kill -TERM "$child" 2>/dev/null
+                        break
+                    fi
+                    /bin/sleep 0.05
+                done
+                wait "$child"
+
+                """
+        } else {
+            script = "#!/bin/sh\nexec " + relay + "\n"
+        }
         try Data(script.utf8).write(to: launcher); try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: launcher.path)
         var config = "Host claude-fixture\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
         if jump { config += " ProxyJump claude-jump\nHost claude-jump\n HostName \(env["GHOSTERM_SSH_JUMP_HOST"]!)\n Port \(env["GHOSTERM_SSH_JUMP_PORT"]!)\n User \(user)\n IdentityFile \(key)\n" }
@@ -105,112 +132,86 @@ final class ClaudeAppModelTests: XCTestCase {
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "ai claude", arguments: [],
             sshAlias: "claude-fixture", executable: launcher.path, executorDirectory: package.path, executorDigest: review.digest,
             methods: ClaudeRPCClient.methods, hostMethods: [], scopedRoots: [.init(id: "workspace", directory: workspace.path)],
-            processPrograms: [.init(name: "claude-node", executable: nodePath, version: nodeVersion, sha256: try sha(node),
-                prefixArguments: [entry.path, "--profile", profile.path])], processEnvironmentNames: ["CLAUDE_CONFIG_DIR"])
+            processPrograms: [.init(name: "claude", executable: executable.path, version: "2.1.323", sha256: digest)],
+            processEnvironmentNames: selectedEnvironment ? ["GT_SELECTED"] : [])
         XCTAssertNil(model.extensionRunIssue)
         guard model.extensionRunIssue == nil else { return }
         XCTAssertEqual(interaction.hosts.count, jump ? 2 : 1)
         try await press("plugin-consent-allow")
         try await wait("Native Claude adapter was not attached to the active Runtime") { model.claudeConversation != nil }
         let conversation = try XCTUnwrap(model.claudeConversation)
-        defer { print("CLAUDE_FIXTURE_STATE phase=\(conversation.phase.rawValue) busy=\(conversation.busy) ownerBusy=\(model.extensionRunBusy) runtime=\(model.extensionRun?.runtime?.phase ?? 999) issue=\(conversation.issue ?? "none") ownerIssue=\(model.extensionRunIssue ?? "none")") }
-        if env["GHOSTERM_TEST_CLAUDE_RETAINED"] == "1" {
-            conversation.draft = "超时后保留草稿 中文😀"
-            try await press("plugin-claude-start")
-            let held = workspace.appendingPathComponent("observation-held.json")
-            let audit = workspace.appendingPathComponent("observation-calls.json")
-            try await wait("Real SDK fixture did not hold its marker reply") { FileManager.default.fileExists(atPath: held.path) }
-            let original = try Data(contentsOf: held), originalAudit = try Data(contentsOf: audit)
-            XCTAssertGreaterThan(original.count, 3072)
-            let heldAt = ProcessInfo.processInfo.systemUptime
-            try await wait("Native RPC did not expire while stdout was held") { conversation.phase == .unknown }
-            let elapsed = ProcessInfo.processInfo.systemUptime - heldAt, issue = conversation.issue
-            XCTAssertGreaterThan(elapsed, 15, "A live Runtime and the real deadline, not an immediate failure, must cause unknown")
-            XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
-            XCTAssertNotNil(issue)
-            try Data().write(to: workspace.appendingPathComponent("observation-release"))
-            let observationEnd = ProcessInfo.processInfo.systemUptime + 20
-            repeat {
-                try await press("plugin-claude-observe")
-                try await wait("Observation did not settle") { !conversation.busy }
-                if conversation.observation?.source == .executor { break }
-                try await Task.sleep(nanoseconds: 100_000_000)
-            } while ProcessInfo.processInfo.systemUptime < observationEnd
-            XCTAssertNil(conversation.observationIssue)
-            let observed = try XCTUnwrap(conversation.observation)
-            XCTAssertEqual(observed.source, .executor); XCTAssertEqual(observed.method, "poll")
-            XCTAssertEqual(observed.response, original)
-            XCTAssertEqual(try Data(contentsOf: audit), originalAudit, "First observation cannot issue another helper command")
-            XCTAssertEqual(conversation.issue, issue); XCTAssertEqual(conversation.phase, .unknown)
-            XCTAssertEqual(conversation.draft, "超时后保留草稿 中文😀")
-            try await wait("Complete read-only response was not rendered") { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-observed-response" } }
-            let text = try XCTUnwrap(probe.textViews().first { $0.identifier?.rawValue == "plugin-claude-observed-response" })
-            XCTAssertTrue(text.string.utf8.elementsEqual(String(decoding: original, as: UTF8.self).utf8) && !text.isEditable && text.isSelectable)
-            try await press("plugin-claude-observe")
-            try await wait("Cached observation did not settle") { !conversation.busy }
-            XCTAssertEqual(try Data(contentsOf: audit), originalAudit, "Cached observation cannot issue another helper command")
-            XCTAssertFalse(conversation.canStart || conversation.canSend || conversation.canInterrupt || conversation.canStop)
-            print("CLAUDE_RETAINED_REPLY bytes=\(original.count) heldSeconds=\(elapsed) issue=\(issue ?? "none")")
-            try await press("plugin-stop")
-            try await wait("Observed Runtime resources not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
-            XCTAssertNil(model.extensionRunIssue)
-            return
-        }
-        if env["GHOSTERM_TEST_CLAUDE_OBSERVATION"] == "1" {
-            // Cancel only after MainActor admission has created the real adapter
-            // and yielded to native RPC. No wall-clock guess about helper effects.
-            conversation.draft = "保留未确认草稿 中文😀"
-            let starting = Task { await conversation.start() }
-            try await wait("Claude startup never entered native admission") { conversation.busy }
-            starting.cancel(); await starting.value
-            XCTAssertEqual(conversation.phase, .unknown)
-            let issue = conversation.issue
-            try await press("plugin-claude-observe")
-            try await wait("Production AppModel observation was not published") {
-                conversation.observation != nil || conversation.observationIssue != nil
-            }
-            XCTAssertNil(conversation.observationIssue)
-            XCTAssertEqual(conversation.observation?.method, "start")
-            XCTAssertEqual(conversation.issue, issue)
-            XCTAssertEqual(conversation.phase, .unknown)
-            XCTAssertEqual(conversation.draft, "保留未确认草稿 中文😀")
-            XCTAssertFalse(conversation.canSend || conversation.canStart || conversation.canStop || conversation.canInterrupt)
-            // Cancellation can precede dispatch. An absent receipt remains an
-            // observation, never evidence that the original request did not run.
-            print("CLAUDE_OBSERVATION_CANCEL source=\(String(describing: conversation.observation?.source)) bytes=\(conversation.observation?.response?.count ?? 0)")
-            try await press("plugin-stop")
-            try await wait("Cancelled Runtime owner was not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
-            XCTAssertNil(model.extensionRunIssue)
-            return
-        }
         try await press("plugin-claude-start")
-        try await wait("SDK control initialization did not reach ready") { conversation.phase == .ready || conversation.issue != nil }
-        let failureFile = workspace.appendingPathComponent("sdk-fixture-failure.txt")
-        let sdkDiagnostic = (try? String(contentsOf: failureFile, encoding: .utf8)) ?? "no fixture diagnostic"
-        XCTAssertNil(conversation.issue, sdkDiagnostic); guard conversation.issue == nil else { return }
-        conversation.draft = "explicit Native SDK fixture 中文😀\n" + String(repeating: "long input 中文😀", count: 500)
+        try await wait("Claude did not reach ready") { conversation.phase == .ready || conversation.issue != nil }
+        XCTAssertNil(conversation.issue)
+        guard conversation.issue == nil else { return }
+        conversation.draft = "explicit CLI fixture 中文😀"
         try await press("plugin-claude-send")
-        try await wait("Real SDK permission callback did not reach Native controls") { conversation.pending.count == 1 || conversation.issue != nil }
-        XCTAssertNil(conversation.issue); guard conversation.issue == nil else { return }
-        let tool = conversation.pending[0]
-        XCTAssertEqual(tool.toolName, "Bash")
-        try await wait("Native tool parameters were not rendered completely") { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-tool-input" && $0.string.utf8.elementsEqual(tool.inputJSON.utf8) } }
-        try await press("plugin-claude-approval-allow")
-        try await wait("SDK question callback did not reach Native form") { conversation.pending.first?.isQuestion == true || conversation.issue != nil }
-        XCTAssertNil(conversation.issue); guard conversation.issue == nil else { return }
-        let question = conversation.pending[0]; XCTAssertEqual(question.questions.count, 4)
-        _ = try await button("plugin-claude-approval-allow", enabled: false)
-        XCTAssertTrue(conversation.pending.contains { $0.reference == question.reference })
-        for index in 0..<4 { try await press("plugin-claude-question-\(index)-option-0") }
-        try await press("plugin-claude-approval-allow")
-        try await wait("Correlated fixture result was not observed") { conversation.phase == .ready || conversation.issue != nil }
+        if selectedEnvironment && env["GHOSTERM_TEST_CLAUDE_ENV_PROBE"] == "1" {
+            try await wait("Scoped process environment did not produce an outcome") {
+                FileManager.default.fileExists(atPath: environmentMarker.path) || conversation.issue != nil ||
+                    conversation.entries.contains { $0.title == "本轮已完成" || $0.title == "本轮未成功" }
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: environmentMarker.path),
+                          "Approved CLI did not receive the scoped environment")
+            return
+        }
+        if env["GHOSTERM_TEST_CLAUDE_LOGGED_OUT"] == "1" {
+            try await wait("Official CLI authentication outcome did not arrive") {
+                conversation.entries.contains { $0.title == "本轮未成功" } || conversation.issue != nil
+            }
+            XCTAssertNil(conversation.issue)
+            XCTAssertTrue(conversation.entries.contains { $0.title == "本轮未成功" && $0.text.contains("Not logged in") })
+            XCTAssertFalse(conversation.entries.contains { $0.title == "本轮已完成" })
+            XCTAssertNil(conversation.activeMessageID)
+            return
+        }
+        try await wait("Correlated result did not arrive") {
+            conversation.entries.contains { $0.title == "本轮已完成" || (selectedEnvironment && $0.title == "本轮未成功") } ||
+                conversation.issue != nil
+        }
+        if selectedEnvironment {
+            let approved = FileManager.default.fileExists(atPath: environmentMarker.path)
+            XCTAssertTrue(approved, "Approved CLI did not receive the scoped environment")
+            guard approved else { return }
+        }
         XCTAssertNil(conversation.issue)
-        XCTAssertTrue(conversation.pending.isEmpty && conversation.activeMessageID == nil)
-        XCTAssertTrue(conversation.records.contains { $0.json.contains("fixture-audit") })
-        XCTAssertTrue(conversation.entries.contains { $0.title == "本轮已完成" })
+        guard conversation.issue == nil else { return }
+        XCTAssertTrue(conversation.entries.contains { $0.title == "Claude" && $0.text == String(repeating: "完整响应😀", count: 400) })
+        XCTAssertTrue(conversation.activeMessageID == nil && conversation.pending.isEmpty)
+        conversation.draft = "interrupt this owned fixture"
+        try await press("plugin-claude-send")
+        try await wait("Fixture did not receive the second input") {
+            FileManager.default.fileExists(atPath: workspace.appendingPathComponent("waiting").path)
+        }
+        try await press("plugin-claude-interrupt")
+        try await wait("Interrupt did not settle") { conversation.phase == .ready || conversation.issue != nil }
+        XCTAssertNil(conversation.issue)
+        XCTAssertNil(conversation.activeMessageID)
+        XCTAssertTrue(conversation.entries.contains { $0.title == "本轮未成功" && $0.text == "Claude CLI interrupted" })
+        conversation.draft = "stop this owned fixture"
+        try await press("plugin-claude-send")
+        try await wait("Fixture did not receive the input to stop") {
+            FileManager.default.fileExists(atPath: workspace.appendingPathComponent("waiting-stop").path)
+                && conversation.canInterrupt
+        }
+        if disconnect {
+            let pendingID = try XCTUnwrap(conversation.activeMessageID)
+            try Data().write(to: disconnectMarker, options: .atomic)
+            try await wait("Disconnect did not settle the pending input") {
+                conversation.phase == .unknown || conversation.phase == .lost
+            }
+            XCTAssertEqual(conversation.activeMessageID, pendingID)
+            XCTAssertTrue(conversation.issue?.contains("未知") == true || conversation.issue?.contains("未确认") == true)
+            XCTAssertFalse(conversation.canInterrupt)
+            await model.stopExtensionRun()
+            XCTAssertNil(model.extensionRun)
+            XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         try await press("plugin-claude-stop")
-        try await wait("Explicit Node stop/reap did not finish") { conversation.phase == .closed || conversation.issue != nil }
-        XCTAssertNil(conversation.issue)
+        try await wait("Explicit Claude stop did not finish") { conversation.phase == .closed || conversation.issue != nil }
+        XCTAssertEqual(conversation.phase, .closed)
+        XCTAssertTrue(conversation.issue?.contains("结果尚未确认") == true)
         try await press("plugin-stop")
         try await wait("Native plugin owners were not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
         XCTAssertNil(model.extensionRunIssue)

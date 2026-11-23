@@ -94,6 +94,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onDismissFrontend: (java.util.UUID) -> Unit = {},
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
     onInspectPlugin: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
+    pluginWorkspaceID: java.util.UUID? = null,
     onLaunchPluginGroup: () -> Unit = {},
     onLaunchPlugin: suspend (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
@@ -148,7 +149,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     category(SettingsSection.SECURITY,"密钥信息与已验证主机")
                 }
                 GhostermSectionLabel("扩展")
-                GhostermGroup { category(SettingsSection.PLUGINS, if (extensions.runtimeAvailable) "审查固定包；批准仅限本进程" else "JavaScript 插件运行时不可用") }
+                GhostermGroup { category(SettingsSection.PLUGINS, if (extensions.runtimeAvailable) "审查固定包；批准仅限本进程" else "Lua 插件运行时不可用") }
                 TextButton(onConfig,enabled=configAvailable && !connectionsBusy,modifier=Modifier.heightIn(min=48.dp)) {
                     GhostermIcon(UiIcon.File);Spacer(Modifier.width(8.dp));Text("查看 SSH 配置")
                 }
@@ -247,7 +248,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 frontendDiscoveryIssue?.let { SettingsNote(it) }
                 GhostermSectionLabel("插件包来源")
                 if (!extensions.runtimeAvailable) {
-                    SettingsNote("当前构建未启用可用的 JavaScript 插件运行时。插件包不会被加载或执行。")
+                    SettingsNote("此构建未启用 Lua 插件运行时。")
                 } else {
                     PluginChannelRefreshContent(extensions.controller, extensions::requestStopInstancesWithRevokedPublisher)
                     PluginArchiveReviewContent(extensions.controller)
@@ -314,7 +315,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     launchSelection?.let { (entry, command) ->
         PluginLaunchDialog(entry, command, hostAliases, onInspect = onInspectPlugin, frontendCandidates = frontendCandidates, validateFrontend = validateFrontend,
             onEnqueue = { alias, request, workspace, temporary ->
-                extensions.validateAndEnqueueGroup(entry, command, alias, request, workspace, temporary)
+                extensions.validateAndEnqueueGroup(entry, command, alias, request, workspace, temporary, pluginWorkspaceID)
                     .onSuccess { launchSelection = null }
             },
             onDismiss = { launchSelection = null }, onLaunch = { alias, request, clientWorkspace ->
@@ -618,7 +619,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Text("${active.packageID} · ${active.command.title}")
                 Text("SSH 主机：${active.info.peerIdentity}")
                 Text("Executor 版本：${active.info.peerHostVersion}")
-                SelectionContainer { Text("Executor 运行档：${active.executorAttachment?.reviewDescription ?: active.executorExecution?.reviewDescription ?: "Portable JS（内嵌运行时）"}",
+                SelectionContainer { Text("Executor 运行档：${active.executorAttachment?.reviewDescription ?: "Lua（内嵌运行时）"}",
                     Modifier.testTag("plugin-consent-executor-runtime"), style = MaterialTheme.typography.bodySmall) }
                 SelectionContainer { Text(active.clientWorkspace?.reviewDescription ?: "Client 本机资源目录：未开放",
                     Modifier.testTag("plugin-consent-client-workspace"), style = MaterialTheme.typography.bodySmall) }
@@ -638,7 +639,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }
         },
         confirmButton = { TextButton(onClick = { onDecision(true) }, enabled = !busy) { Text("允许并启动") } },
-        dismissButton = { TextButton(onClick = { onDecision(false) }, enabled = !busy) { Text("拒绝") } })
+        dismissButton = {
+            TextButton(onClick = { onDecision(false) }, enabled = !busy,
+                modifier = Modifier.testTag("plugin-consent-deny")) { Text("拒绝") }
+        })
 }
 
 @Composable private fun PluginNativeResourcePublisher(extensions: ExtensionPackagesViewModel) {
@@ -662,6 +666,71 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     }
 }
 
+@Composable
+internal fun TerminalPluginCommands(
+    extensions: ExtensionPackagesViewModel,
+    sessions: SessionsViewModel,
+    hosts: HostsViewModel,
+    onDismiss: () -> Unit,
+    onStarted: () -> Unit,
+) {
+    var selection by remember {
+        mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null)
+    }
+    val workspaceID = sessions.active?.id ?: return
+    val selected = selection
+    if (selected == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("插件命令") },
+            text = {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                    extensions.entries.filter { it.decision == "已批准（本进程）" }.forEach { entry ->
+                        entry.review.commands.forEach { command ->
+                            val panel = extensions.workspacePanel(workspaceID, entry, command)
+                            TextButton(
+                                onClick = {
+                                    if (panel == null) selection = entry to command
+                                    else {
+                                        if (panel.first.workspacePanel) panel.first.requestClose()
+                                        else panel.first.requestCloseInstance(panel.second)
+                                        onDismiss()
+                                    }
+                                },
+                                enabled = if (panel != null) panel.first.canCloseInstance(panel.second)
+                                    else !extensions.launchBusy && !extensions.groupSubmissionBusy &&
+                                        sessions.connecting == null && (command.togglePanel || extensions.activeSession == null),
+                                modifier = Modifier.testTag("terminal-plugin-command-${command.path}"),
+                            ) {
+                                val label = if (panel != null) "关闭 ${command.path}" else command.path
+                                Text("$label · ${command.title} · ${entry.review.id}")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+        )
+    } else {
+        val (entry, command) = selected
+        PluginLaunchDialog(entry, command, hosts.snapshot?.hosts?.map { it.alias }.orEmpty(),
+            onDismiss = { selection = null },
+            workspacePanel = command.togglePanel,
+            onEnqueue = if (command.togglePanel) { alias, request, workspace, temporary ->
+                val target = hosts.preparePluginTarget(alias)
+                extensions.launchWorkspacePanel(entry, command, target, request, workspace, temporary, sessions, workspaceID)
+                onStarted()
+                Result.success(Unit)
+            } else null,
+            onLaunch = { alias, request, workspace ->
+                val target = hosts.preparePluginTarget(alias)
+                extensions.submitLaunch(entry, command, target, request, sessions, workspace)
+                onStarted()
+            },
+        )
+    }
+}
+
 @Composable internal fun PluginLaunchDialog(
     entry: ExtensionPackagesViewModel.Entry,
     command: ExtensionController.Command,
@@ -670,10 +739,11 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     onLaunch: suspend (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
     onEnqueue: (suspend (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?, String) -> Result<Unit>)? = null,
     onInspect: suspend (String, String, String, String) -> PluginForegroundDeclaration = { _, _, _, _ -> error("前台实例检查不可用") },
+    workspacePanel: Boolean = false,
     frontendCandidates: List<FrontendCandidate> = emptyList(),
     validateFrontend: (FrontendCandidate) -> Boolean = { !it.expired },
 ) {
-    var groupLaunch by remember { mutableStateOf(false) }
+    var groupLaunch by remember { mutableStateOf(workspacePanel) }
     var groupTemporaryDirectory by remember { mutableStateOf("") }
     var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
     var hostMenu by remember { mutableStateOf(false) }
@@ -692,14 +762,6 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var hostMethodsJson by remember { mutableStateOf("[]") }
     var processProgramsJson by remember { mutableStateOf("[]") }
     var processEnvironmentJson by remember { mutableStateOf("[]") }
-    var runtimeChoice by remember { mutableStateOf("Portable JS") }
-    var runtimeMenu by remember { mutableStateOf(false) }
-    var executionTmpdir by remember { mutableStateOf("") }
-    var nodeExecutable by remember { mutableStateOf("") }
-    var nodeVersion by remember { mutableStateOf("") }
-    var nodeSha256 by remember { mutableStateOf("") }
-    var nodeSDKDirectory by remember { mutableStateOf("") }
-    var nodeSDKDigest by remember { mutableStateOf("") }
     var attachExisting by remember { mutableStateOf(false) }
     val enqueueGroup = onEnqueue.takeIf { groupLaunch && !attachExisting }
     var ipcDirectory by remember { mutableStateOf("") }
@@ -708,23 +770,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var scopedFiles by remember(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting, ipcDirectory, ipcInstance) { mutableStateOf(false) }
     var attachmentAllowed by remember(selectedHost, executable, executorDigest, command.path, argumentsJson,
         methodsJson, hostMethodsJson, attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles) { mutableStateOf(false) }
-    var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
-        selectedHost, executable, executorDirectory, executorDigest, executorVariantID, attachExisting,
-        workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
-        runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest,
-        useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256) { mutableStateOf(false) }
     var clientAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest, executorVariantID,
         attachExisting, ipcDirectory, ipcInstance, remoteProcesses, scopedFiles,
         clientDirectory, workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
-        runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest,
         useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256) { mutableStateOf(false) }
 
     var releaseEvidenceAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest, executorVariantID, attachExisting,
         useReleaseEvidence, releaseDirectory, releasePolicyPath, releasePolicySHA256,
-        workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
-        runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
+        workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson) { mutableStateOf(false) }
 
     var problem by remember { mutableStateOf<String?>(null) }
     val inspectionKey = listOf(entry.review.id, entry.review.digest, command.path, selectedHost, executable, attachExisting.toString(), ipcDirectory, ipcInstance)
@@ -763,7 +818,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     }
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!workspacePanel) Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(attachExisting, { attachExisting = it; useReleaseEvidence = false; executorVariantID = "" },
                         Modifier.testTag("plugin-ipc-mode").semantics {
                             contentDescription = if (attachExisting) "已选择连接已有前台 gterm 实例" else "选择连接已有前台 gterm 实例"
@@ -780,7 +835,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                             problem = null
                             attachExisting = true; useReleaseEvidence = false; executorVariantID = ""; ipcDirectory = candidate.offer.directory; ipcInstance = candidate.offer.instance
                             declaration = null; scopedFiles = false; remoteProcesses = false
-                            attachmentAllowed = false; executionAllowed = false; clientAllowed = false
+                            attachmentAllowed = false; clientAllowed = false
                         }
                     }) { Text("使用终端候选位置：${candidate.sourceDescription}") }
                 }
@@ -819,7 +874,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                                 methodsJson = org.json.JSONArray(value.methods).toString()
                                 hostMethodsJson = org.json.JSONArray(value.hostMethods).toString()
                                 scopedFiles = false; remoteProcesses = false; attachmentAllowed = false
-                                executionAllowed = false; clientAllowed = false
+                                clientAllowed = false
                             }) { Text("将核对后的命令和参数填入表单") }
                     }
                     Text("检查只读取当前声明，不启动插件或批准附着。填入后须重新确认连接与已有范围。", style = MaterialTheme.typography.bodySmall)
@@ -843,40 +898,6 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     }
                     Text("请核对前台显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置；失效或不匹配将报错。", style = MaterialTheme.typography.bodySmall)
                 } else {
-                Box {
-                    OutlinedButton(onClick = { runtimeMenu = true }, modifier = Modifier.testTag("plugin-executor-runtime")) {
-                        Text("Executor 运行档：$runtimeChoice")
-                    }
-                    DropdownMenu(expanded = runtimeMenu, onDismissRequest = { runtimeMenu = false }) {
-                        listOf("Portable JS", "Node", "Exec").forEach { choice ->
-                            DropdownMenuItem(text = { Text(choice) }, onClick = { runtimeChoice = choice; runtimeMenu = false })
-                        }
-                    }
-                }
-                if (runtimeChoice != "Portable JS") {
-                    OutlinedTextField(executionTmpdir, { executionTmpdir = it }, singleLine = true,
-                        modifier = Modifier.testTag("plugin-execution-tmpdir"), label = { Text("远端已存在的绝对临时目录") })
-                    if (runtimeChoice == "Node") {
-                        OutlinedTextField(nodeExecutable, { nodeExecutable = it }, singleLine = true,
-                            modifier = Modifier.testTag("plugin-node-executable"), label = { Text("远端 Node 规范绝对路径") })
-                        OutlinedTextField(nodeVersion, { nodeVersion = it }, singleLine = true,
-                            modifier = Modifier.testTag("plugin-node-version"), label = { Text("Node 版本（不带 v）") })
-                        OutlinedTextField(nodeSha256, { nodeSha256 = it }, singleLine = true,
-                            modifier = Modifier.testTag("plugin-node-sha256"), label = { Text("Node 可执行 SHA-256") })
-                        OutlinedTextField(nodeSDKDirectory, { nodeSDKDirectory = it }, singleLine = true,
-                            modifier = Modifier.testTag("plugin-node-sdk-directory"), label = { Text("远端 Host SDK 目录") })
-                        OutlinedTextField(nodeSDKDigest, { nodeSDKDigest = it }, singleLine = true,
-                            modifier = Modifier.testTag("plugin-node-sdk-sha256"), label = { Text("Host SDK catalog SHA-256") })
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(executionAllowed, { executionAllowed = it }, Modifier.testTag("plugin-execution-allow").semantics {
-                            contentDescription = if (executionAllowed) "已允许执行端运行" else "允许执行端运行"
-                        })
-                        Text("允许本次 Executor 以远端登录用户身份运行进程", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Text("请只运行可信包。Node 和 Host SDK 须预先准备，远端会核对版本及摘要；Exec 使用包内匹配系统与架构的入口。修改配置须重新允许；不会自动安装或切换运行档。",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
                 OutlinedTextField(executorVariantID, { executorVariantID = it }, singleLine = true,
                     modifier = Modifier.testTag("plugin-executor-variant"), label = { Text("Executor variant ID（可选）") })
                 Text("填写所选 Executor manifest 中的准确 variant ID。留空时由执行端检查候选是否唯一；不匹配、缺依赖或多候选均报错，不会切换运行档。",
@@ -918,7 +939,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         })
                         Text("允许本次 Native Host 发布资源（单文件最多 256 KiB）", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text("目录须为本 App 可访问的普通目录，不是 SAF URI。仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。",
+                    Text("请选择本应用可访问的普通目录。该目录仅供原生发布按钮使用。修改目录或连接配置须重新允许。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
@@ -943,11 +964,11 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (command.path == "ai codex") Text("Codex 会自动登记固定的 thread / turn / approval 与事件 RPC。还需添加 name 为 codex、版本填 codex-cli 0.166.0 的进程映射，并核对可执行文件 SHA-256；否则启动会被拒绝或版本锁校验失败。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；仅在显式启动对话后初始化后端。",
+                if (command.path == "ai claude") Text("请在执行机器准备 Claude CLI 2.1.323，并配置名为 claude 的进程映射。发送消息时启动 CLI。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (onEnqueue != null && !attachExisting) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!workspacePanel) Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(groupLaunch, { groupLaunch = it }, Modifier.testTag("plugin-group-mode").semantics {
                             contentDescription = if (groupLaunch) "已选择加入待启动组" else "选择加入待启动组"
                         })
@@ -963,20 +984,15 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 if (inspectionBusy || submissionBusy || selectedHost !in hostAliases) return@TextButton
                 problem = null
                 try {
-                    val execution = if (attachExisting || runtimeChoice == "Portable JS") null else {
-                        val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
-                        else ExtensionRelayBootstrap.Execution.Runtime.Node(ExtensionRelayBootstrap.NodeDependency(
-                            nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest))
-                        ExtensionRelayBootstrap.Execution(runtime, executionTmpdir, executionAllowed)
-                    }
                     val request = ExtensionRelayBootstrap.Request(executable.trim(), if (attachExisting) "" else executorDirectory,
                         executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson),
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
                         workspaceRootDirectory.takeUnless { attachExisting || it.isBlank() },
                         if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
-                        if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution,
-                        if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses, scopedFiles) else null,
+                        if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson),
+                        attachment = if (attachExisting) ExtensionRelayBootstrap.Attachment(
+                            ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses, scopedFiles) else null,
                         releaseEvidence = if (!attachExisting && useReleaseEvidence) ExtensionRelayBootstrap.ReleaseEvidence(
                             releaseDirectory, releasePolicyPath, releasePolicySHA256, releaseEvidenceAllowed) else null,
                         variantID = executorVariantID.takeUnless { attachExisting || it.isEmpty() })
@@ -1006,11 +1022,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }, modifier = Modifier.semantics {
                 contentDescription = when {
                     submissionBusy -> "正在提交插件启动请求"
+                    workspacePanel -> "连接并请求插件授权"
                     enqueueGroup != null -> "加入待启动插件连接组"
                     else -> "连接并请求插件授权"
                 }
             }) { Text(when {
                 submissionBusy -> "正在提交…"
+                workspacePanel -> "连接并请求授权"
                 enqueueGroup != null -> "加入待启动组"
                 else -> "连接并请求授权"
             }) }

@@ -84,7 +84,8 @@ public final class ClaudeConversation: ObservableObject {
         await action {
             guard self.phase == .new else { throw InvalidAction() }
             let reply = try await self.call("start", .object([]))
-            guard reply["requested"]?.boolean == true, reply["sdkVersion"]?.text == "0.3.323",
+            guard reply["requested"]?.boolean == true,
+                  reply["backend"]?.text == "cli",
                   reply["cliVersion"]?.text == "2.1.323" else { throw InvalidReply() }
             self.phase = .starting
         }
@@ -295,7 +296,7 @@ public final class ClaudeConversation: ObservableObject {
         if type == "result" {
             guard let id = message["user_message_uuid"]?.text, activeMessageID?.utf8.elementsEqual(id.utf8) == true,
                   let error = message["is_error"]?.boolean, let subtype = message["subtype"]?.text,
-                  (subtype == "success") != error else {
+                  error || subtype == "success" else {
                 fail("收到无法关联当前输入的后端结果；当前输入保持未知。", phase: .lost); return
             }
             let detail = message["result"]?.text ?? message["errors"]?.encoded() ?? message.encoded()

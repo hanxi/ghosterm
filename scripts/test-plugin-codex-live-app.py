@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in real selected-account Codex through transparent offscreen Native App UI.
 
-The isolated Swift copy links the explicitly selected CLI's JS-enabled Core.
+The isolated Swift copy links the explicitly selected CLI's Lua-enabled Core.
 The main workspace Core cache, HOME, CODEX_HOME and credential files stay intact.
 """
 import argparse
@@ -67,11 +67,12 @@ def execute(args, work):
     codex = Path(shutil.which(args.codex) or args.codex).resolve(strict=True)
     gterm = build / 'gterm'
     cache = (build / 'CMakeCache.txt').read_text()
-    require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'EXPLICIT_JS_CORE_REQUIRED')
+    require('GHOSTERM_WITH_PLUGIN_LUA:BOOL=ON' in cache, 'EXPLICIT_LUA_CORE_REQUIRED')
     require((build / 'core/libghosterm_core.a').is_file() and
-            (build / 'core/libghosterm_quickjs.a').is_file(), 'MATCHED_NATIVE_CORE_REQUIRED')
-    environment = {**os.environ, 'TMPDIR': str(work), 'GHOSTERM_AUTOMATION_OFFSCREEN': '1',
-                   'GHOSTERM_CORE_TEST_PLUGIN_JS': '1', 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}
+            (build / 'core/libghosterm_lua.a').is_file(), 'MATCHED_NATIVE_CORE_REQUIRED')
+    environment = {**os.environ, 'TMPDIR': str(work), 'TMP': str(work), 'TEMP': str(work),
+                   'GHOSTERM_AUTOMATION_OFFSCREEN': '1', 'GHOSTERM_CORE_BUILD_DIR': str(build / 'core'),
+                   'GHOSTERM_CORE_TEST_PLUGIN_LUA': '1', 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}
     version = subprocess.run([codex, '--version'], env=environment, capture_output=True, timeout=10)
     require(version.returncode == 0 and version.stdout.strip() == b'codex-cli 0.166.0', 'PINNED_CLI_VERSION')
     auth = subprocess.run([codex, 'login', 'status'], env=environment, capture_output=True, timeout=15)
@@ -132,9 +133,11 @@ def execute(args, work):
     configuration = work/'fixture.json'; configuration.write_text(json.dumps(fixture)); configuration.chmod(0o600)
     environment.update(GHOSTERM_CODEX_APP_LIVE='1', GHOSTERM_CODEX_APP_FIXTURE=str(configuration))
     selected = source/'apple/GhostermApp'
-    run(['swift','build','--build-tests','--package-path',selected],environment,work/'compile.log')
+    swift_options = ['--package-path', selected, '--cache-path', work / 'swift-cache',
+                     '--disable-keychain', '--disable-netrc']
+    run(['swift', 'build', '--build-tests', *swift_options], environment, work/'compile.log')
     # Build has no model call. This exact, explicit test is the only model turn.
-    run(['swift','test','--skip-build','--package-path',selected,'--filter',TEST],
+    run(['swift', 'test', '--skip-build', *swift_options, '--filter', TEST],
         environment,work/'live.log',seconds=500)
     output = (work/'live.log').read_text()
     marker = 'PASS CODEX LIVE APP PREFLIGHT:' if args.prepare_only else 'PASS CODEX LIVE APP:'

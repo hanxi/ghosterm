@@ -1,157 +1,201 @@
 #!/usr/bin/env python3
-"""Isolated compiled native package checks and regenerated semantic mutations.
-No build failure/crash/timeout counts as an assertion red. No App or gateway.
-"""
-import argparse,hashlib,json,os,re,shutil,signal,subprocess,sys,tempfile
+"""Exercise the Lua package checker with isolated compiled mutations."""
+import argparse
+import hashlib
+import os
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]
-MARK='GT_PLUGIN_PACKAGE_CHECK_MUTATION'
-C='core/src/extension/package-check.c';BACKEND='core/src/extension/package-check-js.inc';JSON='core/src/extension/package-json.c';LEX='core/src/base/json-reader.inc';SNAPSHOT='core/src/extension/package-snapshot.c';JS='packages/plugin-sdk/testkit/package-metadata.mjs'
-GENERATED=['core/src/extension/package-validator-'+s for s in ['code.inc','inputs.json','LICENSES.txt']]
-PREFLIGHT=[C,BACKEND,JSON,LEX,SNAPSHOT,JS,'core/src/extension/package-check.h','core/src/extension/package-json.h','core/src/extension/package-snapshot.h','core/tests/test_package_check.c','core/tests/test_package_check_boundary.c',*GENERATED]
-def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+import re
+import shutil
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = 'src/extension/package-check-lua.inc'
+FACADE = 'src/extension/package-check.c'
+CASES = {
+    'hash-required': (BACKEND,
+        '!equals(doc, gt__bridge_wire_member(doc, record, "sha256"), member.sha256)',
+        'false', 'hash-mismatch'),
+    'catalog-size': (BACKEND, 'record, "bytes", member.bytes)',
+        'record, "bytes", member.bytes + 1)', 'compatible'),
+    'catalog-path': (BACKEND, 'gt__package_snapshot_find(snapshot, path, &index) != GT_PACKAGE_OK || seen[index]',
+        'gt__package_snapshot_find(snapshot, "integrity.json", &index) != GT_PACKAGE_OK || seen[index]', 'compatible'),
+    'source-consumed': (BACKEND, '        *snapshot = NULL;\n',
+        '        /* Keep the source pointer. */\n', 'compatible'),
+    'cancel-before-commit': (BACKEND, 'if (config->stop && atomic_load(config->stop)) {',
+        'if (false && config->stop && atomic_load(config->stop)) {', 'late-cancel'),
+    'package-digest': (BACKEND, 'memcpy(digest, integrity.sha256, 65);',
+        "memset(digest, '0', 64);\n    digest[64] = 0;", 'compatible'),
+    'unknown-not-unsupported': (BACKEND, 'GT_PACKAGE_CHECK_UNKNOWN, "HOST_REQUIRED"',
+        'GT_PACKAGE_CHECK_UNSUPPORTED, "HOST_REQUIRED"', 'unknown-host'),
+    'failure-info-wiped': (FACADE,
+        'gt_package_check_info_t *out) {\n    if (out) {\n        memset(out, 0, sizeof(*out));\n    }',
+        'gt_package_check_info_t *out) {', 'hash-mismatch'),
+}
+PUBLIC_CASES = {
+    'capture-cancel': ('src/extension/package-api.c',
+        '    if (p->info.phase != GT_EXT_PACKAGE_CAPTURING) {\n'
+        '        return p->info.phase;\n    }\n',
+        '    if (p->info.phase != GT_EXT_PACKAGE_CAPTURING) {\n'
+        '        return p->info.phase;\n    }\n    atomic_store(&p->stopped, false);\n',
+        'capture-stop'),
+    'check-cancel': ('src/extension/package-api.c',
+        '    if (p->info.phase != GT_EXT_PACKAGE_CAPTURED) {\n'
+        '        return p->info.phase;\n    }\n',
+        '    if (p->info.phase != GT_EXT_PACKAGE_CAPTURED) {\n'
+        '        return p->info.phase;\n    }\n    atomic_store(&p->stopped, false);\n',
+        'check-stop'),
+    'public-unknown': ('src/extension/package-api.c', 'error = GT_EXT_PACKAGE_UNKNOWN;',
+        'error = GT_EXT_PACKAGE_UNSUPPORTED;', 'unknown'),
+    'public-digest': ('src/extension/package-api.c', 'COPY(package_digest);',
+        'COPY(manifest_digest);', 'roundtrip'),
+    'metadata-zero': ('src/extension/package-api.c',
+        '    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n'
+        '    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED)',
+        '    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED)', 'roundtrip'),
+    'stopped-adoption': ('src/extension/runtime-api.c',
+        'if (atomic_load_explicit(&package->stopped, memory_order_relaxed))',
+        'if (false && atomic_load_explicit(&package->stopped, memory_order_relaxed))', 'load-stop'),
+    'admission-id': ('src/extension/session.c', '!strcmp(s->config.plugin_id, id) &&',
+        '(!strcmp(s->config.plugin_id, id) || true) &&', 'wrong-id'),
+    'admission-version': ('src/extension/session.c', '!strcmp(s->config.plugin_version, version) &&',
+        '(!strcmp(s->config.plugin_version, version) || true) &&', 'wrong-version'),
+    'admission-digest': ('src/extension/session.c',
+        '!strcmp(role == GT_BRIDGE_HOST ? s->config.client_digest : s->config.executor_digest,\n'
+        '                   digest) &&',
+        'true &&', 'mismatch'),
+    'admission-association': ('src/extension/package-runtime.c',
+        '(info.association_required && !associated)', '(false && info.association_required && !associated)',
+        'association'),
+    'api-source-unknown': ('src/extension/registry-api.c', 'return GT_EXT_REGISTRY_UNKNOWN;',
+        'return GT_EXT_REGISTRY_DENIED;', 'registry'),
+    'api-source-denied': ('src/extension/registry-api.c', 'return GT_EXT_REGISTRY_DENIED;',
+        'return GT_EXT_REGISTRY_UNKNOWN;', 'registry'),
+    'api-stopped-put': ('src/extension/registry-api.c',
+        'if (atomic_load_explicit(&p->stopped, memory_order_relaxed))',
+        'if (false && atomic_load_explicit(&p->stopped, memory_order_relaxed))', 'registry'),
+    'api-independent-stop': ('src/extension/registry-api.c', 'atomic_init(&p->stopped, false);',
+        'atomic_init(&p->stopped, true);', 'registry'),
+    'api-selected-stats': ('src/extension/registry-api.c', 'p->info.members = count;',
+        'p->info.members = 0;', 'registry'),
+    'api-command-schema': ('src/extension/registry-api.c',
+        'memcpy(out->args_schema, c->args_schema, sizeof(c->args_schema));',
+        'memset(out->args_schema, 0, sizeof(out->args_schema));', 'registry'),
+    'api-command-zero': ('src/extension/registry-api.c',
+        '    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n'
+        '    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED)',
+        '    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED)', 'registry'),
+}
+REGISTRY = 'src/extension/registry.c'
+REGISTRY_CASES = {
+    'registry-unknown': (REGISTRY, 'return GT_REGISTRY_UNKNOWN;', 'return GT_REGISTRY_DENIED;', 'registry'),
+    'registry-denied': (REGISTRY, 'return GT_REGISTRY_DENIED;', 'return GT_REGISTRY_UNKNOWN;', 'registry'),
+    'registry-conflict': (REGISTRY, 'if (!id && overlaps > 1)', 'if (false && !id && overlaps > 1)', 'registry'),
+    'registry-replace-digest': (REGISTRY, 'if (strcmp(entry->digest, expected))',
+        'if (false && strcmp(entry->digest, expected))', 'registry'),
+    'registry-remove-digest': (REGISTRY, 'if (strcmp(e->digest, expected))',
+        'if (false && strcmp(e->digest, expected))', 'registry'),
+    'registry-selection-digest': (REGISTRY, 'if (strcmp(digest, e->digest))',
+        'if (false && strcmp(digest, e->digest))', 'registry'),
+    'registry-side': (REGISTRY, 'if (!e->package || e->executor != executor)',
+        'if (!e->package || (false && e->executor != executor))', 'registry'),
+}
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
- for name in PREFLIGHT:
-  if MARK in (ROOT/name).read_text():print('residual package check mutation: '+name,file=sys.stderr);raise SystemExit(2)
- cases=[
-  ('json-preflight',BACKEND,'        if (error != GT_PACKAGE_JSON_OK) {\n','        if (false && error != GT_PACKAGE_JSON_OK) {\n','native:duplicate'),
-  ('exact-integer',BACKEND,'        gt_package_json_error_t error = gt__package_json_check(json, raw[i], lengths[i], true);\n','        gt_package_json_error_t error = gt__package_json_check(json, raw[i], lengths[i], false);\n','native:fractional'),
-  ('catalog-sha256',BACKEND,'            check_set(c, entry, "sha256", JS_NewString(c, member.sha256)) < 0 ||\n','            check_set(c,\n                      entry,\n                      "sha256",\n                      JS_NewString(\n                          c, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")) <\n                0 ||\n','native:compatible'),
-  ('catalog-size',BACKEND,'(double)member.bytes','(double)member.bytes+1','native:compatible'),
-  ('catalog-path',BACKEND,'        if (check_set(c, entry, "path", JS_NewString(c, member.path)) < 0 ||\n','        if (check_set(c, entry, "path", JS_NewString(c, "README")) < 0 ||\n','native:compatible'),
-  ('catalog-complete',BACKEND,'    for (size_t i = 0; i < count; i++) {\n','    for (size_t i = 0; i + 1 < count; i++) {\n','native:compatible'),
-  ('heap-budget',BACKEND,'        n + sizeof(package_js_allocation_t) > s->limit - s->used) {\n','        (false && n + sizeof(package_js_allocation_t) > s->limit - s->used)) {\n','boundary:caught-oom'),
-  ('caught-oom-sticky',BACKEND,'    if (state.memory) {\n','    if (false && state.memory) {\n','boundary:caught-oom'),
-  ('js-interrupt',BACKEND,'return !check_budget(opaque);','(void)check_budget(opaque);return 0;','boundary:js-expired'),
-  ('stop-not-ignored',BACKEND,'s->config->stop && atomic_load_explicit','false && s->config->stop && atomic_load_explicit','boundary:js-cancel'),
-  ('clock-not-expiry',BACKEND,'        s->clock_error = true;\n','        s->expired = true;\n','boundary:js-clock'),
-  ('deadline-boundary',BACKEND,'    if (now >= s->deadline) {\n','    if (now > s->deadline) {\n','native:expired'),
-  ('cancel-at-commit',BACKEND,'    if (report->status == GT_PACKAGE_CHECK_COMPATIBLE && !check_budget(&state)) {\n        check_exception(&state, report);\n    }\n','    /* omitted final budget barrier */\n','native:late-cancel'),
-  ('clock-at-commit',BACKEND,'    if (report->status == GT_PACKAGE_CHECK_COMPATIBLE && !check_budget(&state)) {\n        check_exception(&state, report);\n    }\n','    /* omitted final budget barrier */\n','native:late-clock'),
-  ('deadline-at-commit',BACKEND,'    if (report->status == GT_PACKAGE_CHECK_COMPATIBLE && !check_budget(&state)) {\n        check_exception(&state, report);\n    }\n','    /* omitted final budget barrier */\n','native:late-expired'),
-  ('source-consumed',BACKEND,'        *snapshot = NULL;\n        *out = checked;\n','        *out = checked;\n','native:compatible'),
-  ('source-failure-retained',BACKEND,'return report->status;','if(report->status!=GT_PACKAGE_CHECK_COMPATIBLE)gt__package_snapshot_destroy(snapshot);return report->status;','native:hash'),
-  ('package-digest',BACKEND,'        memcpy(info->package_digest, metadata[1].sha256, 65);\n','        memcpy(info->package_digest, metadata[0].sha256, 65);\n','native:compatible'),
-  ('unknown-not-unsupported',BACKEND,'                : !strcmp(kind, "unknown")     ? GT_PACKAGE_CHECK_UNKNOWN\n','                : !strcmp(kind, "unknown")     ? GT_PACKAGE_CHECK_UNSUPPORTED\n','native:unknown'),
-  ('required-service-copy',BACKEND,'        *count = n;\n','        *count = 0;\n','native:compatible'),
-  ('association-visible',BACKEND,'        info->association_required = JS_ToBool(c, association) == 1;\n','        info->association_required = false;\n','fixture:registry-conflict'),
-  ('failure-info-wiped',C,'    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n','    (void)out;\n','native:hash'),
-  ('destroy-error-visible',C,'    gt__plugin_memory_free(&a, p, bytes);\n    return status;\n','    gt__plugin_memory_free(&a, p, bytes);\n    (void)status;\n    return GT_PACKAGE_OK;\n','boundary:destroy-error'),
-  ('snapshot-view-hidden',SNAPSHOT,'    if (bytes) {\n        *bytes = NULL;\n    }\n','    (void)bytes;\n','native:compatible'),
-  ('code-copy-wiped',BACKEND,'    check_wipe_free(&state, code, GT_PACKAGE_VALIDATOR_BYTES + 1);\n','    if (code) {\n        state.allocator.release(state.allocator.context, code, GT_PACKAGE_VALIDATOR_BYTES + 1);\n    }\n','native:compatible'),
-  ('hash-required',JS,'actual.sha256 !== member.sha256','false','fixture:hash-mismatch'),
-  ('index-complete',JS,'!excluded.has(path) && !declared.has(path)','false','fixture:unindexed-member'),
-  ('permission-required',JS,"!permissionKeys.has(name + ':' + capability)",'false','fixture:missing-permission'),
-  ('range-syntax',JS,'if (!semver.validRange(value))','if (false)','fixture:bad-range'),
-  ('host-unknown',JS,"fail('HOST_UNKNOWN', 'unknown')","fail('HOST_UNKNOWN', 'unsupported')",'fixture:unknown-host'),
-  ('variant-choice',JS,'if (variants.length !== 1)','if (!variants.length)','fixture:variant-choice'),
-  ('protocol-intersection',JS,'host.protocols.includes(version)','true','fixture:protocol-unsupported'),
-  ('explicit-denial',JS,'if (host.deniedCapabilities?.includes(capability))','if (false)','fixture:capability-denied'),
-  ('digest-not-publisher',JS,'publisherAuthenticated: false','publisherAuthenticated: true','native:compatible'),
-  ('compatibility-not-grant',JS,"authorization: 'not-granted'","authorization: 'granted'",'native:compatible'),
-  ('argument-position-gap',JS,"for (let i = 0; i < positions.length; i++) if (!positions[i]) fail('ARGUMENT_SCHEMA');","for (let i = 0; i < positions.length; i++) if (false) fail('ARGUMENT_SCHEMA');",'fixture:argument-schema-gap'),
-  ('argument-schema-json',BACKEND,'        gt_package_json_error_t error = gt__package_json_check(json, bytes, size, false);\n        if (error != GT_PACKAGE_JSON_OK) {\n','        gt_package_json_error_t error = gt__package_json_check(json, bytes, size, false);\n        if (false) {\n','fixture:argument-schema-malformed-json'),
-  ('argument-schema-exact-path',BACKEND,'JS_SetPropertyStr(c, schemas, path_copy, schema)','JS_SetPropertyStr(c, schemas, "wrong.json", schema)','fixture:argument-schema-root-cli'),
- ]
- known={c[0] for c in cases}
- if set(args.case)-known:parser.error('unknown case')
- if args.case:cases=[c for c in cases if c[0] in args.case]
- for label,name,old,*_ in cases:
-  expected=2 if label=='json-preflight' else 1
-  if (ROOT/name).read_text().count(old)!=expected:raise RuntimeError('missing/ambiguous anchor '+label)
- inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and not any(x.startswith('build') for x in p.relative_to(ROOT/folder).parts)]
- inputs += [Path(__file__),ROOT/'scripts/generate-plugin-package-validator.mjs',ROOT/'scripts/check-plugin-package-validator.py',ROOT/'scripts/probes/plugin-package-native.mjs',*list((ROOT/'patches/quickjs-ng').rglob('*'))]
- inputs=[p for p in inputs if p.is_file()]
- for folder in ['plugin-package-tools','plugin-sdk-tools']:
-  inputs += [ROOT/'scripts/fixtures'/folder/n for n in ['package.json','package-lock.json']]
- hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs};work=Path(tempfile.mkdtemp(prefix='pkgcheck-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();source=work/'source';build=work/'build';commands=[]
- env=dict(os.environ,TMPDIR=str(work),DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1',NPM_CONFIG_USERCONFIG=str(work/'empty.npmrc'));(work/'empty.npmrc').touch()
- def run(label,cmd,red=False,reject=False,budget=180):
-  shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require package-check; shift; gt_timeout "$@"'
-  p=subprocess.run(['bash','-c',shell,'package-check',str(ROOT),str(budget),*map(str,cmd)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=budget+10);out=p.stdout+p.stderr;(logs/(label+'.log')).write_text(out);commands.append(dict(label=label,returncode=p.returncode,assertion=red,configuration_rejection=reject))
-  good=p.returncode==0
-  if red:good=p.returncode==1 and re.search(r'^FAIL ',p.stderr,re.M) and not any(x in out for x in ['AddressSanitizer','runtime error:','UndefinedBehaviorSanitizer'])
-  if reject:good=p.returncode==1 and ('Generated package validator' in out or 'Pinned QuickJS-NG patch' in out)
-  if not good:raise RuntimeError(label+'\n'+out)
-  return out
- try:
-  shutil.copytree(ROOT/'core',source/'core',ignore=shutil.ignore_patterns('build','build-*'));shutil.copytree(ROOT/'packages/plugin-sdk',source/'packages/plugin-sdk');shutil.copytree(ROOT/'patches/quickjs-ng',source/'patches/quickjs-ng');(source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True);(source/'tmp').mkdir();(source/'scripts').mkdir()
-  for name in ['generate-plugin-package-validator.mjs','check-plugin-package-validator.py','generate-plugin-runtime-sdk.mjs','check-plugin-runtime-sdk.py']:shutil.copyfile(ROOT/'scripts'/name,source/'scripts'/name)
-  shutil.copytree(ROOT/'scripts/fixtures/plugin-package-tools',source/'scripts/fixtures/plugin-package-tools')
-  shutil.copytree(ROOT/'scripts/fixtures/plugin-sdk-tools',source/'scripts/fixtures/plugin-sdk-tools')
-  tools={}
-  for kind,fixture in [('package','plugin-package-tools'),('sdk','plugin-sdk-tools')]:
-   tools[kind]=work/(kind+'-tools');tools[kind].mkdir()
-   for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures'/fixture/name,tools[kind]/name)
-   lock=json.loads((tools[kind]/'package-lock.json').read_text())
-   for name,p in lock['packages'].items():
-    if name:assert p['resolved'].startswith('https://registry.npmjs.org/') and p['integrity'].startswith('sha512-'),name
-   cache='plugin-schema-npm-cache' if kind=='package' else 'plugin-sdk-npm-cache';run(kind+'-npm',['npm','ci','--prefix',tools[kind],'--ignore-scripts','--no-audit','--no-fund','--offline','--cache',ROOT/'tmp'/cache])
-  sdk=work/'sdk';run('sdk',['node',tools['sdk']/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
-  fixtures=work/'fixtures';fixtures.mkdir();run('fixtures',['node',ROOT/'scripts/probes/plugin-package-native.mjs',ROOT,tools['package'],fixtures]);vectors={v['name']:v for v in json.loads((fixtures/'vectors.json').read_text())['fixtures']}
-  run('generated',['node',source/'scripts/generate-plugin-package-validator.mjs','--tools',tools['package'],'--check'])
-  run('configure',['cmake','-S',source/'core','-B',build,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
-  binaries=['test_package_check','test_package_check_boundary','test_package_json','test_package_compiler','test_config'];objects=[('ghosterm_core','src/extension/'+n+'.c') for n in ['package-check','package-json','package-snapshot']]+[(n,'tests/'+n+'.c') for n in binaries[:-1]]
-  def rebuild(label):
-   for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
-   for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target',*binaries,'-j','2'],budget=300)
-   for owner,name in objects:assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,(label,name)
-   for n in binaries:assert 'Linking C executable '+n in out,(label,n)
-   assert 'Linking C static library libghosterm_core.a' in out
-  def target(label,mode,red=False):
-   kind,mode=mode.split(':',1)
-   if kind=='fixture':
-    v=vectors[mode];cmd=[build/'test_package_check','probe',v['directory'],v['hostFile'],v['registryFile'],v['status'],v['code']]
-    if mode=='registry-conflict':cmd+=['association=true']
-   else:cmd=[build/('test_package_check_boundary' if kind=='boundary' else 'test_package_check'),mode,source/'tmp']
-   try:run(label,cmd,red=red,budget=90)
-   finally:
-    for p in (source/'tmp').iterdir():
-     if p.is_dir() and not p.is_symlink():shutil.rmtree(p)
-     else:p.unlink()
-  def suite(label):
-   discovered=json.loads(run(label+'-discovery',['ctest','--test-dir',build,'--show-only=json-v1']))['tests'];selected=[t for t in discovered if re.match(r'^plugin_package_(check|json|validator|compiler)',t['name'])];assert len(selected)==50,len(selected)
-   out=run(label,['ctest','--test-dir',build,'-R','^plugin_package_(check|json|validator|compiler)','--output-on-failure']);assert '100% tests passed out of 50' in out
-   for t in selected:assert re.search(r'Test\s+#\d+: '+re.escape(t['name'])+r'\s+\.+\s+Passed',out),t['name']
-  rebuild('baseline');suite('baseline');run('baseline-control',[build/'test_config',source/'core/tests/fixtures']);target('baseline-cli-schema','fixture:argument-schema-cli');target('baseline-root-cli-schema','fixture:argument-schema-root-cli')
-  for label,name,old,new,mode in cases:
-   touched=[name,*GENERATED] if name==JS else [name];original={n:(source/n).read_bytes() for n in touched}
-   try:
-    (source/name).write_text(original[name].decode().replace(old,new)+'\n/* '+MARK+' */\n')
-    if name==JS:run(label+'-generate',['node',source/'scripts/generate-plugin-package-validator.mjs','--tools',tools['package']])
-    rebuild(label);target(label+'-target',mode,True);run(label+'-control',[build/'test_config',source/'core/tests/fixtures'])
-   finally:
-    for n,data in original.items():(source/n).write_bytes(data);assert sha(source/n)==hashlib.sha256(data).hexdigest()
-   rebuild(label+'-restored');target(label+'-restored',mode);print(label+': actual C/generated JS/archive/executable assertion red / config green / rebuilt restore / SHA256',flush=True)
-  # Configuration guards are rejection evidence, not compiled assertion groups.
-  guards=['packages/plugin-sdk/schema/manifest-v1.candidate.json',JS,GENERATED[0],GENERATED[2],'scripts/generate-plugin-package-validator.mjs','scripts/fixtures/plugin-package-tools/package-lock.json']
-  for index,name in enumerate(guards):
-   path=source/name;original=path.read_bytes()
-   try:
-    path.write_bytes(original+b'\n ');run('guard-'+str(index),['cmake','-S',source/'core','-B',work/('guard-'+str(index)),'-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_BUILD_TESTS=OFF'],reject=True)
-   finally:path.write_bytes(original);assert sha(path)==hashlib.sha256(original).hexdigest()
-  path=source/GENERATED[1];original=path.read_bytes()
-  try:
-   data=json.loads(original);data['inputs'].pop(JS);path.write_text(json.dumps(data));run('guard-input-set',['cmake','-S',source/'core','-B',work/'guard-input-set','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_BUILD_TESTS=OFF'],reject=True)
-  finally:path.write_bytes(original);assert sha(path)==hashlib.sha256(original).hexdigest()
-  patch_guards=0
-  patch_paths=sorted((source/'patches/quickjs-ng/0.18.0').glob('*.patch'))
-  assert len(patch_paths)==8,len(patch_paths)
-  for path in patch_paths:
-   original=path.read_bytes()
-   for kind in ['missing','changed']:
-    try:
-     if kind=='missing':path.unlink()
-     else:path.write_bytes(original+b'\n ')
-     run('guard-'+path.stem+'-'+kind,['cmake','-S',source/'core','-B',work/('guard-'+path.stem+'-'+kind),'-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_BUILD_TESTS=OFF'],reject=True)
-    finally:path.write_bytes(original);assert sha(path)==hashlib.sha256(original).hexdigest()
-    patch_guards+=1
-  assert patch_guards==16,patch_guards
-  rebuild('final');suite('final');run('final-generated',['node',source/'scripts/generate-plugin-package-validator.mjs','--tools',tools['package'],'--check'])
-  for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  (logs/'result.json').write_text(json.dumps(dict(accepted=True,groups=[c[0] for c in cases],configuration_guards=7+patch_guards,native_cases=50,inputs_sha256=hashes,commands=commands,sanitizers=['address','undefined'],leak_sanitizer=False,scope='native metadata checks; no runtime/module activation, App, backend, gateway or release'),indent=2)+'\n');shutil.rmtree(source);shutil.rmtree(build);shutil.rmtree(fixtures);print('PACKAGE CHECK MUTATIONS PASS; logs: '+str(logs),flush=True)
- except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
-def stop(number,_frame):raise KeyboardInterrupt('signal '+str(number))
-if __name__=='__main__':signal.signal(signal.SIGINT,stop);signal.signal(signal.SIGTERM,stop);main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--lua-archive', type=Path, required=True)
+    parser.add_argument('--case', action='append', choices=sorted(CASES.keys() | PUBLIC_CASES.keys() | REGISTRY_CASES.keys()))
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument('--public', action='store_true', help='verify public package and runtime entry points')
+    profile.add_argument('--registry', action='store_true', help='verify internal package registry resolution')
+    args = parser.parse_args()
+    archive = args.lua_archive.resolve(strict=True)
+    cases = REGISTRY_CASES if args.registry else PUBLIC_CASES if args.public else CASES
+    names = args.case or cases
+    if set(names) - cases.keys():
+        parser.error('selected cases do not match the requested package profile')
+    target = 'test_plugin_registry' if args.registry else 'test_ext_package' if args.public else 'test_package_check'
+    probe_source = ROOT / f'core/tests/{target}.c'
+    core = ROOT / 'core'
+    originals = {name: (core / name).read_bytes() for name, *_ in cases.values()}
+    inputs = {path: sha(path) for path in [archive, probe_source, *(core / name for name in originals)]}
+    with tempfile.TemporaryDirectory(prefix='package-check-', dir=os.environ['TMPDIR']) as scratch:
+        work = Path(scratch)
+        source = work / 'core'
+        build = work / 'build'
+        env = {**os.environ, 'TMPDIR': scratch, 'TMP': scratch, 'TEMP': scratch,
+               'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1',
+               'UBSAN_OPTIONS': 'halt_on_error=1'}
+        shutil.copytree(core, source, ignore=shutil.ignore_patterns('build', 'build-*'))
+        (work / 'patches').symlink_to(ROOT / 'patches', target_is_directory=True)
+        (work / 'tmp').mkdir()
+
+        def run(command, diagnostic=None):
+            result = subprocess.run(command, capture_output=True, text=True, env=env, timeout=180)
+            output = result.stdout + result.stderr
+            if diagnostic:
+                if (result.returncode != 1 or len(re.findall(diagnostic, output, re.M)) != 1 or
+                        any(item in output for item in ('AddressSanitizer', 'UndefinedBehaviorSanitizer', 'runtime error:'))):
+                    raise RuntimeError(output)
+            elif result.returncode:
+                raise RuntimeError(output)
+
+        def compile_core(filename=None):
+            if filename:
+                unit = BACKEND.removesuffix('-lua.inc') + '.c' if filename == BACKEND else filename
+                (build / 'CMakeFiles/ghosterm_core.dir' / (unit + '.o')).unlink(missing_ok=True)
+            (build / 'libghosterm_core.a').unlink(missing_ok=True)
+            (build / target).unlink(missing_ok=True)
+            run(['cmake', '--build', build, '-j4', '--target', target, 'test_config'])
+            return sha(build / target)
+
+        def probe(case=None, diagnostic=None):
+            if args.registry:
+                run([build/target, work], diagnostic)
+                return
+            if args.public:
+                command = [build/target, case, work] if case else [
+                    'ctest', '--test-dir', build, '--no-tests=error', '-R', '^lua_package_',
+                    '-E', '_internal$', '--output-on-failure']
+                run(command, diagnostic)
+                return
+            command = ['python3', '-B', ROOT/'scripts/test-plugin-package-native.py',
+                       '--binary', build/'test_package_check']
+            command += ['--case', case] if case else ['--oom-sweep']
+            run(command, diagnostic)
+
+        run(['cmake', '-S', source, '-B', build, '-DGHOSTERM_BUILD_TESTS=ON',
+             '-DGHOSTERM_WITH_PLUGIN_LUA=ON', '-DGHOSTERM_WITH_LIBSSH2=OFF',
+             f'-DGHOSTERM_LUA_ARCHIVE={archive}', '-DCMAKE_BUILD_TYPE=Debug',
+             '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all'])
+        compile_core()
+        probe()
+        for name in names:
+            filename, old, new, case = cases[name]
+            path = source / filename
+            original = originals[filename]
+            assert original.decode().count(old) == 1, name
+            baseline = sha(build / target)
+            try:
+                path.write_text(original.decode().replace(old, new, 1))
+                assert compile_core(filename) != baseline, name
+                probe(case, r'^FAIL main:' if args.public or args.registry else r'^FAIL probe:')
+                run([build / 'test_config', ROOT / 'core/tests/fixtures'])
+            finally:
+                path.write_bytes(original)
+            compile_core(filename)
+            probe(case)
+            assert sha(path) == inputs[core / filename], name
+            print(f'PASS {name}: compiled assertion / Core control / restore / SHA256', flush=True)
+        probe()
+        assert all(sha(path) == digest for path, digest in inputs.items())
+        print(f'LUA PACKAGE CHECK MUTATIONS PASS: {len(names)} groups', flush=True)
+
+
+if __name__ == '__main__':
+    main()

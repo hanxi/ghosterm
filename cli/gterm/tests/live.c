@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
+#include "echo-outcome.h"
 #include "ghosterm.h"
 #include <fcntl.h>
 #include <inttypes.h>
@@ -189,15 +190,7 @@ static void wave(void) {
                 CHECK(gt_ext_session_request_result(sessions[i], &leases[i], handles[i], &result) ==
                       GT_EXT_RPC_OK);
             } while (!result.confirmed);
-            char expected[160];
-            int size = snprintf(expected,
-                                sizeof(expected),
-                                "{\"kind\":\"success\",\"value\":{\"text\":\"live\",\"count\":17,"
-                                "\"owner\":%u,\"calls\":%u}}",
-                                i,
-                                ++calls[i]);
-            CHECK(result.state == GT_EXT_RPC_SUCCEEDED && result.outcome_size == (uint32_t)size &&
-                  !memcmp(result.outcome, expected, (size_t)size));
+            CHECK(echo_matches(&result, "live", 17, i, ++calls[i]));
             CHECK(gt_ext_session_forget_request(sessions[i], &leases[i], handles[i]) ==
                   GT_EXT_RPC_OK);
         }

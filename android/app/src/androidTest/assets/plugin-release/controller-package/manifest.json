@@ -1,0 +1,1 @@
+{"schemaVersion":2,"id":"org.ghosterm.signature","pluginVersion":"1.0.0","sdkApiRange":"^1.0.0","bridgeProtocolRange":[1],"publisher":"fixture","license":"MIT","client":{"entry":"main.lua","requires":["session.rpc"]},"commands":[{"path":["fixture"],"title":"Signature fixture"}]}

@@ -1,78 +1,78 @@
 #!/usr/bin/env python3
-"""Actual checked-argument decoder: non-NUL member tail, scratch OOM/release and same archive config control."""
-import argparse
+"""Check that Lua startup arguments can exceed the RPC body limit."""
 import hashlib
 import os
 from pathlib import Path
-import shlex
 import shutil
-import signal
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'core/src/extension/package-arguments.c'
-CASES = [
-    ('terminator', 'schema_json[schema_size] = 0;', '/* no terminator */', 'tail'),
-    ('scratch-allocation', 'gt__plugin_memory_alloc(NULL, schema_size + 1)', 'malloc(schema_size + 1)', 'oom'),
-    ('scratch-release', 'gt__plugin_memory_free(NULL, schema_json, schema_size + 1);', '(void)schema_json;', 'tail'),
-]
+DECODER = Path("src/extension/package-arguments-lua.inc")
+ANCHOR = b"char json[GT_PLUGIN_ARGUMENT_JSON_MAX + 1];"
+MUTATION = b"char json[GT_EXT_RPC_BODY_MAX + 1];"
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build', required=True, type=Path, help='ASan/UBSan JS-enabled Core build directory')
-    args = parser.parse_args(); build = args.build.resolve(strict=True)
-    cache = (build / 'CMakeCache.txt').read_text()
-    if 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' not in cache or '-fsanitize=address,undefined' not in cache:
-        raise RuntimeError('Require the actual sanitized JS-enabled Core archive; no fallback')
-    original = SOURCE.read_bytes(); before = hashlib.sha256(original).hexdigest()
-    for name, old, _, _ in CASES:
-        if original.count(old.encode()) != 1: raise RuntimeError(name + ': source anchor mismatch')
-    with tempfile.TemporaryDirectory(prefix='argument-schema-mutations-', dir=ROOT / 'tmp') as temporary:
-        work = Path(temporary); copied = work / 'core/src/extension/package-arguments.c'; copied.parent.mkdir(parents=True)
-        copied.write_bytes(original)
-        tests = work / 'core/tests'; tests.mkdir()
-        shutil.copyfile(ROOT / 'core/tests/test_package_arguments_boundary.c', tests / 'test_package_arguments_boundary.c')
-        env = dict(os.environ, TMPDIR=str(work), PKG_CONFIG_PATH=str(ROOT / 'build/host-native/lib/pkgconfig'),
-            ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
-        def run(command, red=False):
-            shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require argument-schema; shift; gt_timeout 120 "$@"'
-            result = subprocess.run(['bash', '-c', shell, 'argument-schema', str(ROOT), *map(str, command)],
-                cwd=ROOT, env=env, text=True, capture_output=True)
-            output = result.stdout + result.stderr
-            if red:
-                accepted = result.returncode == 1 and output.count('FAIL arguments:') == 1
-                accepted = accepted and not any(mark in output for mark in ['AddressSanitizer', 'runtime error:', 'UndefinedBehaviorSanitizer'])
-            else: accepted = result.returncode == 0
-            if not accepted: raise RuntimeError(str(command) + '\n' + output)
-            return output
-        libs = shlex.split(run(['pkg-config', '--libs', 'libssh2']))
-        flags = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', '-O1', '-g',
-            '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-DGT_HAVE_PLUGIN_JS=1',
-            '-I' + str(ROOT / 'core/include'), '-I' + str(ROOT / 'core/src'), '-I' + str(ROOT / 'vendor/quickjs-ng')]
-        archives = [build / 'libghosterm_core.a', build / 'libghosterm_quickjs.a', *libs, '-lm', '-lpthread']
-        binary = work / 'arguments'
-        def compile(): run([*flags, tests / 'test_package_arguments_boundary.c', *archives, '-o', binary])
+    parent = ROOT / "tmp"
+    parent.mkdir(exist_ok=True)
+    original = (ROOT / "core" / DECODER).read_bytes()
+    assert original.count(ANCHOR) == 1
+    digest = hashlib.sha256(original).hexdigest()
+
+    with tempfile.TemporaryDirectory(dir=parent, prefix="agent-") as directory:
+        work = Path(directory)
+        env = dict(os.environ, TMPDIR=directory, TMP=directory, TEMP=directory)
+        source, build, package = (work / name for name in ("core", "build", "diff"))
+        decoder = source / DECODER
+        shutil.copytree(ROOT / "core", source, ignore=shutil.ignore_patterns("build", "build-*", "__pycache__"))
+        archive = os.environ.get("GHOSTERM_LUA_ARCHIVE")
+        if archive:
+            archive = Path(archive).resolve(strict=True)
+        else:
+            archive = work / "lua.tar.gz"
+            subprocess.run(["curl", "-fsSL", "--retry", "2", "https://www.lua.org/ftp/lua-5.5.1.tar.gz",
+                            "-o", archive], env=env, check=True, timeout=30)
+        probe = work / "probe"
+
+        def run(*command, expected=0):
+            result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=90)
+            if result.returncode != expected:
+                raise RuntimeError(result.stdout + result.stderr)
+            return result
+
+        def compile_probe():
+            run("cmake", "--build", build, "--target", "ghosterm_core", "test_config", "--parallel", "4")
+            run("cc", "-I" + str(source / "include"), ROOT / "scripts/probes/plugin-diff.c",
+                build / "libghosterm_core.a", build / "libghosterm_lua.a", "-lm", "-pthread", "-o", probe)
+
         def green():
-            compile()
-            for target in ['tail', 'oom', 'capacity', 'control']: run([binary, target])
-        config = work / 'config'
-        run([*flags, '-DGT_TEST_TMP_DIR="' + str(work) + '"', ROOT / 'core/tests/test_config.c', *archives, '-o', config])
-        green(); print('BASELINE PASS: exact checked schema tail / scratch OOM / capacity / missing command', flush=True)
-        for name, old, new, target in CASES:
-            try:
-                copied.write_bytes(original.replace(old.encode(), new.encode(), 1)); compile(); run([binary, target], red=True)
-                run([config, ROOT / 'core/tests/fixtures', work]); run([binary, 'control'])
-            finally: copied.write_bytes(original)
-            green()
-            if hashlib.sha256(copied.read_bytes()).hexdigest() != before: raise RuntimeError('Restore SHA256 mismatch')
-            print('PASS ' + name + ': compiled normal assertion red / same archive config green / restored green / SHA256', flush=True)
-    if hashlib.sha256(SOURCE.read_bytes()).hexdigest() != before: raise RuntimeError('Original decoder source changed')
-    print('ARGUMENT SCHEMA PASS: 3 isolated ASan/UBSan groups; no LSan', flush=True)
+            run(sys.executable, "-B", ROOT / "scripts/test-plugin-diff.py",
+                "--probe", probe, "--package", package)
+
+        run("cmake", "-S", source, "-B", build, "-DGHOSTERM_WITH_LIBSSH2=OFF",
+            "-DGHOSTERM_WITH_PLUGIN_LUA=ON", f"-DGHOSTERM_LUA_ARCHIVE={archive}")
+        run(sys.executable, "-B", ROOT / "scripts/gterm-plugin", "build",
+            ROOT / "plugins/official/diff", "--out", package)
+        compile_probe()
+        green()
+        try:
+            decoder.write_bytes(original.replace(ANCHOR, MUTATION))
+            compile_probe()
+            result = run(probe, package, "executor", "wide", expected=1)
+            assert result.stderr.splitlines() == ["ASSERT: actual diff Runtime adoption"], result.stderr
+            run(probe, package, "executor", "change")
+            run(build / "test_config", ROOT / "core/tests/fixtures", work)
+        finally:
+            decoder.write_bytes(original)
+        compile_probe()
+        green()
+        assert hashlib.sha256(decoder.read_bytes()).hexdigest() == digest
+        assert hashlib.sha256((ROOT / "core" / DECODER).read_bytes()).hexdigest() == digest
+    assert not work.exists()
+    print("LUA ARGUMENT LIMIT MUTATION PASS: wide input red, narrow and configuration controls green, restored")
 
 
-if __name__ == '__main__':
-    def interrupted(number, frame): raise KeyboardInterrupt(str(number))
-    signal.signal(signal.SIGINT, interrupted); signal.signal(signal.SIGTERM, interrupted)
+if __name__ == "__main__":
     main()

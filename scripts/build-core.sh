@@ -13,11 +13,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # SwiftPM 走 xcrun 已是 26.5，所以只有 CMake 这条路径要钉。
 SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
 SYSROOT_FLAG=()
-CORE_PLUGIN_JS_FLAG=()
-case "${GHOSTERM_BUILD_PLUGIN_JS:-0}" in
-  0) CORE_PLUGIN_JS_FLAG=(-DGHOSTERM_WITH_PLUGIN_JS=OFF) ;;
-  1) CORE_PLUGIN_JS_FLAG=(-DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_BUILD_TESTS=OFF) ;;
-  *) echo "GHOSTERM_BUILD_PLUGIN_JS must be 0 or 1" >&2; exit 2 ;;
+CORE_PLUGIN_LUA_FLAG=(-DGHOSTERM_WITH_PLUGIN_LUA=OFF)
+CORE_BUILD_DIR="${GHOSTERM_CORE_BUILD_DIR:-$ROOT/core/build}"
+case "${GHOSTERM_BUILD_PLUGIN_LUA:-0}" in
+  0) ;;
+  1)
+    [ -n "${GHOSTERM_LUA_ARCHIVE:-}" ] || { echo "GHOSTERM_LUA_ARCHIVE is required" >&2; exit 2; }
+    CORE_PLUGIN_LUA_FLAG=(-DGHOSTERM_WITH_PLUGIN_LUA=ON -DGHOSTERM_BUILD_TESTS=OFF "-DGHOSTERM_LUA_ARCHIVE=$GHOSTERM_LUA_ARCHIVE")
+    ;;
+  *) echo "GHOSTERM_BUILD_PLUGIN_LUA must be 0 or 1" >&2; exit 2 ;;
 esac
 # 显式保持与 App/Helper 的 macOS 13 下限一致；只钉 SDK 而不钉部署目标会把
 # 静态库对象标成 SDK 版本（26.5），Swift 链接时误以为库只支持 macOS 26.5。
@@ -26,5 +30,5 @@ esac
 python3 "$ROOT/scripts/build-host-ssh2.py"
 
 # 签名实验用独立 CMake 构建目录，避免普通 Swift 链接继承缓存中的 libcrypto。
-cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_RELEASE_SIGNATURE=OFF "${SYSROOT_FLAG[@]}" "${CORE_PLUGIN_JS_FLAG[@]}" >/dev/null
-cmake --build "$ROOT/core/build"
+cmake -S "$ROOT/core" -B "$CORE_BUILD_DIR" -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_RELEASE_SIGNATURE=OFF "${SYSROOT_FLAG[@]}" "${CORE_PLUGIN_LUA_FLAG[@]}" >/dev/null
+cmake --build "$CORE_BUILD_DIR"

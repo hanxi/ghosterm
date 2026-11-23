@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Compile child-RPC mutations only in an isolated repository tmp/ copy.
 
-Exercises actual C Sessions, native child pipes and an explicitly supplied
-installed Node. No plugin/runtime download, account, external SSH or model.
+Exercises C Sessions and native child pipes with the Core fixtures.
 """
 import argparse
 import hashlib
@@ -59,10 +58,8 @@ def sha(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--node', required=True, type=Path, help='explicit installed Node executable')
     parser.add_argument('--case', action='append')
     args = parser.parse_args()
-    node = args.node.resolve(strict=True)
     if args.case and set(args.case) - {c[0] for c in CASES}:
         parser.error('unknown mutation group')
     cases = [c for c in CASES if not args.case or c[0] in args.case]
@@ -70,10 +67,10 @@ def main():
     assert MARK not in data
     for label, old, _, _ in cases:
         assert data.count(old) == (2 if label == 'reference-uniqueness' else 1), label
-    work = Path(tempfile.mkdtemp(prefix='process-rpc-mutation-', dir=ROOT / 'tmp'))
+    work = Path(tempfile.mkdtemp(prefix='process-rpc-mutation-', dir=os.environ['TMPDIR']))
     source, build, logs = work / 'source', work / 'build', work / 'logs'
     logs.mkdir()
-    env = {**os.environ, 'TMPDIR': str(work), 'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1',
+    env = {**os.environ, 'TMPDIR': str(work), 'TMP': str(work), 'TEMP': str(work), 'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1',
            'UBSAN_OPTIONS': 'halt_on_error=1:print_stacktrace=1'}
     commands = []
 
@@ -92,16 +89,14 @@ def main():
         return output
 
     try:
-        for folder in ('core', 'packages/plugin-sdk', 'scripts'):
+        for folder in ('core',):
             shutil.copytree(ROOT / folder, source / folder,
                             ignore=shutil.ignore_patterns('build', 'build-*', '__pycache__'))
         (source / 'tmp').mkdir()
-        inputs = {str(p.relative_to(source)): sha(p) for folder in ('core', 'packages/plugin-sdk', 'scripts')
+        inputs = {str(p.relative_to(source)): sha(p) for folder in ('core',)
                   for p in (source / folder).rglob('*') if p.is_file()}
-        version = run('node-version', [node, '--version']).strip()
-        node_sha256 = sha(node)
         run('configure', ['cmake', '-S', source / 'core', '-B', build,
-                          '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DGHOSTERM_WITH_PLUGIN_JS=OFF',
+                          '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DGHOSTERM_WITH_PLUGIN_LUA=OFF',
                           '-DGHOSTERM_BUILD_TESTS=ON', '-DCMAKE_BUILD_TYPE=Debug',
                           '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
 
@@ -116,8 +111,7 @@ def main():
 
         def suite(label):
             run(label, ['ctest', '--test-dir', build, '-R', '^plugin_process_rpc_', '--output-on-failure'])
-            run(label + '-node', [build / 'test_process_rpc', 'pipe-node', source / 'tmp', node,
-                                  source / 'core/tests/fixtures/process-rpc-peer.mjs'])
+
 
         rebuild('baseline')
         suite('baseline')
@@ -138,9 +132,8 @@ def main():
         suite('final')
         for name, digest in inputs.items():
             assert sha(source / name) == digest and sha(ROOT / name) == digest, name
-        assert sha(node) == node_sha256
         (logs / 'result.json').write_text(json.dumps(dict(accepted=True, groups=[c[0] for c in cases],
-            inputs_sha256=inputs, commands=commands, node_version=version, node_sha256=node_sha256,
+            inputs_sha256=inputs, commands=commands,
             sanitizers=['address', 'undefined'], leak_sanitizer=False), indent=2) + '\n')
         print('PROCESS RPC MUTATIONS PASS: ' + str(logs), flush=True)
     except BaseException as error:

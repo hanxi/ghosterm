@@ -34,9 +34,10 @@ def main():
     inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ('cli/gterm', 'core/include') for p in (ROOT / folder).rglob('*') if p.is_file()}
     inputs['scripts/test-gterm-client-service.py'] = sha(Path(__file__))
     if b'GT_CLIENT_SERVICE_MUTATION' in (ROOT / 'cli/gterm/stdio.c').read_bytes(): raise RuntimeError('leftover mutation marker')
-    with tempfile.TemporaryDirectory(prefix='client-service-', dir=ROOT / 'tmp') as temporary:
+    with tempfile.TemporaryDirectory(prefix='client-service-', dir=args.receipt.resolve().parent) as temporary:
         work = Path(temporary); source = work / 'cli'; shutil.copytree(ROOT / 'cli/gterm', source)
-        env = {**os.environ, 'TMPDIR': str(ROOT / 'tmp'), 'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
+        env = {**os.environ, 'TMPDIR': str(work), 'TMP': str(work), 'TEMP': str(work),
+            'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer',
             'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1', 'UBSAN_OPTIONS': 'halt_on_error=1:print_stacktrace=1'}
         def run(command):
             bounded = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require client-service; shift; exec "$gt_timeout_bin" "$@"', 'client-service', ROOT, 30, *command]
@@ -56,23 +57,27 @@ def main():
                 raise
             if any(s in err for s in (b'AddressSanitizer', b'runtime error:')): raise RuntimeError('sanitizer failure')
             return p.returncode, out, err
-        core = build / 'core/libghosterm_core.a'; quickjs = build / 'core/libghosterm_quickjs.a'
+        core = build / 'core/libghosterm_core.a'
+        lua = build / 'core/libghosterm_lua.a'
         compiler = ['xcrun', '--sdk', 'macosx', 'clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1',
             '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-mmacosx-version-min=13.0', '-I' + str(ROOT / 'core/include')]
-        libraries = [core, quickjs, '-L' + str(ROOT / 'build/host-native/lib'), '-lssh2', '-lm']
+        libraries = [core, lua, '-L' + str(ROOT / 'build/host-native/lib'), '-lssh2', '-lm']
         binary = work / 'gterm'; control = work / 'config'
         def compile():
-            status, out, err = run([*compiler, '-DGTERM_SDK_VERSION="1.0.0"', '-DGTERM_PROTOCOL="1"',
-                source / 'main.c', source / 'stdio.c', source / 'ipc.c', *libraries, '-o', binary])
+            status, out, err = run([*compiler, '-I' + str(ROOT / 'core/src'),
+                '-DGTERM_SDK_VERSION="1.0.0"', '-DGTERM_PROTOCOL="1"', '-DGTERM_NATIVE_RUNTIME="lua"',
+                *sorted(source.glob('*.c')), *libraries, '-o', binary])
             if status: raise RuntimeError('compile failed\n' + err.decode(errors='replace'))
         status, _, err = run([*compiler, '-DGT_TEST_TMP_DIR="' + str(ROOT / 'tmp') + '"',
             ROOT / 'core/tests/test_config.c', *libraries, '-o', control])
         if status: raise RuntimeError('control compile failed\n' + err.decode(errors='replace'))
         no_rpc = work / 'no-rpc'; shutil.copytree(package, no_rpc)
-        manifest = json.loads((no_rpc / 'plugin.json').read_text()); manifest['executor']['variants'][0]['requires'] = []
+        manifest_file = no_rpc / 'manifest.json'
+        manifest = json.loads(manifest_file.read_text())
+        manifest['executor']['requires'] = []
+        manifest['executor'].pop('rpc', None)
         command = ' '.join(manifest['commands'][0]['path'])
-        manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != 'executor']
-        (no_rpc / 'plugin.json').write_text(json.dumps(manifest, separators=(',', ':')))
+        manifest_file.write_text(json.dumps(manifest, separators=(',', ':')))
         members = [dict(path=str(p.relative_to(no_rpc)), bytes=p.stat().st_size, sha256=sha(p))
             for p in sorted(no_rpc.rglob('*')) if p.is_file() and p.name != 'integrity.json']
         (no_rpc / 'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=members)))
@@ -85,7 +90,9 @@ def main():
             status, _, error = run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
                 '--client-digest', digest, *options, '--', selected, command])
             expected = ('Client ' + contribution + ' requires declared RPC and a capability slot').encode() if case == 'rpc' else b'unknown or duplicate Client service requirement'
-            assert status == (4 if case == 'rpc' else 2) and expected in error, 'Client service rejection: ' + case
+            assert status == (4 if case == 'rpc' else 2) and expected in error, (
+                f'Client service rejection ({case}, exit {status}): {error.decode(errors="replace")}'
+            )
         compile()
         for case in ('unknown', 'duplicate', 'rpc'): check(case)
         groups = []

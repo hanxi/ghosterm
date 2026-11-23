@@ -161,11 +161,15 @@ def headless(api, work, environment, image=None, *, bounded_userdata=False):
             print('OWNED AVD EXITED ' + str(child.returncode), flush=True)
 
 
-def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False, selection=False, selection_channel=False, removal=False, removal_hardlink=False, apk_directory=None, maintenance=False, unclassified=False, policy_review=False, version_changes=False):
+def install_test_apks(selected, environment, apk_directory):
     for path in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
-        apk = (ROOT / 'android/app/build/outputs/apk' if apk_directory is None else Path(apk_directory)) / path
+        apk = Path(apk_directory) / path
         print(path + ' SHA256 ' + hashlib.sha256(apk.read_bytes()).hexdigest(), flush=True)
         run([*selected, 'install', '-r', '-t', apk], environment)
+
+
+def execute(selected, environment, mutate, build_environment, signature_ui=False, archive=False, archive_ui=False, install=False, death=False, catalog=False, selection=False, selection_channel=False, removal=False, removal_hardlink=False, apk_directory=None, maintenance=False, unclassified=False, policy_review=False, version_changes=False):
+    install_test_apks(selected, environment, apk_directory or ROOT / 'android/app/build/outputs/apk')
     info = [run([*selected, 'shell', 'getprop', name], environment).strip() for name in ['ro.build.version.sdk', 'ro.product.cpu.abi']]
     page = run([*selected, 'shell', 'getconf', 'PAGE_SIZE'], environment).strip()
     print('DEVICE API/ABI/PAGE ' + '/'.join(info + [page]), flush=True)
@@ -303,7 +307,7 @@ def install_official_candidates(selected, environment, fixture):
                     subprocess.run([*selected, 'shell', '-T', command], stdin=data,
                                    env=environment, check=True, timeout=30)
         output = run([*selected, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
-                      'com.hanxi.ghosterm.PluginOfficialReleaseInstallTest',
+                      'com.hanxi.ghosterm.LuaReleaseInstallTest#installsAllOfficialLuaPackagesAndReopensDeclarations',
                       '-e', 'officialReleaseRoot', '/data/user/0/com.hanxi.ghosterm/' + guest,
                       'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], environment)
         if ('OK (1 test)' not in output or 'INSTRUMENTATION_STATUS_CODE: -4' in output or
@@ -320,6 +324,10 @@ def main():
     choice.add_argument('--headless-api', choices=[29, 36], type=int)
     choice.add_argument('--android', help='Explicitly authorized device serial')
     parser.add_argument('--official-release-directory', type=Path, help='Also install nine pre-signed official test releases on an owned headless AVD')
+    parser.add_argument('--official-apk-directory', type=Path,
+                        help='Run only the official Lua install test with prebuilt Lua-enabled APKs')
+    parser.add_argument('--lua-archive', type=Path,
+                        help='Pinned Lua 5.5.1 source archive for building the test APKs')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--signature-ui', action='store_true', help='Include documents, draft and actual SAF Settings tests')
     parser.add_argument('--archive', action='store_true', help='Include strict ZIP and signed Core preview conformance')
@@ -373,8 +381,26 @@ def main():
     environment = dict(os.environ, TMPDIR=str(work_tmp), TMP=str(work_tmp), TEMP=str(work_tmp))
     if args.headless_api is not None:
         headless_dependencies(args.headless_api, environment, args.system_image)
+    if args.official_apk_directory:
+        if not args.headless_api or not args.official_release_directory or args.mutate:
+            parser.error('--official-apk-directory requires a headless API and signed official fixtures')
+        apk_directory = args.official_apk_directory.resolve(strict=True)
+        with tempfile.TemporaryDirectory(prefix='release-android-headless-', dir=work_tmp) as directory:
+            with headless(args.headless_api, Path(directory), environment, args.system_image) as (selected, isolated):
+                if args.expect_page_size:
+                    page_size = run([*selected, 'shell', 'getconf', 'PAGE_SIZE'], isolated, 20).strip()
+                    if page_size != str(args.expect_page_size):
+                        raise RuntimeError(f'Expected AVD page size {args.expect_page_size}, observed {page_size}')
+                install_test_apks(selected, isolated, apk_directory)
+                install_official_candidates(selected, isolated, args.official_release_directory)
+        print('OWNED AVD FILES REMOVED', flush=True)
+        return
     # Explicit enabled build also includes the real Controller/Core snapshot test.
-    print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
+    if not args.lua_archive:
+        parser.error('--lua-archive is required when building the test APKs')
+    archive = args.lua_archive.resolve(strict=True)
+    print(run(['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginLua=true',
+        f'-PghostermLuaArchive={archive}',
         ':app:assembleDebug', ':app:assembleDebugAndroidTest'], environment, 900)[-400:], flush=True)
     if args.android:
         execute(['adb', '-s', args.android], environment, args.mutate, environment, args.signature_ui, args.archive, args.archive_ui, args.install, args.death, args.catalog, args.selection, args.selection_channel, args.removal, args.removal_hardlink, maintenance=args.maintenance, unclassified=args.unclassified, policy_review=args.policy_review, version_changes=args.version_changes)

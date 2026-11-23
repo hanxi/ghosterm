@@ -15,7 +15,7 @@ final class PluginSelectionFixture {
         var info = stat(); guard stat(path.path, &info) == 0 else { throw PluginReleaseCatalog.Failure.io }
         let identity = files.identity
         let review = ExtensionController.PackageReview(id: identity.id, version: version, publisher: identity.publisher, license: "MIT", digest: identity.packageSHA256,
-            runtime: "portable-js", requiredCapabilities: capabilities, optionalMissingCapabilities: [], authorizationGranted: false,
+            runtime: "lua", requiredCapabilities: capabilities, optionalMissingCapabilities: [], authorizationGranted: false,
             publisherAuthenticated: false, commands: [.init(path: "preview", title: "Fixture", argsSchema: "schema.json", views: ["resource"])], sourceApproved: false)
         contents[UInt64(info.st_ino)] = .init(review: review, sdkVersion: "1.0.0", protocols: [1],
             permissions: [.init(side: "client", capability: "resource.receive", purpose: purpose, scope: "instance", programs: programs)], executorDeclarations: nil)
@@ -161,21 +161,36 @@ final class PluginSelectionReviewTests: XCTestCase {
 }
 
 final class PluginReleaseDeclarationsTests: XCTestCase {
-    private func bytes(_ purpose: String = "Read", programs: [String] = ["tool"]) throws -> Data {
-        try JSONSerialization.data(withJSONObject: ["permissions": [["side": "client", "capability": "process.exec", "purpose": purpose, "scope": "instance", "programs": programs]],
-            "executor": ["variants": [["id": "node", "runtime": "node"]]]], options: [.sortedKeys])
+    private func bytes(_ program: String = "fixture-worker") throws -> Data {
+        try JSONSerialization.data(withJSONObject: ["schemaVersion": 2,
+            "executor": ["entry": "executor.lua", "requires": ["process.spawn"], "programs": [program]]],
+            options: [.sortedKeys])
     }
     func testDisplayFieldsUseExactlyTheManifestCoreAttested() throws {
         let raw = try bytes(), (permissions, executor) = try PluginReleaseDeclarations.decode(raw, manifestDigest: PluginReleaseCatalog.sha(raw))
-        XCTAssertEqual(permissions.first?.purpose, "Read"); XCTAssertEqual(permissions.first?.programs, ["tool"])
-        XCTAssertTrue(executor?.contains("node") == true)
+        XCTAssertEqual(permissions.first?.capability, "process.spawn")
+        XCTAssertEqual(permissions.first?.programs, ["fixture-worker"])
+        XCTAssertTrue(executor?.contains("executor.lua") == true)
+    }
+    func testLuaManifestShowsCapabilitiesForBothRolesAndSpawnPrograms() throws {
+        let raw = Data("""
+        {"schemaVersion":2,"client":{"requires":["session.rpc"]},
+         "executor":{"requires":["process.spawn","process.pipes"],"programs":["codex"]}}
+        """.utf8)
+        let (permissions, executor) = try PluginReleaseDeclarations.decode(raw, manifestDigest: PluginReleaseCatalog.sha(raw))
+        XCTAssertEqual(permissions.map(\.side), ["client", "executor", "executor"])
+        XCTAssertEqual(permissions.map(\.capability), ["session.rpc", "process.spawn", "process.pipes"])
+        XCTAssertEqual(permissions.map(\.programs), [[], ["codex"], []])
+        XCTAssertTrue(executor?.contains("codex") == true)
     }
     func testChangedManifestCannotBorrowAnOldCoreDigest() throws {
         let raw = try bytes(), changed = try bytes("Different")
         XCTAssertThrowsError(try PluginReleaseDeclarations.decode(changed, manifestDigest: PluginReleaseCatalog.sha(raw)))
     }
     func testInvalidDuplicateAndMissingDeclarationsAreNotSilentlyEmpty() throws {
-        for raw in [Data("{}".utf8), Data(#"{"permissions":{},"executor":{}}"#.utf8), Data(#"{"permissions":[],"permissions":[]}"#.utf8)] {
+        for raw in [Data("{}".utf8), Data(#"{"schemaVersion":1,"permissions":[]}"#.utf8),
+                    Data(#"{"schemaVersion":2,"executor":{}}"#.utf8),
+                    Data(#"{"schemaVersion":2,"client":{"requires":[],"requires":[]}}"#.utf8)] {
             XCTAssertThrowsError(try PluginReleaseDeclarations.decode(raw, manifestDigest: PluginReleaseCatalog.sha(raw)))
         }
     }

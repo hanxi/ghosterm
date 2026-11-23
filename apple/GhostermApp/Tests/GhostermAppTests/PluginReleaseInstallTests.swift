@@ -52,7 +52,7 @@ final class PluginReleaseInstallTests: XCTestCase {
     private func fixture() throws -> URL {
         guard ExtensionRuntime.supportStatus == 0,
               let path = ProcessInfo.processInfo.environment["GHOSTERM_TEST_SIGNED_RELEASE"] else {
-            throw XCTSkip("requires explicit JS-enabled Core and signed release fixtures")
+            throw XCTSkip("requires a plugin runtime and signed release fixtures")
         }
         return URL(fileURLWithPath: path)
     }
@@ -70,7 +70,7 @@ final class PluginReleaseInstallTests: XCTestCase {
     }
     private func controller(_ root: URL, channelTrust: ExtensionController.ChannelTrust? = nil) throws -> ExtensionController {
         try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
-            runtimes: ["portable-js"], capabilities: ["resource.receive"]), resourceDirectory: root,
+            runtimes: [ExtensionRuntime.runtimeName], capabilities: ["resource.receive", "session.rpc"]), resourceDirectory: root,
             installationDirectory: root.appendingPathComponent("installed"), channelTrust: channelTrust)
     }
     private func prepare(_ controller: ExtensionController, _ root: URL) async throws -> ExtensionController.PreparedRelease {
@@ -196,7 +196,8 @@ final class PluginReleaseInstallTests: XCTestCase {
         let input = try fixture(), root = try directory(), controller = try controller(root)
         let prepared = try await prepare(controller, input)
         let store = root.appendingPathComponent("installed")
-        XCTAssertTrue(prepared.permissions.contains { $0.side == "client" && $0.capability == "resource.receive" && !$0.purpose.isEmpty })
+        XCTAssertEqual(Set(prepared.permissions.filter { $0.side == "client" }.map(\.capability)),
+                       ["session.rpc", "resource.receive"])
         XCTAssertNotNil(prepared.executorDeclarations)
         XCTAssertEqual(try names(store).filter { $0.hasPrefix(".prepare-") }.count, 1)
         XCTAssertFalse(try names(store).contains(prepared.signature.descriptorSHA256))
@@ -223,12 +224,20 @@ final class PluginReleaseInstallTests: XCTestCase {
         var value = stat()
         XCTAssertEqual(lstat(installed.directory.path, &value), 0)
         XCTAssertEqual(value.st_mode & 0o777, 0o500, "published package directory must be read-only")
-        XCTAssertEqual(lstat(installed.directory.appendingPathComponent("plugin.json").path, &value), 0)
+        XCTAssertEqual(lstat(installed.directory.appendingPathComponent(PluginReleaseDeclarations.manifestName).path, &value), 0)
         XCTAssertEqual(value.st_mode & 0o222, 0, "published members must be read-only")
         do {
             let resolution = try await controller.resolve(command: "preview", selectedID: prepared.review.id, selectedDigest: prepared.review.digest)
             XCTAssertNotEqual(resolution.status, 0, "installation must not approve source")
         } catch { XCTFail("published read-only version must remain inspectable: \(error)") }
+        if ExtensionRuntime.runtimeName == "lua" {
+            let selection = try await controller.previewInstalledSelection(
+                releaseID: installed.signature.descriptorSHA256, expectedRevision: nil,
+                trustedPolicy: input.appendingPathComponent("policy.json"))
+            XCTAssertEqual(Set(prepared.permissions.map(\.capability)),
+                           ["session.rpc", "resource.receive", "file.readScoped"])
+            XCTAssertEqual(selection.candidate.permissions, prepared.permissions)
+        }
         XCTAssertFalse(installed.review.authorizationGranted)
         let closed = await controller.close(); XCTAssertTrue(closed)
     }
@@ -334,7 +343,7 @@ final class PluginReleaseInstallTests: XCTestCase {
         let value = try await prepare(controller, input)
         let store = root.appendingPathComponent("installed")
         let name = try XCTUnwrap(names(store).first)
-        let file = store.appendingPathComponent(name + "/payload/client/index.js")
+        let file = store.appendingPathComponent(name + "/payload/main.lua")
         XCTAssertEqual(chmod(file.path, 0o600), 0)
         try Data("changed after inspection".utf8).write(to: file)
         XCTAssertEqual(chmod(file.path, 0o400), 0)
@@ -498,7 +507,7 @@ final class PluginOfficialReleaseInstallTests: XCTestCase {
         }
         let owner = try ExtensionController(
             profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1],
-                runtimes: ["portable-js"], capabilities: AppModel.extensionHostCapabilities),
+                runtimes: ["lua"], capabilities: AppModel.extensionHostCapabilities),
             resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
         addTeardownBlock { let closed = await owner.close(); XCTAssertTrue(closed) }
         for name in ["preview", "table", "diff", "task", "views", "logs", "form", "ai-codex", "ai-claude"] {

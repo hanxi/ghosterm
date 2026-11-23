@@ -26,7 +26,7 @@ final class ClaudeChatFixture {
         let sequence = helperSequence
         let result: ClaudeJSON
         switch method {
-        case "start": result = .fields([("requested", .bool(true)), ("sdkVersion", .string("0.3.323")), ("cliVersion", .string("2.1.323"))])
+        case "start": result = .fields([("requested", .bool(true)), ("backend", .string("cli")), ("cliVersion", .string("2.1.323"))])
         case "send":
             if pauseSend { await withCheckedContinuation { sendBarrier = $0 } }
             if failSend { throw ClaudeRPCClient.Failure.refused("fixture transport unknown") }
@@ -63,7 +63,7 @@ final class ClaudeChatFixture {
     func result(id: String? = nil, error: Bool = false) {
         state = "ready"
         message(.fields([("type", .string("result")), ("user_message_uuid", .string(id ?? inputID)),
-            ("is_error", .bool(error)), ("subtype", .string(error ? "error_during_execution" : "success")),
+            ("is_error", .bool(error)), ("subtype", .string("success")),
             ("result", .string(error ? "fixture backend error" : "fixture result"))]))
     }
     static func ref(_ name: String, token: String = "token-one") -> ClaudeJSON {

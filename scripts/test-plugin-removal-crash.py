@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """macOS owned subprocess deaths and explicit native plugin removal recovery.
 
-Uses a copied Apple package, a default JS-off Core and declaration-only fixtures.
+Uses a copied Apple package, a default Lua-off Core and declaration-only fixtures.
 Injected SIGKILLs are separate observations, never assertion-red evidence.
 """
 import argparse
@@ -374,7 +374,7 @@ def main():
         interruption_worker(args.interrupt_worker); return
     if not args.out: parser.error('--out is required')
     out = args.out.resolve(); assert TMP in out.parents
-    assert 'GHOSTERM_WITH_PLUGIN_JS:BOOL=OFF' in (ROOT / 'core/build/CMakeCache.txt').read_text(), 'requires default JS-off Core'
+    assert 'GHOSTERM_WITH_PLUGIN_LUA:BOOL=OFF' in (ROOT / 'core/build/CMakeCache.txt').read_text(), 'requires default Lua-off Core'
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'scripts']
         for p in (ROOT / directory).rglob('*') if p.is_file() and not any(part in p.parts for part in ['.build', '.swiftpm', '__pycache__'])}
     xctest = Path(subprocess.check_output(['/usr/bin/xcrun', '--find', 'xctest'], env=environment(), text=True).strip())

@@ -12,16 +12,15 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     enum class Failure { NONE, SCRIPT, MEMORY, CPU, CANCELLED, JOBS, PROTOCOL, IO, EXPIRED }
     data class Module(val name: String, val source: ByteArray, val sha256: String)
     data class WorkspaceRoot(val id: String, val directoryFd: Int, val byteLimit: Long)
-    data class Invocation(val command: String, val arguments: List<String>)
+    data class Invocation(val command: String, val arguments: List<String>, val context: Context? = null) {
+        data class Context(val workspaceID: String? = null, val paneID: String? = null, val directory: String? = null)
+    }
     data class Config(val modules: List<Module>, val entry: String, val role: ExtensionSession.Role,
         val memoryBytes: Long = 0, val stackBytes: Long = 0, val cpuMilliseconds: Int = 0,
         val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0, val roots: List<WorkspaceRoot> = emptyList(), val invocation: Invocation? = null)
     data class Info(val phase: Phase, val error: Failure, val cleanupError: Int, val sessionEnd: ExtensionSession.End,
         val sessionError: Int, val disposeError: Boolean, val engineReleased: Boolean,
-        val steps: ULong, val jobs: ULong, val moduleBytes: ULong,
-        val externalProcess: Boolean, val activated: Boolean, val childExited: Boolean, val probeVerified: Boolean,
-        val executionError: Int, val exitCode: Int, val termSignal: Int, val groupSignalError: Int,
-        val stdoutBytes: ULong, val stderrBytes: ULong)
+        val steps: ULong, val jobs: ULong, val moduleBytes: ULong)
     private var multiplexOwner: ExtensionMultiplexer? = null
     @Volatile private var handle = 0L
     private var finalTransportProcessObservation: Array<Any>? = null
@@ -58,12 +57,10 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     }
     fun step(): Phase { owner(); return Phase.entries[NativeExtensionRuntime.step(handle)] }
     fun info(): Info {
-        owner(); val v = NativeExtensionRuntime.info(handle); check(v.size == 20)
+        owner(); val v = NativeExtensionRuntime.info(handle); check(v.size == 10)
         return Info(Phase.entries[v[0].toInt()], Failure.entries[v[1].toInt()], v[2].toInt(),
             ExtensionSession.End.entries[v[3].toInt()], v[4].toInt(), v[5] != 0L, v[6] != 0L,
-            v[7].toULong(), v[8].toULong(), v[9].toULong(),
-            v[10] != 0L, v[11] != 0L, v[12] != 0L, v[13] != 0L,
-            v[14].toInt(), v[15].toInt(), v[16].toInt(), v[17].toInt(), v[18].toULong(), v[19].toULong())
+            v[7].toULong(), v[8].toULong(), v[9].toULong())
     }
     fun takeResourceData(maxBytes: Long = 262144): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> {
         owner(); require(maxBytes in 0..1048576)
@@ -158,12 +155,18 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             require(buffer.remaining() <= limit)
             return ByteArray(buffer.remaining()).also { buffer.get(it) }
         }
-        private fun invocationBytes(value: Invocation?): Pair<ByteArray?, Array<ByteArray>?> {
-            if (value == null) return Pair(null, null)
+        private data class EncodedInvocation(val command: ByteArray?, val arguments: Array<ByteArray>?,
+                                             val context: Array<ByteArray?>? = null)
+        private fun invocationBytes(value: Invocation?): EncodedInvocation {
+            if (value == null) return EncodedInvocation(null, null)
             val values = value.arguments.toList(); require(values.size <= 32)
             var total = 0
             val args = values.map { encode(it, 4096).also { bytes -> total += bytes.size + 1; require(total <= 16384) } }.toTypedArray()
-            return Pair(encode(value.command, 519), args)
+            val context = value.context?.let {
+                arrayOf(it.workspaceID?.let { id -> encode(id, 64) }, it.paneID?.let { id -> encode(id, 64) },
+                    it.directory?.let { directory -> encode(directory, 4096) })
+            }
+            return EncodedInvocation(encode(value.command, 519), args, context)
         }
         fun adoptPackage(session: ExtensionSession, packageBytes: ExtensionPackage, role: ExtensionSession.Role,
             associated: Boolean = false, memoryBytes: Long = 0, stackBytes: Long = 0, cpuMilliseconds: Int = 0,
@@ -178,7 +181,8 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val invocationBytes = invocationBytes(invocation)
             val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
             result.multiplexOwner = session.multiplexOwner
-            val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets, invocationBytes.first, invocationBytes.second) }
+            val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits,
+                names, fds, budgets, invocationBytes.command, invocationBytes.arguments, invocationBytes.context) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "插件包运行时未接管会话")
             check(values[1] > 0); result.handle = values[1]; return result
@@ -206,7 +210,8 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             // Allocate Java owner and all arguments before Core takes Session.
             val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
             result.multiplexOwner = session.multiplexOwner
-            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits, invocationBytes.first, invocationBytes.second) }
+            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits,
+                rootNames, rootFds, rootLimits, invocationBytes.command, invocationBytes.arguments, invocationBytes.context) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "运行时未接管会话")
             check(values[1] > 0); result.handle = values[1]; return result
@@ -219,8 +224,8 @@ internal object NativeExtensionRuntime {
     external fun viewsEnable(handle: Long, kinds: Int): Int
     external fun viewsSnapshot(handle: Long): Array<Any>
     external fun viewClose(handle: Long, viewHandle: ByteArray): Int
-    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
-    external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
+    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null, context: Array<ByteArray?>? = null): LongArray
+    external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null, context: Array<ByteArray?>? = null): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
     external fun transportProcessObservation(handle: Long): Array<Any>

@@ -70,6 +70,12 @@ public actor ExtensionController {
         public let title: String
         public let argsSchema: String
         public let views: [String]
+        public let togglePanel: Bool
+
+        public init(path: String, title: String, argsSchema: String, views: [String], togglePanel: Bool = false) {
+            self.path = path; self.title = title; self.argsSchema = argsSchema; self.views = views
+            self.togglePanel = togglePanel
+        }
     }
 
     public struct PackageReview: Sendable, Equatable {
@@ -608,7 +614,7 @@ public actor ExtensionController {
     }
 
     /// Resolve the Client side only. A successful result selects metadata; it
-    /// does not start JavaScript or grant Session capabilities.
+    /// does not start the Lua runtime or grant Session capabilities.
     public func resolve(command: String, selectedID: String? = nil,
                         selectedDigest: String? = nil) async throws -> Resolution {
         try await worker.resolve(command: command, selectedID: selectedID,
@@ -680,12 +686,13 @@ public actor ExtensionController {
     }
 
     public func activateClient(pluginID: String, packageDigest: String, command: String,
-                               arguments: [String], clientWorkspace: ClientWorkspace? = nil) async throws -> RuntimeState {
+                               arguments: [String], clientWorkspace: ClientWorkspace? = nil,
+                               context: ExtensionRuntime.Invocation.Context? = nil) async throws -> RuntimeState {
         try await worker.activateClient(pluginID: pluginID, packageDigest: packageDigest,
-                                        command: command, arguments: arguments, clientWorkspace: clientWorkspace)
+                                        command: command, arguments: arguments, clientWorkspace: clientWorkspace, context: context)
     }
 
-    /// Explicit Native UI action; this method is never exposed to Client JS.
+    /// Explicit native UI action using the directory granted to this instance.
     public func publishClientResource(instanceID: String, root: String = "client", relativePath: String) async throws -> RuntimeState {
         try await worker.publishClientResource(instanceID: instanceID, root: root, relativePath: relativePath)
     }
@@ -1283,7 +1290,7 @@ public actor ExtensionController {
             let captured = try captureOnQueue(directoryFD: payload)
             defer { try? captured.package.close() }
             let metadata = try captured.package.metadata()
-            let bytes = try PluginReleaseCatalog.read(payload, name: "plugin.json", limit: 65536)
+            let bytes = try PluginReleaseCatalog.read(payload, name: PluginReleaseDeclarations.manifestName, limit: 65536)
             let (permissions, executor) = try PluginReleaseDeclarations.decode(bytes, manifestDigest: metadata.manifestDigest)
             return VersionDeclarations(review: captured.review, sdkVersion: metadata.sdkVersion, protocols: metadata.protocols,
                 permissions: permissions, executorDeclarations: executor)
@@ -1547,23 +1554,11 @@ public actor ExtensionController {
                     let metadata = try captured.package.metadata()
                     let proof = try authentication.bind(.init(id: metadata.id, version: metadata.version,
                         publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
-                    guard let member = members.first(where: { $0.path == "plugin.json" }),
-                          let manifest = try JSONSerialization.jsonObject(with: PluginReleaseArchive.contents(archive, member: member)) as? [String: Any],
-                          let permissionValues = manifest["permissions"] as? [[String: Any]] else { throw ControllerError.invalidPackageURL }
-                    // These display fields come from the same authenticated ZIP
-                    // whose manifest Core checked, never from a reopened path.
-                    let permissions = try permissionValues.map { value -> ReleasePermission in
-                        guard let side = value["side"] as? String, let capability = value["capability"] as? String,
-                              let purpose = value["purpose"] as? String, let scope = value["scope"] as? String else { throw ControllerError.invalidPackageURL }
-                        let programs: [String]
-                        if let value = value["programs"] {
-                            guard let values = value as? [String] else { throw ControllerError.invalidPackageURL }; programs = values
-                        } else { programs = [] }
-                        return ReleasePermission(side: side, capability: capability, purpose: purpose, scope: scope, programs: programs)
+                    guard let member = members.first(where: { $0.path == PluginReleaseDeclarations.manifestName }) else {
+                        throw ControllerError.invalidPackageURL
                     }
-                    let executor = try manifest["executor"].map { value in
-                        String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)
-                    }
+                    let (permissions, executor) = try PluginReleaseDeclarations.decode(
+                        PluginReleaseArchive.contents(archive, member: member), manifestDigest: metadata.manifestDigest)
                     let value = PreparedRelease(id: UUID().uuidString, review: captured.review, signature: proof,
                         sdkVersion: metadata.sdkVersion, protocols: metadata.protocols, permissions: permissions, executorDeclarations: executor,
                         channelGeneration: policySource.channelGeneration)
@@ -1972,7 +1967,8 @@ public actor ExtensionController {
         }
 
         func activateClient(pluginID: String, packageDigest: String, command: String,
-                            arguments: [String], clientWorkspace: ClientWorkspace?) async throws -> RuntimeState {
+                            arguments: [String], clientWorkspace: ClientWorkspace?,
+                            context: ExtensionRuntime.Invocation.Context?) async throws -> RuntimeState {
             try await perform {
                 try self.checkOpen()
                 guard let session = self.session, let sessionKey = self.sessionPackageKey,
@@ -2018,9 +2014,12 @@ public actor ExtensionController {
                     }
                     guard viewKinds != 0, record.review.requiredCapabilities.contains("session.rpc") else { throw ControllerError.runtimeUnavailable }
                 }
+                // Resource commands can wait on bounded SSH transfer during activation.
+                let activationBudget: UInt32 = record.review.requiredCapabilities.contains("resource.receive") ? 15_000 : 0
                 let runtime = try ExtensionRuntime(session: session, package: record.package,
                                                    role: .host, associated: true,
-                                                   invocation: .init(command: command, arguments: arguments))
+                                                   activationMilliseconds: activationBudget,
+                                                   invocation: .init(command: command, arguments: arguments, context: context))
                 self.clientRootFD = rootFD; rootFD = -1
                 self.session = nil; self.sessionPackageKey = nil
                 self.runtime = runtime; self.runtimePackageKey = sessionKey
@@ -2647,11 +2646,14 @@ public actor ExtensionController {
                 }
                 guard try package.check(hostJSON: hostJSON) == .checked else {
                     let info = try package.info()
+                    if info.code == "LEGACY_PACKAGE_REINSTALL" {
+                        throw GhostermError.failed("此包使用旧插件格式，请重新安装 Lua 版。")
+                    }
                     throw ControllerError.packageCheck(info.code)
                 }
                 let metadata = try package.metadata()
                 let commands = try package.commands().map {
-                    Command(path: $0.path, title: $0.title, argsSchema: $0.argsSchema, views: $0.views)
+                    Command(path: $0.path, title: $0.title, argsSchema: $0.argsSchema, views: $0.views, togglePanel: $0.togglePanel)
                 }
                 let review = PackageReview(id: metadata.id, version: metadata.version,
                                            publisher: metadata.publisher, license: metadata.license,
@@ -2765,7 +2767,7 @@ public actor ExtensionController {
             return Resolution(status: ExtensionRegistry.Status.ok.rawValue,
                               packageID: metadata.id, packageDigest: metadata.packageDigest,
                               command: Command(path: command.path, title: command.title,
-                                               argsSchema: command.argsSchema, views: command.views),
+                                               argsSchema: command.argsSchema, views: command.views, togglePanel: command.togglePanel),
                               requiredCapabilities: metadata.requires)
         }
 

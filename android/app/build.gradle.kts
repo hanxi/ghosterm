@@ -6,7 +6,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
-abstract class GenerateQuickJsLicense : DefaultTask() {
+abstract class GeneratePluginEngineLicense : DefaultTask() {
+    @get:Input
+    abstract val fileName: Property<String>
+
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val license: RegularFileProperty
@@ -16,7 +19,7 @@ abstract class GenerateQuickJsLicense : DefaultTask() {
 
     @TaskAction
     fun generate() {
-        val output = assets.file("licenses/QuickJSNG-MIT.txt").get().asFile
+        val output = assets.file("licenses/${fileName.get()}").get().asFile
         output.parentFile.mkdirs()
         license.get().asFile.copyTo(output, overwrite = true)
     }
@@ -33,7 +36,7 @@ val releaseVersionCode = releaseVersion?.let { version ->
     require(code <= 2_100_000_000) { "Android release version exceeds the versionCode range" }
     code.toInt()
 }
-val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
+val pluginLuaEnabled = providers.gradleProperty("ghostermPluginLua").orNull == "true"
 val channelProcessFixture = providers.gradleProperty("ghostermChannelProcessFixture").orNull == "true"
 val pluginChannelName = providers.gradleProperty("ghostermPluginChannel").orNull.orEmpty()
 val pluginChannelRoot = providers.gradleProperty("ghostermPluginChannelRoot").orNull.orEmpty()
@@ -50,7 +53,6 @@ if (listOf(pluginChannelName, pluginChannelRoot, pluginChannelUrl).any { it.isNo
         !endpoint.rawAuthority.endsWith(":") &&
         (endpoint.port == -1 || endpoint.port in 1..65535)) { "Expected an HTTPS channel directory" }
 }
-val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
 fun sourceGit(vararg arguments: String): String? = try {
     val command = providers.exec {
         commandLine(listOf("git", "-C", rootProject.projectDir.parentFile.absolutePath) + arguments)
@@ -89,7 +91,8 @@ android {
         versionCode = releaseVersionCode ?: 1
         versionName = releaseVersion ?: "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("boolean", "PLUGIN_JS_ENABLED", pluginJsEnabled.toString())
+        buildConfigField("boolean", "PLUGIN_RUNTIME_ENABLED", pluginLuaEnabled.toString())
+        buildConfigField("String", "PLUGIN_RUNTIME_NAME", "\"lua\"")
         buildConfigField("String", "PLUGIN_CHANNEL_NAME", "\"$pluginChannelName\"")
         buildConfigField("String", "PLUGIN_CHANNEL_ROOT", "\"$pluginChannelRoot\"")
         buildConfigField("String", "PLUGIN_CHANNEL_URL", "\"$pluginChannelUrl\"")
@@ -120,10 +123,6 @@ android {
     if (channelProcessFixture) {
         sourceSets["debug"].manifest.srcFile("src/channelProcessFixture/AndroidManifest.xml")
         sourceSets["debug"].java.srcDir("src/channelProcessFixture/java")
-    }
-    if (pluginJsEnabled) {
-        sourceSets["androidTest"].java.srcDir("src/pluginRuntimeTest/java")
-        if (runtimeSdkDirectory != null) sourceSets["androidTest"].assets.srcDir(runtimeSdkDirectory)
     }
     sourceSets["main"].res.srcDir("../../assets/icons/android")
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -205,13 +204,17 @@ val buildProcessChannelChild = tasks.register<Exec>("buildProcessChannelChild") 
 android.sourceSets.getByName("androidTest").jniLibs.srcDir(processTestLibraries)
 tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildProcessChannelChild) }
 
-if (pluginJsEnabled) {
+if (pluginLuaEnabled) {
+    android.sourceSets.getByName("androidTest").java.srcDir("src/pluginLuaTest/java")
     androidComponents.onVariants { variant ->
-        val generateLicense = tasks.register<GenerateQuickJsLicense>(
-            "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}QuickJsLicense"
+        val generateLicense = tasks.register<GeneratePluginEngineLicense>(
+            "generate${variant.name.replaceFirstChar { it.uppercaseChar() }}PluginEngineLicense"
         ) {
-            license.set(rootProject.layout.projectDirectory.file("../vendor/quickjs-ng/LICENSE"))
+            fileName.set("Lua-MIT.txt")
+            license.set(rootProject.layout.projectDirectory.file("../core/cmake/Lua-MIT.txt"))
         }
-        variant.sources.assets?.addGeneratedSourceDirectory(generateLicense, GenerateQuickJsLicense::assets)
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            generateLicense, GeneratePluginEngineLicense::assets
+        )
     }
 }

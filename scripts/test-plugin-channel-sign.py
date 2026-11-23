@@ -2,25 +2,21 @@
 """Exercise channel publication with disposable, isolated in-memory signers."""
 import base64
 from concurrent.futures import ThreadPoolExecutor
-import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
 import time
+
+from fixtures.plugin_release_signer import memory_signer, sha, sign as sign_bytes, signer_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
     sys.dont_write_bytecode = True
-    spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-    node = Path(shutil.which('node')).resolve(strict=True)
     project_tmp = (ROOT / 'tmp').resolve()
     requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
     work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
@@ -30,7 +26,7 @@ def main():
         root_dir.mkdir()
         publisher_dir.mkdir()
         env = dict(os.environ, TMPDIR=temporary, TMP=temporary, TEMP=temporary)
-        with helper.agent(node, root_dir) as (root, root_endpoint), helper.agent(node, publisher_dir) as (publisher, publisher_endpoint):
+        with memory_signer(root_dir) as (root, root_endpoint), memory_signer(publisher_dir) as (publisher, publisher_endpoint):
             def cli(arguments, expected=None):
                 result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', *map(str, arguments)],
                                         cwd=ROOT, env=env, capture_output=True, timeout=45)
@@ -44,17 +40,13 @@ def main():
                     assert result.returncode != 0 and report.get('code') == expected, (report, result.stderr)
                 return report
 
-            def signer_config(name, endpoint):
-                path = work / name
-                path.write_text(json.dumps(dict(executable=str(node), sha256=helper.sha(node.read_bytes()),
-                    prefixArguments=[str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(endpoint)])))
-                return path
-
-            signer = signer_config('root.json', root_endpoint)
-            wrong_signer = signer_config('publisher.json', publisher_endpoint)
+            signer = work / 'root.json'
+            signer.write_text(json.dumps(signer_config(root_endpoint)))
+            wrong_signer = work / 'publisher.json'
+            wrong_signer.write_text(json.dumps(signer_config(publisher_endpoint)))
             policy = work / 'policy-input.json'
             policy.write_text(json.dumps(dict(schemaVersion=1, channel='fixture',
-                keys=[dict(id=helper.sha(base64.b64decode(publisher)), algorithm='ed25519',
+                keys=[dict(id=sha(base64.b64decode(publisher)), algorithm='ed25519',
                            publicKey=publisher, publisher='Ghosterm', pluginIds=['org.ghosterm.preview'])],
                 revokedKeyIds=[]), indent=2) + '\n')
             now = int(time.time())
@@ -87,13 +79,12 @@ def main():
             dual_use = work / 'dual-use'
             dual_use.mkdir()
             overlap = json.loads(policy.read_bytes())
-            overlap['keys'][0].update(id=helper.sha(base64.b64decode(root)), publicKey=root)
+            overlap['keys'][0].update(id=sha(base64.b64decode(root)), publicKey=root)
             shared_policy = json.dumps(overlap).encode()
             statement = json.loads((output / 'channel-policy.json').read_bytes())
-            statement['policySHA256'] = helper.sha(shared_policy)
+            statement['policySHA256'] = sha(shared_policy)
             raw = json.dumps(statement).encode()
-            signed_overlap = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', root_endpoint],
-                input=b'ghosterm.channel-policy.v1\0' + raw, capture_output=True, check=True, env=env, timeout=15).stdout
+            signed_overlap = sign_bytes(root_endpoint, b'ghosterm.channel-policy.v1\0' + raw)
             (dual_use / 'policy.json').write_bytes(shared_policy)
             (dual_use / 'channel-policy.json').write_bytes(raw)
             (dual_use / 'channel-policy.sig').write_bytes(signed_overlap)

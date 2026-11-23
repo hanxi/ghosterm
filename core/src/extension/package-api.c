@@ -37,7 +37,7 @@ gt_status_t gt_ext_package_open(const gt_ext_package_config_t *c, gt_ext_package
     if (!out) {
         return GT_ERR_INVALID_ARG;
     }
-#ifndef GT_HAVE_PLUGIN_JS
+#if !defined(GT_HAVE_PLUGIN_LUA)
     (void)c;
     return GT_ERR_UNSUPPORTED;
 #else

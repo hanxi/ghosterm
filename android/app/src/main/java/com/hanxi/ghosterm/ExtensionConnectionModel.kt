@@ -34,7 +34,7 @@ internal data class ExtensionGroupInvocation(val alias: String,
     val id: UUID = UUID.randomUUID())
 
 internal class ExtensionConnectionModel(private val application: Application,
-    val controller: ExtensionController, private val scope: CoroutineScope) {
+    val controller: ExtensionController, private val scope: CoroutineScope, val workspacePanel: Boolean = false) {
     val id: UUID = UUID.randomUUID()
     internal class Instance(val id: UUID, val title: String, val model: ExtensionPackagesViewModel,
         val store: ViewModelStore) {
@@ -82,7 +82,7 @@ internal class ExtensionConnectionModel(private val application: Application,
     private val scopes = mutableMapOf<UUID, ExtensionController.MultiplexScope>()
     var targetDescription by mutableStateOf("")
         private set
-    val canAdd get() = nativeReady && !closed && !closing && !busy && !cleanupPending &&
+    val canAdd get() = !workspacePanel && nativeReady && !closed && !closing && !busy && !cleanupPending &&
         instances.none { it.releasing || it.releaseFailed } &&
         !observationFailed && !transportEnded && instances.count { !it.closed } < 8
     private var attempt: SSHAttempt? = null
@@ -194,8 +194,7 @@ internal class ExtensionConnectionModel(private val application: Application,
         val first = origin ?: return false
         val request = invocation.launch.request
         return invocation.alias == first.alias && invocation.temporaryDirectory == first.temporaryDirectory &&
-            request.executable == first.launch.request.executable && request.attachment == null &&
-            (request.execution == null || request.execution.temporaryDirectory == first.temporaryDirectory)
+            request.executable == first.launch.request.executable && request.attachment == null
     }
     suspend fun add(invocation: ExtensionGroupInvocation): Instance? {
         if (!canAdd) { issue = "连接正在处理请求、已结束或八个实例名额已满"; return null }

@@ -9,7 +9,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import signal
 import ssl
 import subprocess
@@ -17,6 +16,8 @@ import sys
 import tempfile
 import threading
 import time
+
+from fixtures.plugin_release_signer import memory_signer, sha, sign as sign_bytes, signer_config
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'android/app/src/androidTest/assets/plugin-release'
@@ -28,13 +29,31 @@ def fixture(work, env, host, settings=False):
                     '-subj', f'/CN={host}', '-addext', f'subjectAltName=IP:{host}',
                     '-addext', 'extendedKeyUsage=serverAuth', '-days', '1', '-out', cert, '-keyout', key],
                    cwd=work, env=env, capture_output=True, check=True)
-    spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-    node = Path(shutil.which('node')).resolve(strict=True)
     policy = work / 'original-policy.json'
-    vector = 'archive-declarations.json' if settings else 'vector.json'
-    policy.write_bytes(json.loads((ASSETS / vector).read_bytes())['policy'].encode())
+    def cli(*arguments):
+        result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', *map(str, arguments)],
+                                cwd=work, env=env, capture_output=True, timeout=45)
+        report = json.loads(result.stdout)
+        if result.returncode:
+            raise RuntimeError(f'Fixture producer failed: {report}')
+        return report
+
+    if settings:
+        publisher_dir = work / 'publisher'
+        publisher_dir.mkdir()
+        with memory_signer(publisher_dir) as (public, endpoint):
+            key_id = sha(base64.b64decode(public))
+            policy.write_text(json.dumps(dict(schemaVersion=1, channel='fixture', keys=[
+                dict(id=key_id, algorithm='ed25519', publicKey=public, publisher='Ghosterm',
+                     pluginIds=['org.ghosterm.preview'])], revokedKeyIds=[])))
+            signer = work / 'publisher.json'
+            signer.write_text(json.dumps(signer_config(endpoint)))
+            archive = work / 'preview.zip'
+            cli('pack', ROOT / 'plugins/official/preview', '--out', archive)
+            cli('release', 'sign', '--artifact', archive, '--policy', policy, '--key-id', key_id,
+                '--signer-json', signer, '--out', work / 'signed-preview')
+    else:
+        policy.write_bytes(json.loads((ASSETS / 'vector.json').read_bytes())['policy'].encode())
     revoked = json.loads(policy.read_bytes())
     revoked['revokedKeyIds'] = [key['id'] for key in revoked['keys']]
     revoked_policy = work / 'revoked-policy.json'
@@ -43,18 +62,14 @@ def fixture(work, env, host, settings=False):
     signer_host.mkdir()
     configuration = work / 'signer.json'
     bundle = work / 'signed-channel'
-    with helper.agent(node, signer_host) as (root, endpoint):
-        configuration.write_text(json.dumps(dict(executable=str(node), sha256=helper.sha(node.read_bytes()),
-            prefixArguments=[str(ROOT / 'scripts/fixtures/plugin-release-agent.mjs'), 'client', str(endpoint)])))
+    with memory_signer(signer_host) as (root, endpoint):
+        configuration.write_text(json.dumps(signer_config(endpoint)))
         now = int(time.time())
         def sign(policy, generation, bundle):
-            result = subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign-policy',
-                                     '--channel', 'fixture', '--channel-root', root, '--policy', policy,
-                                     '--generation', str(generation), '--issued-at', str(now - 60), '--expires-at', str(now + 3600),
-                                     '--signer-json', configuration, '--out', bundle],
-                                    cwd=work, env=env, capture_output=True, timeout=45)
-            report = json.loads(result.stdout)
-            if result.returncode or report.get('kind') != 'signed-channel-policy':
+            report = cli('release', 'sign-policy', '--channel', 'fixture', '--channel-root', root,
+                         '--policy', policy, '--generation', generation, '--issued-at', now - 60,
+                         '--expires-at', now + 3600, '--signer-json', configuration, '--out', bundle)
+            if report.get('kind') != 'signed-channel-policy':
                 raise RuntimeError(f'Channel producer failed: {report}')
         sign(policy, 1 if settings else 2, bundle)
         revoked_bundle = work / 'revoked-channel'
@@ -62,10 +77,7 @@ def fixture(work, env, host, settings=False):
         expired_statement = json.loads((revoked_bundle / 'channel-policy.json').read_bytes())
         expired_statement.update(generation='4', expiresAt=str(now - 1))
         expired_bytes = json.dumps(expired_statement, separators=(',', ':')).encode()
-        expired_signature = subprocess.run(
-            [node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', endpoint],
-            input=b'ghosterm.channel-policy.v1\0' + expired_bytes, env=env, capture_output=True, check=True, timeout=15,
-        ).stdout
+        expired_signature = sign_bytes(endpoint, b'ghosterm.channel-policy.v1\0' + expired_bytes)
     return cert, key, root, bundle, revoked_bundle, (expired_bytes, expired_signature)
 
 
@@ -127,7 +139,7 @@ def main():
     parser.add_argument('--settings-cache', action='store_true',
                         help='build with a disposable channel root and exercise the offline Settings flow')
     parser.add_argument('--apks', nargs=2, type=Path, metavar=('APP_APK', 'TEST_APK'),
-                        help='reuse APKs built with -PghostermPluginJs=true for the HTTPS client test')
+                        help='reuse APKs built with -PghostermPluginLua=true for the HTTPS client test')
     parser.add_argument('--serial', help='use an explicitly authorized test device without Ghosterm installed')
     parser.add_argument('--api', type=int, choices=(29, 36), default=36,
                         help='headless AVD API level (default: 36)')
@@ -145,6 +157,10 @@ def main():
         args.apks = [apk.resolve() for apk in args.apks]
         if any(not apk.is_file() for apk in args.apks):
             parser.error('--apks requires two existing APK files')
+    else:
+        archive = Path(os.environ.get('GHOSTERM_LUA_ARCHIVE', '')).resolve()
+        if not archive.is_file():
+            parser.error('Set GHOSTERM_LUA_ARCHIVE to the pinned Lua source archive')
     sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location('android_release_runner', ROOT / 'scripts/test-plugin-release-android.py')
     runner = importlib.util.module_from_spec(spec)
@@ -157,11 +173,13 @@ def main():
         env = dict(os.environ, TMPDIR=path, TMP=path, TEMP=path, GHOSTERM_AUTOMATION_OFFSCREEN='1')
         host = '127.0.0.1' if args.serial else '10.0.2.2'
         with tls_fixture(work, env, host, args.settings_cache) as (origin, cert, root):
-            build = ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
-                     ':app:assembleDebug', ':app:assembleDebugAndroidTest']
+            if not args.apks:
+                build = ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginLua=true',
+                         f'-PghostermLuaArchive={archive}', ':app:assembleDebug', ':app:assembleDebugAndroidTest']
             if args.settings_cache:
                 bundle = work / 'signed-channel'
                 revoked = work / 'revoked-channel'
+                release = work / 'signed-preview'
                 build.extend(['-PghostermPluginChannel=fixture', f'-PghostermPluginChannelRoot={root}',
                               f'-PghostermPluginChannelUrl={origin}/valid/'])
                 test = 'com.hanxi.ghosterm.PluginInstallUITest#explicitInstallationPublishesReadonlyVersionWithoutApprovingOrActivating'
@@ -171,6 +189,10 @@ def main():
                     '-e', 'settingsRevokedStatement', base64.b64encode((revoked / 'channel-policy.json').read_bytes()).decode(),
                     '-e', 'settingsRevokedSignature', base64.b64encode((revoked / 'channel-policy.sig').read_bytes()).decode(),
                     '-e', 'settingsRevokedPolicy', base64.b64encode((revoked / 'policy.json').read_bytes()).decode(),
+                    '-e', 'luaReleaseArchive', base64.b64encode((release / 'plugin.zip').read_bytes()).decode(),
+                    '-e', 'luaReleaseDescriptor', base64.b64encode((release / 'release.json').read_bytes()).decode(),
+                    '-e', 'luaReleaseSignature', base64.b64encode((release / 'release.sig').read_bytes()).decode(),
+                    '-e', 'luaReleasePolicy', base64.b64encode((bundle / 'policy.json').read_bytes()).decode(),
                 ]
             else:
                 test = 'com.hanxi.ghosterm.PluginChannelRefreshTlsTest'

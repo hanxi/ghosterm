@@ -52,6 +52,8 @@ typedef struct {
     uint32_t process_lifetime_ms;
     uint64_t process_output_bytes;
     const gt_ext_invocation_t *invocation;
+    const gt_package_checked_t *process_package; /* Lua package path only. */
+    const char *decoded_arguments;               /* Lua package path only, validated JSON object. */
 } gt_runtime_config_t;
 
 typedef struct {

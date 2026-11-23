@@ -18,8 +18,8 @@ final class PluginReleaseCatalogTests: XCTestCase {
         return URL(fileURLWithPath: path)
     }
     private func controller(_ root: URL) throws -> ExtensionController {
-        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"],
-            capabilities: ["resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
+        try ExtensionController(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["lua"],
+            capabilities: ["session.rpc", "resource.receive"]), resourceDirectory: root, installationDirectory: root.appendingPathComponent("installed"))
     }
     private func install(_ controller: ExtensionController, _ input: URL) async throws -> ExtensionController.InstalledRelease {
         let prepared = try await controller.prepareSignedRelease(artifact: input.appendingPathComponent("r/plugin.zip"), descriptor: input.appendingPathComponent("r/release.json"),
@@ -182,7 +182,7 @@ final class PluginReleaseCatalogTests: XCTestCase {
     func testAlteredPayloadCannotBorrowStoredSignature() async throws {
         let input = try fixture(), root = try root(), controller = try controller(root)
         let version = try await install(controller, input)
-        let manifest = version.directory.appendingPathComponent("plugin.json")
+        let manifest = version.directory.appendingPathComponent("manifest.json")
         var object = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as! [String: Any]
         object["pluginVersion"] = "9.9.9"
         XCTAssertEqual(chmod(manifest.path, 0o600), 0)

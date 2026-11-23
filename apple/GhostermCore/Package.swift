@@ -11,7 +11,8 @@ let repoRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()   // GhostermCore
     .deletingLastPathComponent()   // apple
     .deletingLastPathComponent()   // repo root
-let coreBuild = repoRoot.appendingPathComponent("core/build").path
+let coreBuild = ProcessInfo.processInfo.environment["GHOSTERM_CORE_BUILD_DIR"]
+    ?? repoRoot.appendingPathComponent("core/build").path
 // Use the same patched dependency as the shared Core; no Homebrew fallback.
 // Match Core's dependency lookup for isolated copies living under tmp/.
 var dependencyRoot = repoRoot
@@ -22,11 +23,13 @@ while !FileManager.default.fileExists(atPath: dependencyRoot.appendingPathCompon
 }
 let ssh2Lib = dependencyRoot.appendingPathComponent("build/host-native/lib").path
 // Explicit Core conformance profile; ordinary App builds keep the backend OFF.
-let pluginJS = ProcessInfo.processInfo.environment["GHOSTERM_CORE_TEST_PLUGIN_JS"]
-precondition(pluginJS == nil || pluginJS == "0" || pluginJS == "1", "Invalid Core JS profile")
-let runtimeLink: [String] = pluginJS == "1" ? ["-lghosterm_quickjs", "-lm"] : []
-if pluginJS == "1" {
-    precondition(FileManager.default.fileExists(atPath: coreBuild + "/libghosterm_quickjs.a"), "Build enabled Core JS archive first")
+let pluginLua = ProcessInfo.processInfo.environment["GHOSTERM_CORE_TEST_PLUGIN_LUA"]
+precondition(pluginLua == nil || pluginLua == "0" || pluginLua == "1", "Invalid Core Lua profile")
+let engine = pluginLua == "1" ? "ghosterm_lua" : nil
+let runtimeLink = engine.map { ["-l" + $0, "-lm"] } ?? []
+if let engine {
+    precondition(FileManager.default.fileExists(atPath: coreBuild + "/lib" + engine + ".a"),
+                 "Build the selected Core runtime archive first")
 }
 
 
@@ -55,7 +58,7 @@ let package = Package(
             name: "GhostermCoreTests",
             dependencies: ["GhostermCore"],
             path: "Tests/GhostermCoreTests",
-            exclude: pluginJS == "1" ? [] : ["ExtensionRuntimeTests.swift"]
+            exclude: pluginLua == "1" ? [] : ["ExtensionRuntimeTests.swift"]
         ),
     ]
 )

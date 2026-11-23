@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CLI Ed25519 release -> Core snapshot -> native macOS controls.
 
-Requires an explicitly built JS-enabled core/build and locked developer tools.
+Requires an explicitly built Lua-enabled Core.
 Only copied Swift sources are mutated; owned windows remain offscreen.
 """
 import argparse
@@ -84,7 +84,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def installation_fixtures(helper, node, fixture, tools, endpoint):
+def installation_fixtures(helper, fixture, endpoint):
     """Only public materials reach disk; the disposable signer retains its key."""
     policy = (fixture / 'policy.json').read_bytes()
     base = json.loads((fixture / 'r/release.json').read_bytes())
@@ -96,26 +96,30 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
         descriptor['artifact'] = dict(format='zip-v1', bytes=len(archive), sha256=hashlib.sha256(archive).hexdigest())
         if identity is not None: descriptor['packageSHA256'] = identity
         raw = json.dumps(descriptor, separators=(',', ':')).encode()
-        signed = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', endpoint],
-            input=helper.DOMAIN + raw, capture_output=True, check=True)
+        signed = helper.sign(endpoint, helper.DOMAIN + raw)
         (destination / 'r/release.json').write_bytes(raw)
-        (destination / 'r/release.sig').write_bytes(signed.stdout)
+        (destination / 'r/release.sig').write_bytes(signed)
     for name in ['v2', 'compressed', 'live', 'upgrade']:
         target = fixture / name
-        shutil.copytree(ROOT / 'plugins/official/preview' if name == 'live' else fixture / 'p', target / 'p')
+        source = ROOT / 'plugins/official/preview' if name == 'live' else fixture / 'project'
+        shutil.copytree(source, target / 'project')
         (target / 'policy.json').write_bytes(policy)
         if name in ['v2', 'upgrade']:
-            manifest = target / 'p/plugin.json'
-            value = json.loads(manifest.read_bytes()); value['pluginVersion'] = '0.3.0' if name == 'upgrade' else '0.2.0'
+            manifest = target / 'project/main.lua'
+            version = '0.3.0' if name == 'upgrade' else '0.2.0'
+            text = manifest.read_text()
+            assert text.count('version = "0.1.0"') == 1
+            text = text.replace('version = "0.1.0"', f'version = "{version}"')
             if name == 'upgrade':
-                value['permissions'][0]['purpose'] = 'Review changed declaration before a version switch.'
-                value['executor']['variants'][0]['id'] = 'portable-reviewed'
-            manifest.write_text(json.dumps(value))
-            integrity = target / 'p/integrity.json'; value = json.loads(integrity.read_bytes())
-            for item in value['members']:
-                data = (target / 'p' / item['path']).read_bytes()
-                item.update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
-            integrity.write_text(json.dumps(value))
+                text = text.replace('Preview a scoped file', 'Review a scoped file')
+                old = 'requires = { "session.rpc", "resource.receive", "file.readScoped" },'
+                assert text.count(old) == 1
+                text = text.replace(old, 'requires = { "session.rpc", "resource.receive", "process.spawn", "process.pipes" },\n'
+                                    '    programs = { "preview-review" },')
+            manifest.write_text(text)
+        subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'build',
+                        target / 'project', '--out', target / 'p'],
+                       check=True, stdout=subprocess.DEVNULL)
         archive = target / 'input.zip'
         with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED if name == 'compressed' else zipfile.ZIP_STORED) as output:
             for member in sorted((target / 'p').rglob('*')):
@@ -123,7 +127,7 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
         config = json.loads((fixture / 'signer.json').read_bytes())
         signer = target / 'signer.json'; signer.write_text(json.dumps(config))
         subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign', '--artifact', archive,
-            '--policy', target / 'policy.json', '--tools', tools, '--key-id', base['keyId'], '--signer-json', signer,
+            '--policy', target / 'policy.json', '--key-id', base['keyId'], '--signer-json', signer,
             '--out', target / 'r'], check=True, stdout=subprocess.DEVNULL, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')))
     members = [(p.relative_to(fixture / 'p').as_posix(), p.read_bytes()) for p in sorted((fixture / 'p').rglob('*')) if p.is_file()]
     def archive(entries, mode=None):
@@ -170,12 +174,11 @@ def installation_fixtures(helper, node, fixture, tools, endpoint):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tools', type=Path, required=True)
     parser.add_argument('--core-build', type=Path, default=ROOT / 'core/build',
-                        help='reuse a separate JS-enabled Core build')
+                        help='reuse a separate Lua-enabled Core build')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='run only these named mutation groups, retaining the complete selected baseline')
-    parser.add_argument('--official-packages', nargs=3, type=Path, metavar=('SDK_TOOLS', 'CODEX', 'CLAUDE'),
+    parser.add_argument('--official-packages', action='store_true',
                         help='also install nine official candidates signed by the disposable fixture')
     parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--capacity', action='store_true', help='also run real ENOSPC on a disposable volume')
@@ -205,16 +208,15 @@ def main():
         args.install = True
         if not args.gterm: parser.error('--versions requires --gterm')
     if args.official_packages and not args.install: parser.error('--official-packages requires --install')
-    out, tools = args.out.resolve(), args.tools.resolve(strict=True)
+    out = args.out.resolve()
     core_build = args.core_build.resolve(strict=True)
     assert ROOT / 'tmp' in out.parents
     spec = importlib.util.spec_from_file_location('release_fixture', ROOT / 'scripts/test-plugin-release.py')
     helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
-    node = Path(shutil.which('node')).resolve(strict=True)
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple', 'core/include', 'core/src', 'core/tests', 'packages', 'plugins/official/preview', 'scripts']
               for p in (ROOT / directory).rglob('*') if p.is_file() and not any(x in p.parts for x in ['.build', '.swiftpm', '__pycache__'])}
-    binaries = {str(p): sha(p) for p in tools.rglob('*') if p.is_file()}
-    for p in [node, core_build / 'libghosterm_core.a', core_build / 'libghosterm_quickjs.a', ROOT / 'build/host-native/lib/libssh2.a']:
+    binaries = {}
+    for p in [core_build / 'libghosterm_core.a', core_build / 'libghosterm_lua.a', ROOT / 'build/host-native/lib/libssh2.a']:
         binaries[str(p)] = sha(p)
     if args.gterm:
         args.gterm = args.gterm.resolve(strict=True)
@@ -391,20 +393,18 @@ def main():
     requested_tmp = Path(os.environ.get('TMPDIR', project_tmp)).resolve()
     work_tmp = requested_tmp if requested_tmp.is_dir() and requested_tmp.is_relative_to(project_tmp) else project_tmp
     env = dict(os.environ, TMPDIR=str(work_tmp), TMP=str(work_tmp), TEMP=str(work_tmp),
-               GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_JS='1')
+               GHOSTERM_AUTOMATION_OFFSCREEN='1', GHOSTERM_CORE_TEST_PLUGIN_LUA='1', GHOSTERM_CORE_BUILD_DIR=str(core_build))
     with tempfile.TemporaryDirectory(prefix='ns-', dir=work_tmp) as temporary:
         work = Path(temporary)
         fixture = work / 'fixture'; fixture.mkdir()
-        with helper.agent(node, work) as (public, endpoint):
-            assert helper.exercise(ROOT, fixture, tools, node, public, endpoint, selected='success') == ['success']
-            if args.install: installation_fixtures(helper, node, fixture, tools, endpoint)
+        with helper.memory_signer(work) as (public, endpoint):
+            assert helper.exercise(ROOT, fixture, public, endpoint, selected='success') == ['success']
+            if args.install: installation_fixtures(helper, fixture, endpoint)
             if args.official_packages:
-                sdk_tools, codex, claude = (path.resolve(strict=True) for path in args.official_packages)
                 official = fixture / 'official'
                 official.mkdir()
                 expected = {f'official-{name}' for name in ('preview', 'table', 'diff', 'task', 'views', 'logs', 'form', 'ai-codex', 'ai-claude')}
-                cases = helper.exercise(ROOT, official, tools, node, public, endpoint,
-                                        selected=expected, sdk_tools=sdk_tools, ai_packages=(codex, claude))
+                cases = helper.exercise(ROOT, official, public, endpoint, selected=expected)
                 assert set(cases) == expected
                 env['GHOSTERM_TEST_OFFICIAL_RELEASES'] = str(official)
         source = work / 'source'
@@ -501,7 +501,7 @@ def main():
             baseline_count += 26
         if args.selection_review:
             baseline = baseline[:-1] + '|PluginSelectionReviewTests|PluginReleaseDeclarationsTests|PluginSelectionReviewSignedTests|PluginSelectionReviewUITests)'
-            baseline_count += 26
+            baseline_count += 27
         revocation = 'PluginPaneFlowTests.testManagedPreview(ReportsChannelRevocationUntilStopped(ThroughProxyJump)?|RejectsChannelRevocationBeforeConsent)$'
         if args.diagnose_live_channel_revocation:
             run('live-channel-revocation', revocation, count=3, jump=True)

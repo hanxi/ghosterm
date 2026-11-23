@@ -86,7 +86,7 @@ def main():
         helper.require(result); return output
     def build(label):
         # Compile the real MainActivity/PTY/IME test and independent Core control.
-        logged(label + '-build', ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginJs=true',
+        logged(label + '-build', ['bash', ROOT / 'scripts/build-android.sh', '-PghostermPluginLua=true', '-PghostermLuaArchive=' + str(Path(os.environ['GHOSTERM_LUA_ARCHIVE']).resolve(strict=True)),
             ':app:assembleDebug', ':app:assembleDebugAndroidTest'], 900)
         for relative in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
             logged(label + '-install-' + Path(relative).name, [*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs/apk' / relative])

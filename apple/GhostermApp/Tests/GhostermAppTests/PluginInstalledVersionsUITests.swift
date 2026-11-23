@@ -40,23 +40,23 @@ final class PluginInstalledVersionsUITests: XCTestCase {
         func press(_ id: String) throws { XCTAssertTrue(PluginTableRendering.press(try XCTUnwrap(node(id), id)), id) }
         func until(_ check: () -> Bool) async throws -> Bool {
             let deadline = ProcessInfo.processInfo.systemUptime + 10
-            while !check(), ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(25)) }
-            return check()
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                if check() { return true }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            return false
         }
         func waitAndPress(_ id: String) async throws -> Bool {
             let selector = NSSelectorFromString("isAccessibilityEnabled")
-            let ready = try await until {
+            let pressed = try await until {
                 guard let value = node(id), value.responds(to: selector),
                       let implementation = value.method(for: selector) else { return false }
                 typealias ReadEnabled = @convention(c) (AnyObject, Selector) -> Bool
-                return unsafeBitCast(implementation, to: ReadEnabled.self)(value, selector)
+                return unsafeBitCast(implementation, to: ReadEnabled.self)(value, selector) &&
+                    PluginTableRendering.press(value)
             }
-            guard ready else {
-                XCTFail("version control did not become enabled: \(id)")
-                return false
-            }
-            try press(id)
-            return true
+            if !pressed { XCTFail("version control could not be activated: \(id)") }
+            return pressed
         }
         func waitNotice(_ expected: String) async throws {
             guard try await until({

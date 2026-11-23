@@ -550,10 +550,12 @@ int EXT_RESOURCE_MAIN(int argc, char **argv) {
     else if (argc > 3) {
         if (!strcmp(argv[1], "gterm") || !strcmp(argv[1], "gterm-resource")) {
             network_scoped = !strcmp(argv[1], "gterm-resource");
-            rpc_adopt_hook = res_network_adopt;
+            rpc_adopt_hook = network_scoped ? res_network_adopt : NULL;
             rpc_progress_hook = network_scoped ? res_gterm_receive : NULL;
             rpc_gterm_network(argc, argv);
-            res_store_drop(&network_store);
+            if (network_scoped) {
+                res_store_drop(&network_store);
+            }
             CHECK(ext_fds() == before);
             return 0;
         }

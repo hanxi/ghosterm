@@ -78,8 +78,7 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
         (role != GT_BRIDGE_HOST && role != GT_BRIDGE_EXECUTOR)) {
         return GT_ERR_INVALID_ARG;
     }
-    if (strcmp(info.runtime, "portable-js") ||
-        strcmp(info.sdk_version, GT_PLUGIN_SDK_API_VERSION)) {
+    if (strcmp(info.runtime, "lua") || strcmp(info.sdk_version, GT_PLUGIN_SDK_API_VERSION)) {
         return GT_ERR_UNSUPPORTED;
     }
     bool protocol = false;
@@ -101,13 +100,15 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
     }
     for (size_t i = 0; i < info.requires_count; i++) {
         const char *name = info.requires[i];
-        bool native_view =
-            role == GT_BRIDGE_HOST && (!strcmp(name, "ui.table") || !strcmp(name, "ui.diff") ||
-                                       !strcmp(name, "ui.task") || !strcmp(name, "ui.form"));
-        bool view_registry = role == GT_BRIDGE_HOST && !strcmp(name, "ui.views");
-        if (!native_view && !view_registry && strcmp(name, "session.rpc") &&
-            strcmp(name, "file.readScoped") && strcmp(name, "resource.receive") &&
-            strcmp(name, "process.spawn") && strcmp(name, "process.pipes")) {
+        const bool native_ui =
+            role == GT_BRIDGE_HOST &&
+            (!strcmp(name, "ui.table") || !strcmp(name, "ui.diff") || !strcmp(name, "ui.task") ||
+             !strcmp(name, "ui.views") || !strcmp(name, "ui.form"));
+        const bool executor_process =
+            role == GT_BRIDGE_EXECUTOR &&
+            (!strcmp(name, "process.spawn") || !strcmp(name, "process.pipes"));
+        if (!native_ui && !executor_process && strcmp(name, "session.rpc") &&
+            strcmp(name, "file.readScoped") && strcmp(name, "resource.receive")) {
             return GT_ERR_UNSUPPORTED;
         }
         if (gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED) {
@@ -126,17 +127,7 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
     }
     return GT_OK;
 }
-#ifdef GT_HAVE_PLUGIN_JS
-typedef struct {
-    const char *name;
-    size_t size;
-    const char *sha256;
-    const char *const *chunks;
-    size_t count;
-} runtime_sdk_module_t;
 
-#include "extension/sdk-code.inc"
-#endif
 gt_status_t gt__runtime_package_source(const gt_package_checked_t *package,
                                        const char *name,
                                        gt_runtime_source_t *out) {
@@ -146,24 +137,13 @@ gt_status_t gt__runtime_package_source(const gt_package_checked_t *package,
     if (!out || !package || !gt__runtime_module_name(name)) {
         return GT_ERR_INVALID_ARG;
     }
-#ifndef GT_HAVE_PLUGIN_JS
-    return GT_ERR_UNSUPPORTED;
-#else
-    if (!strncmp(name, "sdk:/", 5)) {
-        for (size_t i = 0; i < sizeof(sdk_modules) / sizeof(sdk_modules[0]); i++) {
-            if (!strcmp(name, sdk_modules[i].name)) {
-                out->size = sdk_modules[i].size;
-                memcpy(out->sha256, sdk_modules[i].sha256, 65);
-                out->chunks = sdk_modules[i].chunks;
-                out->chunk_count = sdk_modules[i].count;
-                return GT_OK;
-            }
-        }
-        return GT_ERR_NOT_FOUND;
+#if defined(GT_HAVE_PLUGIN_LUA)
+    if (strncmp(name, "plugin:/", 8)) {
+        return GT_ERR_UNSUPPORTED;
     }
     const char *path = name + 8;
-    size_t n = strlen(path);
-    if (!((n >= 3 && !strcmp(path + n - 3, ".js")) || (n >= 4 && !strcmp(path + n - 4, ".mjs")))) {
+    const size_t length = strlen(path);
+    if (length < 5 || strcmp(path + length - 4, ".lua")) {
         return GT_ERR_UNSUPPORTED;
     }
     gt_package_member_t member;
@@ -172,5 +152,7 @@ gt_status_t gt__runtime_package_source(const gt_package_checked_t *package,
     }
     memcpy(out->sha256, member.sha256, 65);
     return GT_OK;
+#else
+    return GT_ERR_UNSUPPORTED;
 #endif
 }

@@ -11,8 +11,17 @@ public final class ExtensionRuntime {
         public init(name: String, source: Data, sha256: String) { self.name = name; self.source = source; self.sha256 = sha256 }
     }
     public struct Invocation {
+        public struct Context: Sendable {
+            public let workspaceID: String?, paneID: String?, directory: String?
+            public init(workspaceID: String? = nil, paneID: String? = nil, directory: String? = nil) {
+                self.workspaceID = workspaceID; self.paneID = paneID; self.directory = directory
+            }
+        }
         public let command: String, arguments: [String]
-        public init(command: String, arguments: [String]) { self.command = command; self.arguments = arguments }
+        public let context: Context?
+        public init(command: String, arguments: [String], context: Context? = nil) {
+            self.command = command; self.arguments = arguments; self.context = context
+        }
     }
     private static func withInvocation<T>(_ value: Invocation?, _ body: (UnsafePointer<gt_ext_invocation_t>?) throws -> T) throws -> T {
         guard let value else { return try body(nil) }
@@ -24,13 +33,26 @@ public final class ExtensionRuntime {
         }
         var storage: [UnsafeMutablePointer<CChar>] = []
         defer { storage.forEach { $0.deallocate() } }
-        for text in [value.command] + value.arguments {
+        func copy(_ text: String) -> UnsafePointer<CChar> {
             let bytes = Array(text.utf8CString), p = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
             p.initialize(from: bytes, count: bytes.count); storage.append(p)
+            return UnsafePointer(p)
         }
-        let arguments: [UnsafePointer<CChar>?] = storage.dropFirst().map { UnsafePointer($0) }
+        func contextField(_ text: String?, maximum: Int) throws -> UnsafePointer<CChar>? {
+            guard let text else { return nil }
+            guard !text.isEmpty, !text.utf8.contains(0), text.utf8.count <= maximum else {
+                throw GhostermError.failed("命令上下文超限或无效")
+            }
+            return copy(text)
+        }
+        let command = copy(value.command)
+        let arguments: [UnsafePointer<CChar>?] = value.arguments.map { copy($0) }
+        let workspaceID = try contextField(value.context?.workspaceID, maximum: 64)
+        let paneID = try contextField(value.context?.paneID, maximum: 64)
+        let directory = try contextField(value.context?.directory, maximum: 4096)
         return try arguments.withUnsafeBufferPointer { values in
-            var c = gt_ext_invocation_t(command: UnsafePointer(storage[0]), argv: values.baseAddress, argc: values.count)
+            var c = gt_ext_invocation_t(command: command, argv: values.baseAddress, argc: values.count,
+                                        workspace_id: workspaceID, pane_id: paneID, directory: directory)
             return try withUnsafePointer(to: &c) { try body($0) }
         }
     }
@@ -95,11 +117,9 @@ public final class ExtensionRuntime {
     public struct Info {
         public let phase: Phase, error: Failure, cleanupError: Int32, sessionEnd: ExtensionSession.End, sessionError: Int32
         public let disposeError: Bool, engineReleased: Bool, steps: UInt64, jobs: UInt64, moduleBytes: UInt64
-        public let externalProcess: Bool, activated: Bool, childExited: Bool, probeVerified: Bool
-        public let executionError: Int32, exitCode: Int32, termSignal: Int32, groupSignalError: Int32
-        public let stdoutBytes: UInt64, stderrBytes: UInt64
     }
     public static var supportStatus: Int32 { Int32(gt_ext_runtime_support().rawValue) }
+    public static let runtimeName = "lua"
     private let owner: DispatchQueue, stopLock = NSLock()
     private let session: ExtensionSession?
     private let store: ExtensionResourceStore?
@@ -168,7 +188,7 @@ public final class ExtensionRuntime {
                 roots: scopes.baseAddress, root_count: scopes.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
                 process_environment_count: environmentValues.count, process_lifetime_ms: config.processLifetimeMilliseconds,
-                process_output_bytes: config.processOutputBytes, invocation: invocation, execution: nil)
+                process_output_bytes: config.processOutputBytes, invocation: invocation)
             return try session.adoptRuntime(config: &c)
         } } } } }
     }
@@ -224,7 +244,7 @@ public final class ExtensionRuntime {
                 roots: values.baseAddress, root_count: values.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
                 process_environment_count: environmentValues.count, process_lifetime_ms: processLifetimeMilliseconds,
-                process_output_bytes: processOutputBytes, invocation: invocation, execution: nil)
+                process_output_bytes: processOutputBytes, invocation: invocation)
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
         } } } }
     }
@@ -251,10 +271,7 @@ public final class ExtensionRuntime {
         return Info(phase: Phase(rawValue: v.phase.rawValue) ?? .failed, error: Failure(rawValue: v.error.rawValue) ?? .io,
             cleanupError: Int32(v.cleanup_error.rawValue), sessionEnd: ExtensionSession.End(rawValue: v.session_end.rawValue) ?? .internal,
             sessionError: Int32(v.session_error.rawValue), disposeError: v.dispose_error, engineReleased: v.engine_released,
-            steps: v.steps, jobs: v.jobs, moduleBytes: v.module_bytes,
-            externalProcess: v.external_process, activated: v.activated, childExited: v.child_exited, probeVerified: v.probe_verified,
-            executionError: Int32(v.execution_error.rawValue), exitCode: v.exit_code, termSignal: v.term_signal,
-            groupSignalError: v.group_signal_error, stdoutBytes: v.stdout_bytes, stderrBytes: v.stderr_bytes)
+            steps: v.steps, jobs: v.jobs, moduleBytes: v.module_bytes)
     }
     /// Pulls one completed incoming resource while this Runtime owns the Session.
     /// The data is copied and its Core snapshot released on the Session owner.

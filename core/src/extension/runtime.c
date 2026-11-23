@@ -1,7 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/runtime.h"
 #include <string.h>
-#ifndef GT_HAVE_PLUGIN_JS
+#if defined(GT_HAVE_PLUGIN_LUA)
+#include "extension/runtime-lua.inc"
+#else
 gt_status_t gt__bridge_runtime_views_enable(gt_bridge_runtime_t *r, uint32_t kinds) {
     (void)r;
     (void)kinds;
@@ -87,6 +89,4 @@ gt_status_t gt__bridge_runtime_destroy(gt_bridge_runtime_t **r) {
     (void)r;
     return GT_ERR_UNSUPPORTED;
 }
-#else
-#include "extension/runtime-quickjs.inc"
 #endif

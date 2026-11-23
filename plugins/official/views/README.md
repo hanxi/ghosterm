@@ -1,7 +1,14 @@
-# Native views demo
+# Views
 
-Two independent computed tables, one bounded read-only diff and one cancellable in-memory counter.
-Client requires ui.views and all three standard components. Missing services are unsupported; no fallback.
-Closing a Native view does not cancel its task; the explicit views.reopen RPC asks the live Client to reopen a known view ID.
-The same Runtime keeps cancellation identity and observations across reopening.
-No files, subprocesses, models, accounts, installation hooks or credential persistence.
+Command `views demo`.
+
+Registers two tables, a diff, and a task for one Client instance.
+
+Build from the repository root.
+
+```sh
+python3 scripts/gterm-plugin pack plugins/official/views --out tmp/views.zip
+```
+
+The static declaration is in `main.lua`. See the
+[plugin bridge plan](../../../docs/reference/plan-plugin-bridge.md) for verification status.
