@@ -44,3 +44,23 @@ private extension PluginGitHubClient {
         return try? JSONEncoder().encode(value)
     }
 }
+
+extension PluginGitHubClient {
+    struct VerifiedAssets: Sendable {
+        let archive: Data
+        let releaseJSON: Data
+        let releaseSignature: Data
+    }
+    func fetchAssets(for entry: PluginIndexEntry, source: PluginGitHubSource, releaseTag: String) async throws -> VerifiedAssets {
+        guard let archiveURL = source.assetURL(named: entry.archive, tag: releaseTag),
+              let descriptorURL = source.assetURL(named: entry.releaseJSON, tag: releaseTag),
+              let signatureURL = source.assetURL(named: entry.releaseSignature, tag: releaseTag) else { throw PluginGitHubSource.Failure.invalidAddress }
+        async let archive = fetch(archiveURL)
+        async let descriptor = fetch(descriptorURL)
+        async let signature = fetch(signatureURL)
+        let (a, d, s) = try await (archive, descriptor, signature)
+        guard UInt64(a.count) == entry.archiveBytes, PluginReleaseCatalog.sha(a) == entry.archiveSHA256,
+              d.count > 0 && d.count <= 65536, s.count == 64 else { throw PluginGitHubSource.Failure.invalidAddress }
+        return VerifiedAssets(archive: a, releaseJSON: d, releaseSignature: s)
+    }
+}
