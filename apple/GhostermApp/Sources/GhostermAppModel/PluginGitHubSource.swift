@@ -51,7 +51,7 @@ public struct PluginGitHubSource: Codable, Hashable, Sendable {
     private static func validSegment(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= 128 && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_ .".contains($0)) && $0 != " " }
     }
-    var repositoryPath: String { "\(owner)/\(repository)" }
+    public var repositoryPath: String { "\(owner)/\(repository)" }
     public func indexURL() -> URL {
         let base = "https://github.com/\(repositoryPath)/releases/"
         let path = tag.map { "download/\($0)/plugin-index.json" } ?? "latest/download/plugin-index.json"
