@@ -80,14 +80,17 @@ jobs:
           echo '70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  tmp/android-ci/zig.tar.xz' | sha256sum -c -
           tar -xJf tmp/android-ci/zig.tar.xz -C tmp/android-ci
           echo "ZIG=$PWD/tmp/android-ci/zig-x86_64-linux-0.16.0/zig" >> "$GITHUB_ENV"
-          python3 - <<'PY'
+          timeout --signal=TERM --kill-after=2m 20m python3 - <<'PY'
           import os, subprocess
           manager=os.path.join(os.environ['ANDROID_HOME'],'cmdline-tools/latest/bin/sdkmanager')
-          subprocess.run([manager,'--licenses'],input='y\n'*100,text=True,check=True)
-          subprocess.run([manager,'platform-tools','platforms;android-36','build-tools;35.0.0','ndk;28.2.13676358','cmake;3.22.1'],check=True)
+          subprocess.run([manager,'--licenses'],input='y\n'*100,text=True,check=True,timeout=900)
+          subprocess.run([manager,'platform-tools','platforms;android-36','build-tools;35.0.0','ndk;28.2.13676358','cmake;3.22.1'],check=True,timeout=1200)
           PY
       - name: Check Android platform APIs
-        run: bash scripts/check-android-api.sh
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=2m 30m bash scripts/check-android-api.sh
+        timeout-minutes: 35
       - name: Restore release signing key
         if: github.event_name != 'pull_request'
         env:
