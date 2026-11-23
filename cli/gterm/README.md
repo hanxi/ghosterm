@@ -16,7 +16,8 @@ SHA-256 和 `doctor`。`gterm rollback` 检查并切回上一版本。插件库�
 Ubuntu 22.04（glibc 2.35）构建，macOS 设置 13.0 部署目标。生产发布使用独立
 `gterm-vMAJOR.MINOR.PATCH` 标签与 `gterm-release` 环境。在发布前设置仓库变量
 `GTERM_UPDATE_PUBLIC_KEY`（32 字节 Ed25519 公钥的小写十六进制）及同一环境中的
-`GTERM_UPDATE_SIGNING_KEY`（对应 PEM 私钥）。安装脚本的资产摘要随发布版本固定。
+`GTERM_UPDATE_SIGNING_KEY`（对应 PEM 私钥）。首次发行前需推送 `gterm-stable` 渠道标签，发布工作流会在该标签上维护签名索引。
+安装脚本的资产摘要随发布版本固定。
 
 ## 构建和检查
 
