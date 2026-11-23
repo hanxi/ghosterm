@@ -36,3 +36,16 @@ class PluginGitHubClient(private val maxBytes: Int = 4 * 1024 * 1024) {
     }
     private fun strings(array: JSONArray?): List<String> = array?.let { (0 until it.length()).map(it::getString) } ?: emptyList()
 }
+
+suspend fun PluginGitHubClient.fetchVerifiedAssets(entry: PluginIndexEntry, source: PluginGitHubSource, releaseTag: String): Triple<ByteArray, ByteArray, ByteArray> {
+    val archiveURL = source.assetUrl(entry.archive, releaseTag) ?: throw PluginGitHubClient.Failure.InvalidIndex
+    val descriptorURL = source.assetUrl(entry.releaseJSON, releaseTag) ?: throw PluginGitHubClient.Failure.InvalidIndex
+    val signatureURL = source.assetUrl(entry.releaseSignature, releaseTag) ?: throw PluginGitHubClient.Failure.InvalidIndex
+    val archive = fetch(archiveURL)
+    val descriptor = fetch(descriptorURL)
+    val signature = fetch(signatureURL)
+    if (archive.size.toLong() != entry.archiveBytes || sha256(archive) != entry.archiveSHA256.lowercase() || descriptor.isEmpty() || descriptor.size > 65536 || signature.size != 64) throw PluginGitHubClient.Failure.InvalidIndex
+    return Triple(archive, descriptor, signature)
+}
+
+private fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
