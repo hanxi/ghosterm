@@ -109,7 +109,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     if (githubPlanVisible) {
         val plan = extensions.githubInstallPlan()
         AlertDialog(onDismissRequest={ githubPlanVisible = false }, title={ Text("插件安装计划") }, text={
-            if (plan == null) Text("安装计划无效，请重新读取仓库并选择插件。") else Column { Text("来源：${plan.source.repositoryPath}"); Text("Release：${plan.releaseTag}"); Text("发布者：${plan.publisher}"); plan.items.forEach { Text("${it.id} · ${it.version} · ${it.role}") }; Text("需要的权限和能力将在安装前再次确认。") }
+            if (plan == null) Text("安装计划无效，请重新读取仓库并选择插件。") else Column { Text("来源：${plan.source.repositoryPath}"); Text("Release：${plan.releaseTag}"); Text("发布者：${plan.publisher}"); plan.items.forEach { item -> Text("${item.id} · ${item.version} · ${item.role}"); if (item.permissions.isNotEmpty()) Text("权限：${item.permissions.joinToString()}", style=MaterialTheme.typography.bodySmall); if (item.capabilities.isNotEmpty()) Text("能力：${item.capabilities.joinToString()}", style=MaterialTheme.typography.bodySmall) }; Text("需要的权限和能力将在安装前再次确认。") }
         }, confirmButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("返回修改") } }, dismissButton={ TextButton(onClick={ githubPlanVisible = false }) { Text("取消") } })
     }
     savedSections.SaveableStateProvider(model.section?.name ?: "overview") {
