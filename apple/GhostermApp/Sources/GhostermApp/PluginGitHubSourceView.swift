@@ -2,6 +2,8 @@ import SwiftUI
 import GhostermAppModel
 
 struct PluginGitHubSourceView: View {
+    let controller: ExtensionController?
+    let didInstall: (ExtensionController.InstalledRelease) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
     @State private var loading = false
@@ -30,11 +32,29 @@ struct PluginGitHubSourceView: View {
                 Toggle("固定当前 Release tag", isOn: $pinned)
                 Text("安装计划：已选 \(selected.count) 个，来源 \(index.repository)，tag \(index.releaseTag)").font(.caption)
                     .accessibilityIdentifier("plugin-github-plan")
+                Button("安装选中插件") { install(index: index) }
+                    .disabled(selected.isEmpty || loading || controller == nil || controller?.hasConfiguredChannel != true)
+                    .accessibilityIdentifier("plugin-github-install")
             }
             Spacer()
             HStack { Spacer(); Button("关闭") { dismiss() } }
         }
         .padding(24).frame(minWidth: 520, minHeight: 360)
+    }
+    private func install(index: PluginIndex) {
+        guard let controller, let source = try? PluginGitHubSource(address) else { return }
+        loading = true; issue = nil
+        Task {
+            do {
+                let selectedEntries = index.plugins.filter { selected.contains($0.id) }
+                for entry in selectedEntries {
+                    let assets = try await client.fetchAssets(for: entry, source: source, releaseTag: index.releaseTag)
+                    let result = try await PluginGitHubInstallCoordinator().prepareAndInstallUsingConfiguredChannel(assets, using: controller)
+                    await MainActor.run { didInstall(result) }
+                }
+                await MainActor.run { loading = false; dismiss() }
+            } catch { await MainActor.run { issue = String(describing: error); loading = false } }
+        }
     }
     private func load() {
         guard let source = try? PluginGitHubSource(address) else { issue = "GitHub 地址格式无效。"; index = nil; return }

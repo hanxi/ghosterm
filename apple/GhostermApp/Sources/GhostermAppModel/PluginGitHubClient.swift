@@ -51,7 +51,7 @@ extension PluginGitHubClient {
         let releaseJSON: Data
         let releaseSignature: Data
     }
-    func fetchAssets(for entry: PluginIndexEntry, source: PluginGitHubSource, releaseTag: String) async throws -> VerifiedAssets {
+    public func fetchAssets(for entry: PluginIndexEntry, source: PluginGitHubSource, releaseTag: String) async throws -> VerifiedAssets {
         guard let archiveURL = source.assetURL(named: entry.archive, tag: releaseTag),
               let descriptorURL = source.assetURL(named: entry.releaseJSON, tag: releaseTag),
               let signatureURL = source.assetURL(named: entry.releaseSignature, tag: releaseTag) else { throw PluginGitHubSource.Failure.invalidAddress }

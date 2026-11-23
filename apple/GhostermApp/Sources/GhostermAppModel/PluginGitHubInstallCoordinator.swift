@@ -1,6 +1,6 @@
 import Foundation
 
-struct PluginGitHubInstallCoordinator {
+public struct PluginGitHubInstallCoordinator {
     struct Material: Sendable {
         let directory: URL
         let archive: URL
@@ -8,7 +8,7 @@ struct PluginGitHubInstallCoordinator {
         let signature: URL
     }
     let fileManager: FileManager
-    init(fileManager: FileManager = .default) { self.fileManager = fileManager }
+    public init(fileManager: FileManager = .default) { self.fileManager = fileManager }
 
     func stage(_ assets: PluginGitHubClient.VerifiedAssets) throws -> Material {
         let root = fileManager.temporaryDirectory.appendingPathComponent("ghosterm-plugin-" + UUID().uuidString, isDirectory: true)
@@ -27,6 +27,14 @@ struct PluginGitHubInstallCoordinator {
         }
     }
     func discard(_ material: Material) { try? fileManager.removeItem(at: material.directory) }
+    func prepareAndInstallUsingConfiguredChannel(_ assets: PluginGitHubClient.VerifiedAssets, using controller: ExtensionController) async throws -> ExtensionController.InstalledRelease {
+        let material = try stage(assets)
+        do {
+            let prepared = try await controller.prepareReleaseUsingConfiguredChannel(artifact: material.archive, descriptor: material.descriptor, signature: material.signature)
+            do { return try await controller.installPreparedRelease(id: prepared.id) }
+            catch { try? await controller.discardPreparedRelease(id: prepared.id); throw error }
+        } catch { discard(material); throw error }
+    }
 }
 
 extension PluginGitHubInstallCoordinator {
