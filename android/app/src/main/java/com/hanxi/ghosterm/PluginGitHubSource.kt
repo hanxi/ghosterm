@@ -36,3 +36,20 @@ data class PluginGitHubSource(val owner: String, val repository: String, val plu
 }
 
 data class PluginIndexEntry(val id: String, val name: String, val version: String, val role: String, val archive: String, val releaseJSON: String, val releaseSignature: String, val archiveBytes: Long, val archiveSHA256: String, val permissions: List<String> = emptyList(), val capabilities: List<String> = emptyList())
+
+data class PluginIndex(
+    val schemaVersion: Int,
+    val repository: String,
+    val releaseTag: String,
+    val publisher: String,
+    val publisherFingerprint: String,
+    val publisherPublicKey: String,
+    val plugins: List<PluginIndexEntry>,
+    val signatureDomain: String,
+    val signature: String
+) {
+    fun validate(source: PluginGitHubSource): Boolean = schemaVersion == 1 && repository == source.repositoryPath &&
+        (source.tag == null || source.tag == releaseTag) && publisher.isNotBlank() && publisherFingerprint.length == 64 &&
+        publisherPublicKey.isNotBlank() && signatureDomain == "ghosterm.plugin-index.v1" && signature.isNotBlank() && plugins.isNotEmpty() &&
+        plugins.all { it.id.isNotBlank() && it.version.isNotBlank() && it.role in setOf("client", "executor", "both") && it.archiveBytes > 0 && it.archiveSHA256.length == 64 }
+}
