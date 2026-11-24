@@ -264,7 +264,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     SettingsNote("选择一个插件包文件夹进行固定快照与元数据审查。批准只对当前进程中的该包摘要有效；启动命令后仍需单独授权。")
                     Text("精选插件", style=MaterialTheme.typography.titleSmall, modifier=Modifier.padding(horizontal=8.dp, vertical=4.dp))
                     PluginCatalog.builtIn.sortedBy { it.sortOrder }.forEach { featured ->
-                        TextButton(onClick={ githubAddress = featured.source.repositoryPath; extensions.readGitHubSource(githubAddress) }, modifier=Modifier.fillMaxWidth().testTag("plugin-featured-${featured.displayName}")) {
+                        TextButton(onClick={ githubAddress = featured.source.repositoryPath + ":" + (featured.source.plugin ?: ""); extensions.readGitHubSource(githubAddress) }, modifier=Modifier.fillMaxWidth().testTag("plugin-featured-${featured.displayName}")) {
                             Column(Modifier.fillMaxWidth(), horizontalAlignment=Alignment.Start) { Text(featured.displayName); Text("${featured.source.repositoryPath} · ${featured.defaultRole}", style=MaterialTheme.typography.bodySmall) }
                         }
                     }

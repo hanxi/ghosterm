@@ -17,7 +17,7 @@ struct PluginGitHubSourceView: View {
             Text("从 GitHub 添加插件").font(.title2)
             Text("精选插件").font(.headline)
             ForEach(PluginCatalog.builtIn, id: \.displayName) { entry in
-                Button { address = entry.source.repositoryPath; load() } label: {
+                Button { address = entry.source.repositoryPath + ":" + (entry.source.plugin ?? ""); load() } label: {
                     VStack(alignment: .leading) { Text(entry.displayName); Text("${entry.source.repositoryPath} · ${entry.defaultRole}").font(.caption) }
                 }.buttonStyle(.plain).accessibilityIdentifier("plugin-featured-\(entry.source.repository)")
             }
