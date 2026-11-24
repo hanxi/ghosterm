@@ -16,6 +16,7 @@ struct ExtensionsPane: View {
     var packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)? = nil
     @State private var importing = false
     @State private var showingGitHubSource = false
+    @State private var showingFeaturedPlugins = false
     @FocusState private var importButtonFocused: Bool
     @State private var restoreImportFocus = false
     @State private var pendingPackagePicker: UUID?
@@ -138,7 +139,12 @@ struct ExtensionsPane: View {
                     .accessibilityIdentifier("plugin-package-import")
             }
 
-            Button("从 GitHub 添加…") { showingGitHubSource = true }
+            HStack {
+                Button("精选插件…") { showingFeaturedPlugins = true }
+                    .disabled(model.extensionController == nil)
+                    .accessibilityIdentifier("plugin-featured-open")
+                Button("从 GitHub 添加…") { showingGitHubSource = true }
+            }
                 .disabled(model.extensionController == nil)
                 .accessibilityIdentifier("plugin-github-open")
             PluginReleaseInstallView(controller: model.extensionController) { installed in
@@ -393,6 +399,16 @@ struct ExtensionsPane: View {
             restorePackagePickerFocusIfReady()
         }, onCancellation: restorePackagePickerFocusIfReady))
         .onChange(of: reviewingPackage) { _ in restorePackagePickerFocusIfReady() }
+        .sheet(isPresented: $showingFeaturedPlugins) { PluginGitHubSourceView(controller: model.extensionController) { installed in
+            let entryID = installed.review.id + ":" + installed.review.digest
+            if let index = entries.firstIndex(where: { $0.id == entryID }) { entries[index].installation = installed }
+            else { var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry) }
+        } }
+        .sheet(isPresented: $showingGitHubSource) { PluginGitHubSourceView(controller: model.extensionController) { installed in
+            let entryID = installed.review.id + ":" + installed.review.digest
+            if let index = entries.firstIndex(where: { $0.id == entryID }) { entries[index].installation = installed }
+            else { var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry) }
+        } }
         .confirmationDialog("停止并关闭插件连接？", isPresented: Binding(
             get: { connectionToClose.map { !$0.closed } ?? false },
             set: { if !$0 { connectionToClose = nil } }), titleVisibility: .visible) {
