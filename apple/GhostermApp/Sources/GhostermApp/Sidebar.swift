@@ -13,7 +13,8 @@ struct Sidebar: View {
             ScrollViewReader { scroller in
                 List {
                     ForEach(tabs.tabs) { tab in
-                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID, selection: ChromePalette(model: model).selection)
+                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID, tabsForDrag: tabs,
+                               selection: ChromePalette(model: model).selection)
                             .id(tab.id)
                             .modifier(TabInteraction(model: model, tabs: tabs, tab: tab))
                             .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
@@ -36,8 +37,17 @@ struct Sidebar: View {
 struct TabRow: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
+    let tabsForDrag: TabManager?
     var selection: Color = Color.primary.opacity(0.12)
     @State private var hovering = false
+
+    init(tab: TerminalTab, isActive: Bool, tabsForDrag: TabManager? = nil,
+         selection: Color = Color.primary.opacity(0.12)) {
+        _tab = ObservedObject(wrappedValue: tab)
+        self.isActive = isActive
+        self.tabsForDrag = tabsForDrag
+        self.selection = selection
+    }
 
     var body: some View {
         expandedBody
@@ -52,6 +62,9 @@ struct TabRow: View {
         // （iGhostVT 的 SidebarRow 同口径——中性 slab，不是强调色；
         // 强调色 slab 在终端底色上看起来像 bug 而不是选中）。
         HStack(spacing: DS.Padding.s) {
+            if let tabsForDrag {
+                TabDragHandle(tabs: tabsForDrag, tab: tab)
+            }
             Image(systemName: tab.kind.symbolName)
                 .font(DS.Font.callout)
                 .foregroundStyle(isActive ? .primary : .secondary)

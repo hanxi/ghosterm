@@ -104,9 +104,63 @@ public struct WindowDragArea: NSViewRepresentable {
     }
 }
 
-/// 让顶栏上**盖住背景的那些控件**也认「双击标题栏」：它们有自己的
-/// `contentShape`，会把事件吃掉，后面那层 `WindowDragArea` 收不到
-/// （用户实测：右侧那片双击没反应——那里正是「当前标签」胶囊与标签条）。
+/// 统一接管顶栏的双击。
+///
+/// 标签胶囊、滚动区和新建按钮都在 `WindowDragArea` 上方，它们会阻止背景
+/// 视图收到第二次点击。这个不可命中的监视视图在窗口事件分发前观察顶栏，
+/// 因此双击空白或标签区域都遵循系统的标题栏动作设置。按钮本身保留自己的
+/// 双击语义，不会因为连续点关闭 / 新建而缩放窗口。
+public struct TitleBarDoubleClickMonitor: NSViewRepresentable {
+    public init() {}
+
+    public func makeNSView(context: Context) -> MonitorView { MonitorView() }
+    public func updateNSView(_ nsView: MonitorView, context: Context) {}
+
+    public final class MonitorView: NSView {
+        private var eventMonitor: Any?
+
+        public override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        public override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeMonitor()
+            guard window != nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self,
+                      event.clickCount == 2,
+                      event.window === self.window,
+                      self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else {
+                    return event
+                }
+                let hit = event.window?.contentView?.hitTest(event.locationInWindow)
+                if Self.isControl(hit) { return event }
+                WindowChrome.performDoubleClickAction(on: event.window)
+                return nil
+            }
+        }
+
+        deinit { removeMonitor() }
+
+        private func removeMonitor() {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+        }
+
+        private static func isControl(_ view: NSView?) -> Bool {
+            var current = view
+            while let candidate = current {
+                if candidate is NSButton { return true }
+                current = candidate.superview
+            }
+            return false
+        }
+    }
+}
+
+/// 给单独嵌入标题栏的 SwiftUI 控件提供双击行为。生产顶栏使用上面的
+/// `TitleBarDoubleClickMonitor` 统一观察整行事件，避免每个控件各自抢手势。
 public struct TitleBarDoubleClick: ViewModifier {
     public init() {}
     public func body(content: Content) -> some View {

@@ -186,6 +186,9 @@ struct NavigationBar<Content: View>: View {
             .frame(height: WindowChrome.barHeight)
             // 空白处可拖动窗口（标题栏本职）——放在背景层，控件优先。
             .background(WindowDragArea())
+            // 标签和滚动区会吃掉背景视图的第二次点击，独立监视器把它
+            // 恢复成系统标题栏的双击缩放 / 最小化行为。
+            .background(TitleBarDoubleClickMonitor())
     }
 }
 
